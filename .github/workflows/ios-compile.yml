@@ -88,6 +88,10 @@ jobs:
       - name: Boot a simulator
         id: sim
         run: |
+          # The x86_64 simulator build below runs under Rosetta.
+          if ! /usr/bin/pgrep -q oahd; then
+            sudo softwareupdate --install-rosetta --agree-to-license
+          fi
           UDID=$(xcrun simctl list devices available -j | python3 -c "
           import json, re, sys
           best = None
@@ -116,12 +120,15 @@ jobs:
             | python3 -c "import json, sys; print(json.load(sys.stdin)['project']['schemes'][0])")
           echo "scheme: $SCHEME"
           # Ad-hoc signed, with the placeholder team cleared so automatic signing never looks
-          # for an Apple account.
+          # for an Apple account. x86_64 under Rosetta: Godot 4.7.1's simulator libgodot.a
+          # holds only x86_64 objects, so an arm64 simulator build can't link the engine.
           xcodebuild \
             -project build/ios/OneFourSeven.xcodeproj \
             -scheme "$SCHEME" \
-            -destination "id=$UDID" \
+            -destination "id=$UDID,arch=x86_64" \
             -configuration Debug \
+            ARCHS=x86_64 \
+            ONLY_ACTIVE_ARCH=NO \
             -derivedDataPath build/xcode \
             CODE_SIGN_STYLE=Manual \
             DEVELOPMENT_TEAM= \
