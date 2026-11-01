@@ -28,6 +28,10 @@ public:
     // The hash of the parameters last applied; params_received fires only for new ones.
     void set_applied_params_hash(const godot::String &hash);
     godot::String get_applied_params_hash() const;
+    // Test-only: skip discovery and talk to host:port, so tests can use a local fake server.
+    void set_test_target(const godot::String &host, int64_t port);
+    // Test-only: multiplies every interval, backoff and timeout, so tests run in seconds.
+    void set_test_time_scale(double scale);
 
     void _ready() override;
     void _process(double delta) override;
