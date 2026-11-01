@@ -1,8 +1,9 @@
 #include "ofs/table_geometry.hpp"
 
 #include <array>
-#include <cassert>
 #include <cmath>
+
+#include "ofs/log.hpp"
 
 namespace ofs::table {
 
@@ -81,7 +82,7 @@ Vec2 spot(Ball colour) {
         case Ball::cue:
         case Ball::red: break;
     }
-    assert(false && "spot() needs a colour");
+    OFS_ASSERT(false && "spot() needs a colour");
     return {0.0, 0.0};
 }
 

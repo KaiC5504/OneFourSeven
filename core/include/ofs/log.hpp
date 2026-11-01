@@ -129,4 +129,5 @@ void assert_failed(const char* expr, const char* file, int line, const char* fun
 
 }  // namespace ofs::log
 
-#define OFS_ASSERT(expr) \n    ((expr) ? static_cast<void>(0) : ::ofs::log::assert_failed(#expr, __FILE__, __LINE__, __func__))
+#define OFS_ASSERT(expr) \
+    ((expr) ? static_cast<void>(0) : ::ofs::log::assert_failed(#expr, __FILE__, __LINE__, __func__))
