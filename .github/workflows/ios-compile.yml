@@ -112,8 +112,6 @@ jobs:
           xcrun simctl bootstatus "$UDID" -b
 
       - name: Build for the simulator
-        env:
-          UDID: ${{ steps.sim.outputs.udid }}
         run: |
           set -o pipefail
           SCHEME=$(xcodebuild -list -json -project build/ios/OneFourSeven.xcodeproj \
@@ -122,10 +120,12 @@ jobs:
           # Ad-hoc signed, with the placeholder team cleared so automatic signing never looks
           # for an Apple account. x86_64 under Rosetta: Godot 4.7.1's simulator libgodot.a
           # holds only x86_64 objects, so an arm64 simulator build can't link the engine.
+          # Xcode 26 lists only arm64 simulator destinations, so this builds for the generic
+          # simulator and the next step installs the app on the booted arm64 one.
           xcodebuild \
             -project build/ios/OneFourSeven.xcodeproj \
             -scheme "$SCHEME" \
-            -destination "id=$UDID,arch=x86_64" \
+            -destination "generic/platform=iOS Simulator" \
             -configuration Debug \
             ARCHS=x86_64 \
             ONLY_ACTIVE_ARCH=NO \

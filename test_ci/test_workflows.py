@@ -189,7 +189,7 @@ class IosCompile(unittest.TestCase):
 
     def test_builds_unsigned_for_a_simulator(self):
         build = next(s["run"] for s in self.steps if s.get("name") == "Build for the simulator")
-        self.assertIn('-destination "id=$UDID,arch=x86_64"', build)
+        self.assertIn('-destination "generic/platform=iOS Simulator"', build)
         self.assertIn('ARCHS=x86_64', build)
         self.assertIn('CODE_SIGN_IDENTITY="-"', build)
         self.assertIn("DEVELOPMENT_TEAM= ", build)
