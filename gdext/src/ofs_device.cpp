@@ -52,7 +52,7 @@ double OfsDevice::memory_footprint_mb() {
                               sizeof(counters))) {
         return -1.0;
     }
-    return double(counters.PrivateUsage) / (1024.0 * 1024.0);
+    return double(counters.PrivateUsage) / 1e6;
 #else
     return 0.0;
 #endif

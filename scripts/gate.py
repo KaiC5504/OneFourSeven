@@ -164,7 +164,9 @@ def test_run_problems(output: str, test_files: int) -> list[str]:
 
 
 def godot_tests() -> Result:
-    ok, output = run([godot(), "--headless", "--path", GAME, "-s", "res://tests/run_tests.gd"], timeout=600)
+    env, _ = isolated_user_dir(ROOT / "build" / "gate-tests-user")
+    ok, output = run([godot(), "--headless", "--path", GAME, "-s", "res://tests/run_tests.gd"], timeout=600,
+                     env=env)
     problems = test_run_problems(output, len(list((GAME / "tests").glob("test_*.gd"))))
     if problems:
         return False, output + "\n\n" + "\n".join(problems)

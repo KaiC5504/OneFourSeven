@@ -57,7 +57,7 @@ def export(destination: Path) -> Path:
 
 
 def smoke(exe: Path) -> None:
-    must(gate.run([exe, "--headless", "--quit-after", "120"], cwd=exe.parent, timeout=120),
+    must(gate.run([exe, "--headless", "--quit-after", "120", "--", "--no-link"], cwd=exe.parent, timeout=120),
          f"starting {exe.name}")
 
 

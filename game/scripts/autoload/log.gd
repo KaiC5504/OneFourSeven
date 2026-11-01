@@ -10,6 +10,8 @@ extends Node
 
 const BUILD_INFO_PATH := "res://data/build_info.json"
 const LOG_DIR := "user://logs"
+## Where test runs log instead, so the next linked run doesn't upload them as real sessions.
+const TEST_LOG_DIR := "user://test-logs"
 const MAX_FILE_BYTES := 50 * 1024 * 1024
 ## The user argument that starts the phone link switched off (link.gd reads it too).
 const NO_LINK_ARG := "--no-link"
@@ -25,16 +27,20 @@ var _build := ""
 
 # _enter_tree rather than _ready: Log is the first autoload, so this runs before any other
 # autoload can log or raise an engine error.
+static func log_dir() -> String:
+	return TEST_LOG_DIR if OS.get_cmdline_args().has("res://tests/run_tests.gd") else LOG_DIR
+
+
 func _enter_tree() -> void:
 	var build_info := _read_build_info()
 	var build := str(build_info["build_number"])
 	if ClassDB.class_exists("OfsLog") and ClassDB.class_exists("OfsEngineLogger"):
 		ClassDB.class_call_static("OfsLog", "start", build, platform_name(),
-				ProjectSettings.globalize_path(LOG_DIR), MAX_FILE_BYTES)
+				ProjectSettings.globalize_path(log_dir()), MAX_FILE_BYTES)
 		_engine_logger = ClassDB.instantiate("OfsEngineLogger") as Logger
 		OS.add_logger(_engine_logger)
 	else:
-		_start_fallback(LOG_DIR, build,
+		_start_fallback(log_dir(), build,
 				"the onefourseven GDExtension did not load (no OfsLog class); Log is writing JSONL itself")
 	info("app", "app.start", _start_data(build_info))
 	if build_info.has("missing_reason"):

@@ -56,6 +56,7 @@ class FrameWindow:
 		_dropped = 0
 
 
+var _footprint_failure_logged := false
 var _window: FrameWindow
 var _window_start_usec := 0
 var _window_start_drawn := 0
@@ -140,6 +141,10 @@ func second_data(now: int) -> Dictionary:
 	data["frames_drawn"] = drawn
 	data["static_memory_mb"] = OS.get_static_memory_usage() / 1e6
 	data["footprint_mb"] = OfsDevice.memory_footprint_mb()
+	if data["footprint_mb"] < 0.0 and not _footprint_failure_logged:
+		_footprint_failure_logged = true
+		Log.warn("app", "app.error", {"kind": "message",
+				"message": "memory footprint unavailable on %s: the OS query failed" % OS.get_name()})
 	data["thermal_state"] = OfsDevice.thermal_state()
 	data["idle"] = _idle
 	return data
