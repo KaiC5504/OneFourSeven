@@ -74,4 +74,4 @@ signed build before the compile check is green.
 
 ## Status
 
-- M0 in progress (2026-11-02): contracts committed; build wave running.
+- M0 paused (2026-11-02): all branches merged, full gate green, check round half done. Resume from `docs/m0-progress.md`.
