@@ -143,7 +143,14 @@ def isolated_user_dir(base: Path) -> tuple[dict[str, str], Path]:
 
 
 def godot_import() -> Result:
-    return run([godot(), "--headless", "--path", GAME, "--import"], timeout=600)
+    # On a fresh .godot the editor loads the extension midway through its first scan and can
+    # crash on exit after a finished import (seen on the windows-latest runner, never on this
+    # PC). A second import then exits cleanly; a second crash is a real failure.
+    ok, output = run([godot(), "--headless", "--path", GAME, "--import"], timeout=600)
+    if ok:
+        return ok, output
+    ok, again = run([godot(), "--headless", "--path", GAME, "--import"], timeout=600)
+    return ok, output + "\n\nfirst import failed; retried once:\n" + again
 
 
 def test_run_problems(output: str, test_files: int) -> list[str]:

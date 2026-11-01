@@ -42,7 +42,7 @@ def export(destination: Path) -> Path:
         raise SystemExit(f"the release build did not produce game/bin/{DLL}")
     godot_tools.ensure_templates()
     godot = str(godot_tools.find_godot())
-    must(gate.run([godot, "--headless", "--path", GAME, "--import"], timeout=600), "Godot import")
+    must(gate.godot_import(), "Godot import")
     destination.mkdir(parents=True, exist_ok=True)
     exe = destination / EXE
     exe.unlink(missing_ok=True)

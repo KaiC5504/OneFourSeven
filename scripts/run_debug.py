@@ -56,7 +56,7 @@ def main(argv: list[str]) -> int:
     must("Debug build", build)
     godot = str(godot_tools.find_godot())
     if import_needed():
-        must("Godot import", gate.step([godot, "--headless", "--path", GAME, "--import"], timeout=600))
+        must("Godot import", gate.godot_import)
         IMPORT_STAMP.touch()
     command = [godot, "--path", str(GAME), "--windowed"] + (["--", *game_args] if game_args else [])
     print("$ " + " ".join(command), flush=True)
