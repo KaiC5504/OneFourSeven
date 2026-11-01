@@ -120,3 +120,26 @@ Godot/GDScript:
 6. Low: untyped_declaration warnings as errors in project.godot (test_log.gd:38, :67).
 Verify on the first simulator/phone log: platform "ios-simulator" detection; perf target
 from screen_get_refresh_rate() vs actual render rate.
+
+Test gaps (sketch tests in scratchpad/checks/tests):
+1. High: (= Godot 1) runner passes crashed and unparseable tests.
+2. Medium: C++ and Python params hashes disagree for some full-precision doubles
+   (nlohmann dump isn't always shortest; 11/20000 in [1e-3,1e3], 471/20000 in
+   [1e15,1e16) where devlink.py's workaround is wrong). Define one number format both
+   sides implement (e.g. printf "%.17g" in C++ and Python, or explicit shortest
+   round-trip), update the protocol doc, add a cross-language test over many doubles.
+3. Medium: (= logging 6) inert FileSink silent.
+4. Medium: gate.py crashes with a traceback (no summary, stale gate-passed kept) on an
+   unexpected exception; an all-skip gate exits 0.
+5. Medium-low: check_logs.py exits 0 with a missing path beside a good file, passes empty
+   logs, accepts ts 1e999.
+6. (= spec 5) 413 and 404 on /logs retried forever.
+7. Low: Dictionary keys 7 and "7" collide silently (ofs_log.cpp:167); harness
+   `-DemoScreen --quit-after=3` swallows the flag, `--quit-after=1e400` = inf, repeated
+   flags silently last-wins; perf frames past 512/s dropped from stats; from_jsonl accepts
+   ts 1e300 that devlink rejects.
+8. Weak tests: test_log.gd:177 can't fail; test_link.gd:214 passes for the wrong reason.
+   Add tests for the paths the sketches proved: 503 loses link, 30 s backoff cap, /params
+   200 without hash, /health ok:false, Variant edge cases, devlink routing edge cases.
+9. tools/test_devlink.py copies the working-tree core/data, so concurrent live-params
+   checks change what it tests: copy from git (HEAD) or a fixture instead.
