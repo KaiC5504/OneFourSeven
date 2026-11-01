@@ -120,6 +120,18 @@ TEST_CASE("canonical and content_hash refuse values with no canonical form") {
     }
 }
 
+TEST_CASE("nlohmann parsing behaves as ofs_params_hash relies on") {
+    // A lone surrogate escape never reaches canonical: the parse fails, as the protocol wants.
+    CHECK(nlohmann::json::parse(R"(["\ud800"])", nullptr, false).is_discarded());
+    CHECK(nlohmann::json::parse(R"(["\udc00x"])", nullptr, false).is_discarded());
+    CHECK(canonical(nlohmann::json::parse(R"(["🎱"])")) == "[\"\xf0\x9f\x8e\xb1\"]");
+    // Integers past int64/uint64 come back as doubles, which is why the tool checks tokens.
+    CHECK(nlohmann::json::parse("18446744073709551615").is_number_unsigned());
+    CHECK(nlohmann::json::parse("-9223372036854775808").is_number_integer());
+    CHECK(nlohmann::json::parse("18446744073709551616").is_number_float());
+    CHECK(nlohmann::json::parse("-9223372036854775809").is_number_float());
+}
+
 TEST_CASE("canonical refuses invalid UTF-8 in strings and keys") {
     const char* invalid[] = {
         "a\xff" "b",         // 0xff never appears in UTF-8
