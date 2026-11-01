@@ -73,3 +73,24 @@ bonjour_browser.mm retry wording; testflight.yml manual-steps references.
 ## Then
 Fix round (agents grouped by file), seam review, second Windows run, push, iOS compile
 check, signed build with `testflight.py start --create-signing`, TestFlight build 1.
+
+## Check round, second pass (resumed)
+
+Logging / silent failures:
+1. High: bonjour_browser.mm:129-134, :111 — resolve failures other than PolicyDenied and
+   non-IPv4 results log nothing and never retry (phone stuck on "searching…").
+2. High: ofs_devlink.cpp:478-481, 529-531 — failed /health logs nothing.
+3. High: ofs_devlink.cpp:487-489, 592-594 — failed /params logs nothing; devlink.py's 500
+   reason only on its console.
+4. Medium: last second before quit/crash never uploads (final flush on quit, plus spec 1).
+5. Medium: perf.gd:86 static_memory_mb is 0 in release builds; report iOS phys_footprint
+   via OfsDevice.
+6. Medium: log.cpp:178,185,200 — FileSink open/fwrite failures are never surfaced.
+7. Medium: 400-rejected lines lost on both sides; devlink.py should keep
+   logs/<date>/rejected.jsonl; client should count suppressed rejections.
+8. Medium: app.start settings always {}; launch_args loses engine flags; add
+   display_server and max_fps.
+9. Medium: devlink.py keeps no copy of served params; save logs/params/<hash>.json.
+10. Medium: gate logs lane (and CI) pass sessions containing app.error lines.
+11. Medium: if the extension fails to load there is no log at all; GDScript fallback writer.
+12. Low: devlink.py startup prints not flushed. 13. Low: git_sha doesn't mark a dirty tree.
