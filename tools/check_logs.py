@@ -1,7 +1,7 @@
 """Checks JSONL log files (or folders of them, recursively) against core/data/log_schema.json.
 
 Prints "ok N lines" per good file and every bad line with its reason; exits 1 on any bad
-line or when there are no files to check.
+line, an empty file, a path that does not exist, or when there are no files to check.
 """
 import argparse
 import json
@@ -12,6 +12,10 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 DEFAULT_SCHEMA = ROOT / "core" / "data" / "log_schema.json"
 ENVELOPE = ("ts", "session", "build", "platform", "subsystem", "level", "event", "data")
 LEVELS = ("debug", "info", "warn", "error")
+# Seconds since 1970; 1e11 is the year 5138, so anything at or past it is a broken clock or writer.
+TS_LIMIT = 1e11
+# devlink.py keeps the lines it refused here, beside the session logs; they are not log lines.
+REJECTED = "rejected.jsonl"
 
 
 def _reject_constant(name):
@@ -73,6 +77,8 @@ def validate_event(event, schema):
         return f"unexpected key {', '.join(extra)}"
     if not _matches(event["ts"], "number"):
         return f"ts is {_type_name(event['ts'])}, not a number"
+    if not 0 <= event["ts"] < TS_LIMIT:
+        return f"ts {event['ts']} is outside [0, {TS_LIMIT:g})"
     for key in ("session", "build", "platform", "subsystem", "level", "event"):
         if not isinstance(event[key], str):
             return f"{key} is {_type_name(event[key])}, not a string"
@@ -112,15 +118,17 @@ def validate_line(line, schema):
 
 
 def collect(paths):
+    """Returns (files to check, paths that do not exist)."""
     files = []
+    missing = []
     for path in map(pathlib.Path, paths):
         if path.is_dir():
-            files.extend(sorted(p for p in path.rglob("*.jsonl") if p.is_file()))
+            files.extend(sorted(p for p in path.rglob("*.jsonl") if p.is_file() and p.name != REJECTED))
         elif path.is_file():
             files.append(path)
         else:
-            print(f"{path}: no such file or folder")
-    return files
+            missing.append(path)
+    return files, missing
 
 
 def check_file(path, schema):
@@ -153,11 +161,13 @@ def main(argv=None):
     parser.add_argument("--schema", type=pathlib.Path, default=DEFAULT_SCHEMA)
     args = parser.parse_args(argv)
     schema = load_schema(args.schema)
-    files = collect(args.paths)
+    files, missing = collect(args.paths)
+    for path in missing:
+        print(f"{path}: no such file or folder")
     if not files:
         print("no log files to check")
         return 1
-    failed = False
+    failed = bool(missing)
     for path in files:
         try:
             count, bad = check_file(path, schema)
@@ -165,7 +175,10 @@ def main(argv=None):
             print(f"{path}: cannot read: {error}")
             failed = True
             continue
-        if bad:
+        if count == 0:
+            failed = True
+            print(f"{path}: empty file, no log lines")
+        elif bad:
             failed = True
             for number, reason in bad:
                 print(f"{path}:{number}: {reason}")
