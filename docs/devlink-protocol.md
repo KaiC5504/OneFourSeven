@@ -9,11 +9,14 @@ and only on the owner's own Wi-Fi.
 | Build | How |
 | --- | --- |
 | Windows (any) | `http://127.0.0.1:47147` directly |
-| iOS | Bonjour browse for `_onefourseven-dev._tcp` (`NWBrowser`, `gdext/ios/bonjour_browser.mm`), resolve to an IPv4 address and port |
+| iOS | Bonjour browse for `_ofs-devlink._tcp` (`NWBrowser`, `gdext/ios/bonjour_browser.mm`), resolve to an IPv4 address and port |
+
+The service type stays within RFC 6335's 15-character limit, which zeroconf and
+mDNSResponder enforce.
 
 `devlink.py` listens on port **47147** on all IPv4 interfaces and advertises
-`_onefourseven-dev._tcp` with TXT record `v=1`. Info.plist carries
-`NSBonjourServices = ["_onefourseven-dev._tcp"]` and `NSLocalNetworkUsageDescription`.
+`_ofs-devlink._tcp` with TXT record `v=1`. Info.plist carries
+`NSBonjourServices = ["_ofs-devlink._tcp"]` and `NSLocalNetworkUsageDescription`.
 
 ## Endpoints
 
