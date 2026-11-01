@@ -18,7 +18,8 @@ def event(name="app.lifecycle", **overrides):
         "app.error": ("app", "error", {"kind": "script", "message": "boom", "line": 12}),
         "perf.second": ("perf", "info", {
             "fps": 60, "frame_ms_avg": 16.6, "frame_ms_p95": 17.1, "frame_ms_max": 20.0,
-            "dropped_frames": 0, "static_memory_mb": 120.5, "thermal_state": "nominal", "idle": True}),
+            "dropped_frames": 0, "static_memory_mb": 120.5, "thermal_state": "nominal", "idle": True,
+            "footprint_mb": 310.2, "frames_drawn": 60}),
         "harness.command": ("harness", "info", {"command": "dump", "args": [], "ok": True}),
     }
     subsystem, level, data = defaults[name]
@@ -70,6 +71,13 @@ class ValidateLineTest(unittest.TestCase):
         self.assert_bad(event(ts="1762041600"), "ts is string")
         self.assert_bad(event(ts=True), "ts is boolean")
         self.assertIsNone(self.check(event(ts=1762041600)))
+
+    def test_ts_must_be_from_1970_to_before_1e11(self):
+        for ts in (0, 1762041600.125, 99999999999.999):
+            self.assertIsNone(self.check(event(ts=ts)), ts)
+        for ts in (-1, -0.001, 1e11, 1e300, 10**400):
+            self.assert_bad(event(ts=ts), "is outside [0, 1e+11)")
+        self.assert_bad(dumps(event()).replace("1762041600.125", "1e999"), "ts inf is outside")
 
     def test_envelope_strings(self):
         for key in ("session", "build", "platform", "subsystem", "level", "event"):
@@ -133,8 +141,8 @@ class ValidateLineTest(unittest.TestCase):
             line["data"]["result"] = value
             self.assertIsNone(self.check(line), value)
 
-    @unittest.skipUnless(FIXTURE.exists(), f"{FIXTURE} is missing (agent A creates it)")
     def test_fixture_lines_all_valid(self):
+        self.assertTrue(FIXTURE.is_file(), f"{FIXTURE} is missing")
         lines = [l for l in FIXTURE.read_text(encoding="utf-8").split("\n") if l.strip()]
         self.assertTrue(lines)
         for number, line in enumerate(lines, start=1):
@@ -201,6 +209,30 @@ class MainTest(unittest.TestCase):
         code, out = self.run_main(self.dir / "nope.jsonl")
         self.assertEqual(code, 1)
         self.assertIn("no such file", out)
+
+    def test_missing_path_fails_beside_a_good_file(self):
+        good = self.write("a.jsonl", [event()])
+        code, out = self.run_main(good, self.dir / "nope.jsonl")
+        self.assertEqual(code, 1)
+        self.assertIn("a.jsonl: ok 1 lines", out)
+        self.assertIn(f"{self.dir / 'nope.jsonl'}: no such file", out)
+
+    def test_empty_file_fails(self):
+        empty = self.dir / "empty.jsonl"
+        empty.write_bytes(b"")
+        good = self.write("a.jsonl", [event()])
+        code, out = self.run_main(good, empty)
+        self.assertEqual(code, 1)
+        self.assertIn(f"{empty}: empty file", out)
+        self.assertIn("a.jsonl: ok 1 lines", out)
+
+    def test_folders_skip_devlinks_rejected_lines(self):
+        self.write("logs/2026-11-02/one.jsonl", [event()])
+        self.write("logs/2026-11-02/rejected.jsonl", [{"received": "2026-11-02T10:00:00.000+00:00",
+                                                      "reason": "not JSON", "line": "x"}])
+        code, out = self.run_main(self.dir / "logs")
+        self.assertEqual(code, 0, out)
+        self.assertNotIn("rejected.jsonl", out)
 
 
 if __name__ == "__main__":
