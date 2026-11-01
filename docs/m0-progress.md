@@ -94,3 +94,12 @@ Logging / silent failures:
 10. Medium: gate logs lane (and CI) pass sessions containing app.error lines.
 11. Medium: if the extension fails to load there is no log at all; GDScript fallback writer.
 12. Low: devlink.py startup prints not flushed. 13. Low: git_sha doesn't mark a dirty tree.
+
+Windows run (all harness controls, link connect, live params and offline catch-up work):
+1. No idle throttling: renders at the display rate (240 fps here, 15-31 % of a core)
+   with nothing moving; project.godot sets no low-processor mode or max fps; perf.gd
+   hard-codes idle true. Spec 13.4.
+2. "lost" shows for one frame only (ofs_devlink.cpp ~232 turns Lost into Searching at once).
+3. Losing a local link takes ~16 s (5 s timeouts x3) while the label says "connected".
+4. Session tail never uploads (= logging 4). 5. Release static_memory_mb is 0 (= logging 5).
+6. No way to turn the link off from settings or args ("off" unreachable outside tests).
