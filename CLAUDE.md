@@ -70,8 +70,11 @@ Identity: Godot project `game/`, exported Xcode project `OneFourSeven`, bundle i
 `com.kaichuan.onefourseven` (extensions: none). Repo `KaiC5504/OneFourSeven` (public).
 App Store Connect name: `One Four Seven`, home-screen label `147`, Apple ID `6829495084`.
 
-1. Work on `dev`. Push. Wait for the compile check and look at the
-   `simulator-screenshots` artifact for every screen you touched.
+1. Work on `dev`. Push. Wait for the compile check: it proves the app builds, launches, loads
+   the table and logs cleanly. Its simulator screenshot is not the phone's look (the simulator
+   falls back to the Compatibility renderer on software OpenGL and shows magenta); check every
+   screen you touched with a Windows screenshot (`python scripts/run_debug.py -- --screenshot=<path>`),
+   which renders with the phone's Mobile renderer.
 2. `git checkout main && git merge --ff-only dev && git push && git checkout dev`
 3. `python scripts/testflight.py start`. Green means Apple has processed the build. After
    any change to `testflight.yml`, run `start --dry-run` first. Until an App Store profile

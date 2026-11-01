@@ -181,3 +181,8 @@ TestFlight pre-flight review: nothing certain to fail in the workflow; order is 
 (testflight.yml isn't on main yet), full gate on main, `start --dry-run --create-signing`
 (first Release/clang/device path), then `start`. Owner side: the internal tester group
 needs automatic distribution on.
+iOS run 41343966322 on 8f98887: green. The first frame took 117.6 s on the simulator's
+software GL under Rosetta (perf.hitch), then idle at 0 fps; footprint ~930 MB there (watch
+it on the phone). Its screenshot is solid magenta: the simulator can't show the look, so
+CLAUDE.md now checks screens with Windows screenshots. main fast-forwarded to 8f98887,
+full gate passed on it; TestFlight dry run with --create-signing started (41346458241).

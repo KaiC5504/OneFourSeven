@@ -138,7 +138,8 @@ jobs:
             build
 
       # Compiling only proves it links. Launching proves the table scene starts without a
-      # crash, and the screenshot is the only look at it before TestFlight.
+      # crash. The screenshot only shows the simulator came up: it renders with the
+      # Compatibility renderer on software OpenGL and shows magenta, not the phone's look.
       - name: Install, launch and screenshot
         env:
           UDID: ${{ steps.sim.outputs.udid }}
