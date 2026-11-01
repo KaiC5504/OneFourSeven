@@ -171,3 +171,13 @@ runner can crash on exit; gate.godot_import retries once (772c1e9), green since.
 simulator libgodot.a holds only x86_64 objects, so the compile check builds x86_64 for
 `generic/platform=iOS Simulator` (Xcode 26 lists no Rosetta destinations) and installs on
 the booted arm64 simulator under Rosetta (52bf36e).
+iOS run 41340675458: launches, table.loaded 20 s after launch under Rosetta, log schema-valid.
+The simulator runs Godot's Compatibility renderer on Apple's software OpenGL (app.start
+`renderer`), so its first frame lags the table by ~5 s and it warns about RGBAFloat
+textures; ab788c4 screenshots after a perf.second with frames drawn and allows that one
+GLES3 warning. The simulator screenshot is not the phone's look (Metal, Mobile renderer).
+The check now collects every launch and log problem before failing (79d7ded).
+TestFlight pre-flight review: nothing certain to fail in the workflow; order is ff main
+(testflight.yml isn't on main yet), full gate on main, `start --dry-run --create-signing`
+(first Release/clang/device path), then `start`. Owner side: the internal tester group
+needs automatic distribution on.

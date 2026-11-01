@@ -74,7 +74,8 @@ App Store Connect name: `One Four Seven`, home-screen label `147`, Apple ID `682
    `simulator-screenshots` artifact for every screen you touched.
 2. `git checkout main && git merge --ff-only dev && git push && git checkout dev`
 3. `python scripts/testflight.py start`. Green means Apple has processed the build. After
-   any change to `testflight.yml`, run `start --dry-run` first.
+   any change to `testflight.yml`, run `start --dry-run` first. Until an App Store profile
+   exists for the bundle id (the first build), add `--create-signing`.
 4. Report the TestFlight build number, what changed and test steps for the phone.
 
 The owner has authorised commit, push and Actions runs without asking. Never start a
