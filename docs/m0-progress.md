@@ -150,3 +150,7 @@ ofs_params_hash CLI, OfsDevice.memory_footprint_mb, low_processor_mode, MSAA 4x,
 GDScript as errors, log schema v2, protocol (file-based upload, 413/404, archive, %.17g
 number rule), spec/CLAUDE.md/skill doc fixes. Five fix agents: fix-core, fix-link,
 fix-game, fix-tools, fix-scripts. If interrupted, re-run whichever hasn't merged.
+Merged: fix-tools, fix-core (+72d504e), fix-scripts. Accepted limitation: OfsLog.content_hash
+hashes an integer beyond int64/uint64 as a double where devlink/ofs_params_hash refuse it;
+real params never contain such integers (move the overflow check into ofs::params if they
+ever might). Waiting on fix-link, fix-game.
