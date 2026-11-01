@@ -48,7 +48,7 @@ env:
   APP_STORE_CONNECT_DISABLE_JWT_CACHE: "1"
   BUNDLE_ID: com.kaichuan.onefourseven
   # App Store Connect → the app → App Information → Apple ID.
-  ASC_APP_ID: "__ASC_APP_ID__"
+  ASC_APP_ID: "6829495084"
   PROJECT: build/ios/OneFourSeven.xcodeproj
   # Godot names the project, target, scheme and app folder after the export file.
   SCHEME: OneFourSeven

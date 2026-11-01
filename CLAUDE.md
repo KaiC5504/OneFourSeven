@@ -67,7 +67,7 @@ signing, `testflight.yml`, the export presets or the compile workflow.
 
 Identity: Godot project `game/`, exported Xcode project `OneFourSeven`, bundle id
 `com.kaichuan.onefourseven` (extensions: none). Repo `KaiC5504/OneFourSeven` (public).
-App Store Connect name: `One Four Seven`, home-screen label `147`, Apple ID: not yet.
+App Store Connect name: `One Four Seven`, home-screen label `147`, Apple ID `6829495084`.
 
 1. Work on `dev`. Push. Wait for the compile check and look at the
    `simulator-screenshots` artifact for every screen you touched.
