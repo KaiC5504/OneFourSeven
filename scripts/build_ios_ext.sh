@@ -39,9 +39,9 @@ build_slice() {
   cmake --build "$dir/build" --parallel "$jobs" >&2
 
   # Every slice is written to game/bin with an arch in its name, so move each one out before the
-  # next build overwrites it.
+  # next build overwrites it. CMake drops the "lib" prefix for frameworks.
   shopt -s nullglob
-  local built=("$root"/game/bin/libonefourseven.ios."$target".*.framework)
+  local built=("$root"/game/bin/onefourseven.ios."$target".*.framework)
   shopt -u nullglob
   if [ "${#built[@]}" -ne 1 ]; then
     echo "expected one framework in game/bin after the $1 build, found: ${built[*]:-none}" >&2
