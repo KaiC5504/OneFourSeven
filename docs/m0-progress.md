@@ -186,3 +186,11 @@ software GL under Rosetta (perf.hitch), then idle at 0 fps; footprint ~930 MB th
 it on the phone). Its screenshot is solid magenta: the simulator can't show the look, so
 CLAUDE.md now checks screens with Windows screenshots. main fast-forwarded to 8f98887,
 full gate passed on it; TestFlight dry run with --create-signing started (41346458241).
+TestFlight dry run 41346458241: green first try (Release extension, export, new App Store
+profile, IPA; build number 1). Upload started: 41347888441.
+Follow-up (not blocking): the headless macOS editor that exports has no macOS build of the
+extension, so --import/--export log parse errors for every script using Ofs* classes (and
+"No GDExtension library found for macos.arm64"). Exported scripts still run (the simulator
+log has no script errors), but the noise can hide real export errors. Fix: build the
+extension for macos.arm64 editor on the runners (gdextension entry + build step), then make
+the export step fail on SCRIPT ERROR.
