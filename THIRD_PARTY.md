@@ -6,3 +6,4 @@
 | godot-cpp | 10.0.0-stable | MIT | `thirdparty/godot-cpp` (submodule) | https://github.com/godotengine/godot-cpp |
 | doctest | 2.5.3 | MIT | `thirdparty/doctest/doctest.h` | https://github.com/doctest/doctest |
 | nlohmann/json | 3.12.0 | MIT | `thirdparty/nlohmann/json.hpp` | https://github.com/nlohmann/json |
+| App icon | generated | ours | `game/icons/icon.png` | `tools/make_icon.py` (Pillow, numpy), no third-party artwork |
