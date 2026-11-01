@@ -50,6 +50,7 @@ one plan KaiC approves, then parallel agents build, check, fix and ship.
 - Godot tests: `python scripts/sync_data.py`, then `godot --headless --path game --import`
   (once per fresh checkout), then `godot --headless --path game -s res://tests/run_tests.gd`.
 - Everything at once: `python scripts/gate.py` (`--quick` for the edit loop).
+- Build and run the debug game in one step: `python scripts/run_debug.py [-- game args]`.
 - Playable Windows build: `python scripts/build_windows.py` (`--shortcut` adds a desktop
   shortcut).
 - Phone link server: `uv run tools/devlink.py` (background; logs land in `logs/<date>/`).
