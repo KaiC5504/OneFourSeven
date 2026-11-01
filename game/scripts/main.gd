@@ -1,16 +1,31 @@
 extends Node3D
-## The M0 placeholder: a static table with the opening layout. Agent E owns this file.
+## The M0 placeholder: a static table with the opening layout.
 
 # Cushion, rail and pocket sizes are visual approximations for M0; the real pocket and
 # cushion geometry arrives with its data file in M1 (spec 6.3).
 const CUSHION_WIDTH := 0.05
 const CUSHION_HEIGHT := 0.037
-const CORNER_GAP := 0.07
-const MIDDLE_GAP := 0.105
 const RAIL_WIDTH := 0.11
 const RAIL_TOP := 0.045
 const BODY_BOTTOM := -0.22
 const CLOTH_DEPTH := 0.03
+# Each pocket is two circular cuts, set back from the cushion noses: a mouth through the
+# cushions and rail, about 89 mm (corner) and 104 mm (middle) wide at the noses, and behind
+# it the hole itself, which stops at the nose line so the cloth never shows a bite.
+const CORNER_MOUTH_RADIUS := 0.05
+const CORNER_MOUTH_SETBACK := 0.015
+const CORNER_HOLE_RADIUS := 0.04
+const CORNER_HOLE_SETBACK := 0.04
+const MIDDLE_MOUTH_RADIUS := 0.06
+const MIDDLE_MOUTH_SETBACK := 0.03
+const MIDDLE_HOLE_RADIUS := 0.055
+const MIDDLE_HOLE_SETBACK := 0.06
+const POCKET_DEPTH := 0.045
+# The mouth cut dips this far into the bed, outside the playing area only, so its floor
+# isn't coplanar with the cloth.
+const MOUTH_DIP := 0.0005
+const CONTACT_SHADOW_SCALE := 1.7
+const CONTACT_SHADOW_LIFT := 0.0008
 const MARKING_WIDTH := 0.004
 const MARKING_HEIGHT := 0.0004
 const OPENING_GAP := 0.0005
@@ -75,7 +90,11 @@ func _setup_lighting() -> void:
 	_light.light_angular_distance = 2.0
 	_light.shadow_enabled = true
 	_light.shadow_blur = 1.5
-	_light.directional_shadow_max_distance = 8.0
+	# One split over a range fitted to the table in _frame_camera spends the whole shadow
+	# map on the table.
+	_light.directional_shadow_mode = DirectionalLight3D.SHADOW_ORTHOGONAL
+	# The Mobile renderer defaults to hard shadows on phones, which alias into a sawtooth.
+	RenderingServer.directional_soft_shadow_filter_set_quality(RenderingServer.SHADOW_QUALITY_SOFT_LOW)
 
 
 func _build_table(dims: Dictionary) -> void:
@@ -87,36 +106,38 @@ func _build_table(dims: Dictionary) -> void:
 	wood.clearcoat_enabled = true
 	wood.clearcoat = 0.4
 	var dark_wood := _material(Color(0.14, 0.07, 0.035), 0.6)
+	# The rail overhang shadows the body at a grazing angle, which only ever shows as acne.
+	dark_wood.disable_receive_shadows = true
 	var pocket := _material(Color(0.006, 0.006, 0.006), 1.0)
 	pocket.metallic_specular = 0.0
 	var marking := _material(Color(0.82, 0.86, 0.82), 1.0)
 
+	# Bed, cushions and rails are one CSG solid so the pockets cut them cleanly; the faces a
+	# cut leaves take the cut's material.
+	var top := CSGCombiner3D.new()
+	top.name = "TableTop"
 	var cloth_half := Vector2(half_length + CUSHION_WIDTH, half_width + CUSHION_WIDTH)
-	_add_box("Cloth", Vector2.ZERO, cloth_half * 2.0, -CLOTH_DEPTH, 0.0, cloth)
-
-	var cushion_length := half_width * 2.0 - CORNER_GAP * 2.0
-	var end_x := half_length + CUSHION_WIDTH / 2.0
+	var bed_bottom := -CLOTH_DEPTH * 2.0
+	_add_csg_box(top, "Cloth", Vector2.ZERO, cloth_half * 2.0, bed_bottom, 0.0, cloth)
+	# Cushions run into the corners; the pocket mouths shape their ends.
 	for side: float in [-1.0, 1.0]:
-		_add_box("Cushion", Vector2(end_x * side, 0.0), Vector2(CUSHION_WIDTH, cushion_length), 0.0, CUSHION_HEIGHT, cushion_cloth)
-	var side_length := half_length - CORNER_GAP - MIDDLE_GAP / 2.0
-	var side_centre := MIDDLE_GAP / 2.0 + side_length / 2.0
-	var side_y := half_width + CUSHION_WIDTH / 2.0
-	for sx: float in [-1.0, 1.0]:
-		for sy: float in [-1.0, 1.0]:
-			_add_box("Cushion", Vector2(side_centre * sx, side_y * sy), Vector2(side_length, CUSHION_WIDTH), 0.0, CUSHION_HEIGHT, cushion_cloth)
-
+		_add_csg_box(top, "Cushion", Vector2((half_length + CUSHION_WIDTH / 2.0) * side, 0.0), Vector2(CUSHION_WIDTH, cloth_half.y * 2.0), 0.0, CUSHION_HEIGHT, cushion_cloth)
+		_add_csg_box(top, "Cushion", Vector2(0.0, (half_width + CUSHION_WIDTH / 2.0) * side), Vector2(cloth_half.x * 2.0, CUSHION_WIDTH), 0.0, CUSHION_HEIGHT, cushion_cloth)
 	var outer_half := cloth_half + Vector2(RAIL_WIDTH, RAIL_WIDTH)
 	for side: float in [-1.0, 1.0]:
-		_add_box("Rail", Vector2((cloth_half.x + RAIL_WIDTH / 2.0) * side, 0.0), Vector2(RAIL_WIDTH, outer_half.y * 2.0), -CLOTH_DEPTH * 2.0, RAIL_TOP, wood)
-		_add_box("Rail", Vector2(0.0, (cloth_half.y + RAIL_WIDTH / 2.0) * side), Vector2(cloth_half.x * 2.0, RAIL_WIDTH), -CLOTH_DEPTH * 2.0, RAIL_TOP, wood)
-	_add_box("Body", Vector2.ZERO, outer_half * 2.0 - Vector2(0.04, 0.04), BODY_BOTTOM, -CLOTH_DEPTH * 2.0, dark_wood)
-
-	# Pockets are dark discs cut down through rail and cushion ends, which from the
-	# playing camera reads as the hole and its leather.
+		_add_csg_box(top, "Rail", Vector2((cloth_half.x + RAIL_WIDTH / 2.0) * side, 0.0), Vector2(RAIL_WIDTH, outer_half.y * 2.0), bed_bottom, RAIL_TOP, wood)
+		_add_csg_box(top, "Rail", Vector2(0.0, (cloth_half.y + RAIL_WIDTH / 2.0) * side), Vector2(cloth_half.x * 2.0, RAIL_WIDTH), bed_bottom, RAIL_TOP, wood)
 	for sx: float in [-1.0, 1.0]:
 		for sy: float in [-1.0, 1.0]:
-			_add_disc("Pocket", Vector2((half_length + 0.02) * sx, (half_width + 0.02) * sy), 0.064, -0.01, RAIL_TOP + 0.001, pocket)
-		_add_disc("Pocket", Vector2(0.0, (half_width + 0.036) * sx), 0.058, -0.01, RAIL_TOP + 0.001, pocket)
+			var corner := Vector2(half_length, half_width) * Vector2(sx, sy)
+			var outwards := Vector2(sx, sy)
+			_add_mouth(top, corner + outwards * CORNER_MOUTH_SETBACK, CORNER_MOUTH_RADIUS, Vector2(half_length, half_width), cloth)
+			top.add_child(_cut(corner + outwards * CORNER_HOLE_SETBACK, CORNER_HOLE_RADIUS, -POCKET_DEPTH, pocket), true)
+		var middle := Vector2(0.0, half_width * sx)
+		_add_mouth(top, middle + Vector2(0.0, MIDDLE_MOUTH_SETBACK * sx), MIDDLE_MOUTH_RADIUS, Vector2(half_length, half_width), cloth)
+		top.add_child(_cut(middle + Vector2(0.0, MIDDLE_HOLE_SETBACK * sx), MIDDLE_HOLE_RADIUS, -POCKET_DEPTH, pocket), true)
+	_table.add_child(top)
+	_add_box("Body", Vector2.ZERO, outer_half * 2.0 - Vector2(0.04, 0.04), BODY_BOTTOM, bed_bottom, dark_wood)
 
 	var baulk_x := float(dims["baulk_line_x"])
 	_add_box("BaulkLine", Vector2(baulk_x, 0.0), Vector2(MARKING_WIDTH, half_width * 2.0), 0.0, MARKING_HEIGHT, marking)
@@ -148,6 +169,7 @@ func _build_balls(layout: Array, radius: float) -> void:
 		m.clearcoat = 0.6
 		m.clearcoat_roughness = 0.08
 		materials[kind] = m
+	var shadow := _contact_shadow_mesh(radius)
 	for placement: Dictionary in layout:
 		var kind := String(placement["ball"])
 		var index := int(placement["index"])
@@ -160,7 +182,36 @@ func _build_balls(layout: Array, radius: float) -> void:
 		# Node positions are single precision; the state dump reports the layout's doubles.
 		ball.set_meta("core_xy", [float(placement["x"]), float(placement["y"])])
 		ball.position = TableSpace.core_to_godot(float(placement["x"]), float(placement["y"]), radius)
+		var contact := MeshInstance3D.new()
+		contact.name = "ContactShadow"
+		contact.mesh = shadow
+		contact.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		contact.position = Vector3(0.0, -radius + CONTACT_SHADOW_LIFT, 0.0)
+		ball.add_child(contact)
 		_balls.add_child(ball)
+
+
+## A soft dark blob on the cloth under a ball. The directional shadow alone is too faint
+## and too small at phone resolution to read as the ball resting on the cloth.
+func _contact_shadow_mesh(radius: float) -> PlaneMesh:
+	var gradient := Gradient.new()
+	gradient.offsets = PackedFloat32Array([0.0, 0.35, 1.0])
+	gradient.colors = PackedColorArray([Color(0.0, 0.0, 0.0, 0.85), Color(0.0, 0.0, 0.0, 0.5), Color(0.0, 0.0, 0.0, 0.0)])
+	var texture := GradientTexture2D.new()
+	texture.gradient = gradient
+	texture.fill = GradientTexture2D.FILL_RADIAL
+	texture.fill_from = Vector2(0.5, 0.5)
+	texture.fill_to = Vector2(1.0, 0.5)
+	texture.width = 64
+	texture.height = 64
+	var material := StandardMaterial3D.new()
+	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	material.albedo_texture = texture
+	var mesh := PlaneMesh.new()
+	mesh.size = Vector2.ONE * radius * CONTACT_SHADOW_SCALE * 2.0
+	mesh.material = material
+	return mesh
 
 
 ## Places the camera behind the baulk end at a fixed pitch, as close as it can get while
@@ -185,6 +236,10 @@ func _frame_camera() -> void:
 			best_target = target
 	_camera.position = best_target - forward * best_distance
 	_camera.look_at(best_target, Vector3.UP)
+	var farthest := 0.0
+	for corner in _frame_corners:
+		farthest = maxf(farthest, (corner - _camera.position).dot(forward))
+	_light.directional_shadow_max_distance = farthest + 0.1
 
 
 func _fit_distance(target: Vector3, forward: Vector3, aspect: float) -> float:
@@ -229,6 +284,46 @@ func _add_box(node_name: String, centre: Vector2, size: Vector2, bottom: float, 
 	node.material_override = material
 	node.position = TableSpace.core_to_godot(centre.x, centre.y, (top + bottom) / 2.0)
 	_table.add_child(node, true)
+
+
+func _add_csg_box(parent: CSGCombiner3D, node_name: String, centre: Vector2, size: Vector2, bottom: float, top: float, material: Material) -> void:
+	var box := CSGBox3D.new()
+	box.name = node_name
+	box.size = Vector3(size.y, top - bottom, size.x)
+	box.material = material
+	box.position = TableSpace.core_to_godot(centre.x, centre.y, (top + bottom) / 2.0)
+	parent.add_child(box, true)
+
+
+## A vertical circular cut from above the rails down to `bottom`.
+func _cut(centre: Vector2, radius: float, bottom: float, material: Material) -> CSGCylinder3D:
+	var top := RAIL_TOP + 0.01
+	var cut := CSGCylinder3D.new()
+	cut.name = "Pocket"
+	cut.operation = CSGShape3D.OPERATION_SUBTRACTION
+	cut.radius = radius
+	cut.height = top - bottom
+	cut.sides = 48
+	cut.material = material
+	cut.position = TableSpace.core_to_godot(centre.x, centre.y, (top + bottom) / 2.0)
+	return cut
+
+
+## A pocket mouth: a circular cut through cushions and rail that leaves the playing area,
+## inside the cushion noses, untouched.
+func _add_mouth(parent: CSGCombiner3D, centre: Vector2, radius: float, playing_half: Vector2, material: Material) -> void:
+	var mouth := CSGCombiner3D.new()
+	mouth.name = "PocketMouth"
+	mouth.operation = CSGShape3D.OPERATION_SUBTRACTION
+	var cut := _cut(centre, radius, -MOUTH_DIP, material)
+	cut.operation = CSGShape3D.OPERATION_UNION
+	mouth.add_child(cut)
+	var playing := CSGBox3D.new()
+	playing.operation = CSGShape3D.OPERATION_SUBTRACTION
+	playing.size = Vector3(playing_half.y * 2.0, RAIL_TOP + 0.05, playing_half.x * 2.0)
+	playing.material = material
+	mouth.add_child(playing)
+	parent.add_child(mouth, true)
 
 
 func _add_disc(node_name: String, centre: Vector2, radius: float, bottom: float, top: float, material: Material) -> void:

@@ -35,6 +35,41 @@ func test_flags_bad_and_unknown_args() -> void:
 	check_eq(p["invalid"], PackedStringArray(["--quit-after=soon", "--quit-after=-2", "--screenshot=", "--frobnicate=1"]), "invalid")
 
 
+func test_quit_after_must_be_finite() -> void:
+	var args := PackedStringArray(["--quit-after=1e400", "--quit-after=inf", "--quit-after=nan", "--quit-after=-0.5"])
+	var p := HarnessScript.parse_args(args, PackedStringArray())
+	check_eq(p["quit_after"], -1.0, "rejected")
+	check_eq(p["invalid"], args, "all reported")
+	check_eq(HarnessScript.parse_args(PackedStringArray(["--quit-after=0"]), PackedStringArray())["quit_after"], 0.0, "zero is allowed")
+
+
+func test_demo_screen_without_a_value_keeps_the_next_flag() -> void:
+	var p := HarnessScript.parse_args(PackedStringArray(["-DemoScreen", "--quit-after=3"]), PackedStringArray())
+	check_eq(p["demo_screen"], "", "no demo screen")
+	check_eq(p["quit_after"], 3.0, "--quit-after still read")
+	check_eq(p["invalid"], PackedStringArray(["-DemoScreen"]), "-DemoScreen reported")
+	p = HarnessScript.parse_args(PackedStringArray(["-DemoScreen"]), PackedStringArray(["-DemoScreen", "-v"]))
+	check_eq(p["demo_screen"], "", "launch args: a flag is not a screen name")
+	check_eq(p["invalid"], PackedStringArray(["-DemoScreen"]), "trailing -DemoScreen reported")
+
+
+func test_repeated_flags_keep_the_last_value() -> void:
+	var p := HarnessScript.parse_args(
+		PackedStringArray(["--quit-after=3", "--screenshot=a.png", "--quit-after=5", "--quit-after=7", "-DemoScreen", "table", "--demo-screen=other"]),
+		PackedStringArray())
+	check_eq(p["quit_after"], 7.0, "last quit-after")
+	check_eq(p["demo_screen"], "other", "last demo screen")
+	check_eq(p["screenshot"], "a.png", "screenshot")
+	check_eq(p["repeated"], PackedStringArray(["--quit-after", "--demo-screen"]), "repeated, each once")
+	check_eq(p["invalid"].size(), 0, "nothing invalid")
+
+
+func test_flags_for_other_autoloads_are_accepted() -> void:
+	var p := HarnessScript.parse_args(PackedStringArray(["--no-link", "--quit-after=2"]), PackedStringArray())
+	check_eq(p["invalid"].size(), 0, "--no-link is not reported")
+	check_eq(p["quit_after"], 2.0, "quit-after")
+
+
 func test_relative_paths_go_under_user() -> void:
 	check_eq(HarnessScript.resolve_path("shots/a.png"), "user://shots/a.png", "relative")
 	check_eq(HarnessScript.resolve_path("C:/tmp/a.png"), "C:/tmp/a.png", "windows absolute")
