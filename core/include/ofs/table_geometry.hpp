@@ -59,10 +59,11 @@ Vec2 default_cue_ball_position();
 // 0-14, then yellow, green, brown, blue, pink, black.
 //
 // The apex red sits on the centre line behind the pink (towards the top cushion), its
-// surface `gap` metres from the pink's; each further row is one ball spacing further back,
-// with the base row parallel to the top cushion. `gap` is also the clearance between
+// surface `gap` metres from the pink's; with s = 2R + gap, each further row sits s * sqrt(3)/2
+// further back (an equilateral triangle), with the base row parallel to the top cushion. `gap` is also the clearance between
 // neighbouring reds. gap = 0 gives touching balls. The seeded microscopic gaps of spec
-// 7.7 are built on top of this in M1.
+// 7.7 are built on top of this in M1, and must keep the apex clear of the pink: the rules
+// (3.2(a)(i), 2.18) don't allow the apex to touch it.
 std::vector<BallPlacement> opening_layout(double gap);
 
 }  // namespace ofs::table
