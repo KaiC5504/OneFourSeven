@@ -53,6 +53,14 @@ jobs:
           NEWEST=$(ls -d /Applications/Xcode_*.app 2>/dev/null | sort -V | tail -1)
           if [ -n "$NEWEST" ]; then sudo xcode-select -s "$NEWEST"; fi
           xcodebuild -version
+          # Spec 17.3: an image whose newest Xcode lacks that SDK stops here.
+          sdks=$(xcodebuild -showsdks)
+          case "$sdks" in
+            *"-sdk iphoneos26."*) ;;
+            *) echo "error: $(xcode-select -p) has no iOS 26 SDK (iphoneos26.x). It has:"
+               printf '%s\n' "$sdks"
+               exit 1 ;;
+          esac
           cmake --version | head -1
 
       - name: Build the extension
@@ -155,6 +163,23 @@ jobs:
             exit 1
           fi
           python tools/check_logs.py shots/logs
+          # A clean launch logs no app.error. Known harmless ones go in `allowed` as
+          # (kind, message regex) with the reason, like gate.py's ALLOWED_APP_ERRORS.
+          python -I - shots/logs <<'EOF'
+          import json, pathlib, re, sys
+          allowed = []
+          found = []
+          for path in sorted(pathlib.Path(sys.argv[1]).rglob("*.jsonl")):
+              for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+                  event = json.loads(line)
+                  if event["event"] == "app.error":
+                      kind, message = event["data"].get("kind", ""), event["data"].get("message", "")
+                      if not any(kind == k and re.search(p, message) for k, p in allowed):
+                          found.append(f"{path.name}:{number}: {kind}: {message}")
+          print("\n".join(["error: the session log has app.error lines:", *found]) if found
+                else "no app.error lines")
+          sys.exit(1 if found else 0)
+          EOF
 
       - name: Collect crash reports
         if: always()

@@ -11,7 +11,6 @@ from __future__ import annotations
 import json
 import os
 import re
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -36,6 +35,21 @@ def git_sha() -> str:
     return result.stdout.strip()
 
 
+def git_dirty() -> bool:
+    # game/data is this script's own output, so it never counts.
+    result = subprocess.run(["git", "status", "--porcelain", "--", ".", ":(exclude)game/data"],
+                            cwd=ROOT, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise SystemExit(f"git status failed: {result.stderr.strip()}")
+    return bool(result.stdout.strip())
+
+
+def write(path: Path, data: bytes) -> None:
+    # An unchanged file keeps its timestamp, so Godot sees nothing to reimport.
+    if not path.exists() or path.read_bytes() != data:
+        path.write_bytes(data)
+
+
 def main() -> int:
     TARGET.mkdir(parents=True, exist_ok=True)
     sources = sorted(SOURCE.glob("*.json"))
@@ -44,14 +58,16 @@ def main() -> int:
         if stale.name not in wanted:
             stale.unlink()
     for path in sources:
-        shutil.copyfile(path, TARGET / path.name)
+        write(TARGET / path.name, path.read_bytes())
     info = {
         "version": project_version(),
         "build_number": os.environ.get("OFS_BUILD_NUMBER") or "dev",
         "git_sha": git_sha(),
+        "git_dirty": git_dirty(),
     }
-    (TARGET / "build_info.json").write_text(json.dumps(info, indent=2) + "\n", encoding="utf-8")
-    print(f"synced {len(sources)} data files; build {info['version']} ({info['build_number']}) {info['git_sha'][:12]}")
+    write(TARGET / "build_info.json", (json.dumps(info, indent=2) + "\n").encode("utf-8"))
+    print(f"synced {len(sources)} data files; build {info['version']} ({info['build_number']}) "
+          f"{info['git_sha'][:12]}{' with uncommitted changes' if info['git_dirty'] else ''}")
     return 0
 
 

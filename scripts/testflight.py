@@ -6,7 +6,8 @@
     python scripts/testflight.py watch [RUN_ID]          # poll until done, then report
 
 start builds origin/main's head, and refuses unless the `testflight` environment is
-locked to main with its secrets in place. --dry-run signs and checks the IPA without
+locked to main with its secrets in place and, for an upload, `python scripts/gate.py`
+passed that commit on this PC. --dry-run signs and checks the IPA without
 uploading. --create-signing registers the bundle id and creates the profile (first
 build) or renews an expired certificate. --again rebuilds a commit that already shipped.
 
@@ -22,7 +23,9 @@ import re
 import subprocess
 import sys
 import time
+from pathlib import Path
 
+ROOT = Path(__file__).resolve().parents[1]
 REPO = "KaiC5504/OneFourSeven"
 WORKFLOW = "testflight.yml"
 ENVIRONMENT = "testflight"
@@ -31,6 +34,7 @@ SECRETS = {
     "APP_STORE_CONNECT_KEY_IDENTIFIER",
     "APP_STORE_CONNECT_PRIVATE_KEY",
     "CERT_KEY_B64",
+    "SIGNING_NAME",
 }
 # The workflow's run-name starts with one of these.
 UPLOAD = "TestFlight upload"
@@ -52,7 +56,7 @@ def run(*args: str) -> str:
 
 
 def git(*args: str) -> str:
-    return run("git", *args).strip()
+    return run("git", "-C", str(ROOT), *args).strip()
 
 
 def runs(limit: int = 20) -> list[dict]:
@@ -118,6 +122,16 @@ def environment_problems() -> list[str]:
     return problems
 
 
+def gate_problem(sha: str) -> str | None:
+    """gate.py records the commit of its last full pass on a clean tree; anything else is untested."""
+    record = ROOT / git("rev-parse", "--git-path", "gate-passed")
+    passed = record.read_text(encoding="utf-8").strip() if record.exists() else ""
+    if passed == sha:
+        return None
+    last = f"the last gate pass here was {passed[:8]}" if passed else "no gate pass is recorded here"
+    return f"origin/main is {sha[:8]} but {last}: run python scripts/gate.py on main first"
+
+
 def dispatched_run(output: str, known: set[int], sha: str) -> dict | None:
     """The run `gh workflow run` just made. Its title is the bare workflow name until
     GitHub evaluates run-name, so wait for the sha to show up in it."""
@@ -157,11 +171,12 @@ def cmd_start(argv: list[str]) -> int:
     args = parser.parse_args(argv)
 
     git("fetch", "-q", "origin", "main")
-    problems = environment_problems()
+    sha = git("rev-parse", "origin/main")
+    untested = None if args.dry_run else gate_problem(sha)
+    problems = ([untested] if untested else []) + environment_problems()
     if problems:
         print("Not starting:\n" + "\n".join(f"  - {p}" for p in problems))
         return 1
-    sha = git("rev-parse", "origin/main")
     shipped = last_shipped()
     if not args.dry_run and not args.again and shipped and shipped["headSha"] == sha:
         print(f"{sha[:8]} already shipped in run {shipped['databaseId']}. "

@@ -4,9 +4,13 @@ keep a dry run from ever uploading.
 
 The structural tests need PyYAML; without it only the text checks run."""
 
+import io
 import re
+import sys
+import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 try:
     import yaml
@@ -14,6 +18,10 @@ except ImportError:
     yaml = None
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "scripts"))
+
+import testflight  # noqa: E402
+
 WORKFLOW = ROOT / ".github/workflows/testflight.yml"
 REQUIREMENTS = ROOT / "scripts/testflight-requirements.txt"
 SCRIPT = ROOT / "scripts/testflight.py"
@@ -133,6 +141,12 @@ class WorkflowTest(unittest.TestCase):
         self.assertIn(LOCKED_INSTALL, self.step("build", "Toolchain")["run"])
         self.assertIn(LOCKED_INSTALL, self.step("processed", "Install cli-tools")["run"])
         self.assertNotRegex(self.text, r"pip3? install [^\n]*codemagic-cli-tools")
+
+    def test_needs_the_ios_26_sdk(self):
+        toolchain = self.step("build", "Toolchain")["run"]
+        self.assertIn("sdks=$(xcodebuild -showsdks)", toolchain)
+        self.assertIn('*"-sdk iphoneos26."*) ;;', toolchain)
+        self.assertIn("exit 1", toolchain.split('*"-sdk iphoneos26."*) ;;', 1)[1].split("esac")[0])
 
     def test_cli_tools_never_caches_its_token_on_disk(self):
         self.assertEqual("1", str(self.doc["env"]["APP_STORE_CONNECT_DISABLE_JWT_CACHE"]))
@@ -327,6 +341,58 @@ class SupportFilesTest(unittest.TestCase):
         text = SCRIPT.read_text(encoding="utf-8")
         self.assertIn('REPO = "KaiC5504/OneFourSeven"', text)
         self.assertIn('WORKFLOW = "testflight.yml"', text)
+
+    def test_script_checks_every_secret_the_workflow_uses(self):
+        # An unset secret reaches the step as an empty string, and SIGNING_NAME then shows unmasked.
+        used = set(re.findall(r"\bsecrets\.([A-Za-z0-9_]+)", WORKFLOW.read_text(encoding="utf-8")))
+        self.assertEqual(used, testflight.SECRETS)
+
+
+class StartTest(unittest.TestCase):
+    """testflight.py start ships only a commit gate.py passed on this PC."""
+
+    SHA = "0123456789abcdef0123456789abcdef01234567"
+
+    def start(self, argv, recorded):
+        with tempfile.TemporaryDirectory() as temp:
+            record = Path(temp) / "gate-passed"
+            if recorded is not None:
+                record.write_text(recorded + "\n", encoding="utf-8")
+
+            def git(*args):
+                if args == ("rev-parse", "--git-path", "gate-passed"):
+                    return str(record)
+                if args == ("rev-parse", "origin/main"):
+                    return self.SHA
+                return ""
+
+            with mock.patch.object(testflight, "git", side_effect=git), \
+                    mock.patch.object(testflight, "environment_problems", return_value=[]), \
+                    mock.patch.object(testflight, "last_shipped", return_value=None), \
+                    mock.patch.object(testflight, "runs", return_value=[]), \
+                    mock.patch.object(testflight, "dispatched_run", return_value=None), \
+                    mock.patch.object(testflight, "run", return_value="") as run, \
+                    mock.patch("sys.stdout", io.StringIO()) as out:
+                code = testflight.cmd_start(argv)
+        dispatched = any("workflow" in call.args for call in run.call_args_list)
+        return code, dispatched, out.getvalue()
+
+    def test_refuses_without_a_gate_pass(self):
+        code, dispatched, out = self.start([], None)
+        self.assertEqual((1, False), (code, dispatched))
+        self.assertIn("no gate pass is recorded here: run python scripts/gate.py on main first", out)
+
+    def test_refuses_when_the_pass_was_for_another_commit(self):
+        code, dispatched, out = self.start([], "f" * 40)
+        self.assertEqual((1, False), (code, dispatched))
+        self.assertIn("the last gate pass here was ffffffff", out)
+        self.assertIn("run python scripts/gate.py on main first", out)
+
+    def test_starts_when_origin_main_passed(self):
+        self.assertEqual((0, True), self.start([], self.SHA)[:2])
+
+    def test_a_dry_run_needs_no_gate_pass(self):
+        self.assertEqual((0, True), self.start(["--dry-run"], None)[:2])
 
 
 if __name__ == "__main__":
