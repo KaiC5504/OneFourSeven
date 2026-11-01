@@ -73,7 +73,9 @@ hash in a `params.applied` line can always be traced back to its values.
 `canonical` = keys sorted, no whitespace, UTF-8 without escaping non-ASCII, strings escaped
 as JSON requires (control characters as lowercase `\u00xx`). Numbers: a JSON integer
 token is written in decimal; any other number is written with C's `%.17g`, with `.0`
-appended if the result has no `.`, `e` or `n`. NaN and infinities are refused. Both sides
+appended if the result has no `.`, `e` or `n`. NaN and infinities, integers outside the int64/uint64 range (nlohmann would turn them into
+doubles) and strings with lone surrogates are refused: the CLI prints `error`, devlink.py
+answers 500. Both sides
 implement this rule explicitly (C++ `snprintf`, Python `'%.17g' % x`); neither relies on its
 JSON library's number output, which differs between nlohmann and Python for some doubles.
 `content_hash` = FNV-1a 64 (offset basis `0xcbf29ce484222325`, prime `0x100000001b3`) over
