@@ -1,158 +1,492 @@
 {
   "_format": "events maps an event name to {subsystem, levels, fields}. fields maps a data key to {type, required}. type is one of string, number, integer, boolean, object, array, any. Keys in data that are not listed are allowed. docs/log-schema.md explains each event.",
-  "version": 1,
-  "subsystems": ["app", "perf", "table", "params", "devlink", "log", "harness"],
+  "version": 2,
+  "subsystems": [
+    "app",
+    "perf",
+    "table",
+    "params",
+    "devlink",
+    "log",
+    "harness"
+  ],
   "events": {
     "app.start": {
       "subsystem": "app",
-      "levels": ["info"],
+      "levels": [
+        "info"
+      ],
       "fields": {
-        "version": {"type": "string", "required": true},
-        "build_number": {"type": "string", "required": true},
-        "git_sha": {"type": "string", "required": true},
-        "core_version": {"type": "string", "required": true},
-        "godot_version": {"type": "string", "required": true},
-        "os": {"type": "string", "required": true},
-        "os_version": {"type": "string", "required": true},
-        "device_model": {"type": "string", "required": true},
-        "renderer": {"type": "string", "required": true},
-        "screen_size": {"type": "array", "required": true},
-        "safe_area": {"type": "array", "required": true},
-        "refresh_rate": {"type": "number", "required": true},
-        "locale": {"type": "string", "required": true},
-        "debug_build": {"type": "boolean", "required": true},
-        "launch_args": {"type": "array", "required": true},
-        "settings": {"type": "object", "required": true}
+        "version": {
+          "type": "string",
+          "required": true
+        },
+        "build_number": {
+          "type": "string",
+          "required": true
+        },
+        "git_sha": {
+          "type": "string",
+          "required": true
+        },
+        "core_version": {
+          "type": "string",
+          "required": true
+        },
+        "godot_version": {
+          "type": "string",
+          "required": true
+        },
+        "os": {
+          "type": "string",
+          "required": true
+        },
+        "os_version": {
+          "type": "string",
+          "required": true
+        },
+        "device_model": {
+          "type": "string",
+          "required": true
+        },
+        "renderer": {
+          "type": "string",
+          "required": true
+        },
+        "screen_size": {
+          "type": "array",
+          "required": true
+        },
+        "safe_area": {
+          "type": "array",
+          "required": true
+        },
+        "refresh_rate": {
+          "type": "number",
+          "required": true
+        },
+        "locale": {
+          "type": "string",
+          "required": true
+        },
+        "debug_build": {
+          "type": "boolean",
+          "required": true
+        },
+        "launch_args": {
+          "type": "array",
+          "required": true
+        },
+        "settings": {
+          "type": "object",
+          "required": true
+        },
+        "display_server": {
+          "type": "string",
+          "required": true
+        },
+        "max_fps": {
+          "type": "integer",
+          "required": true
+        },
+        "git_dirty": {
+          "type": "boolean",
+          "required": true
+        }
       }
     },
     "app.lifecycle": {
       "subsystem": "app",
-      "levels": ["info"],
+      "levels": [
+        "info"
+      ],
       "fields": {
-        "state": {"type": "string", "required": true}
+        "state": {
+          "type": "string",
+          "required": true
+        }
       }
     },
     "app.error": {
       "subsystem": "app",
-      "levels": ["warn", "error"],
+      "levels": [
+        "warn",
+        "error"
+      ],
       "fields": {
-        "kind": {"type": "string", "required": true},
-        "message": {"type": "string", "required": true},
-        "file": {"type": "string", "required": false},
-        "line": {"type": "integer", "required": false},
-        "function": {"type": "string", "required": false},
-        "stack": {"type": "array", "required": false}
+        "kind": {
+          "type": "string",
+          "required": true
+        },
+        "message": {
+          "type": "string",
+          "required": true
+        },
+        "file": {
+          "type": "string",
+          "required": false
+        },
+        "line": {
+          "type": "integer",
+          "required": false
+        },
+        "function": {
+          "type": "string",
+          "required": false
+        },
+        "stack": {
+          "type": "array",
+          "required": false
+        }
       }
     },
     "perf.second": {
       "subsystem": "perf",
-      "levels": ["info"],
+      "levels": [
+        "info"
+      ],
       "fields": {
-        "fps": {"type": "number", "required": true},
-        "frame_ms_avg": {"type": "number", "required": true},
-        "frame_ms_p95": {"type": "number", "required": true},
-        "frame_ms_max": {"type": "number", "required": true},
-        "dropped_frames": {"type": "integer", "required": true},
-        "static_memory_mb": {"type": "number", "required": true},
-        "thermal_state": {"type": "string", "required": true},
-        "idle": {"type": "boolean", "required": true}
+        "fps": {
+          "type": "number",
+          "required": true
+        },
+        "frame_ms_avg": {
+          "type": "number",
+          "required": true
+        },
+        "frame_ms_p95": {
+          "type": "number",
+          "required": true
+        },
+        "frame_ms_max": {
+          "type": "number",
+          "required": true
+        },
+        "dropped_frames": {
+          "type": "integer",
+          "required": true
+        },
+        "static_memory_mb": {
+          "type": "number",
+          "required": true
+        },
+        "thermal_state": {
+          "type": "string",
+          "required": true
+        },
+        "idle": {
+          "type": "boolean",
+          "required": true
+        },
+        "footprint_mb": {
+          "type": "number",
+          "required": true
+        },
+        "frames_drawn": {
+          "type": "integer",
+          "required": true
+        }
       }
     },
     "perf.hitch": {
       "subsystem": "perf",
-      "levels": ["warn"],
+      "levels": [
+        "warn"
+      ],
       "fields": {
-        "frame_ms": {"type": "number", "required": true},
-        "scene": {"type": "string", "required": true},
-        "activity": {"type": "string", "required": true}
+        "frame_ms": {
+          "type": "number",
+          "required": true
+        },
+        "scene": {
+          "type": "string",
+          "required": true
+        },
+        "activity": {
+          "type": "string",
+          "required": true
+        }
       }
     },
     "table.loaded": {
       "subsystem": "table",
-      "levels": ["info"],
+      "levels": [
+        "info"
+      ],
       "fields": {
-        "balls": {"type": "integer", "required": true},
-        "layout": {"type": "string", "required": true},
-        "params_hash": {"type": "string", "required": true}
+        "balls": {
+          "type": "integer",
+          "required": true
+        },
+        "layout": {
+          "type": "string",
+          "required": true
+        },
+        "params_hash": {
+          "type": "string",
+          "required": true
+        }
       }
     },
     "params.loaded": {
       "subsystem": "params",
-      "levels": ["info"],
+      "levels": [
+        "info"
+      ],
       "fields": {
-        "source": {"type": "string", "required": true},
-        "hash": {"type": "string", "required": true}
+        "source": {
+          "type": "string",
+          "required": true
+        },
+        "hash": {
+          "type": "string",
+          "required": true
+        }
       }
     },
     "params.applied": {
       "subsystem": "params",
-      "levels": ["info"],
+      "levels": [
+        "info"
+      ],
       "fields": {
-        "source": {"type": "string", "required": true},
-        "old_hash": {"type": "string", "required": true},
-        "new_hash": {"type": "string", "required": true}
+        "source": {
+          "type": "string",
+          "required": true
+        },
+        "old_hash": {
+          "type": "string",
+          "required": true
+        },
+        "new_hash": {
+          "type": "string",
+          "required": true
+        }
       }
     },
     "devlink.discovered": {
       "subsystem": "devlink",
-      "levels": ["info"],
+      "levels": [
+        "info"
+      ],
       "fields": {
-        "host": {"type": "string", "required": true},
-        "port": {"type": "integer", "required": true},
-        "via": {"type": "string", "required": true}
+        "host": {
+          "type": "string",
+          "required": true
+        },
+        "port": {
+          "type": "integer",
+          "required": true
+        },
+        "via": {
+          "type": "string",
+          "required": true
+        }
       }
     },
     "devlink.connected": {
       "subsystem": "devlink",
-      "levels": ["info"],
+      "levels": [
+        "info"
+      ],
       "fields": {
-        "host": {"type": "string", "required": true},
-        "port": {"type": "integer", "required": true},
-        "server_version": {"type": "integer", "required": true}
+        "host": {
+          "type": "string",
+          "required": true
+        },
+        "port": {
+          "type": "integer",
+          "required": true
+        },
+        "server_version": {
+          "type": "integer",
+          "required": true
+        }
       }
     },
     "devlink.lost": {
       "subsystem": "devlink",
-      "levels": ["warn"],
+      "levels": [
+        "warn"
+      ],
       "fields": {
-        "reason": {"type": "string", "required": true},
-        "queued_lines": {"type": "integer", "required": true}
+        "reason": {
+          "type": "string",
+          "required": true
+        },
+        "queued_lines": {
+          "type": "integer",
+          "required": true
+        }
       }
     },
     "devlink.upload_failed": {
       "subsystem": "devlink",
-      "levels": ["warn"],
+      "levels": [
+        "warn"
+      ],
       "fields": {
-        "status": {"type": "integer", "required": true},
-        "error": {"type": "string", "required": true},
-        "queued_lines": {"type": "integer", "required": true},
-        "attempt": {"type": "integer", "required": true}
+        "status": {
+          "type": "integer",
+          "required": true
+        },
+        "error": {
+          "type": "string",
+          "required": true
+        },
+        "queued_lines": {
+          "type": "integer",
+          "required": true
+        },
+        "attempt": {
+          "type": "integer",
+          "required": true
+        }
       }
     },
     "devlink.browse_failed": {
       "subsystem": "devlink",
-      "levels": ["warn"],
+      "levels": [
+        "warn"
+      ],
       "fields": {
-        "error": {"type": "string", "required": true},
-        "local_network_denied": {"type": "boolean", "required": true}
+        "error": {
+          "type": "string",
+          "required": true
+        },
+        "local_network_denied": {
+          "type": "boolean",
+          "required": true
+        }
       }
     },
     "log.dropped": {
       "subsystem": "log",
-      "levels": ["warn"],
+      "levels": [
+        "warn"
+      ],
       "fields": {
-        "count": {"type": "integer", "required": true},
-        "total_dropped": {"type": "integer", "required": true}
+        "count": {
+          "type": "integer",
+          "required": true
+        },
+        "total_dropped": {
+          "type": "integer",
+          "required": true
+        }
       }
     },
     "harness.command": {
       "subsystem": "harness",
-      "levels": ["info", "warn"],
+      "levels": [
+        "info",
+        "warn"
+      ],
       "fields": {
-        "command": {"type": "string", "required": true},
-        "args": {"type": "array", "required": true},
-        "ok": {"type": "boolean", "required": true},
-        "result": {"type": "any", "required": false}
+        "command": {
+          "type": "string",
+          "required": true
+        },
+        "args": {
+          "type": "array",
+          "required": true
+        },
+        "ok": {
+          "type": "boolean",
+          "required": true
+        },
+        "result": {
+          "type": "any",
+          "required": false
+        }
+      }
+    },
+    "devlink.request_failed": {
+      "subsystem": "devlink",
+      "levels": [
+        "warn"
+      ],
+      "fields": {
+        "endpoint": {
+          "type": "string",
+          "required": true
+        },
+        "status": {
+          "type": "integer",
+          "required": true
+        },
+        "error": {
+          "type": "string",
+          "required": true
+        },
+        "attempt": {
+          "type": "integer",
+          "required": true
+        },
+        "body": {
+          "type": "string",
+          "required": false
+        }
+      }
+    },
+    "devlink.resolve_failed": {
+      "subsystem": "devlink",
+      "levels": [
+        "warn"
+      ],
+      "fields": {
+        "name": {
+          "type": "string",
+          "required": true
+        },
+        "error": {
+          "type": "string",
+          "required": true
+        },
+        "local_network_denied": {
+          "type": "boolean",
+          "required": true
+        }
+      }
+    },
+    "devlink.upload_rejected": {
+      "subsystem": "devlink",
+      "levels": [
+        "warn"
+      ],
+      "fields": {
+        "status": {
+          "type": "integer",
+          "required": true
+        },
+        "dropped_lines": {
+          "type": "integer",
+          "required": true
+        },
+        "suppressed_since_last": {
+          "type": "integer",
+          "required": true
+        },
+        "body": {
+          "type": "string",
+          "required": false
+        }
+      }
+    },
+    "devlink.backlog": {
+      "subsystem": "devlink",
+      "levels": [
+        "info"
+      ],
+      "fields": {
+        "sessions": {
+          "type": "integer",
+          "required": true
+        },
+        "bytes": {
+          "type": "integer",
+          "required": true
+        }
       }
     }
   }

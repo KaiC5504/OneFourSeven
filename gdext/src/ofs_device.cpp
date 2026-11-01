@@ -15,6 +15,7 @@ using namespace godot;
 
 void OfsDevice::_bind_methods() {
     ClassDB::bind_static_method("OfsDevice", D_METHOD("thermal_state"), &OfsDevice::thermal_state);
+    ClassDB::bind_static_method("OfsDevice", D_METHOD("memory_footprint_mb"), &OfsDevice::memory_footprint_mb);
 }
 
 String OfsDevice::thermal_state() {
@@ -24,3 +25,6 @@ String OfsDevice::thermal_state() {
     return "unknown";
 #endif
 }
+
+// Fix-round contract stub: agent fix-link implements it.
+double OfsDevice::memory_footprint_mb() { return 0.0; }

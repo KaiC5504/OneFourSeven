@@ -57,6 +57,8 @@ public:
     void write(const Event& event, const std::string& line) override;
     void flush() override;
     const std::string& path() const;
+    // Why the sink is inert or the last write failed; empty while healthy.
+    std::string error() const;
 
 private:
     struct Impl;
@@ -121,4 +123,10 @@ inline void error(std::string_view subsystem, std::string_view event, nlohmann::
     Logger::instance().emit(subsystem, Level::error, event, std::move(data));
 }
 
+// Logs app.error {kind: "assert", message: expr, file, line, function}, flushes, then
+// aborts in debug builds; release builds log and carry on.
+void assert_failed(const char* expr, const char* file, int line, const char* function);
+
 }  // namespace ofs::log
+
+#define OFS_ASSERT(expr) \n    ((expr) ? static_cast<void>(0) : ::ofs::log::assert_failed(#expr, __FILE__, __LINE__, __func__))

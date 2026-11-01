@@ -414,3 +414,9 @@ void Logger::flush() {
 }
 
 }  // namespace ofs::log
+
+// Fix-round contract stub: agent fix-core replaces these.
+namespace ofs::log {
+std::string FileSink::error() const { return {}; }
+void assert_failed(const char*, const char*, int, const char*) {}
+}  // namespace ofs::log

@@ -15,9 +15,13 @@ endif()
 # Results must not depend on the compiler fusing multiply-adds differently per platform
 # (spec 16.10, determinism across machines).
 if(MSVC)
-    add_compile_options(/fp:precise /utf-8)
+    add_compile_options(/fp:precise)
 else()
     add_compile_options(-ffp-contract=off -fno-fast-math)
+endif()
+
+if(MSVC)
+    add_compile_options(/utf-8)
 endif()
 
 # godot-cpp always links the static release CRT; everything in the extension must match.

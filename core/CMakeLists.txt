@@ -35,4 +35,9 @@ if(OFS_BUILD_TESTS)
     target_compile_definitions(ofs_core_tests PRIVATE
         OFS_TEST_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures")
     add_test(NAME ofs_core_tests COMMAND ofs_core_tests)
+
+    # Prints content_hash for each JSONL line on stdin; tools/test_devlink.py compares it
+    # with devlink.py's hash over thousands of values.
+    add_executable(ofs_params_hash tools/params_hash.cpp)
+    target_link_libraries(ofs_params_hash PRIVATE ofs_core)
 endif()

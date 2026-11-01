@@ -69,7 +69,7 @@ Wait for his go. After it, run straight through to the ship step. Ask him only f
 Before any agent starts, commit on `dev` everything two agents would both touch:
 - C++ public headers in `core/`, with stub implementations that compile;
 - binding class declarations and `register_types.cpp` registrations in `gdext/`;
-- every new source file added to the build files (CMake and SCons). Agents never edit build files;
+- every new source file added to the build files (CMake). Agents never edit build files;
 - data file schemas with starting values: the table parameters, the AI level files and the pocket geometry, each
   value with a source;
 - shared test fixtures: named table positions as JSON in `core/tests/fixtures/`;

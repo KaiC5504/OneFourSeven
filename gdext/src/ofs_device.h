@@ -14,4 +14,7 @@ public:
     // "nominal" | "fair" | "serious" | "critical" on iOS (ProcessInfo.thermalState);
     // "unknown" elsewhere.
     static godot::String thermal_state();
+    // The process's memory footprint in MB: phys_footprint on iOS, the private working set
+    // on Windows; works in release builds, unlike OS.get_static_memory_usage().
+    static double memory_footprint_mb();
 };

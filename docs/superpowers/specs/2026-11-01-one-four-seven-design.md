@@ -89,11 +89,11 @@ the shot he meant to play.
 | --- | --- | --- |
 | Engine | Godot 4, pinned to **4.7.1-stable** (already at `D:\Tools\Godot`); upgrades only on purpose | Owner (Godot); Claude's call (version) |
 | Ball physics | Custom simulator, not Godot's physics engine | Claude's call, owner agreed |
-| Physics, rules, AI language | C++17, compiled as a GDExtension via `godot-cpp` pinned to the matching 4.7 branch | Claude's call |
+| Physics, rules, AI language | C++17, compiled as a GDExtension via `godot-cpp` 10.0.0-stable targeting API 4.7 | Claude's call |
 | Game, UI, camera, audio, saving | GDScript | Claude's call |
 | Renderer | Godot **Mobile** renderer on both Windows and iOS, so Windows shows what the phone will show | Claude's call |
 | Target device | iPhone 17 Pro Max, landscape only (both landscape directions), iPhone only | Owner |
-| Windows toolchain | MSVC from VS 18 Build Tools (installed), CMake (installed), Python 3.13 (installed), SCons (install via pip) | Claude's call |
+| Windows toolchain | MSVC from VS 18 Build Tools (installed), CMake (installed, the only build system), Python 3.13 (installed) | Claude's call |
 | iOS build | GitHub Actions macOS runner: build the GDExtension for iOS, export Godot's Xcode project headlessly, sign, upload to TestFlight | Owner (pipeline), section 17 |
 | Repo | `KaiC5504/OneFourSeven`, public, so macOS CI minutes are free | Claude's call (pipeline default) |
 | App identity | Store name **One Four Seven**, home-screen label **One Four Seven** (builder may shorten it to fit under the icon), bundle id `com.kaichuan.onefourseven` | Owner |
@@ -139,7 +139,7 @@ agents can test them in milliseconds without starting Godot.
 core/         C++ library: geometry, physics, rules, ai, shot record
 core/tests/   native unit, calibration, rules-scenario and AI tests
 tools/        native CLIs (simulate a shot from JSON, run AI tournaments), plotting scripts
-gdext/        godot-cpp binding, SConstruct or CMake for Windows + iOS
+gdext/        godot-cpp binding, CMake for Windows + iOS
 game/         Godot project (project.godot, scenes, scripts, assets)
 docs/         this design, development notes, physics calibration notes
 .github/      ios-compile.yml, testflight.yml, windows-ci.yml
@@ -814,8 +814,10 @@ checks that emitted events match it.
 #### Where logs go
 - **On the device:** a ring buffer of recent sessions in `user://logs/`, capped in size.
   Logs survive a crash and upload when the link next connects.
-- **On Windows:** the same JSONL is written straight to `logs/<date>/<session>.jsonl` in
-  the repo. That folder is gitignored.
+- **On Windows:** the same JSONL goes to Godot's user folder
+  (`%APPDATA%/Godot/app_userdata/One Four Seven/logs`) and, whenever `tools/devlink.py` runs,
+  is uploaded over localhost into `logs/<date>/<session>.jsonl` in the repo (gitignored),
+  exactly as from the phone.
 
 #### The phone link (TestFlight builds; owner-only app, so on by default, switch in settings)
 - **PC side:** `tools/devlink.py` (Python, run with `uv`), modelled on BiliFast's
@@ -851,7 +853,7 @@ checks that emitted events match it.
 ## 17. Build and ship
 
 ### 17.1 Windows (the test bed)
-- **Toolchain:** Godot 4.7.1 editor, MSVC (VS 18 Build Tools), CMake, Python and SCons.
+- **Toolchain:** Godot 4.7.1 editor, MSVC (VS 18 Build Tools), CMake and Python.
   Agents install anything missing.
 - **Debug build:** a one-command build of the GDExtension, then running the game, with
   the hot-reloadable physics parameters.
@@ -990,7 +992,7 @@ so every later milestone is diagnosed from logs rather than from reproducing pro
 ### M0 — Foundations and the pipeline, end to end
 The goal is to prove the whole Windows → iPhone path before any feature exists.
 - **Workstreams:**
-  - repo, layout and toolchain: install SCons, pin godot-cpp, add the test framework;
+  - repo, layout and toolchain: pin godot-cpp, add the test framework;
   - `core/` skeleton and native test runner;
   - GDExtension binding loaded by Godot 4.7.1 on Windows;
   - Windows CI;

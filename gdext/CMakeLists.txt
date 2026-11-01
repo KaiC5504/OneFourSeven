@@ -1,4 +1,7 @@
 set(GODOTCPP_API_VERSION "4.7" CACHE STRING "Godot API the extension targets")
+# ofs_core and nlohmann throw; godot-cpp would otherwise define _HAS_EXCEPTIONS=0 for the
+# whole extension, giving one DLL two layouts of std::exception (heap corruption on MSVC).
+set(GODOTCPP_DISABLE_EXCEPTIONS OFF CACHE BOOL "" FORCE)
 
 add_subdirectory(${PROJECT_SOURCE_DIR}/thirdparty/godot-cpp ${CMAKE_CURRENT_BINARY_DIR}/godot-cpp)
 

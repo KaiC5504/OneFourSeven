@@ -8,6 +8,7 @@ config/name="One Four Seven"
 config/name.ios="147"
 config/version="0.1.0"
 run/main_scene="res://scenes/main.tscn"
+run/low_processor_mode=true
 config/features=PackedStringArray("4.7", "Mobile")
 config/icon="res://icons/icon.png"
 
@@ -32,3 +33,8 @@ window/handheld/orientation=4
 textures/vram_compression/import_etc2_astc=true
 renderer/rendering_method="mobile"
 renderer/rendering_method.mobile="mobile"
+anti_aliasing/quality/msaa_3d=2
+
+[debug]
+
+gdscript/warnings/untyped_declaration=2

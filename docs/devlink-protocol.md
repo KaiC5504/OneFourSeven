@@ -31,6 +31,11 @@ mDNSResponder enforce.
   line's `ts` (UTC) and the session from its `session` field. Lines from several sessions
   in one request are fine.
 - `204` when every line was stored.
+- `411` without Content-Length, `413` over 1 MiB or 512 lines (nothing stored), `404` for an
+  unknown path. The game drops a batch the server will never accept (400's bad lines, 413,
+  404) instead of retrying it, logs `devlink.upload_rejected`, and splits a batch rather than
+  sending one over the limits; a single line over 1 MiB is dropped and counted.
+- The server keeps every rejected line with its reason in `logs/<date>/rejected.jsonl`.
 - `400 {"stored": n, "bad_lines": [i, ...]}` when some lines were not valid log lines; the
   valid ones are stored anyway. The game drops the bad lines (they would fail again) and
   logs `devlink.upload_failed` with status 400.
@@ -48,13 +53,36 @@ mDNSResponder enforce.
 - The game checks every 3 s while connected. New parameters are applied at the next shot,
   never mid-shot (M0 has no shots: it applies at once), and logged as `params.applied`.
 
+## What gets uploaded
+
+The game uploads from its session files in `user://logs`, not from memory: every session
+file, the current one and any earlier ones a crash or a session away from the PC left
+behind, is sent from the byte offset last acknowledged by a 2xx (kept in
+`user://logs/upload_state.json`) up to its last complete line. So nothing is lost to a
+crash, a quit, or playing without the PC, and nothing is sent twice. On connect the game
+logs `devlink.backlog` when earlier sessions are waiting. Fully uploaded files are pruned
+by the normal size cap only.
+
+## Served parameters are archived
+
+Every distinct parameter set `devlink.py` serves is saved as `logs/params/<hash>.json`, so a
+hash in a `params.applied` line can always be traced back to its values.
+
 ## Canonical JSON and the hash
 
-`canonical` = keys sorted, no whitespace, UTF-8, numbers in shortest round-trip form.
+`canonical` = keys sorted, no whitespace, UTF-8 without escaping non-ASCII, strings escaped
+as JSON requires (control characters as lowercase `\u00xx`). Numbers: a JSON integer
+token is written in decimal; any other number is written with C's `%.17g`, with `.0`
+appended if the result has no `.`, `e` or `n`. NaN and infinities are refused. Both sides
+implement this rule explicitly (C++ `snprintf`, Python `'%.17g' % x`); neither relies on its
+JSON library's number output, which differs between nlohmann and Python for some doubles.
 `content_hash` = FNV-1a 64 (offset basis `0xcbf29ce484222325`, prime `0x100000001b3`) over
 those bytes, as 16 lowercase hex digits.
 
-Test vectors (both `core/tests/test_params.cpp` and `tools/test_devlink.py` assert these):
+`tools/test_devlink.py` also runs `ofs_params_hash` (built by the gate) over thousands of
+random doubles and requires identical hashes. Test vectors (both
+`core/tests/test_params.cpp` and `tools/test_devlink.py` assert these; recompute any that
+contain non-integer numbers under the rule above):
 
 | Input | Canonical | Hash |
 | --- | --- | --- |
