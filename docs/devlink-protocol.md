@@ -38,9 +38,9 @@ mDNSResponder enforce.
 - The server keeps every rejected line with its reason in `logs/<date>/rejected.jsonl`.
 - `400 {"stored": n, "bad_lines": [i, ...]}` when some lines were not valid log lines; the
   valid ones are stored anyway. The game drops the bad lines (they would fail again) and
-  logs `devlink.upload_failed` with status 400.
-- On any other failure (timeout, connection refused, 5xx) the game puts the batch back
-  (`RingBuffer::restore`) and retries with backoff: 1 s, 2 s, 4 s, ... capped at 30 s.
+  logs `devlink.upload_rejected` with status 400.
+- On any other failure (timeout, connection refused, 5xx, 408, 429) the acknowledged offset
+  stays where it was and the game retries with backoff: 1 s, 2 s, 4 s, ... capped at 30 s.
 
 ### `GET /params`
 - `200 {"hash": "<16 hex>", "files": {"table_params": {...}}}`. `files` holds the parsed
@@ -58,9 +58,11 @@ mDNSResponder enforce.
 The game uploads from its session files in `user://logs`, not from memory: every session
 file, the current one and any earlier ones a crash or a session away from the PC left
 behind, is sent from the byte offset last acknowledged by a 2xx (kept in
-`user://logs/upload_state.json`) up to its last complete line. So nothing is lost to a
+`user://logs/upload_state.json` as `{"v": 1, "offsets": {"<file name>": <bytes>}}`, written to
+a temp file and renamed) up to its last complete line. So nothing is lost to a
 crash, a quit, or playing without the PC, and nothing is sent twice. On connect the game
-logs `devlink.backlog` when earlier sessions are waiting. Fully uploaded files are pruned
+logs `devlink.backlog` when earlier sessions are waiting. `suppressed_since_last` in
+`devlink.upload_rejected` counts rejections that weren't logged because of the rate limit. Fully uploaded files are pruned
 by the normal size cap only.
 
 ## Served parameters are archived

@@ -54,7 +54,8 @@ one plan KaiC approves, then parallel agents build, check, fix and ship.
 - Playable Windows build: `python scripts/build_windows.py` (`--shortcut` adds a desktop
   shortcut).
 - Phone link server: `uv run tools/devlink.py` (background; logs land in `logs/<date>/`).
-  Without it, Windows logs stay in `%APPDATA%/Godot/app_userdata/One Four Seven/logs`.
+  Without it, Windows logs stay in `%APPDATA%/Godot/app_userdata/One Four Seven/logs`; they
+  upload the next time the link connects. Pass `-- --no-link` to keep a run off the link.
 
 ## Building and shipping
 

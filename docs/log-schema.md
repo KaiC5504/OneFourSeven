@@ -43,4 +43,7 @@ Every line is one JSON object:
 | `devlink.request_failed` | warn | a `/health` or `/params` request failed (first of each distinct error, then at most one per 30 s) | `endpoint`, `status` (0 = no response), `error`, `attempt`, `body` (server's error text, ≤ 500 chars) |
 | `devlink.resolve_failed` | warn | a Bonjour result couldn't be resolved to an IPv4 address and port | `name`, `error`, `local_network_denied` |
 | `devlink.upload_rejected` | warn | the server refused a batch it will never accept (400, 413, 404); those lines are dropped | `status`, `dropped_lines`, `suppressed_since_last`, `body` |
+| `log.dropped` (changed) | warn | lines FileSink's size cap pruned before they were uploaded, reported after app.start | `count`, `total_dropped` |
+| `queued_lines` (changed) | | in devlink events: lines written but not yet acknowledged by the PC | |
+| `app.start` `settings` | | | `{link_enabled}` |
 | `devlink.backlog` | info | on connect, earlier sessions are waiting to upload | `sessions`, `bytes` |
