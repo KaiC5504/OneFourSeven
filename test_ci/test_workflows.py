@@ -173,20 +173,24 @@ class IosCompile(unittest.TestCase):
 
     def test_session_log_check_fails_on_app_error(self):
         script = self.session_check()
-        self.assertIn("allowed = []", script)
 
         def line(name, **data):
             return json.dumps({"event": name, "data": data})
 
+        gles3 = "Image format RGBAFloat not supported by hardware, converting to RGBAHalf."
         for lines, code in (([line("app.start"), line("perf.second")], 0),
-                            ([line("app.start"), line("app.error", kind="script", message="boom")], 1)):
+                            ([line("app.start"), line("app.error", kind="script", message="boom")], 1),
+                            ([line("app.start"), line("app.error", kind="warning", message=gles3)], 0),
+                            ([line("app.start"), line("app.error", kind="error", message=gles3)], 1),
+                            ([line("app.start"), line("app.error", kind="warning",
+                                                      message="Image format RGBAFloat not supported")], 1)):
             with tempfile.TemporaryDirectory() as temp:
                 (Path(temp) / "s.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8")
                 result = subprocess.run([sys.executable, "-I", "-", temp], input=script,
                                         capture_output=True, text=True)
             self.assertEqual(code, result.returncode, result.stdout + result.stderr)
             if code:
-                self.assertIn("s.jsonl:2: script: boom", result.stdout)
+                self.assertIn(f"s.jsonl:2: {json.loads(lines[1])['data']['kind']}: ", result.stdout)
 
     def test_builds_unsigned_for_a_simulator(self):
         build = next(s["run"] for s in self.steps if s.get("name") == "Build for the simulator")

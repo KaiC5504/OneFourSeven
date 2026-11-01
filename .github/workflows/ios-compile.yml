@@ -148,14 +148,17 @@ jobs:
           mkdir -p shots
           xcrun simctl launch --stdout="$PWD/shots/app-stdout.txt" --stderr="$PWD/shots/app-stderr.txt" \
             "$UDID" "$APP_ID" -DemoScreen table
-          # Rosetta translates the x86_64 binary on first launch, which takes minutes rather than
-          # seconds, so this waits for the log to say the table is up instead of a fixed sleep.
-          # Every problem is collected before failing, so one run reports all of them.
+          # The x86_64 binary runs under Rosetta and the simulator falls back to Godot's
+          # Compatibility renderer on Apple's software OpenGL, so the first frame can come
+          # seconds after the table loads. This waits for a perf.second with frames drawn
+          # instead of a fixed sleep. Every problem is collected before failing.
           DATA=$(xcrun simctl get_app_container "$UDID" "$APP_ID" data)
           running() { xcrun simctl spawn "$UDID" launchctl list | grep -q "$APP_ID"; }
+          loaded() { grep -rqs --include="*.jsonl" '"table.loaded"' "$DATA"; }
+          drawn() { grep -rhs --include="*.jsonl" '"perf.second"' "$DATA" | grep -q '"frames_drawn":[1-9]'; }
           for second in $(seq 1 300); do
-            if grep -rqs --include="*.jsonl" '"table.loaded"' "$DATA"; then
-              echo "table.loaded after ${second} s in $(grep -rls --include="*.jsonl" '"table.loaded"' "$DATA")"
+            if loaded && drawn; then
+              echo "table loaded and drawn after ${second} s"
               break
             fi
             if ! running; then
@@ -164,11 +167,11 @@ jobs:
             fi
             sleep 1
           done
-          sleep 5
+          sleep 3
           xcrun simctl io "$UDID" screenshot shots/01-table.png
           problems=()
-          grep -rqs --include="*.jsonl" '"table.loaded"' "$DATA" \
-            || problems+=("no table.loaded in any session log")
+          loaded || problems+=("no table.loaded in any session log")
+          drawn || problems+=("no perf.second with frames drawn: the main loop never drew a frame")
           running || problems+=("the app is not running (see the crash reports step)")
           if [ ${#problems[@]} -gt 0 ]; then
             printf 'error: %s\n' "${problems[@]}"
@@ -202,7 +205,11 @@ jobs:
           # (kind, message regex) with the reason, like gate.py's ALLOWED_APP_ERRORS.
           python -I - shots/logs <<'EOF'
           import json, pathlib, re, sys
-          allowed = []
+          allowed = [
+              # The simulator's Compatibility renderer (GLES3) can't sample float textures; the
+              # phone renders with Metal and never takes this path.
+              ("warning", r"^Image format RGBAFloat not supported by hardware, converting to RGBAHalf\.$"),
+          ]
           found = []
           for path in sorted(pathlib.Path(sys.argv[1]).rglob("*.jsonl")):
               for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
