@@ -1,0 +1,5 @@
+{
+  "schema_version": 1,
+  "_note": "Physics parameters (spec 7.10). M0 ships the file and its plumbing only; M1 fills in every value with a source and a note.",
+  "values": {}
+}

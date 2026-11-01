@@ -1,0 +1,31 @@
+; Engine configuration file.
+
+config_version=5
+
+[application]
+
+config/name="One Four Seven"
+config/version="0.1.0"
+run/main_scene="res://scenes/main.tscn"
+config/features=PackedStringArray("4.7", "Mobile")
+config/icon="res://icons/icon.png"
+
+[autoload]
+
+Log="*res://scripts/autoload/log.gd"
+Params="*res://scripts/autoload/params.gd"
+Link="*res://scripts/autoload/link.gd"
+Harness="*res://scripts/autoload/harness.gd"
+
+[display]
+
+window/size/viewport_width=1912
+window/size/viewport_height=880
+window/stretch/mode="canvas_items"
+window/stretch/aspect="expand"
+window/handheld/orientation=4
+
+[rendering]
+
+renderer/rendering_method="mobile"
+renderer/rendering_method.mobile="mobile"
