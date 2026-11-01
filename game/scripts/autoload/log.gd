@@ -1,26 +1,41 @@
 extends Node
-## Log autoload: GDScript's logging API over OfsLog (spec 16.10). Agent C owns this file.
+## Log autoload: GDScript's logging API over OfsLog (spec 16.10).
 ##
 ## Every other script logs through these four functions. Event names and their fields
 ## must be in core/data/log_schema.json.
+##
+## OfsLog and OfsEngineLogger are reached through ClassDB rather than by name, so this
+## script still compiles when the extension fails to load; Log then writes the same JSONL
+## itself, starting with an app.error that says so.
 
 const BUILD_INFO_PATH := "res://data/build_info.json"
 const LOG_DIR := "user://logs"
 const MAX_FILE_BYTES := 50 * 1024 * 1024
-const MAX_RING_BYTES := 4 * 1024 * 1024
+## The user argument that starts the phone link switched off (link.gd reads it too).
+const NO_LINK_ARG := "--no-link"
+const ENVELOPE := '{"ts":%s,"session":%s,"build":%s,"platform":%s,"subsystem":%s,"level":%s,"event":%s,"data":%s}'
 
-var _engine_logger: OfsEngineLogger
+var _engine_logger: Logger
 var _quit_logged := false
+var _native := true
+var _fallback: FileAccess
+var _session := ""
+var _build := ""
 
 
 # _enter_tree rather than _ready: Log is the first autoload, so this runs before any other
 # autoload can log or raise an engine error.
 func _enter_tree() -> void:
 	var build_info := _read_build_info()
-	OfsLog.start(str(build_info["build_number"]), platform_name(), ProjectSettings.globalize_path(LOG_DIR),
-			MAX_FILE_BYTES, MAX_RING_BYTES)
-	_engine_logger = OfsEngineLogger.new()
-	OS.add_logger(_engine_logger)
+	var build := str(build_info["build_number"])
+	if ClassDB.class_exists("OfsLog") and ClassDB.class_exists("OfsEngineLogger"):
+		ClassDB.class_call_static("OfsLog", "start", build, platform_name(),
+				ProjectSettings.globalize_path(LOG_DIR), MAX_FILE_BYTES)
+		_engine_logger = ClassDB.instantiate("OfsEngineLogger") as Logger
+		OS.add_logger(_engine_logger)
+	else:
+		_start_fallback(LOG_DIR, build,
+				"the onefourseven GDExtension did not load (no OfsLog class); Log is writing JSONL itself")
 	info("app", "app.start", _start_data(build_info))
 	if build_info.has("missing_reason"):
 		warn("app", "app.error", {"kind": "message", "message": build_info["missing_reason"],
@@ -42,30 +57,40 @@ func _notification(what: int) -> void:
 			if not _quit_logged:
 				_quit_logged = true
 				_lifecycle("quit")
-			OfsLog.flush()
+			flush()
 			if what == NOTIFICATION_PREDELETE and _engine_logger != null:
 				OS.remove_logger(_engine_logger)
 				_engine_logger = null
 
 
 func debug(subsystem: String, event: String, data: Dictionary = {}) -> void:
-	OfsLog.emit(subsystem, "debug", event, data)
+	_emit(subsystem, "debug", event, data)
 
 
 func info(subsystem: String, event: String, data: Dictionary = {}) -> void:
-	OfsLog.emit(subsystem, "info", event, data)
+	_emit(subsystem, "info", event, data)
 
 
 func warn(subsystem: String, event: String, data: Dictionary = {}) -> void:
-	OfsLog.emit(subsystem, "warn", event, data)
+	_emit(subsystem, "warn", event, data)
 
 
 func error(subsystem: String, event: String, data: Dictionary = {}) -> void:
-	OfsLog.emit(subsystem, "error", event, data)
+	_emit(subsystem, "error", event, data)
 
 
 func session() -> String:
-	return OfsLog.session()
+	if not _native:
+		return _session
+	return ClassDB.class_call_static("OfsLog", "session")
+
+
+func flush() -> void:
+	if not _native:
+		if _fallback != null:
+			_fallback.flush()
+		return
+	ClassDB.class_call_static("OfsLog", "flush")
 
 
 ## "windows", "ios" or "ios-simulator"; any other desktop reports its own name.
@@ -77,6 +102,31 @@ static func platform_name() -> String:
 	if OS.has_feature("windows"):
 		return "windows"
 	return OS.get_name().to_lower()
+
+
+func _emit(subsystem: String, level: String, event: String, data: Dictionary) -> void:
+	if _native:
+		ClassDB.class_call_static("OfsLog", "emit", subsystem, level, event, data)
+	elif _fallback != null:
+		_fallback.store_line(ENVELOPE % [JSON.stringify(Time.get_unix_time_from_system()), JSON.stringify(_session),
+				JSON.stringify(_build), JSON.stringify(platform_name()), JSON.stringify(subsystem),
+				JSON.stringify(level), JSON.stringify(event), JSON.stringify(data)])
+		_fallback.flush()
+
+
+## The writer for when the extension is missing; dir is a Godot path such as user://logs.
+func _start_fallback(dir: String, build: String, reason: String) -> void:
+	_native = false
+	_build = build
+	var now := Time.get_datetime_dict_from_system(true)
+	_session = "%04d%02d%02d-%02d%02d%02d-%06x" % [now["year"], now["month"], now["day"], now["hour"],
+			now["minute"], now["second"], randi() & 0xffffff]
+	DirAccess.make_dir_recursive_absolute(dir)
+	_fallback = FileAccess.open(dir.path_join(_session + ".jsonl"), FileAccess.WRITE)
+	if _fallback == null:
+		printerr("Log: %s, and %s can't be written (%s)" % [reason, dir, error_string(FileAccess.get_open_error())])
+		return
+	error("app", "app.error", {"kind": "message", "message": reason})
 
 
 func _lifecycle(state: String) -> void:
@@ -101,23 +151,37 @@ func _read_build_info() -> Dictionary:
 
 
 func _start_data(build_info: Dictionary) -> Dictionary:
-	var args: Array = Array(OS.get_cmdline_args()) + Array(OS.get_cmdline_user_args())
+	# Godot keeps the engine options it consumed (--headless, --path, ...) out of
+	# get_cmdline_args; display_server and renderer below say what they chose.
+	var args: Array = Array(OS.get_cmdline_args())
+	var user_args := OS.get_cmdline_user_args()
+	if not user_args.is_empty():
+		args.append("--")
+		args.append_array(Array(user_args))
+	var screen := DisplayServer.screen_get_size()
+	var safe := DisplayServer.get_display_safe_area()
+	var core_version := "none"
+	if _native:
+		core_version = ClassDB.class_call_static("OfsLog", "core_version")
 	return {
 		"version": str(build_info["version"]),
 		"build_number": str(build_info["build_number"]),
 		"git_sha": str(build_info["git_sha"]),
-		"core_version": OfsLog.core_version(),
+		"git_dirty": build_info.get("git_dirty", false) == true,
+		"core_version": core_version,
 		"godot_version": str(Engine.get_version_info()["string"]),
 		"os": OS.get_name(),
 		"os_version": OS.get_version(),
 		"device_model": OS.get_model_name(),
 		"renderer": "%s / %s" % [RenderingServer.get_current_rendering_method(),
 				RenderingServer.get_video_adapter_name()],
-		"screen_size": DisplayServer.screen_get_size(),
-		"safe_area": DisplayServer.get_display_safe_area(),
+		"display_server": DisplayServer.get_name(),
+		"max_fps": Engine.max_fps,
+		"screen_size": [screen.x, screen.y],
+		"safe_area": [safe.position.x, safe.position.y, safe.size.x, safe.size.y],
 		"refresh_rate": DisplayServer.screen_get_refresh_rate(),
 		"locale": OS.get_locale(),
 		"debug_build": OS.is_debug_build(),
 		"launch_args": args,
-		"settings": {},
+		"settings": {"link_enabled": not user_args.has(NO_LINK_ARG)},
 	}

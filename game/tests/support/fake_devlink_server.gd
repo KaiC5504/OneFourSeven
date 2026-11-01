@@ -14,8 +14,12 @@ var params_hash := "0123456789abcdef"
 var params_files: Dictionary = {"table_params": {"schema_version": 1, "values": {}}}
 ## When true /params answers 200 even if If-None-Match matches.
 var ignore_if_none_match := false
-## Queued answers for the next POST /logs, each {"status": int, "body": String}; 204 after.
-var log_replies: Array[Dictionary] = []
+## Queued answers per path, each {"status": int, "body": String}, used up before the normal
+## answer.
+var replies: Dictionary[String, Array] = {}
+## When not 0, every request gets this status and fixed_body.
+var fixed_status := 0
+var fixed_body := ""
 ## Every request read: {"method", "path", "headers" (lower-case keys), "body", "time"}, plus
 ## "status" once answered.
 var requests: Array[Dictionary] = []
@@ -29,6 +33,12 @@ func listen() -> Error:
 	if err == OK:
 		port = _server.get_local_port()
 	return err
+
+
+func queue_reply(path: String, status: int, body: String = "") -> void:
+	if not replies.has(path):
+		replies[path] = []
+	replies[path].append({"status": status, "body": body})
 
 
 func _exit_tree() -> void:
@@ -76,11 +86,10 @@ func _process(_delta: float) -> void:
 
 
 func _parse(buffer: PackedByteArray) -> Dictionary:
-	var text := buffer.get_string_from_ascii()
-	var head_end := text.find("\r\n\r\n")
+	var head_end := _find_head_end(buffer)
 	if head_end < 0:
 		return {}
-	var lines := text.substr(0, head_end).split("\r\n")
+	var lines := buffer.slice(0, head_end).get_string_from_ascii().split("\r\n")
 	var parts := lines[0].split(" ")
 	var headers := {}
 	for i in range(1, lines.size()):
@@ -100,13 +109,25 @@ func _parse(buffer: PackedByteArray) -> Dictionary:
 	}
 
 
+# Only the start is searched, so a 1 MiB body isn't decoded again on every poll.
+func _find_head_end(buffer: PackedByteArray) -> int:
+	return buffer.slice(0, 16384).get_string_from_ascii().find("\r\n\r\n")
+
+
 func _answer(peer: StreamPeerTCP, request: Dictionary) -> void:
 	var path: String = request["path"]
+	if fixed_status != 0:
+		_send(peer, request, fixed_status, fixed_body)
+		return
+	var queued: Array = replies.get(path, [])
+	if not queued.is_empty():
+		var reply: Dictionary = queued.pop_front()
+		_send(peer, request, reply["status"], reply["body"])
+		return
 	if path == "/health":
 		_send(peer, request, 200, JSON.stringify({"ok": true, "v": server_version}))
 	elif path == "/logs":
-		var reply: Dictionary = log_replies.pop_front() if not log_replies.is_empty() else {"status": 204, "body": ""}
-		_send(peer, request, reply["status"], reply["body"])
+		_send(peer, request, 204, "")
 	elif path == "/params":
 		var headers: Dictionary = request["headers"]
 		if not ignore_if_none_match and headers.get("if-none-match", "") == '"%s"' % params_hash:
@@ -114,7 +135,7 @@ func _answer(peer: StreamPeerTCP, request: Dictionary) -> void:
 		else:
 			_send(peer, request, 200, JSON.stringify({"hash": params_hash, "files": params_files}))
 	else:
-		_send(peer, request, 404, "")
+		_send(peer, request, 404, JSON.stringify({"error": "not found"}))
 
 
 func _send(peer: StreamPeerTCP, request: Dictionary, status: int, body: String) -> void:

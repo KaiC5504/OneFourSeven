@@ -4,7 +4,7 @@ namespace {
 class NullBrowser : public BonjourBrowser {
 public:
     bool supported() const override { return false; }
-    void start(FoundCallback, FailedCallback) override {}
+    void start(FoundCallback, FailedCallback, ResolveFailedCallback) override {}
     void stop() override {}
     void poll() override {}
 };
