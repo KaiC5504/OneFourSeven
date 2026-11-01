@@ -1,7 +1,5 @@
 #include "bonjour_browser.h"
 
-// Contract stub: agent D owns this file.
-
 namespace {
 class NullBrowser : public BonjourBrowser {
 public:
