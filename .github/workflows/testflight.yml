@@ -5,8 +5,9 @@
 # exact head to this workflow and checks the environment first.
 #
 # The repo is public, so this log and every artifact are public too. Secrets live in
-# the `testflight` environment, which only main can use (manual-steps §5), and reach
-# only the steps that need them. Never upload the IPA or Xcode logs, never `set -x`.
+# the `testflight` environment, which only main can use (ios-testflight skill,
+# reference/manual-steps.md §5; spec 17.4), and reach only the steps that need them.
+# Never upload the IPA or Xcode logs, never `set -x`.
 #
 # The Xcode project is generated: Godot exports game/ with the "iOS" preset into
 # build/ios, and "Make the project ours" patches and checks the result before signing.
@@ -61,8 +62,8 @@ jobs:
     name: Signed build
     if: github.ref == 'refs/heads/main'
     runs-on: macos-26
-    # The extension build, the export template download and Godot's import come on
-    # top of the template's archive.
+    # The extension build, the export templates download and Godot's import all come
+    # before the Xcode archive and export.
     timeout-minutes: 90
     environment: testflight
     outputs:
@@ -78,7 +79,8 @@ jobs:
           fi
           if [ "$ASC_APP_ID" = "__ASC_APP_ID__" ]; then
             echo "ASC_APP_ID in testflight.yml is still the placeholder. Create the App Store"
-            echo "Connect record (manual-steps §3), put its Apple ID there and push to main."
+            echo "Connect record (ios-testflight skill, reference/manual-steps.md §3; spec 17.4),"
+            echo "put its Apple ID there and push to main."
             exit 1
           fi
 
@@ -98,6 +100,14 @@ jobs:
           NEWEST=$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)
           sudo xcode-select -s "$NEWEST"
           xcodebuild -version
+          # Spec 17.3: an image without the iOS 26 SDK stops here rather than at upload.
+          sdks=$(xcodebuild -showsdks)
+          case "$sdks" in
+            *"-sdk iphoneos26."*) ;;
+            *) echo "error: $NEWEST has no iOS 26 SDK (iphoneos26.x). It has:"
+               printf '%s\n' "$sdks"
+               exit 1 ;;
+          esac
           # cli-tools shells out to `openssl smime`; keep OpenSSL 3 first on PATH.
           if [ -d /opt/homebrew/opt/openssl@3/bin ]; then
             echo /opt/homebrew/opt/openssl@3/bin >> "$GITHUB_PATH"

@@ -1,7 +1,8 @@
 name: Windows CI
 
-# The local gate's quick lanes on a clean Windows runner: core tests, Godot tests, a headless run
-# of the game with its session log checked, the tools' and the workflows' tests.
+# The full local gate on a clean Windows runner: core tests, Godot tests, a headless run of the
+# game with its session log checked, the tools' and the workflows' tests, and the Windows export
+# (spec 16.8).
 
 on:
   push:
@@ -22,7 +23,8 @@ defaults:
 jobs:
   gate:
     runs-on: windows-latest
-    timeout-minutes: 45
+    # A cold Debug and Release build of godot-cpp plus the export templates download.
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -42,7 +44,7 @@ jobs:
           echo "OFS_GODOT=$godot" >> "$GITHUB_ENV"
 
       - name: Gate
-        run: python scripts/gate.py --quick
+        run: python scripts/gate.py
 
       # Lane logs and the headless run's session log: build output and test results only.
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

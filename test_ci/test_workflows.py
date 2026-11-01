@@ -1,7 +1,11 @@
 """Static checks on windows-ci.yml and ios-compile.yml. The repo is public, so their logs and
 artifacts are too: no secrets, no tracing, no unpinned code, no unchecked downloads."""
 
+import json
 import re
+import subprocess
+import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -96,10 +100,12 @@ class WindowsCi(unittest.TestCase):
         self.assertNotIn("paths", on["push"])
         self.assertIn("pull_request", on)
 
-    def test_runs_the_quick_gate_on_windows(self):
+    def test_runs_the_full_gate_on_windows(self):
+        # The full gate includes the Windows export spec 16.8 asks CI for.
         self.assertEqual("windows-latest", self.doc["jobs"]["gate"]["runs-on"])
         runs = [s.get("run", "") for s in self.steps]
-        self.assertIn("python scripts/gate.py --quick", runs)
+        self.assertIn("python scripts/gate.py", runs)
+        self.assertFalse(any("--quick" in r for r in runs))
         self.assertTrue(any("scripts/godot_tools.py editor" in r for r in runs))
 
     def test_uploads_the_gate_logs_only_on_failure(self):
@@ -152,6 +158,34 @@ class IosCompile(unittest.TestCase):
         for part, at in zip(order, positions):
             self.assertNotEqual(-1, at, part)
         self.assertEqual(sorted(positions), positions)
+
+    def test_needs_the_ios_26_sdk(self):
+        toolchain = next(s["run"] for s in self.steps if s.get("name") == "Toolchain")
+        self.assertIn("sdks=$(xcodebuild -showsdks)", toolchain)
+        self.assertIn('*"-sdk iphoneos26."*) ;;', toolchain)
+        self.assertIn("exit 1", toolchain.split('*"-sdk iphoneos26."*) ;;', 1)[1].split("esac")[0])
+
+    def session_check(self):
+        run = next(s["run"] for s in self.steps if s.get("name") == "Check the session log")
+        self.assertIn("python -I - shots/logs <<'EOF'", run)
+        return run.split("<<'EOF'\n", 1)[1].split("\nEOF", 1)[0]
+
+    def test_session_log_check_fails_on_app_error(self):
+        script = self.session_check()
+        self.assertIn("allowed = []", script)
+
+        def line(name, **data):
+            return json.dumps({"event": name, "data": data})
+
+        for lines, code in (([line("app.start"), line("perf.second")], 0),
+                            ([line("app.start"), line("app.error", kind="script", message="boom")], 1)):
+            with tempfile.TemporaryDirectory() as temp:
+                (Path(temp) / "s.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8")
+                result = subprocess.run([sys.executable, "-I", "-", temp], input=script,
+                                        capture_output=True, text=True)
+            self.assertEqual(code, result.returncode, result.stdout + result.stderr)
+            if code:
+                self.assertIn("s.jsonl:2: script: boom", result.stdout)
 
     def test_builds_unsigned_for_a_simulator(self):
         build = next(s["run"] for s in self.steps if s.get("name") == "Build for the simulator")

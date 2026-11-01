@@ -163,6 +163,40 @@ def ensure_templates() -> Path:
     return target
 
 
+def pbx_object(pbxproj: str, object_id: str) -> str:
+    """The text between the braces of one object in a project.pbxproj, or "" if it is missing."""
+    start = re.search(rf"^\s*{object_id}\b[^=\n]*= \{{", pbxproj, re.MULTILINE)
+    if not start:
+        return ""
+    depth = 0
+    for i in range(start.end() - 1, len(pbxproj)):
+        if pbxproj[i] == "{":
+            depth += 1
+        elif pbxproj[i] == "}":
+            depth -= 1
+            if depth == 0:
+                return pbxproj[start.end():i]
+    return ""
+
+
+def app_target_configs(pbxproj: str) -> dict[str, str]:
+    """The application target's build configurations, by name (Debug, Release)."""
+    configs = {}
+    for target in re.finditer(r"^\s*([0-9A-F]{24})\b[^=\n]*= \{\s*isa = PBXNativeTarget;", pbxproj,
+                              re.MULTILINE):
+        body = pbx_object(pbxproj, target.group(1))
+        if 'productType = "com.apple.product-type.application";' not in body:
+            continue
+        listed = re.search(r"buildConfigurationList = ([0-9A-F]{24})", body)
+        members = re.search(r"buildConfigurations = \(([^)]*)\)",
+                            pbx_object(pbxproj, listed.group(1)) if listed else "")
+        for config_id in re.findall(r"\b[0-9A-F]{24}\b", members.group(1) if members else ""):
+            config = pbx_object(pbxproj, config_id)
+            name = re.search(r"^\s*name = \"?([^\";]*)\"?;", config, re.MULTILINE)
+            configs[name.group(1) if name else config_id] = config
+    return configs
+
+
 def fix_ios_export(export_dir: Path) -> list[str]:
     """Gives the exported Info.plist all four iPad orientations and checks every pipeline key.
 
@@ -205,6 +239,15 @@ def fix_ios_export(export_dir: Path) -> list[str]:
         found = set(re.findall(rf"\b{setting} = \"?([^\";]*)\"?;", pbxproj))
         if found != {want}:
             problems.append(f"project.pbxproj {setting} is {sorted(found)}, want {want!r}")
+    # Pipeline-critical in the ios-testflight skill; only the app target's own setting counts.
+    configs = app_target_configs(pbxproj)
+    if not configs:
+        problems.append("project.pbxproj has no application target with build configurations")
+    for config_name, config in sorted(configs.items()):
+        style = re.findall(r"\bCODE_SIGN_STYLE = \"?([^\";]*)\"?;", config)
+        if style != ["Automatic"]:
+            problems.append(f"project.pbxproj app target {config_name} CODE_SIGN_STYLE is {style}, "
+                            "want ['Automatic']")
     if not list(export_dir.glob(f"{name}.xcodeproj/xcshareddata/xcschemes/*.xcscheme")):
         problems.append("no shared scheme in the exported project")
     icon = export_dir / name / "Images.xcassets" / "AppIcon.appiconset"
