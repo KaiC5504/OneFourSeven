@@ -163,3 +163,11 @@ secrets set, ASC_APP_ID 6829495084. First iOS compile check compiled everything 
 .mm files; failed only at framework naming (fixed in 1630665). Running: seam review,
 second Windows run, CI on dev. Then: ff main, push, full gate on main, TestFlight build 1
 (`testflight.py start --create-signing`).
+
+## CI on dev
+Seam fixes 9491730 (test runs log to user://test-logs, smoke run off the link, footprint
+in MB of 1e6 with a reported failure). Windows CI: the first Godot import on a fresh
+runner can crash on exit; gate.godot_import retries once (772c1e9), green since. iOS: the
+simulator libgodot.a holds only x86_64 objects, so the compile check builds x86_64 for
+`generic/platform=iOS Simulator` (Xcode 26 lists no Rosetta destinations) and installs on
+the booted arm64 simulator under Rosetta (52bf36e).
