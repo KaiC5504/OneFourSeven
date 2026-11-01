@@ -20,7 +20,7 @@ Every line is one JSON object:
 | --- | --- | --- | --- |
 | `app.start` | info | once, as soon as the Log autoload is ready | `version`, `build_number`, `git_sha`, `core_version`, `godot_version`, `os`, `os_version`, `device_model`, `renderer`, `screen_size` [w, h] px, `safe_area` [x, y, w, h] px, `refresh_rate` Hz, `locale`, `debug_build`, `launch_args`, `settings` |
 | `app.lifecycle` | info | foreground, background, focus lost/gained, quit (`state`) | `state` |
-| `app.error` | warn/error | every engine error and warning, GDScript error, C++ assertion | `kind` (`error`, `warning`, `script`, `shader`, `message`, `assert`), `message`, `file`, `line`, `function`, `stack` (array of `file:line function` strings) |
+| `app.error` | warn/error | every engine error and warning, GDScript error, C++ assertion | `kind` (`error`, `warning`, `script`, `shader`, `message`, `assert`, `log` for the logger's own failures), `message`, `file`, `line`, `function`, `stack` (array of `file:line function` strings) |
 | `perf.second` | info | once a second while the app runs | `fps`, `frame_ms_avg`, `frame_ms_p95`, `frame_ms_max`, `dropped_frames` (frames over 1.5x the target interval), `static_memory_mb`, `thermal_state` (`nominal`, `fair`, `serious`, `critical`, `unknown`), `idle` |
 | `perf.hitch` | warn | any frame over 50 ms | `frame_ms`, `scene`, `activity` (what was running: `startup`, `idle`, `loading`, ...) |
 | `table.loaded` | info | the table and balls are built | `balls`, `layout` (`opening`), `params_hash` |
