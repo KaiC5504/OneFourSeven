@@ -150,9 +150,10 @@ class IosCompile(unittest.TestCase):
                  "scripts/godot_tools.py ios-plist build/ios",
                  "xcodebuild -list -json",
                  "xcrun simctl install",
-                 "xcrun simctl launch \"$UDID\" \"$APP_ID\" -DemoScreen table",
-                 "xcrun simctl io \"$UDID\" screenshot shots/",
+                 "\"$UDID\" \"$APP_ID\" -DemoScreen table",
                  "get_app_container \"$UDID\" \"$APP_ID\" data",
+                 "'\"table.loaded\"'",
+                 "xcrun simctl io \"$UDID\" screenshot shots/",
                  "python tools/check_logs.py shots/logs"]
         positions = [self.script.find(part) for part in order]
         for part, at in zip(order, positions):
