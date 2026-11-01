@@ -86,4 +86,5 @@ signed build before the compile check is green.
 
 ## Status
 
-- M0 paused (2026-11-02): all branches merged, full gate green, check round half done. Resume from `docs/m0-progress.md`.
+- M0 shipped (2026-11-02): TestFlight build 1 from 8f98887, waiting on KaiC's phone check.
+  Open follow-up: the macOS export editor lacks the extension (see `docs/m0-progress.md`).

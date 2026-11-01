@@ -194,3 +194,10 @@ extension, so --import/--export log parse errors for every script using Ofs* cla
 log has no script errors), but the noise can hide real export errors. Fix: build the
 extension for macos.arm64 editor on the runners (gdextension entry + build step), then make
 the export step fail on SCRIPT ERROR.
+
+## Shipped
+TestFlight build 1 (run 41347888441, 8f98887): uploaded and processed by Apple. dev
+(41e823a and later) green on both CI checks. Waiting on KaiC's phone check: install,
+landscape both ways, allow local network, "PC link: connected" with devlink running,
+Windows shortcut works. First phone session logs land in logs/<date>/ via devlink: check
+app.start renderer (expect mobile/Metal), footprint_mb, perf.second fps and idle.
