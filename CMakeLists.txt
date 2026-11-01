@@ -20,6 +20,9 @@ else()
     add_compile_options(-ffp-contract=off -fno-fast-math)
 endif()
 
+# godot-cpp always links the static release CRT; everything in the extension must match.
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded")
+
 if(OFS_BUILD_TESTS)
     enable_testing()
 endif()
