@@ -14,6 +14,18 @@
 #include <vector>
 
 #include "ofs/log.hpp"
+#include "ofs/log_schema.hpp"
+
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+#endif
+
+namespace ofs::log::detail {
+// Defined in log.cpp: assert_failed without the abort.
+void log_assert(const char* expr, const char* file, int line, const char* function);
+}  // namespace ofs::log::detail
 
 using namespace ofs::log;
 namespace fs = std::filesystem;
@@ -36,6 +48,11 @@ Event sample_event() {
 struct CaptureSink : Sink {
     std::vector<std::string> lines;
     void write(const Event&, const std::string& line) override { lines.push_back(line); }
+};
+
+struct FlushCountingSink : CaptureSink {
+    int flushes = 0;
+    void flush() override { ++flushes; }
 };
 
 struct ThrowingSink : Sink {
@@ -171,6 +188,22 @@ TEST_CASE("from_jsonl rejects anything that isn't a complete log line") {
     CHECK(out.ts == 1793633412.0);
 }
 
+TEST_CASE("from_jsonl accepts ts only in [0, 1e11), as devlink does") {
+    auto line = nlohmann::json::parse(to_jsonl(sample_event()));
+    Event out;
+    for (const double ts : {0.0, 1793633412.123, 99999999999.999}) {
+        CAPTURE(ts);
+        line["ts"] = ts;
+        CHECK(from_jsonl(line.dump(), out));
+        CHECK(out.ts == ts);
+    }
+    for (const double ts : {-0.001, -1793633412.0, 1e11, 1e300}) {
+        CAPTURE(ts);
+        line["ts"] = ts;
+        CHECK_FALSE(from_jsonl(line.dump(), out));
+    }
+}
+
 TEST_CASE("new_session_id is UTC time plus six hex digits") {
     const std::regex pattern("^20[0-9]{6}-[0-9]{6}-[0-9a-f]{6}$");
     const std::string a = new_session_id();
@@ -301,6 +334,7 @@ TEST_CASE("FileSink line is on disk before the sink closes") {
     const auto lines = read_lines(fs::u8path(sink.path()));
     REQUIRE(lines.size() == 1);
     CHECK(lines[0] == line);
+    CHECK(sink.error().empty());
 }
 
 TEST_CASE("FileSink appends to an existing session file") {
@@ -353,7 +387,112 @@ TEST_CASE("FileSink that can't open its file does nothing but keeps its path") {
     CHECK_NOTHROW(sink.write(sample_event(), "line"));
     CHECK_NOTHROW(sink.flush());
     CHECK_FALSE(fs::exists(inside_a_file));
+    CHECK(sink.error().rfind("create_directories failed: ", 0) == 0);
 }
+
+TEST_CASE("FileSink that can't open its file says why, for good") {
+    TempDir dir;
+    fs::create_directories(dir.path / "s.jsonl");
+    FileSink sink(dir.path.u8string(), "s", 1u << 20);
+    const std::string reason = sink.error();
+    CHECK(reason.rfind("open failed: ", 0) == 0);
+    CHECK(reason.size() > std::string("open failed: ").size());
+    sink.write(sample_event(), "line");
+    sink.flush();
+    CHECK(sink.error() == reason);
+}
+
+#ifdef _WIN32
+TEST_CASE("FileSink reports a failed write once and clears it when writes work again") {
+    TempDir dir;
+    FileSink sink(dir.path.u8string(), "s", 1u << 20);
+    const Event e = sample_event();
+    sink.write(e, "before");
+    REQUIRE(sink.error().empty());
+
+    // Windows byte-range locks are mandatory, so a second handle locking the whole file
+    // makes the sink's appends fail the way a full disk would.
+    const HANDLE other = CreateFileW((dir.path / "s.jsonl").c_str(), GENERIC_READ | GENERIC_WRITE,
+                                     FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING,
+                                     FILE_ATTRIBUTE_NORMAL, nullptr);
+    REQUIRE(other != INVALID_HANDLE_VALUE);
+    REQUIRE(LockFile(other, 0, 0, MAXDWORD, MAXDWORD));
+    sink.write(e, "lost");
+    const std::string failure = sink.error();
+    sink.write(e, "lost too");
+    const std::string repeated = sink.error();
+    sink.flush();
+    const std::string after_flush = sink.error();
+    UnlockFile(other, 0, 0, MAXDWORD, MAXDWORD);
+    CloseHandle(other);
+
+    CHECK(failure.rfind("write failed: ", 0) == 0);
+    CHECK(failure.size() > std::string("write failed: ").size());
+    CHECK(repeated == failure);
+    CHECK(after_flush == failure);
+    sink.write(e, "after");
+    CHECK(sink.error().empty());
+    CHECK(read_lines(dir.path / "s.jsonl") == std::vector<std::string>{"before", "after"});
+}
+#endif
+
+TEST_CASE("a failed assert logs app.error kind assert and flushes") {
+    LoggerScope scope;
+    auto capture = std::make_shared<FlushCountingSink>();
+    Logger::instance().add_sink(capture);
+
+    ofs::log::detail::log_assert("x > 0", "core/src/thing.cpp", 42, "thing");
+    REQUIRE(capture->lines.size() == 1);
+    CHECK(capture->flushes == 1);
+    Event e;
+    REQUIRE(from_jsonl(capture->lines[0], e));
+    CHECK(e.subsystem == "app");
+    CHECK(e.level == Level::error);
+    CHECK(e.event == "app.error");
+    CHECK(e.data == nlohmann::json{{"kind", "assert"},
+                                   {"message", "x > 0"},
+                                   {"file", "core/src/thing.cpp"},
+                                   {"line", 42},
+                                   {"function", "thing"}});
+    const auto problem = check(e, load_schema(OFS_CORE_DATA_DIR "/log_schema.json"));
+    CHECK_MESSAGE(!problem, problem.value_or(""));
+
+    ofs::log::detail::log_assert(nullptr, nullptr, 0, nullptr);
+    REQUIRE(capture->lines.size() == 2);
+    REQUIRE(from_jsonl(capture->lines[1], e));
+    CHECK(e.data["message"] == "");
+}
+
+TEST_CASE("OFS_ASSERT on a true expression logs nothing") {
+    LoggerScope scope;
+    auto capture = std::make_shared<CaptureSink>();
+    Logger::instance().add_sink(capture);
+    int evaluated = 0;
+    OFS_ASSERT(++evaluated == 1);
+    CHECK(evaluated == 1);
+    CHECK(capture->lines.empty());
+}
+
+// The library is built with the same NDEBUG as the tests, so only a release test build can
+// call the real assert_failed without aborting.
+#ifdef NDEBUG
+TEST_CASE("release builds log a failed OFS_ASSERT and carry on") {
+    LoggerScope scope;
+    auto capture = std::make_shared<FlushCountingSink>();
+    Logger::instance().add_sink(capture);
+    const int line = __LINE__ + 1;
+    OFS_ASSERT(1 + 1 == 3);
+    REQUIRE(capture->lines.size() == 1);
+    CHECK(capture->flushes == 1);
+    Event e;
+    REQUIRE(from_jsonl(capture->lines[0], e));
+    CHECK(e.data["kind"] == "assert");
+    CHECK(e.data["message"] == "1 + 1 == 3");
+    CHECK(e.data["line"] == line);
+    CHECK(e.data["file"].get<std::string>().find("test_log.cpp") != std::string::npos);
+    CHECK_FALSE(e.data["function"].get<std::string>().empty());
+}
+#endif
 
 TEST_CASE("RingBuffer drops and counts the oldest lines over its cap") {
     RingBuffer ring(20);  // each line costs its length + 1

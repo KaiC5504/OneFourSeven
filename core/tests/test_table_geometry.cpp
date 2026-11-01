@@ -3,10 +3,13 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <memory>
 #include <ostream>
+#include <string>
 #include <string_view>
 #include <vector>
 
+#include "ofs/log.hpp"
 #include "ofs/table_geometry.hpp"
 
 // Citations like 1.1(f) are Section 1 Rule 1(f) of the WPBSA Official Rules (2022
@@ -326,3 +329,26 @@ TEST_CASE("opening layout at gap 0 is touching") {
     // A 15-ball triangle has 30 touching pairs: 10 within rows and 20 between them.
     CHECK(touching == 30);
 }
+
+// Debug builds abort on this assert, so only a release test build can watch it.
+#ifdef NDEBUG
+TEST_CASE("spot of a non-colour logs an assert in release builds") {
+    struct Capture : ofs::log::Sink {
+        std::vector<std::string> lines;
+        void write(const ofs::log::Event&, const std::string& line) override { lines.push_back(line); }
+    };
+    auto capture = std::make_shared<Capture>();
+    ofs::log::Logger::instance().clear_sinks();
+    ofs::log::Logger::instance().add_sink(capture);
+    const Vec2 got = spot(Ball::red);
+    ofs::log::Logger::instance().clear_sinks();
+    CHECK(got.x == 0.0);
+    CHECK(got.y == 0.0);
+    REQUIRE(capture->lines.size() == 1);
+    ofs::log::Event e;
+    REQUIRE(ofs::log::from_jsonl(capture->lines[0], e));
+    CHECK(e.event == "app.error");
+    CHECK(e.data["kind"] == "assert");
+    CHECK(e.data["message"].get<std::string>().find("spot() needs a colour") != std::string::npos);
+}
+#endif

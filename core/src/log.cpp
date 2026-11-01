@@ -3,8 +3,8 @@
 #include <algorithm>
 #include <chrono>
 #include <cerrno>
-#include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <ctime>
 #include <deque>
 #include <exception>
@@ -78,8 +78,8 @@ bool from_jsonl(std::string_view line, Event& out) {
         return false;
     }
     event.ts = ts->get<double>();
-    // The parser turns an out-of-range literal such as 1e999 into infinity.
-    if (!std::isfinite(event.ts)) {
+    // 1e11 s is the year 5138; devlink.py refuses anything outside this range too.
+    if (!(event.ts >= 0.0 && event.ts < 1e11)) {
         return false;
     }
     if (!string_at("session", event.session) || !string_at("build", event.build) ||
@@ -163,8 +163,17 @@ struct FileSink::Impl {
     std::mutex mutex;
     std::string path;
     std::FILE* file = nullptr;
-    // Why the file could not be opened; the sink then drops every write.
+    // Set for good when the file can't be opened; otherwise the last write's failure,
+    // cleared by the next write that succeeds.
     std::string error;
+
+    // The text stays the same while the same failure repeats, so a caller that reports
+    // changes reports a full disk once rather than per line.
+    void fail(const char* what, int err) {
+        error = std::string(what) + " failed: " +
+                (err != 0 ? std::error_code(err, std::generic_category()).message() : "unknown error");
+        std::clearerr(file);
+    }
 };
 
 FileSink::FileSink(std::string directory, std::string session, std::size_t max_total_bytes)
@@ -197,19 +206,34 @@ void FileSink::write(const Event&, const std::string& line) {
     if (impl_->file == nullptr) {
         return;
     }
-    std::fwrite(line.data(), 1, line.size(), impl_->file);
-    std::fputc('\n', impl_->file);
-    std::fflush(impl_->file);
+    errno = 0;
+    // Each line gets its own attempt even after a failure, so the log resumes once the disk
+    // has room again.
+    if (std::fwrite(line.data(), 1, line.size(), impl_->file) == line.size() &&
+        std::fputc('\n', impl_->file) != EOF && std::fflush(impl_->file) == 0) {
+        impl_->error.clear();
+    } else {
+        impl_->fail("write", errno);
+    }
 }
 
 void FileSink::flush() {
     std::lock_guard<std::mutex> lock(impl_->mutex);
-    if (impl_->file != nullptr) {
-        std::fflush(impl_->file);
+    if (impl_->file == nullptr) {
+        return;
+    }
+    errno = 0;
+    if (std::fflush(impl_->file) != 0) {
+        impl_->fail("flush", errno);
     }
 }
 
 const std::string& FileSink::path() const { return impl_->path; }
+
+std::string FileSink::error() const {
+    std::lock_guard<std::mutex> lock(impl_->mutex);
+    return impl_->error;
+}
 
 struct RingBuffer::Impl {
     mutable std::mutex mutex;
@@ -413,10 +437,24 @@ void Logger::flush() {
     }
 }
 
-}  // namespace ofs::log
+namespace detail {
 
-// Fix-round contract stub: agent fix-core replaces these.
-namespace ofs::log {
-std::string FileSink::error() const { return {}; }
-void assert_failed(const char*, const char*, int, const char*) {}
+// Everything assert_failed does except abort, so the debug test build can check the line.
+void log_assert(const char* expr, const char* file, int line, const char* function) {
+    const auto text = [](const char* s) { return std::string(s != nullptr ? s : ""); };
+    error("app", "app.error",
+          {{"kind", "assert"}, {"message", text(expr)}, {"file", text(file)}, {"line", line},
+           {"function", text(function)}});
+    Logger::instance().flush();
+}
+
+}  // namespace detail
+
+void assert_failed(const char* expr, const char* file, int line, const char* function) {
+    detail::log_assert(expr, file, line, function);
+#ifndef NDEBUG
+    std::abort();
+#endif
+}
+
 }  // namespace ofs::log
