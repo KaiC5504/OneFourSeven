@@ -1,6 +1,7 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene load_steps=3 format=3]
 
 [ext_resource type="Script" path="res://scripts/main.gd" id="1_main"]
+[ext_resource type="Script" path="res://scripts/hud.gd" id="2_hud"]
 
 [node name="Main" type="Node3D"]
 script = ExtResource("1_main")
@@ -10,9 +11,13 @@ script = ExtResource("1_main")
 [node name="Balls" type="Node3D" parent="."]
 
 [node name="Camera3D" type="Camera3D" parent="."]
+current = true
 
 [node name="Light" type="DirectionalLight3D" parent="."]
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
 
 [node name="Hud" type="CanvasLayer" parent="."]
 
 [node name="LinkLabel" type="Label" parent="Hud"]
+script = ExtResource("2_hud")
