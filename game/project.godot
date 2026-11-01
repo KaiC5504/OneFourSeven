@@ -16,6 +16,7 @@ Log="*res://scripts/autoload/log.gd"
 Params="*res://scripts/autoload/params.gd"
 Link="*res://scripts/autoload/link.gd"
 Harness="*res://scripts/autoload/harness.gd"
+Perf="*res://scripts/autoload/perf.gd"
 
 [display]
 

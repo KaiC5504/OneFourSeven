@@ -7,6 +7,7 @@
 
 #include "engine_logger.h"
 #include "ofs_devlink.h"
+#include "ofs_device.h"
 #include "ofs_log.h"
 #include "ofs_table.h"
 
@@ -20,6 +21,7 @@ void initialize_onefourseven_module(ModuleInitializationLevel level) {
     GDREGISTER_CLASS(OfsTable);
     GDREGISTER_CLASS(OfsDevlink);
     GDREGISTER_CLASS(OfsEngineLogger);
+    GDREGISTER_CLASS(OfsDevice);
 }
 
 void uninitialize_onefourseven_module(ModuleInitializationLevel level) {

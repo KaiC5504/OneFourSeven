@@ -8,11 +8,12 @@ add_library(onefourseven SHARED
     src/ofs_table.cpp
     src/ofs_devlink.cpp
     src/engine_logger.cpp
+    src/ofs_device.cpp
 )
 
 if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
     enable_language(OBJCXX)
-    target_sources(onefourseven PRIVATE ios/bonjour_browser.mm)
+    target_sources(onefourseven PRIVATE ios/bonjour_browser.mm ios/device_info.mm)
     target_compile_options(onefourseven PRIVATE $<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>)
     target_link_libraries(onefourseven PRIVATE "-framework Foundation" "-framework Network")
 else()
