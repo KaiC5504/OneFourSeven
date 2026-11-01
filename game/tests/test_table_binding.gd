@@ -1,6 +1,6 @@
 extends TestCase
 ## OfsTable: the binding's keys and shapes, and the geometry it passes through from
-## ofs::table (values need core/src/table_geometry.cpp to be the real implementation).
+## ofs::table.
 
 const COLOURS: PackedStringArray = ["yellow", "green", "brown", "blue", "pink", "black"]
 const HALF_LENGTH := 3.569 / 2.0
@@ -77,5 +77,5 @@ func test_spots() -> void:
 
 
 func test_spot_of_non_colour_is_empty() -> void:
-	for name in ["cue", "red", "purple", ""]:
+	for name: String in ["cue", "red", "purple", ""]:
 		check_eq(OfsTable.spot(name), {}, "spot(%s)" % name)
