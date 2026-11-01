@@ -48,6 +48,11 @@ class HashTest(unittest.TestCase):
         expected = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
         self.assertEqual(devlink.canonical(value), expected.encode("utf-8"))
 
+    def test_canonical_refuses_nan_and_infinity(self):
+        for number in (float("nan"), float("inf"), float("-inf")):
+            with self.assertRaises(ValueError):
+                devlink.canonical({"x": [number]})
+
     def test_canonical_matches_nlohmann_between_1e15_and_1e16(self):
         cases = {1e15: "1e+15", -1e15: "-1e+15", 1234567890123456.0: "1.234567890123456e+15",
                  9999999999999998.0: "9.999999999999998e+15",

@@ -62,7 +62,8 @@ def _canonical(value):
         digits = repr(abs(value)).replace(".", "").rstrip("0")
         mantissa = digits[0] + (f".{digits[1:]}" if len(digits) > 1 else "")
         return f"{'-' if value < 0 else ''}{mantissa}e+15"
-    return json.dumps(value, ensure_ascii=False)
+    # nlohmann writes NaN and Infinity as null; refusing them beats a silently different hash.
+    return json.dumps(value, ensure_ascii=False, allow_nan=False)
 
 
 def fnv1a64_hex(data):
