@@ -1,0 +1,53 @@
+name: Windows CI
+
+# The local gate's quick lanes on a clean Windows runner: core tests, Godot tests, a headless run
+# of the game with its session log checked, the tools' and the workflows' tests.
+
+on:
+  push:
+    branches: [dev, main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  gate:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: true
+          persist-credentials: false
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.13"
+
+      - name: Test dependencies
+        run: python -m pip install --quiet --require-hashes -r test_ci/requirements.txt
+
+      - name: Godot
+        run: |
+          godot="$(python scripts/godot_tools.py editor | tail -1)"
+          echo "OFS_GODOT=$godot" >> "$GITHUB_ENV"
+
+      - name: Gate
+        run: python scripts/gate.py --quick
+
+      # Lane logs and the headless run's session log: build output and test results only.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: failure()
+        with:
+          name: gate-logs
+          path: build/gate/
+          if-no-files-found: ignore

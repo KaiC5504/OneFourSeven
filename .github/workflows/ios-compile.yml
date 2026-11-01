@@ -1,0 +1,173 @@
+name: iOS compile check
+
+# Unsigned: builds the extension for iOS, exports the Godot project to Xcode, builds it for the
+# simulator, launches it on the table and screenshots it. Needs no Apple account.
+# The signed device build lives in testflight.yml.
+#
+# Godot 4.7.1's iOS template ships simulator slices (ios-arm64_x86_64-simulator in
+# libgodot.ios.*.xcframework), so the exported project builds and runs on the simulator.
+
+on:
+  push:
+    branches: [dev, main]
+    paths:
+      - "core/**"
+      - "gdext/**"
+      - "game/**"
+      - "thirdparty/**"
+      - "CMakeLists.txt"
+      - "scripts/build_ios_ext.sh"
+      - "scripts/godot_tools.py"
+      - "scripts/sync_data.py"
+      - "tools/check_logs.py"
+      - ".github/workflows/ios-compile.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-compile-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  APP_ID: com.kaichuan.onefourseven
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: true
+          persist-credentials: false
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.13"
+
+      - name: Toolchain
+        run: |
+          # Newest Xcode on the image; the app builds against the iOS 26 SDK.
+          NEWEST=$(ls -d /Applications/Xcode_*.app 2>/dev/null | sort -V | tail -1)
+          if [ -n "$NEWEST" ]; then sudo xcode-select -s "$NEWEST"; fi
+          xcodebuild -version
+          cmake --version | head -1
+
+      - name: Build the extension
+        run: bash scripts/build_ios_ext.sh debug
+
+      - name: Godot and export templates
+        id: godot
+        run: |
+          GODOT="$(python scripts/godot_tools.py editor | tail -1)"
+          python scripts/godot_tools.py templates
+          echo "path=$GODOT" >> "$GITHUB_OUTPUT"
+
+      - name: Export the Xcode project
+        env:
+          GODOT: ${{ steps.godot.outputs.path }}
+        run: |
+          set -o pipefail
+          python scripts/sync_data.py
+          "$GODOT" --headless --path game --import
+          mkdir -p build/ios
+          "$GODOT" --headless --path game --export-debug "iOS" ../build/ios/OneFourSeven.xcodeproj
+          # Adds the four iPad orientations and fails on any missing pipeline setting.
+          python scripts/godot_tools.py ios-plist build/ios
+
+      - name: Boot a simulator
+        id: sim
+        run: |
+          UDID=$(xcrun simctl list devices available -j | python3 -c "
+          import json, re, sys
+          best = None
+          for runtime, items in json.load(sys.stdin)['devices'].items():
+              match = re.search(r'iOS-(\d+)-(\d+)', runtime)
+              if not match:
+                  continue
+              version = tuple(int(part) for part in match.groups())
+              for device in items:
+                  if 'iPhone' in device['name'] and device['isAvailable']:
+                      if best is None or version > best[0]:
+                          best = (version, device['udid'], device['name'])
+          print(best[1])
+          print(best, file=sys.stderr)
+          ")
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+          xcrun simctl boot "$UDID"
+          xcrun simctl bootstatus "$UDID" -b
+
+      - name: Build for the simulator
+        env:
+          UDID: ${{ steps.sim.outputs.udid }}
+        run: |
+          set -o pipefail
+          SCHEME=$(xcodebuild -list -json -project build/ios/OneFourSeven.xcodeproj \
+            | python3 -c "import json, sys; print(json.load(sys.stdin)['project']['schemes'][0])")
+          echo "scheme: $SCHEME"
+          # Ad-hoc signed, with the placeholder team cleared so automatic signing never looks
+          # for an Apple account.
+          xcodebuild \
+            -project build/ios/OneFourSeven.xcodeproj \
+            -scheme "$SCHEME" \
+            -destination "id=$UDID" \
+            -configuration Debug \
+            -derivedDataPath build/xcode \
+            CODE_SIGN_STYLE=Manual \
+            DEVELOPMENT_TEAM= \
+            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=YES \
+            build
+
+      # Compiling only proves it links. Launching proves the table scene starts without a
+      # crash, and the screenshot is the only look at it before TestFlight.
+      - name: Install, launch and screenshot
+        env:
+          UDID: ${{ steps.sim.outputs.udid }}
+        run: |
+          APP=$(ls -d build/xcode/Build/Products/Debug-iphonesimulator/*.app | head -1)
+          xcrun simctl install "$UDID" "$APP"
+          mkdir -p shots
+          xcrun simctl launch "$UDID" "$APP_ID" -DemoScreen table
+          sleep 15
+          xcrun simctl io "$UDID" screenshot shots/01-table.png
+          if ! xcrun simctl spawn "$UDID" launchctl list | grep -q "$APP_ID"; then
+            echo "error: the app is not running 15 s after launch (see the crash reports step)"
+            exit 1
+          fi
+          xcrun simctl terminate "$UDID" "$APP_ID"
+
+      # Godot's user:// on iOS is the app's Documents folder.
+      - name: Check the session log
+        if: always() && steps.sim.outputs.udid != ''
+        env:
+          UDID: ${{ steps.sim.outputs.udid }}
+        run: |
+          mkdir -p shots/logs
+          DATA=$(xcrun simctl get_app_container "$UDID" "$APP_ID" data)
+          find "$DATA/Documents/logs" -name "*.jsonl" -exec cp {} shots/logs/ \; 2>/dev/null || true
+          ls -l shots/logs
+          if [ -z "$(ls -A shots/logs)" ]; then
+            echo "error: no session log in $DATA/Documents/logs"
+            exit 1
+          fi
+          python tools/check_logs.py shots/logs
+
+      - name: Collect crash reports
+        if: always()
+        run: |
+          mkdir -p shots/crashes
+          find ~/Library/Logs/DiagnosticReports -name "OneFourSeven*" -exec cp {} shots/crashes/ \; 2>/dev/null || true
+          if [ -n "$(ls -A shots/crashes 2>/dev/null)" ]; then
+            echo "CRASHES FOUND:"; head -60 shots/crashes/* || true
+          fi
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: simulator-screenshots
+          path: shots/
+          if-no-files-found: ignore
