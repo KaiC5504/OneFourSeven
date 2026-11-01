@@ -103,3 +103,20 @@ Windows run (all harness controls, link connect, live params and offline catch-u
 3. Losing a local link takes ~16 s (5 s timeouts x3) while the label says "connected".
 4. Session tail never uploads (= logging 4). 5. Release static_memory_mb is 0 (= logging 5).
 6. No way to turn the link off from settings or args ("off" unreachable outside tests).
+
+Godot/GDScript:
+1. High: run_tests.gd passes broken tests — scripts that fail to load vanish from the
+   count, and runtime errors in a test count as pass. Fail on load()==null or
+   !can_instantiate(); a runner Logger failing the test on ERROR_TYPE_SCRIPT; gate.py checks
+   the expected test count.
+2. (= Windows 1) idle throttling; Perf must count Engine.get_frames_drawn() deltas once
+   low-processor mode is on.
+3. Medium: headless --dump-state/--quit-after hang forever (frame_post_draw never fires
+   headless), silently. Dump without waiting for a draw; screenshot only when not headless;
+   timeout that logs.
+4. Low-medium: perf.gd logs a false hitch after every resume; reset on RESUMED.
+5. Low: Link is live during tests and gate runs (sessions land in logs/, /params can apply
+   mid-suite). run_tests.gd disables Link, or a --no-link user arg.
+6. Low: untyped_declaration warnings as errors in project.godot (test_log.gd:38, :67).
+Verify on the first simulator/phone log: platform "ios-simulator" detection; perf target
+from screen_get_refresh_rate() vs actual render rate.
