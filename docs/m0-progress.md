@@ -143,3 +143,10 @@ Test gaps (sketch tests in scratchpad/checks/tests):
    200 without hash, /health ok:false, Variant edge cases, devlink routing edge cases.
 9. tools/test_devlink.py copies the working-tree core/data, so concurrent live-params
    checks change what it tests: copy from git (HEAD) or a fixture instead.
+
+## Fix round (started)
+Contracts 02d6b68: GODOTCPP_DISABLE_EXCEPTIONS OFF, FileSink::error, OFS_ASSERT,
+ofs_params_hash CLI, OfsDevice.memory_footprint_mb, low_processor_mode, MSAA 4x, typed
+GDScript as errors, log schema v2, protocol (file-based upload, 413/404, archive, %.17g
+number rule), spec/CLAUDE.md/skill doc fixes. Five fix agents: fix-core, fix-link,
+fix-game, fix-tools, fix-scripts. If interrupted, re-run whichever hasn't merged.
