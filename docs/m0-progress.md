@@ -154,3 +154,12 @@ Merged: fix-tools, fix-core (+72d504e), fix-scripts. Accepted limitation: OfsLog
 hashes an integer beyond int64/uint64 as a double where devlink/ofs_params_hash refuse it;
 real params never contain such integers (move the overflow check into ofs::params if they
 ever might). Waiting on fix-link, fix-game.
+
+## Fix round merged (f310a47)
+All five fix branches merged; `gate.py --quick` green (build, core, tools incl. 20,019-line
+hash parity, godot 86+ tests with every file loading, workflows, logs). Repo created
+(KaiC5504/OneFourSeven, public), testflight environment main-only, fork-PR approval, five
+secrets set, ASC_APP_ID 6829495084. First iOS compile check compiled everything incl. the
+.mm files; failed only at framework naming (fixed in 1630665). Running: seam review,
+second Windows run, CI on dev. Then: ff main, push, full gate on main, TestFlight build 1
+(`testflight.py start --create-signing`).
