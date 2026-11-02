@@ -96,8 +96,7 @@ inline const LoadedTable& loaded_table() {
         if (out.t.lines.size() < 6 || out.t.pockets.size() != 6) {
             out.ok = false;
             out.problems.push_back("outline has " + std::to_string(out.t.lines.size()) + " cushion lines and " +
-                                   std::to_string(out.t.pockets.size()) +
-                                   " pockets (the contracts placeholder has none; the cushions agent fills it)");
+                                   std::to_string(out.t.pockets.size()) + " pockets");
         }
         return out;
     }();
