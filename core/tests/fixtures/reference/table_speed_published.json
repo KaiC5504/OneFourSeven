@@ -1,0 +1,19 @@
+{
+  "_note": "Published table-speed numbers for C11, the lag (docs/calibration/targets.md). No measured snooker lag speed was found; the range is built from these with TP B.6's lag model on the snooker table.",
+  "sources": [
+    "Jewett (AZB post, quoted in Alciatore's 'Table Cloth Speed' FAQ): a lag's last length timed in seconds T gives the effective slope 1/(2 T^2) on a 9-foot table; 7 s (competition pool cloth) is 1.0%, 10 s on a 10-foot carom table is 0.55%: https://billiards.colostate.edu/faq/table/cloth-speed/",
+    "Jewett, Billiards Digest April 1995, via Waldron, 'Pool Table Stimpmeter': 7 s return over the table length means competition speed: https://billiards.colostate.edu/instructional-articles/pb-review/stimpmeter/",
+    "Alciatore TP B.6, table lengths of travel accounting for rail rebound and drag (rebound as stun, skid to 5/7, rolling resistance), lag at 3.465 mph on a 9-foot pool table: https://billiards.colostate.edu/technical_proofs/new/TP_B-6.pdf",
+    "Alciatore TP 4.1, slide to roll: https://billiards.colostate.edu/technical_proofs/TP_4-1.pdf",
+    "Mathavan, Jackson & Parkin (2010) sec. 3.3, Fig. 5: a rolling snooker ball straight into a tournament cushion rebounds at 0.818 of its speed (equivalent COR): https://hdl.handle.net/2134/15087",
+    "Alciatore, typical ball speeds: medium 2-4 mph (0.89-1.9 m/s), fast 4-7 mph (1.9-3.2 m/s): https://billiards.colostate.edu/faq/speed/typical/"
+  ],
+  "effective_slope": {
+    "fast": 0.0055,
+    "slow": 0.0105,
+    "why": "fast carom cloth (10 s on a 10-foot table) to competition pool cloth (7 s on a 9-foot table); spec 7.10 puts fast snooker cloth at mu_r 0.005-0.01"
+  },
+  "cushion_rebound_ratio": 0.818,
+  "speed_margin_rel": 0.05,
+  "speed_margin_why": "TP B.6 treats the rebound as pure stun at a fixed ratio; the Mathavan model leaves some spin, which moves the post-skid speed by a few percent"
+}
