@@ -268,6 +268,38 @@ const Recorded kC12_1930 =
       {0.6919963464766895, -0.34838839365914087}, {0.7189214260512649, -0.3934582293579016},
       {0.7458465056258402, -0.4385280650566623}, {0.7727715852004156, -0.483597900755423}}};
 
+// C14's cluster shots 803 and 1435 (seed 0x5eed0c14): a straight line of 19 frozen balls struck
+// across. Late in each, a ball or a few roll sideways between still ones, their normals within
+// 1e-6 rad: 803's contact forces and 1435's held contact impulses gave up with 8e-8 m/s^2 and
+// 3e-13 m/s still closing.
+const Recorded kC14_803 =
+    {"C14 seed 0x5eed0c14 shot 803", 4443941712640145695ULL,
+     {2.1162138632485923, 0.42335736910206123, -0.28696805008535003, 0.018904110270945483, 2.0830683939813346},
+     {{1.480327929796248, -0.757165066489694}, {1.2231318659489951, -0.4586098568039757},
+      {1.2013840424968094, -0.41082615482199164}, {1.1796362190446237, -0.3630424528400076},
+      {1.157888395592438, -0.3152587508580235}, {1.1361405721402522, -0.26747504887603946},
+      {1.1143927486880665, -0.21969134689405542}, {1.0926449252358807, -0.1719076449120714},
+      {1.070897101783695, -0.12412394293008736}, {1.0491492783315093, -0.07634024094810332},
+      {1.0274014548793236, -0.02855653896611928}, {1.0056536314271378, 0.01922716301586476},
+      {0.9839058079749522, 0.0670108649978488}, {0.9621579845227666, 0.11479456697983284},
+      {0.940410161070581, 0.16257826896181687}, {0.9186623376183953, 0.2103619709438009},
+      {0.8969145141662097, 0.25814567292578494}, {0.8751666907140241, 0.305929374907769},
+      {0.8534188672618385, 0.35371307688975306}, {0.8316710438096528, 0.4014967788717371}}};
+
+const Recorded kC14_1435 =
+    {"C14 seed 0x5eed0c14 shot 1435", 17425199176321238647ULL,
+     {1.2833103693564167, 0.3043577434899926, -0.13225067710125132, 0.16148400937497837, 1.899380050011307},
+     {{-1.0719275013605705, 0.8152860129525068}, {0.5680081617329176, 0.13422150520125586},
+      {0.5278744101440098, 0.16806721369435507}, {0.48774065855510207, 0.20191292218745427},
+      {0.4476069069661943, 0.23575863068055347}, {0.40747315537728657, 0.2696043391736527},
+      {0.3673394037883788, 0.3034500476667519}, {0.32720565219947106, 0.3372957561598511},
+      {0.2870719006105633, 0.3711414646529503}, {0.2469381490216556, 0.4049871731460495},
+      {0.20680439743274787, 0.4388328816391487}, {0.16667064584384014, 0.4726785901322479},
+      {0.12653689425493242, 0.5065242986253471}, {0.08640314266602471, 0.5403700071184463},
+      {0.046269391077117, 0.5742157156115455}, {0.006135639488209291, 0.6080614241046447},
+      {-0.03399811210069842, 0.6419071325977439}, {-0.07413186368960613, 0.6757528410908431},
+      {-0.11426561527851384, 0.7095985495839423}, {-0.15439936686742156, 0.7434442580770415}}};
+
 }  // namespace
 
 TEST_CASE("simulate resolves contacts in time order, so none is resolved with its balls inside each other") {
@@ -352,6 +384,54 @@ TEST_CASE("simulate a ball creeping out between two in line comes to rest instea
         CHECK(ke <= last * (1.0 + 1e-9) + 1e-12);
         last = ke;
     }
+}
+
+TEST_CASE("simulate C14's struck lines: a ball rolling sideways between two still ones keeps its contacts settled") {
+    // Its contacts' normals were within 1e-6 rad, so the exact solve found no pivot for one of them
+    // and then wanted the closing left on it (angle * |x|) to be rounding, which only a jam of
+    // |x| / angle would make it. Gauss-Seidel crept for 2000 sweeps and the shot logged
+    // solver_fallback.
+    const PhysicsParams& p = file_params();
+    for (const Recorded* s : {&kC14_803, &kC14_1435}) {
+        INFO(std::string(s->name));
+        const ShotRecord r = simulate(input(*s), table(), p);
+        CHECK_MESSAGE(r.anomalies.empty(), (r.anomalies.empty() ? std::string() : r.anomalies.front().detail));
+        for (const BallState& b : r.final_state.balls) CHECK(at_rest(b));
+        CHECK(worst_overlap(r) <= kOverlapTolerance_m);
+    }
+}
+
+TEST_CASE("simulate a straight line of 15 touching balls rolling into each other: it settles without a fallback") {
+    const double ux = std::cos(0.4);
+    const double uy = std::sin(0.4);
+    SimInput in;
+    in.has_strike = false;
+    SUBCASE("along the line, each closing on the one ahead") {
+        // At 0.5 mm/s, under ball_rest_speed_m_s: pushes, so the line rolls out held together.
+        for (int i = 0; i < 15; ++i) {
+            const double along = (7 - i) * 2.0 * kR;
+            const double speed = 0.3 + 5e-4 * i;
+            in.start.balls.push_back(
+                rolling(ofs::table::Ball::red, i, along * ux, along * uy, speed * ux, speed * uy));
+        }
+    }
+    SUBCASE("across it, every other ball into the gap between its still neighbours") {
+        // Each mover touches both neighbours from 2R sin(phi) off their line, so its two normals are
+        // 8e-7 rad from parallel. The push solve gave up with 8e-10 m/s closing left on one, which,
+        // released, re-closed at once as another push: 1000 events at t = 0.
+        const double phi = 4e-7;
+        for (int i = 0; i < 15; ++i) {
+            const double along = (7 - i) * 2.0 * kR * std::cos(phi);
+            const double off = i % 2 == 1 ? 2.0 * kR * std::sin(phi) : 0.0;
+            const double speed = i % 2 == 1 ? 1e-3 : 0.0;
+            in.start.balls.push_back(rolling(ofs::table::Ball::red, i, along * ux - off * uy, along * uy + off * ux,
+                                             speed * uy, -speed * ux));
+        }
+    }
+    const ShotRecord r = simulate(in, table(), file_params());
+    CHECK_MESSAGE(r.anomalies.empty(), (r.anomalies.empty() ? std::string() : r.anomalies.front().detail));
+    for (const BallState& b : r.final_state.balls) CHECK(at_rest(b));
+    CHECK(worst_overlap(r) <= kOverlapTolerance_m);
 }
 
 TEST_CASE("simulate records a cushion impact solve that gave up as solver_fallback, naming the cushion") {
