@@ -214,6 +214,14 @@ TEST_CASE("C4 from the named positions: struck from 1 m, rolling at contact") {
         in.cue_ball = fx["cue_ball"].get<int>();
         in.has_strike = true;
         in.seed = 3;
+        // C4 is for a rolling cue ball. The fixtures' 2 m/s centre-ball strike leaves it at
+        // v0 = (1 + e_tip) V / (1 + m/M) (TP A.30), about 2.8 m/s, which slides 12 v0^2 / (49 mu_s g)
+        // (TP 4.1), about 0.96 m: still sliding at the red. At 1 m/s it rolls within half the run.
+        in.strike.speed_m_s = 1.0;
+        const double v0 = (1.0 + p.cue_tip_restitution) * in.strike.speed_m_s / (1.0 + p.ball_mass_kg / p.cue_mass_kg);
+        const double slide = 12.0 * v0 * v0 / (49.0 * p.slide_friction * p.gravity_m_s2);
+        const double run = norm_xy(in.start.balls[1].r - in.start.balls[0].r) - 2.0 * R;
+        REQUIRE_MESSAGE(slide < 0.5 * run, name << ": slides " << slide << " m of a " << run << " m run");
         const ShotRecord rec = simulate(in, open_table(), p);
         INFO("position: " << std::string(name));
         INFO("record: " << record_summary(rec));

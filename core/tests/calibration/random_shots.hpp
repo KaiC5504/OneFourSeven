@@ -31,6 +31,75 @@ inline bool angle_in_arc(double ang, const ArcCushion& c) {
     return off <= span;
 }
 
+struct Problem {
+    std::string kind;  // empty: no problem
+    std::string detail;
+};
+
+inline std::string num(double v) {
+    std::ostringstream o;
+    o.precision(10);
+    o << v;
+    return o.str();
+}
+
+// Why a ball centred at r is not legally on `t`: within R - tol of a cushion segment or a jaw arc,
+// behind a cushion near its segment, inside a jaw's rounded nose, over a drop circle by more than
+// tol, or past the cushion noses away from every pocket mouth.
+inline Problem outline_problem(Vec3 r, const TableShape& t, double tol) {
+    // Behind a nose or facing, within the rail's width and the segment's extent, is the rail
+    // itself; further away the infinite line says nothing (a facing's line crosses the table).
+    const double behind_band = std::max(t.rail_width_m, 2.0 * R);
+    for (std::size_t i = 0; i < t.lines.size(); ++i) {
+        const LineCushion& l = t.lines[i];
+        const double seg = dist_to_segment(r, l.p1, l.p2);
+        if (seg < R - tol)
+            return {"cushion overlap", "centre " + num(seg) + " m from cushion segment " + std::to_string(i) +
+                                           " (R = " + num(R) + ")"};
+        const double dx = l.p2.x - l.p1.x;
+        const double dy = l.p2.y - l.p1.y;
+        const double u = ((r.x - l.p1.x) * dx + (r.y - l.p1.y) * dy) / (dx * dx + dy * dy);
+        const double d = (r.x - l.p1.x) * l.normal.x + (r.y - l.p1.y) * l.normal.y;
+        if (u >= 0.0 && u <= 1.0 && d < 0.0 && -d < behind_band)
+            return {"behind cushion", "centre " + num(-d) + " m behind cushion segment " + std::to_string(i)};
+    }
+    for (std::size_t i = 0; i < t.arcs.size(); ++i) {
+        const ArcCushion& a = t.arcs[i];
+        const double d = std::hypot(r.x - a.centre.x, r.y - a.centre.y);
+        if (d < a.radius + R - tol && angle_in_arc(std::atan2(r.y - a.centre.y, r.x - a.centre.x), a))
+            return {"jaw overlap", "centre " + num(d - a.radius) + " m from jaw arc " + std::to_string(i)};
+        // The jaw's whole circle lies behind the nose and the facing it is tangent to.
+        if (d < a.radius)
+            return {"inside jaw", "centre " + num(d) + " m from jaw arc " + std::to_string(i) + "'s centre (radius " +
+                                      num(a.radius) + ")"};
+    }
+    for (const Pocket& p : t.pockets) {
+        const double d = std::hypot(r.x - p.drop_centre.x, r.y - p.drop_centre.y);
+        if (d < p.drop_radius - tol)
+            return {"over drop circle", "centre " + num(d) + " m from " + p.name + "'s drop centre (radius " +
+                                            num(p.drop_radius) + ")"};
+    }
+    const double hx = table::kPlayingLength / 2.0 - R + tol;
+    const double hy = table::kPlayingWidth / 2.0 - R + tol;
+    if (std::abs(r.x) > hx || std::abs(r.y) > hy) {
+        double nearest = 1e9;
+        for (const Pocket& p : t.pockets)
+            nearest = std::min(nearest, std::hypot(r.x - p.drop_centre.x, r.y - p.drop_centre.y));
+        // Past the cushion lines only in a pocket's mouth.
+        if (nearest > 0.25)
+            return {"beyond the noses", "past the cushion noses, " + num(nearest) + " m from the nearest pocket"};
+    }
+    return {};
+}
+
+// A cushion nose: a line along the playing area's edge (the rest are pocket facings).
+inline bool is_nose(const LineCushion& l) {
+    const double hx = table::kPlayingLength / 2.0;
+    const double hy = table::kPlayingWidth / 2.0;
+    auto near = [](double a, double b) { return std::abs(std::abs(a) - b) < 1e-9; };
+    return (near(l.p1.x, hx) && near(l.p2.x, hx)) || (near(l.p1.y, hy) && near(l.p2.y, hy));
+}
+
 // Where a resting ball may be placed: on the cloth, clear of every cushion line, jaw and pocket.
 inline bool placeable(Vec3 r, const TableShape& t, double clearance) {
     const double hx = table::kPlayingLength / 2.0 - R - clearance;
@@ -123,11 +192,15 @@ inline void cluster(Rng& rng, const TableShape& t, std::vector<BallState>& balls
     }
 }
 
-// Balls resting against straight cushions, at R from the nose up to rounding.
+// Balls resting against the cushion noses, at R from the nose up to rounding. Not the facings:
+// a ball against one sits past the fall, over the pocket, which is no resting state.
 inline void on_cushions(Rng& rng, const TableShape& t, std::vector<BallState>& balls, int n) {
-    if (t.lines.empty()) return;
+    std::vector<const LineCushion*> noses;
+    for (const LineCushion& l : t.lines)
+        if (is_nose(l)) noses.push_back(&l);
+    if (noses.empty()) return;
     for (int tries = 0; tries < 400 && static_cast<int>(balls.size()) < n; ++tries) {
-        const LineCushion& l = t.lines[static_cast<std::size_t>(rng.uniform() * t.lines.size())];
+        const LineCushion& l = *noses[static_cast<std::size_t>(rng.uniform() * noses.size())];
         const double u = rng.uniform(0.05, 0.95);
         const Vec3 on{l.p1.x + u * (l.p2.x - l.p1.x), l.p1.y + u * (l.p2.y - l.p1.y), 0.0};
         const Vec3 nrm{l.normal.x, l.normal.y, 0.0};
