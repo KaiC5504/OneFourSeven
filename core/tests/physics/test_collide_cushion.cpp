@@ -85,6 +85,12 @@ Local mathavan_reference(Local y, double sin_theta, double mu_w, double mu_s, do
 
 double sin_theta(const PhysicsParams& p) { return (p.cushion_contact_height_m - R) / R; }
 
+// The restitution collide_line uses for this incoming normal speed (params.hpp).
+double cushion_e(double vy, const PhysicsParams& p) {
+    const double over = std::max(0.0, vy - p.cushion_rigid_limit_m_s);
+    return std::clamp(p.cushion_restitution - p.cushion_restitution_slope_per_m_s * over, 0.0, p.cushion_restitution);
+}
+
 BallState ball_from_local(const Local& y) {
     BallState b;
     b.ball = table::Ball::cue;
@@ -131,12 +137,13 @@ TEST_CASE("cushion: fast Mathavan model matches the 5000-step reference over the
     double worst_angle = 0.0;
     int cases = 0;
     for (int alpha_deg = 5; alpha_deg <= 85; alpha_deg += 10) {
-        for (double v0 : {0.2, 1.0, 3.0, 6.0}) {
+        // 12 m/s takes the sloped restitution to zero at steep incidence.
+        for (double v0 : {0.2, 1.0, 3.0, 6.0, 12.0}) {
             for (double top : {-1.0, 0.0, 0.5, 1.0, 2.0}) {
                 for (double side : {-2.0, -1.0, 0.0, 1.0, 2.0}) {
                     const Local y0 = paper_state(v0, alpha_deg * kPi / 180.0, top, side);
                     const Local ref = mathavan_reference(y0, sin_theta(p), p.cushion_friction,
-                                                         p.cushion_table_friction, p.cushion_restitution);
+                                                         p.cushion_table_friction, cushion_e(y0[1], p));
                     const Local got = hit_line(y0, p);
                     const double ds = std::abs(speed(got) - speed(ref)) / speed(ref);
                     const double da = std::abs(rebound_deg(got) - rebound_deg(ref));
