@@ -94,7 +94,15 @@ double start(const GapPoly& f, const double* x, const double* fv, int i, int m) 
 // which marks a ball behind the body rather than in it). A falling stretch that only reaches
 // zero at its bottom is a graze and gives no event.
 template <class Accept>
-double first_contact(const GapPoly& f, double hi, double floor, Accept accept) {
+double first_contact(const GapPoly& poly, double hi, double floor, Accept accept) {
+    // Rounding leaves a near-zero relative acceleration in place of zero, and with it top
+    // coefficients that can't move f by a rounding's width over the window but spread the
+    // derivative's roots so far apart that the cubic's estimates lose the one that matters.
+    GapPoly f = poly;
+    double size = 0.0;
+    for (int k = f.n; k >= 0; --k) size = size * hi + f.m[k];
+    while (f.n > 1 && std::abs(f.p[f.n]) * std::pow(hi, f.n) <= kEps * size) f.p[f.n--] = 0.0;
+
     double x[5] = {};
     int m = 0;
     x[m++] = 0.0;

@@ -28,10 +28,19 @@ constexpr double R = table::kBallRadius;
 // Contacts come out of the root solver exact to rounding, and simultaneous events resolved in
 // turn leave at most speed * zero_time_s (about 1e-8 m) of overlap. Beyond this it is real.
 constexpr double kOverlapTolerance = 1e-7;
-// How far a pushing pair may sink into each other between re-pushes (see push()).
-constexpr double kHoldOverlap = 0.5 * kOverlapTolerance;
-// m/s^2: the slowest sinking a hold allows for, so a pair that barely closes re-pushes every 0.3 s.
-constexpr double kHoldMinClosing = 1e-6;
+// A held contact (Bond) lasts while its bodies stay this close and their normal speed stays this
+// small: the solves leave rounding near 1e-17, and 1e-12 m/s over a whole shot is under 1e-10 m.
+constexpr double kBondGap = 1e-9;
+constexpr double kBondSpeed = 1e-12;
+// How far past a cushion's ends (m) and a jaw's angles (rad) a held contact still counts.
+constexpr double kBondSlack = 1e-9;
+constexpr double kTwoPi = 6.283185307179586476925286766559;
+// Gauss-Seidel sweeps for a group's impulses and contact forces; groups of a few balls converge
+// to rounding in tens.
+constexpr int kMaxSweeps = 2000;
+// s: a held ball whose segment ends sooner than this keeps it when only its contact forces change.
+constexpr double kStaleWindow = 1e-6;
+constexpr unsigned char kForcesChanged = 2;  // changed_: only the contact acceleration
 // Slack on the bounding boxes that cull detection; far above the rounding of the box arithmetic.
 constexpr double kBoxMargin = 1e-6;
 // A shot that trips a check at every event would otherwise grow its record without bound.
@@ -106,32 +115,33 @@ Box path_box(const Trajectory& path, double T) {
 
 // A contact closing slower than ball_rest_speed_m_s is a push, not a bounce: a sliding ball's
 // friction re-closing it, which bouncing turns into collisions without end (inelastic collapse).
-// Cloth friction has no moment about a ball's own contact point and the force between the balls
-// acts through both centres at height R, so L = I w + m R (z x v) about each contact point is
-// kept along n by each ball and along t = z x n by the pair. Divided by m R, those components are
-// (2/5) R w.n - v.t and v.n + (2/5) R w.t, and (7/5)(-v.t) and (7/5) v.n once rolling: both balls
-// leave rolling with one speed along n, each keeping its own along t. w.z is untouched.
-// Rolling resistance and the nap act along each ball's own heading, so two headings can still
-// drive the pair together: the contact is sustained. The simulator then holds the pair's next
-// contact back for as long as it takes to sink kHoldOverlap together and pushes again, which also
-// restores the touching distance here.
-void push(BallState& a, BallState& b, const PhysicsParams& p) {
-    const Vec3 d{b.r.x - a.r.x, b.r.y - a.r.y, 0.0};
-    const Vec3 n = unit_or_zero(d);
-    const Vec3 t = cross(kUp, n);
-    const double sunk = 2.0 * R - norm_xy(d);
-    if (sunk > 0.0) {
-        a.r -= n * (0.5 * sunk);
-        b.r += n * (0.5 * sunk);
-    }
-    auto along_n = [&](const BallState& s) { return dot(s.v, n) + 0.4 * R * dot(s.w, t); };
-    const double vn = (5.0 / 14.0) * (along_n(a) + along_n(b));
-    for (BallState* s : {&a, &b}) {
-        const double vt = (5.0 / 7.0) * (dot(s->v, t) - 0.4 * R * dot(s->w, n));
-        s->v = {n.x * vn + t.x * vt, n.y * vn + t.y * vt, 0.0};
-        s->w = {-s->v.y / R, s->v.x / R, s->w.z};
-        s->motion = classify(*s, p);
-    }
+// The pushed balls settle to rolling first. Cloth friction has no moment about a ball's own cloth
+// contact, so L = I w + m R (z x v) about it is kept, and a ball rolling with the same L moves at
+// V = (5/7)(v + (2/5) R w x z) (TP 4.1); a horizontal force on a rolling ball moves V along it with
+// the same effective mass for every ball. The contacts of the group then take perfectly inelastic
+// impulses, solved together so that a push which re-closes a neighbour's contact is resolved in
+// the same event: each ball-ball pair leaves with one speed along its normal, a ball against a
+// cushion or jaw with none into it. Every step only brings a normal speed towards zero, so kinetic
+// energy never rises.
+//
+// What re-closed the contact is still there: rolling resistance along two different headings, or
+// the nap, drives the pair (or the ball and cushion) together. So the contact is held (a Bond):
+// the simulator gives the balls equal and opposite contact accelerations, carried in their nap
+// term, that keep their accelerations along the normal equal (or zero into a cushion), solved
+// again whenever any ball of the group starts a segment. Stationary and spinning balls hold still
+// against such forces (they are far below what it takes to start a ball rolling). While held, the
+// contact is not searched for: within a segment the bodies keep their distance along the normal.
+Vec3 rolling_velocity(const BallState& b) { return (b.v + Vec3{b.w.y, -b.w.x, 0.0} * (0.4 * R)) * (5.0 / 7.0); }
+
+void set_rolling(BallState& b, Vec3 v, const PhysicsParams& p) {
+    b.v = {v.x, v.y, 0.0};
+    b.w = {-v.y / R, v.x / R, b.w.z};
+    b.motion = classify(b, p);
+}
+
+double wrap_two_pi(double a) {
+    a = std::fmod(a, kTwoPi);
+    return a < 0.0 ? a + kTwoPi : a;
 }
 
 Box circle_box(table::Vec2 c, double radius) { return {c.x - radius, c.y - radius, c.x + radius, c.y + radius}; }
@@ -155,6 +165,15 @@ struct Next {
     EventKind kind = EventKind::guard;
     int a = -1;
     int b = -1;
+    int body = -1;
+};
+
+// A held contact (see rolling_velocity()): ball a against ball b, or with b = -1 against cushion
+// line or jaw arc `body`.
+struct Bond {
+    int a = -1;
+    int b = -1;
+    EventKind kind = EventKind::ball_ball;
     int body = -1;
 };
 
@@ -182,6 +201,14 @@ private:
     }
     bool next_event(Next& out) const;
     void resolve(const Next& e, double t);
+    void join(int i, const BallState& s);
+    void gather_bonded();
+    Vec3 bond_normal(const Bond& k) const;
+    bool bond_holds(const Bond& k) const;
+    bool bonded_body(int i, EventKind kind, int body) const;
+    void add_bond(const Bond& k);
+    void push_group();
+    void hold_contacts(std::vector<Bond>& dropped);
     void keep_finite(int i, BallState& b, const BallState& fallback, double t, const char* when);
     void separate(int i, BallState& b, double t, int other, const BallState* other_state);
     void stop_all(double t, AnomalyKind kind, std::vector<int> balls, std::string detail);
@@ -198,13 +225,22 @@ private:
     std::vector<Live> live_;
     std::vector<int> row_;           // pair (i, j), i < j, sits at pair_t_[row_[i] + j]
     std::vector<double> pair_t_;     // next contact of each pair, absolute
-    std::vector<double> hold_;       // a pushing pair's contact search starts here, absolute
-    std::vector<double> own_t_;      // next transition or nap re-evaluation of each ball, absolute
+    std::vector<double> own_t_;     // next transition or nap re-evaluation of each ball, absolute
     std::vector<double> cushion_t_;  // next cushion, jaw or pocket of each ball, absolute
     std::vector<EventKind> cushion_kind_;
     std::vector<int> cushion_body_;
     std::vector<Box> line_box_, arc_box_, pocket_box_;
     std::array<std::size_t, kAnomalyNames.size()> anomaly_count_{};
+
+    std::vector<Bond> bonds_;
+    std::vector<unsigned char> pair_bonded_;  // packed like pair_t_
+    std::vector<Vec3> contact_acc_;           // per ball, added to its nap while it rolls
+    // The balls an event touches and the balls held to them, with their states at the event.
+    std::vector<int> group_;
+    std::vector<unsigned char> in_group_;
+    std::vector<unsigned char> changed_;  // the state differs from the one its segment gives
+    std::vector<BallState> work_;
+    std::vector<Bond> pushes_;  // the contacts of this event's push
 };
 
 void Simulation::anomaly(AnomalyKind kind, double t, std::vector<int> balls, std::string detail) {
@@ -280,6 +316,7 @@ void Simulation::start_segment(int i, double t, const BallState& state) {
             anomaly(AnomalyKind::nan, t, {i}, "nap acceleration not finite; set to zero");
             L.nap = {};
         }
+        if (b.motion == Motion::rolling) L.nap += contact_acc_[static_cast<std::size_t>(i)];
         L.transition_dt = checked_dt(transition_time(b, p_, L.nap), i, "transition_time");
         L.own_dt = L.transition_dt;
         if (b.motion == Motion::rolling) {
@@ -299,10 +336,6 @@ void Simulation::start_segment(int i, double t, const BallState& state) {
     L.moves = L.active && (L.path.c1.x != 0.0 || L.path.c1.y != 0.0 || L.path.c2.x != 0.0 || L.path.c2.y != 0.0);
     L.box = path_box(L.path, std::min(L.end, p_.time_cap_s) - t);
     own_t_[static_cast<std::size_t>(i)] = L.active ? L.end : kNever;
-    // A hold assumes both balls keep the segments the push gave them.
-    for (int j = 0; j < n_; ++j) {
-        if (j != i) hold_[pair_index(i, j)] = -kNever;
-    }
 
     // A segment that lasted no time at all (simultaneous events) is replaced rather than kept.
     std::vector<Segment>& segs = r_.segments[static_cast<std::size_t>(i)];
@@ -336,8 +369,9 @@ double Simulation::pair_time(int i, int j) {
     const Live& a = live_[static_cast<std::size_t>(i)];
     const Live& b = live_[static_cast<std::size_t>(j)];
     if (!a.active || !b.active || (!a.moves && !b.moves)) return kNever;
+    if (pair_bonded_[pair_index(i, j)]) return kNever;
     if (!boxes_meet(a.box, b.box, 2.0 * R + kBoxMargin)) return kNever;
-    const double from = std::max(now_, hold_[pair_index(i, j)]);
+    const double from = now_;
     const double until = std::min({a.end, b.end, p_.time_cap_s});
     if (from > until) return kNever;
     const double window = std::max(0.0, until - from);
@@ -363,12 +397,15 @@ void Simulation::refresh_cushion(int i) {
             cushion_body_[u] = body;
         }
     };
+    const bool held = std::any_of(bonds_.begin(), bonds_.end(), [&](const Bond& k) { return k.a == i && k.b < 0; });
     for (std::size_t k = 0; k < table_.lines.size(); ++k) {
         if (!boxes_meet(L.box, line_box_[k], kBoxMargin)) continue;
+        if (held && bonded_body(i, EventKind::ball_line, static_cast<int>(k))) continue;
         consider(ball_line_time(path, table_.lines[k], R, window), EventKind::ball_line, static_cast<int>(k));
     }
     for (std::size_t k = 0; k < table_.arcs.size(); ++k) {
         if (!boxes_meet(L.box, arc_box_[k], kBoxMargin)) continue;
+        if (held && bonded_body(i, EventKind::ball_arc, static_cast<int>(k))) continue;
         consider(ball_arc_time(path, table_.arcs[k], R, window), EventKind::ball_arc, static_cast<int>(k));
     }
     for (std::size_t k = 0; k < table_.pockets.size(); ++k) {
@@ -471,31 +508,299 @@ void Simulation::stop_all(double t, AnomalyKind kind, std::vector<int> balls, st
     anomaly(kind, t, std::move(balls), std::move(detail));
 }
 
+void Simulation::join(int i, const BallState& s) {
+    const auto u = static_cast<std::size_t>(i);
+    if (in_group_[u]) return;
+    in_group_[u] = 1;
+    changed_[u] = 0;
+    work_[u] = s;
+    group_.push_back(i);
+}
+
+// Adds every ball held to a ball of the group, directly or through others.
+void Simulation::gather_bonded() {
+    for (std::size_t g = 0; g < group_.size(); ++g) {
+        const int i = group_[g];
+        for (const Bond& k : bonds_) {
+            const int other = k.a == i ? k.b : (k.b == i ? k.a : -1);
+            if (other >= 0 && !in_group_[static_cast<std::size_t>(other)]) join(other, state_at(other, now_, false));
+        }
+    }
+}
+
+// From ball a into what it touches.
+Vec3 Simulation::bond_normal(const Bond& k) const {
+    const Vec3 ra = work_[static_cast<std::size_t>(k.a)].r;
+    if (k.kind == EventKind::ball_ball) {
+        const Vec3 rb = work_[static_cast<std::size_t>(k.b)].r;
+        return unit_or_zero(Vec3{rb.x - ra.x, rb.y - ra.y, 0.0});
+    }
+    if (k.kind == EventKind::ball_line) {
+        const LineCushion& c = table_.lines[static_cast<std::size_t>(k.body)];
+        return {-c.normal.x, -c.normal.y, 0.0};
+    }
+    const ArcCushion& c = table_.arcs[static_cast<std::size_t>(k.body)];
+    return unit_or_zero(Vec3{c.centre.x - ra.x, c.centre.y - ra.y, 0.0});
+}
+
+// Still touching, on the cushion's span, and neither approaching nor separating. A sliding ball's
+// friction can drive it anywhere, so it isn't held: its contact is searched for again.
+bool Simulation::bond_holds(const Bond& k) const {
+    const BallState& a = work_[static_cast<std::size_t>(k.a)];
+    if (a.motion == Motion::pocketed || a.motion == Motion::sliding) return false;
+    Vec3 vb{};
+    double gap = 0.0;
+    if (k.kind == EventKind::ball_ball) {
+        const BallState& b = work_[static_cast<std::size_t>(k.b)];
+        if (b.motion == Motion::pocketed || b.motion == Motion::sliding) return false;
+        gap = norm_xy(Vec3{b.r.x - a.r.x, b.r.y - a.r.y, 0.0}) - 2.0 * R;
+        vb = b.v;
+    } else if (k.kind == EventKind::ball_line) {
+        const LineCushion& c = table_.lines[static_cast<std::size_t>(k.body)];
+        const double dx = a.r.x - c.p1.x;
+        const double dy = a.r.y - c.p1.y;
+        gap = dx * c.normal.x + dy * c.normal.y - R;
+        const double ux = c.p2.x - c.p1.x;
+        const double uy = c.p2.y - c.p1.y;
+        const double len = std::sqrt(ux * ux + uy * uy);
+        const double along = (dx * ux + dy * uy) / len;
+        if (along < -kBondSlack || along > len + kBondSlack) return false;
+    } else {
+        const ArcCushion& c = table_.arcs[static_cast<std::size_t>(k.body)];
+        const double ex = a.r.x - c.centre.x;
+        const double ey = a.r.y - c.centre.y;
+        gap = std::sqrt(ex * ex + ey * ey) - c.radius - R;
+        if (c.angle_end - c.angle_start < kTwoPi) {
+            const double span = wrap_two_pi(c.angle_end - c.angle_start);
+            const double off = wrap_two_pi(std::atan2(ey, ex) - c.angle_start);
+            if (off > span + kBondSlack && off < kTwoPi - kBondSlack) return false;
+        }
+    }
+    if (std::abs(gap) > kBondGap) return false;
+    return std::abs(dot(a.v - vb, bond_normal(k))) <= kBondSpeed;
+}
+
+bool Simulation::bonded_body(int i, EventKind kind, int body) const {
+    return std::any_of(bonds_.begin(), bonds_.end(),
+                       [&](const Bond& k) { return k.a == i && k.kind == kind && k.body == body; });
+}
+
+void Simulation::add_bond(const Bond& k) {
+    if (k.b >= 0) {
+        unsigned char& flag = pair_bonded_[pair_index(k.a, k.b)];
+        if (flag) return;
+        flag = 1;
+    } else if (bonded_body(k.a, k.kind, k.body)) {
+        return;
+    }
+    bonds_.push_back(k);
+}
+
+// The push of rolling_velocity()'s comment over every held contact of the group, by Gauss-Seidel
+// on accumulated impulses: each step sets one contact's normal speed to zero, or gives back impulse
+// it no longer needs.
+void Simulation::push_group() {
+    std::vector<Vec3> v(group_.size());
+    std::vector<unsigned char> mobile(group_.size(), 0);
+    std::vector<int> slot(static_cast<std::size_t>(n_), -1);
+    double scale = 0.0;
+    for (std::size_t g = 0; g < group_.size(); ++g) {
+        const auto u = static_cast<std::size_t>(group_[g]);
+        slot[u] = static_cast<int>(g);
+        BallState& s = work_[u];
+        if (s.motion == Motion::sliding) {
+            set_rolling(s, rolling_velocity(s), p_);
+            changed_[u] = 1;
+        }
+        mobile[g] = s.motion == Motion::rolling;
+        v[g] = mobile[g] ? Vec3{s.v.x, s.v.y, 0.0} : Vec3{};
+        scale = std::max(scale, norm_xy(v[g]));
+    }
+    // The contact was found to rounding; start the held distance exactly at touching.
+    for (const Bond& k : pushes_) {
+        BallState& a = work_[static_cast<std::size_t>(k.a)];
+        const Vec3 n = bond_normal(k);
+        if (k.b >= 0) {
+            BallState& b = work_[static_cast<std::size_t>(k.b)];
+            const double sunk = 2.0 * R - norm_xy(Vec3{b.r.x - a.r.x, b.r.y - a.r.y, 0.0});
+            if (sunk > 0.0) {
+                a.r -= n * (0.5 * sunk);
+                b.r += n * (0.5 * sunk);
+                changed_[static_cast<std::size_t>(k.b)] = 1;
+            }
+        } else if (k.kind == EventKind::ball_line) {
+            const LineCushion& c = table_.lines[static_cast<std::size_t>(k.body)];
+            const double sunk = R - ((a.r.x - c.p1.x) * c.normal.x + (a.r.y - c.p1.y) * c.normal.y);
+            if (sunk > 0.0) a.r -= n * sunk;
+        } else {
+            const ArcCushion& c = table_.arcs[static_cast<std::size_t>(k.body)];
+            const double sunk = c.radius + R - norm_xy(Vec3{a.r.x - c.centre.x, a.r.y - c.centre.y, 0.0});
+            if (sunk > 0.0) a.r -= n * sunk;
+        }
+        changed_[static_cast<std::size_t>(k.a)] = 1;
+    }
+
+    struct Contact {
+        std::size_t a;
+        int b;  // slot, -1 for a cushion
+        Vec3 n;
+        double impulse;
+    };
+    std::vector<Contact> contacts;
+    for (const Bond& k : bonds_) {
+        if (!in_group_[static_cast<std::size_t>(k.a)]) continue;
+        contacts.push_back({static_cast<std::size_t>(slot[static_cast<std::size_t>(k.a)]),
+                            k.b >= 0 ? slot[static_cast<std::size_t>(k.b)] : -1, bond_normal(k), 0.0});
+    }
+    const double settled = 1e-16 * scale;
+    for (int sweep = 0; sweep < kMaxSweeps; ++sweep) {
+        double worst = 0.0;
+        for (Contact& c : contacts) {
+            const bool ma = mobile[c.a] != 0;
+            const bool mb = c.b >= 0 && mobile[static_cast<std::size_t>(c.b)] != 0;
+            if (!ma && !mb) continue;
+            const double closing = dot(c.b >= 0 ? v[c.a] - v[static_cast<std::size_t>(c.b)] : v[c.a], c.n);
+            const double next = std::max(0.0, c.impulse + closing / ((ma ? 1.0 : 0.0) + (mb ? 1.0 : 0.0)));
+            const double step = next - c.impulse;
+            if (step == 0.0) continue;
+            c.impulse = next;
+            if (ma) v[c.a] -= c.n * step;
+            if (mb) v[static_cast<std::size_t>(c.b)] += c.n * step;
+            worst = std::max(worst, std::abs(step));
+        }
+        if (worst <= settled) break;
+    }
+    for (std::size_t g = 0; g < group_.size(); ++g) {
+        const auto u = static_cast<std::size_t>(group_[g]);
+        BallState& s = work_[u];
+        if (!mobile[g] || (v[g].x == s.v.x && v[g].y == s.v.y)) continue;
+        set_rolling(s, v[g], p_);
+        changed_[u] = 1;
+    }
+}
+
+// Drops the group's bonds that no longer hold (into `dropped`), then solves the contact
+// accelerations of those that do, by Gauss-Seidel as in push_group(). Only rolling balls move under
+// them; a ball whose contact acceleration changes needs a new segment.
+void Simulation::hold_contacts(std::vector<Bond>& dropped) {
+    std::size_t kept = 0;
+    for (std::size_t q = 0; q < bonds_.size(); ++q) {
+        const Bond k = bonds_[q];
+        if (in_group_[static_cast<std::size_t>(k.a)] && !bond_holds(k)) {
+            dropped.push_back(k);
+            if (k.b >= 0) pair_bonded_[pair_index(k.a, k.b)] = 0;
+            continue;
+        }
+        bonds_[kept++] = k;
+    }
+    bonds_.resize(kept);
+
+    std::vector<Vec3> base(group_.size());
+    std::vector<Vec3> acc(group_.size());
+    std::vector<unsigned char> mobile(group_.size(), 0);
+    std::vector<int> slot(static_cast<std::size_t>(n_), -1);
+    double scale = 0.0;
+    for (std::size_t g = 0; g < group_.size(); ++g) {
+        const auto u = static_cast<std::size_t>(group_[g]);
+        slot[u] = static_cast<int>(g);
+        const BallState& s = work_[u];
+        if (s.motion != Motion::rolling) continue;
+        const Vec3 nap = nap_acceleration(s, p_);
+        if (!finite(nap)) continue;
+        base[g] = trajectory(s, p_, nap).c2 * 2.0;
+        acc[g] = base[g];
+        mobile[g] = 1;
+        scale = std::max(scale, norm_xy(base[g]));
+    }
+    struct Contact {
+        std::size_t a;
+        int b;
+        Vec3 n;
+        double force;
+    };
+    std::vector<Contact> contacts;
+    for (const Bond& k : bonds_) {
+        if (!in_group_[static_cast<std::size_t>(k.a)]) continue;
+        const auto a = static_cast<std::size_t>(slot[static_cast<std::size_t>(k.a)]);
+        const int b = k.b >= 0 ? slot[static_cast<std::size_t>(k.b)] : -1;
+        if (mobile[a] || (b >= 0 && mobile[static_cast<std::size_t>(b)])) contacts.push_back({a, b, bond_normal(k), 0.0});
+    }
+    const double settled = 1e-16 * scale;
+    for (int sweep = 0; sweep < kMaxSweeps && !contacts.empty(); ++sweep) {
+        double worst = 0.0;
+        for (Contact& c : contacts) {
+            const bool ma = mobile[c.a] != 0;
+            const bool mb = c.b >= 0 && mobile[static_cast<std::size_t>(c.b)] != 0;
+            const double closing = dot(c.b >= 0 ? acc[c.a] - acc[static_cast<std::size_t>(c.b)] : acc[c.a], c.n);
+            const double next = std::max(0.0, c.force + closing / ((ma ? 1.0 : 0.0) + (mb ? 1.0 : 0.0)));
+            const double step = next - c.force;
+            if (step == 0.0) continue;
+            c.force = next;
+            if (ma) acc[c.a] -= c.n * step;
+            if (mb) acc[static_cast<std::size_t>(c.b)] += c.n * step;
+            worst = std::max(worst, std::abs(step));
+        }
+        if (worst <= settled) break;
+    }
+    for (std::size_t g = 0; g < group_.size(); ++g) {
+        const auto u = static_cast<std::size_t>(group_[g]);
+        const Vec3 extra = mobile[g] ? Vec3{acc[g].x - base[g].x, acc[g].y - base[g].y, 0.0} : Vec3{};
+        if (extra != contact_acc_[u]) {
+            contact_acc_[u] = extra;
+            if (!changed_[u]) changed_[u] = kForcesChanged;
+        }
+    }
+}
+
 void Simulation::resolve(const Next& e, double t) {
     const bool own = e.kind == EventKind::transition || e.kind == EventKind::nap;
     const bool pair = e.b >= 0;
-    BallState a = state_at(e.a, t, own);
-    BallState b = pair ? state_at(e.b, t, false) : BallState{};
+    for (const int i : group_) in_group_[static_cast<std::size_t>(i)] = 0;
+    group_.clear();
+    pushes_.clear();
+    join(e.a, state_at(e.a, t, own));
+    if (pair) join(e.b, state_at(e.b, t, false));
+    BallState& a = work_[static_cast<std::size_t>(e.a)];
+    BallState& b = work_[static_cast<std::size_t>(pair ? e.b : e.a)];
     keep_finite(e.a, a, live_[static_cast<std::size_t>(e.a)].start, t, "after evolve");
     if (pair) keep_finite(e.b, b, live_[static_cast<std::size_t>(e.b)].start, t, "after evolve");
     const BallState a_before = a;
     const BallState b_before = b;
-    const double ke_before = kinetic_energy(a, p_) + (pair ? kinetic_energy(b, p_) : 0.0);
+    changed_[static_cast<std::size_t>(e.a)] = 1;
+    if (pair) changed_[static_cast<std::size_t>(e.b)] = 1;
+    gather_bonded();
+    double ke_before = 0.0;
+    for (const int i : group_) ke_before += kinetic_energy(work_[static_cast<std::size_t>(i)], p_);
 
-    bool pushed = false;
     switch (e.kind) {
         case EventKind::ball_ball: {
             const Vec3 n = unit_or_zero(Vec3{b.r.x - a.r.x, b.r.y - a.r.y, 0.0});
             if (dot(a.v - b.v, n) < p_.ball_rest_speed_m_s) {
-                push(a, b, p_);
-                pushed = true;
+                pushes_.push_back({std::min(e.a, e.b), std::max(e.a, e.b), EventKind::ball_ball, -1});
             } else {
                 collide_balls(a, b, p_);
             }
             break;
         }
-        case EventKind::ball_line: collide_line(a, table_.lines[static_cast<std::size_t>(e.body)], p_); break;
-        case EventKind::ball_arc: collide_arc(a, table_.arcs[static_cast<std::size_t>(e.body)], p_); break;
+        case EventKind::ball_line: {
+            const LineCushion& c = table_.lines[static_cast<std::size_t>(e.body)];
+            if (-(a.v.x * c.normal.x + a.v.y * c.normal.y) < p_.ball_rest_speed_m_s) {
+                pushes_.push_back({e.a, -1, EventKind::ball_line, e.body});
+            } else {
+                collide_line(a, c, p_);
+            }
+            break;
+        }
+        case EventKind::ball_arc: {
+            const ArcCushion& c = table_.arcs[static_cast<std::size_t>(e.body)];
+            const Vec3 n = unit_or_zero(Vec3{a.r.x - c.centre.x, a.r.y - c.centre.y, 0.0});
+            if (-dot(a.v, n) < p_.ball_rest_speed_m_s) {
+                pushes_.push_back({e.a, -1, EventKind::ball_arc, e.body});
+            } else {
+                collide_arc(a, c, p_);
+            }
+            break;
+        }
         case EventKind::pocket:
             a.motion = Motion::pocketed;
             a.pocket = e.body;
@@ -507,10 +812,15 @@ void Simulation::resolve(const Next& e, double t) {
         case EventKind::strike:
         case EventKind::guard: break;
     }
+    if (!pushes_.empty()) {
+        for (const Bond& k : pushes_) add_bond(k);
+        push_group();
+    }
     keep_finite(e.a, a, a_before, t, std::string("after ").append(event_kind_name(e.kind)).c_str());
     if (pair) keep_finite(e.b, b, b_before, t, "after ball_ball");
 
-    const double ke_after = kinetic_energy(a, p_) + (pair ? kinetic_energy(b, p_) : 0.0);
+    double ke_after = 0.0;
+    for (const int i : group_) ke_after += kinetic_energy(work_[static_cast<std::size_t>(i)], p_);
     if (ke_after - ke_before > 1e-9 * ke_before + 1e-12) {
         std::vector<int> balls{e.a};
         if (pair) balls.push_back(e.b);
@@ -524,25 +834,35 @@ void Simulation::resolve(const Next& e, double t) {
     separate(e.a, a, t, e.b, pair ? &b : nullptr);
     if (pair) separate(e.b, b, t, e.a, &a);
 
-    start_segment(e.a, t, a);
-    if (pair) start_segment(e.b, t, b);
-    if (pushed) {
-        const Vec3 n = unit_or_zero(Vec3{b.r.x - a.r.x, b.r.y - a.r.y, 0.0});
-        const Vec3 ca = live_[static_cast<std::size_t>(e.a)].path.c2;
-        const Vec3 cb = live_[static_cast<std::size_t>(e.b)].path.c2;
-        // Held even when the pair is driven apart: the push leaves their speeds along n equal only to
-        // rounding, which would read as touching and approaching at once.
-        const double inward = std::max(2.0 * dot(ca - cb, n), kHoldMinClosing);
-        hold_[pair_index(e.a, e.b)] = t + std::sqrt(2.0 * kHoldOverlap / inward);
+    std::vector<Bond> dropped;
+    hold_contacts(dropped);
+    std::vector<int> restarted;
+    for (const int i : group_) {
+        const unsigned char why = changed_[static_cast<std::size_t>(i)];
+        if (why == 0) continue;
+        // Its own event comes next and starts the segment with the new forces; restarted now, its
+        // heading would come from a speed that rounding has worn down to noise.
+        if (why == kForcesChanged && live_[static_cast<std::size_t>(i)].end <= t + kStaleWindow) continue;
+        start_segment(i, t, work_[static_cast<std::size_t>(i)]);
+        restarted.push_back(i);
     }
-    refresh_cushion(e.a);
-    if (pair) refresh_cushion(e.b);
-    for (int j = 0; j < n_; ++j) {
-        if (j != e.a) refresh_pair(e.a, j);
-    }
-    if (pair) {
+    // From here in_group_ marks the restarted balls already refreshed, so each pair is solved once.
+    for (const int i : group_) in_group_[static_cast<std::size_t>(i)] = 0;
+    group_.clear();
+    for (const int i : restarted) {
+        refresh_cushion(i);
         for (int j = 0; j < n_; ++j) {
-            if (j != e.a && j != e.b) refresh_pair(e.b, j);
+            if (j != i && !in_group_[static_cast<std::size_t>(j)]) refresh_pair(i, j);
+        }
+        in_group_[static_cast<std::size_t>(i)] = 1;
+        group_.push_back(i);
+    }
+    for (const Bond& k : dropped) {
+        const bool a_done = in_group_[static_cast<std::size_t>(k.a)] != 0;
+        if (k.b >= 0) {
+            if (!a_done && !in_group_[static_cast<std::size_t>(k.b)]) refresh_pair(k.a, k.b);
+        } else if (!a_done) {
+            refresh_cushion(k.a);
         }
     }
 }
@@ -566,7 +886,11 @@ void Simulation::setup() {
         row_[i] = static_cast<int>(i * (2 * n - i - 1) / 2) - static_cast<int>(i) - 1;
     }
     pair_t_.assign(n * (n > 0 ? n - 1 : 0) / 2, kNever);
-    hold_.assign(pair_t_.size(), -kNever);
+    pair_bonded_.assign(pair_t_.size(), 0);
+    contact_acc_.assign(n, Vec3{});
+    in_group_.assign(n, 0);
+    changed_.assign(n, 0);
+    work_.assign(n, BallState{});
 
     for (const LineCushion& c : table_.lines) {
         line_box_.push_back({std::min(c.p1.x, c.p2.x) - R, std::min(c.p1.y, c.p2.y) - R, std::max(c.p1.x, c.p2.x) + R,
