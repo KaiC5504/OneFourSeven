@@ -250,6 +250,29 @@ TEST_CASE("cushion: kinetic energy never increases and the ball always leaves") 
     MESSAGE("largest relative energy change over 10,000 impacts: " << worst_gain);
 }
 
+TEST_CASE("cushion: every parameter value the loader accepts gives a finite, valid rebound") {
+    // physics_params.cpp ranges: frictions up to 2, contact height from R to 2R, any restitution.
+    Rng rng(9);
+    for (int i = 0; i < 2000; ++i) {
+        PhysicsParams p;
+        p.cushion_restitution = rng.uniform(0.0, 1.0);
+        p.cushion_friction = rng.uniform(0.0, 2.0);
+        p.cushion_table_friction = rng.uniform(0.0, 2.0);
+        p.cushion_contact_height_m = i % 10 == 0 ? (i % 20 == 0 ? R : 2.0 * R) : rng.uniform(R, 2.0 * R);
+        const double v0 = rng.uniform(0.01, 10.0);
+        const double a = rng.uniform(0.01, kPi - 0.01);
+        const Local y0{v0 * std::cos(a), v0 * std::sin(a), rng.uniform(-3.0, 3.0) * v0,
+                       rng.uniform(-3.0, 3.0) * v0, rng.uniform(-3.0, 3.0) * v0};
+        const Local got = hit_line(y0, p);
+        bool finite = true;
+        for (double x : got) finite = finite && std::isfinite(x);
+        INFO("impact " << i);
+        REQUIRE(finite);
+        CHECK(got[1] <= 0.0);
+        CHECK(energy(got) <= energy(y0) * (1.0 + 1e-9));
+    }
+}
+
 TEST_CASE("cushion: the fraction of speed lost does not depend on speed, the amount lost does") {
     // Mathavan et al. (2010) section 4, Fig. 8: rebound angles are identical at every speed and
     // rebound speeds scale with it; the model has no speed scale of its own. With the restitution

@@ -139,7 +139,16 @@ Friction Impact::friction(Mode mi, Mode mc, Dir di, Dir dc) const {
     if (mc == Mode::slip) {
         // I holds: solve its slip rate = 0 with C's friction depending on I's through the cloth's
         // normal impulse.
-        f.iy = (-st_ * ct_ + d_ * mu_s_ * st_ * dc.y) / (c_ + d_ * mu_s_ * ct_ * dc.y);
+        const double den = c_ + d_ * mu_s_ * ct_ * dc.y;
+        if (den <= 1e-9) {
+            // No finite friction holds I (needs cloth friction of 1 or more): report one outside
+            // the cone so feasible() and stick_margin() let it slip.
+            f.iy = 2.0 * mu_w_ + 1.0;
+            f.cx = -mu_s_ * st_ * dc.x;
+            f.cy = -mu_s_ * st_ * dc.y;
+            return f;
+        }
+        f.iy = (-st_ * ct_ + d_ * mu_s_ * st_ * dc.y) / den;
         double nc = st_ - f.iy * ct_;
         if (nc < 0.0) {
             nc = 0.0;
