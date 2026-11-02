@@ -17,6 +17,7 @@ on:
       - "thirdparty/**"
       - "CMakeLists.txt"
       - "scripts/build_ios_ext.sh"
+      - "scripts/build_macos_ext.sh"
       - "scripts/godot_tools.py"
       - "scripts/sync_data.py"
       - "tools/check_logs.py"
@@ -63,7 +64,31 @@ jobs:
           esac
           cmake --version | head -1
 
-      - name: Build the extension
+      # The headless macOS editor that imports and exports below loads this build of the
+      # extension; without it, no script that uses an Ofs* class parses there. It is cached on
+      # everything compiled into it.
+      - name: macOS extension cache key
+        id: macos-ext-key
+        run: echo "godot_cpp=$(git rev-parse HEAD:thirdparty/godot-cpp)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: macos-ext
+        with:
+          path: game/bin/libonefourseven.macos.template_debug.arm64.dylib
+          key: macos-ext-${{ runner.arch }}-${{ steps.macos-ext-key.outputs.godot_cpp }}-${{ hashFiles('CMakeLists.txt', 'core/CMakeLists.txt', 'core/include/**', 'core/src/**', 'gdext/**', 'thirdparty/nlohmann/**', 'scripts/build_macos_ext.sh') }}
+
+      - name: Build the macOS extension for the editor
+        if: steps.macos-ext.outputs.cache-hit != 'true'
+        run: bash scripts/build_macos_ext.sh
+
+      # Saved straight away rather than at the end of the job, so a later failure keeps it.
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: steps.macos-ext.outputs.cache-hit != 'true'
+        with:
+          path: game/bin/libonefourseven.macos.template_debug.arm64.dylib
+          key: ${{ steps.macos-ext.outputs.cache-primary-key }}
+
+      - name: Build the iOS extension
         run: bash scripts/build_ios_ext.sh debug
 
       - name: Godot and export templates
@@ -79,11 +104,18 @@ jobs:
         run: |
           set -o pipefail
           python scripts/sync_data.py
-          "$GODOT" --headless --path game --import
-          mkdir -p build/ios
-          "$GODOT" --headless --path game --export-debug "iOS" ../build/ios/OneFourSeven.xcodeproj
-          # Adds the four iPad orientations and fails on any missing pipeline setting.
-          python scripts/godot_tools.py ios-plist build/ios
+          mkdir -p build/ios shots/godot
+          # Godot exits 0 on script errors, so the checker reads both logs for them. Every command
+          # runs even if one before it failed, so one run reports every problem.
+          status=0
+          "$GODOT" --headless --path game --import 2>&1 | tee shots/godot/import.log || status=1
+          "$GODOT" --headless --path game --export-debug "iOS" ../build/ios/OneFourSeven.xcodeproj 2>&1 \
+            | tee shots/godot/export.log || status=1
+          python scripts/godot_tools.py check-godot-log shots/godot/import.log shots/godot/export.log || status=1
+          # Adds the four iPad orientations and fails on any missing pipeline setting or a
+          # bundled macOS extension.
+          python scripts/godot_tools.py ios-plist build/ios || status=1
+          exit $status
 
       - name: Boot a simulator
         id: sim

@@ -27,6 +27,7 @@ PRESETS = (ROOT / "game" / "export_presets.cfg").read_text(encoding="utf-8")
 PROJECT = (ROOT / "game" / "project.godot").read_text(encoding="utf-8")
 GDEXTENSION = (ROOT / "game" / "bin" / "onefourseven.gdextension").read_text(encoding="utf-8")
 BUILD_IOS = (ROOT / "scripts" / "build_ios_ext.sh").read_text(encoding="utf-8")
+BUILD_MACOS = (ROOT / "scripts" / "build_macos_ext.sh").read_text(encoding="utf-8")
 
 # Keys Godot 4.7.1's iOS template Info.plist (misc/dist/apple_embedded_xcode) already writes.
 TEMPLATE_KEYS = {"CFBundleDisplayName", "ITSAppUsesNonExemptEncryption", "UIRequiresFullScreen",
@@ -140,6 +141,46 @@ class IosPreset(unittest.TestCase):
         self.assertIn('out="$root/game/bin/$name.xcframework"', BUILD_IOS)
 
 
+class MacosEditorExtension(unittest.TestCase):
+    """The macOS build only CI's headless editor loads (scripts/build_macos_ext.sh)."""
+
+    def libraries(self):
+        section = GDEXTENSION.split("[libraries]", 1)[1]
+        return dict(re.findall(r'^([\w.]+)="([^"]*)"$', section, re.MULTILINE))
+
+    def test_one_debug_arm64_entry_with_the_name_the_script_builds(self):
+        macos = {k: v for k, v in self.libraries().items() if k.startswith("macos")}
+        # The editor always has the "debug" feature, also while exporting a release.
+        self.assertEqual({"macos.debug.arm64": "res://bin/libonefourseven.macos.template_debug.arm64.dylib"}, macos)
+        self.assertIn('target=template_debug', BUILD_MACOS)
+        self.assertIn('name="libonefourseven.macos.$target.arm64.dylib"', BUILD_MACOS)
+        self.assertIn('out="$root/game/bin/$name"', BUILD_MACOS)
+        self.assertIn(godot_tools.MACOS_EXTENSION, macos["macos.debug.arm64"])
+
+    def test_the_ios_entries_are_unchanged(self):
+        ios = {k: v for k, v in self.libraries().items() if k.startswith("ios")}
+        self.assertEqual({"ios.debug", "ios.release"}, set(ios))
+        for path in ios.values():
+            self.assertNotIn(godot_tools.MACOS_EXTENSION, path)
+
+    def test_builds_only_the_extension_for_arm64(self):
+        configure = re.search(r"^cmake -S .*?(?<!\\)$", BUILD_MACOS, re.MULTILINE | re.DOTALL).group(0)
+        for flag in ("-DCMAKE_OSX_ARCHITECTURES=arm64", '-DGODOTCPP_TARGET="$target"', "-DOFS_BUILD_TESTS=OFF"):
+            self.assertIn(flag, configure)
+        self.assertIn('cmake --build "$work" --parallel "$jobs" --target onefourseven', BUILD_MACOS)
+        self.assertIn('if [ "$(lipo -archs "$out")" != arm64 ]; then', BUILD_MACOS)
+        self.assertIn('nm -gU "$out" | grep -q "_ofs_library_init$"', BUILD_MACOS)
+        self.assertTrue(BUILD_MACOS.startswith("#!/usr/bin/env bash\n"))
+        self.assertIn("set -euo pipefail", BUILD_MACOS)
+
+    def test_dylibs_stay_out_of_every_export(self):
+        # Only res:// resources and the presets' include filters reach a .pck; the iOS export's
+        # Xcode project gets just the library the gdextension lists for ios.
+        for filters in re.findall(r'^include_filter="([^"]*)"$', PRESETS, re.MULTILINE):
+            for pattern in filter(None, (p.strip() for p in filters.split(","))):
+                self.assertNotRegex(pattern, r"bin|dylib|\*$", pattern)
+
+
 def pbxproj(display="147", style="Automatic"):
     """The parts of Godot 4.7.1's exported project.pbxproj that fix_ios_export reads."""
     def config(object_id, name, settings):
@@ -241,6 +282,27 @@ class IosPlistFix(unittest.TestCase):
             problems = "\n".join(godot_tools.fix_ios_export(Path(temp)))
         self.assertIn("app target Debug CODE_SIGN_STYLE is []", problems)
         self.assertIn("app target Release CODE_SIGN_STYLE is []", problems)
+
+    def test_a_bundled_macos_extension_fails(self):
+        with tempfile.TemporaryDirectory() as temp:
+            self.make_export(Path(temp))
+            frameworks = Path(temp) / "OneFourSeven" / "dylibs" / "bin"
+            frameworks.mkdir(parents=True)
+            (frameworks / "libonefourseven.ios.template_debug.xcframework").mkdir()
+            self.assertEqual([], godot_tools.fix_ios_export(Path(temp)))
+            (frameworks / "libonefourseven.macos.template_debug.arm64.dylib").write_bytes(b"")
+            problems = godot_tools.fix_ios_export(Path(temp))
+        self.assertEqual(1, len(problems), problems)
+        self.assertIn("the macOS editor's extension is in the iOS export", problems[0])
+        self.assertIn("libonefourseven.macos.template_debug.arm64.dylib", problems[0])
+
+    def test_a_macos_extension_named_in_the_project_fails(self):
+        project = pbxproj().replace("buildPhases = (\n", "buildPhases = (\n\t\t\t\tlibonefourseven.macos.x /* x */,\n")
+        with tempfile.TemporaryDirectory() as temp:
+            self.make_export(Path(temp), project=project)
+            problems = godot_tools.fix_ios_export(Path(temp))
+        self.assertEqual(1, len(problems), problems)
+        self.assertIn("OneFourSeven.xcodeproj/project.pbxproj", problems[0])
 
     def test_a_project_without_an_app_target_fails(self):
         with tempfile.TemporaryDirectory() as temp:
