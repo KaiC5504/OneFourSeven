@@ -139,3 +139,6 @@ fuzz, `SimInput::table_hash`, `table.invalid` log event, `test_simulator_regress
 Then: merge each (remove its worktree once the quick gate is green), refresh bench baseline on an idle PC,
 fuzz on seeds 1/4242/987654/1234/99, calibration, regenerate report, seam review, push once, ship.
 Bench note: another project's tests were loading the CPU at 909c010, so bench --check read ~2x slow.
+- Merged: repro (6b60f5c, 42de2a4: bundle v2, table_hash, values hash, NaN as strings, digest over the event sequence only), jaws/tests (9f154ce), idle/CI (e9dc04e, e0b5374, de1a8cc).
+- For KaiC's M2 feel check: a dying ball (about 0.12 m/s or less) that clips the far jaw hangs in the jaws instead of dropping. Measured, not a bug; `drop_set_back_m` is the setting if he wants them to drop.
+- Follow-up: build_ios_ext.sh builds godot-cpp three times per run; the same object cache would save more there.
