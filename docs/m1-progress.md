@@ -32,7 +32,12 @@ cue_end_mass_kg 0.0047 (squirt 3.05 -> 2.0 deg at max side). tools (424050a: sim
 simulate/replay/fuzz/bench/calibrate, calibration_report.py; fuzz checks anomalies, NaN,
 overlaps, tunnelling, energy, C13 every 100th; bench 15 shots). To do after the merge: write
 the bench baseline in Release; give the 25% regression check some absolute slack (us-scale
-shots are noisy while the gate runs lanes in parallel).
+shots are noisy while the gate runs lanes in parallel). simulator (3b84905, 0a0fc80: pair
+cache with bounding-box culling, ~3-4 quartics and ~1 us loop overhead per event, ~190 events
+per break-off; the push rule plus a short contact hold-back after a push (review in checks);
+500 break-offs: anomalies 26 -> 0; 12 integration tests skip-decorated until merge).
+Expected red until events + cushions merge: physics lane fuzz (tunnel 1721, overlap 162,
+time_cap 59, all from stub detection and an empty table).
 
 ## After wave 1
 Enable ofs_calibration_tests in ctest and the simulator's skipped integration tests; apply
