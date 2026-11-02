@@ -201,3 +201,9 @@ TestFlight build 1 (run 41347888441, 8f98887): uploaded and processed by Apple. 
 landscape both ways, allow local network, "PC link: connected" with devlink running,
 Windows shortcut works. First phone session logs land in logs/<date>/ via devlink: check
 app.start renderer (expect mobile/Metal), footprint_mb, perf.second fps and idle.
+Phone (iPhone18,2, iOS 27.2, build 1): renderer mobile / Apple A19 Pro GPU (Apple9), 120 Hz,
+no app.error, footprint 320-410 MB, thermal nominal. Bonjour found the PC in 40 ms and the
+first session (local-network prompt) uploaded as backlog. Idle draws ~1 frame/s, but the
+main loop still ticks at 120 Hz (frame_ms_avg 8.33): low-processor mode doesn't slow the
+loop on iOS, where the display link drives it. M1 candidate: cap Engine.max_fps while idle.
+First launch hitch 2.8 s (pipeline compile), none on the second.
