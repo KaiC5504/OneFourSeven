@@ -462,13 +462,14 @@ struct Surface {
     double friction;
 };
 
-void collide(BallState& b, const Surface& s, const PhysicsParams& p) {
+bool collide(BallState& b, const Surface& s, const PhysicsParams& p) {
     const double R = table::kBallRadius;
     const double nx = s.normal.x;
     const double ny = s.normal.y;
     // Cushion frame: y into the cushion, x = y cross z.
     const double vx = -b.v.x * ny + b.v.y * nx;
     const double vy = -(b.v.x * nx + b.v.y * ny);
+    bool solved = true;
     if (vy > 0.0) {
         const double over = std::max(0.0, vy - p.cushion_rigid_limit_m_s);
         const double e =
@@ -479,7 +480,8 @@ void collide(BallState& b, const Surface& s, const PhysicsParams& p) {
         State y;
         Impact impact(sin_theta, s.friction, p.cushion_table_friction, e);
         if (!impact.solve(y0, y)) {
-            // Unreached on every tested impact; a plain restitution bounce keeps the ball valid.
+            // A plain restitution bounce keeps the ball valid.
+            solved = false;
             y = y0;
             y[1] = -e * vy;
         }
@@ -487,17 +489,18 @@ void collide(BallState& b, const Surface& s, const PhysicsParams& p) {
         b.w = {(-y[2] * ny - y[3] * nx) / R, (y[2] * nx - y[3] * ny) / R, y[4] / R};
     }
     b.motion = classify(b, p);
+    return solved;
 }
 
 }  // namespace
 
-void collide_line(BallState& b, const LineCushion& c, const PhysicsParams& p) {
-    collide(b, {{c.normal.x, c.normal.y, 0.0}, p.cushion_restitution, p.cushion_friction}, p);
+bool collide_line(BallState& b, const LineCushion& c, const PhysicsParams& p) {
+    return collide(b, {{c.normal.x, c.normal.y, 0.0}, p.cushion_restitution, p.cushion_friction}, p);
 }
 
-void collide_arc(BallState& b, const ArcCushion& c, const PhysicsParams& p) {
+bool collide_arc(BallState& b, const ArcCushion& c, const PhysicsParams& p) {
     const Vec3 n = unit_or_zero(Vec3{b.r.x - c.centre.x, b.r.y - c.centre.y, 0.0});
-    collide(b, {n, p.jaw_restitution, p.jaw_friction}, p);
+    return collide(b, {n, p.jaw_restitution, p.jaw_friction}, p);
 }
 
 }  // namespace ofs::phys

@@ -55,6 +55,7 @@ Every line is one JSON object:
 | `shot.simulated` | info | every simulated shot (sim_cli now, the game from M2) | `bundle` (the repro bundle), `result` |
 | `physics.anomaly` | warn | the simulator hit a guard or found something impossible | `kind`, `t` (seconds into the shot), `balls` (indices), `detail`, `bundle` |
 | `params.invalid` | error | a parameter in `table_params.json` was refused; that field keeps its default | `key`, `value`, `reason` |
+| `table.invalid` | error | the table shape file was refused; `problems` lists every fault found | `hash`, `problems` |
 
 `physics.anomaly` kinds: `event_guard` (max_events reached), `zero_time_chain` (too many
 simultaneous events in a row), `time_cap` (still moving at time_cap_s), `solver_fallback`,

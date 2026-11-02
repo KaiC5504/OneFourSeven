@@ -25,6 +25,10 @@
 
 namespace ofs::phys {
 
+// Two balls closer than 2R by more than this overlap. The simulator logs an overlap anomaly past it
+// and the fuzz fails a shot on it, so both use this one value.
+inline constexpr double kOverlapTolerance_m = 1e-9;
+
 struct SimInput {
     TableState start;  // Motion is re-derived with classify(), except for pocketed balls
     int cue_ball = 0;
@@ -32,6 +36,7 @@ struct SimInput {
     CueStrike strike;
     std::uint64_t seed = 0;
     std::string params_hash;  // logged with anomalies; the hash of the parameter file in use
+    std::string table_hash;   // the same for the table shape file; empty when unknown
 };
 
 ShotRecord simulate(const SimInput& in, const TableShape& table, const PhysicsParams& p);

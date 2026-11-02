@@ -554,6 +554,22 @@
           "required": true
         }
       }
+    },
+    "table.invalid": {
+      "subsystem": "table",
+      "levels": [
+        "error"
+      ],
+      "fields": {
+        "hash": {
+          "type": "string",
+          "required": true
+        },
+        "problems": {
+          "type": "array",
+          "required": true
+        }
+      }
     }
   }
 }

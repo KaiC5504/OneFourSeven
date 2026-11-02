@@ -58,6 +58,7 @@ if(OFS_BUILD_TESTS)
         tests/physics/test_cue.cpp
         tests/physics/test_shot_record.cpp
         tests/physics/test_simulator.cpp
+        tests/physics/test_simulator_regress.cpp
         tests/physics/test_repro.cpp
         tests/physics/test_rack.cpp
     )

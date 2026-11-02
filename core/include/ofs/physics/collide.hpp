@@ -20,10 +20,12 @@ void collide_balls(BallState& a, BallState& b, const PhysicsParams& p);
 // Ball-cushion (spec 7.5): Mathavan, Jackson & Parkin (2010), contact at
 // cushion_contact_height_m with cushion_restitution, cushion_friction and cushion_table_friction.
 // Reference: pooltool/physics/resolve/ball_cushion/mathavan_2010.
-void collide_line(BallState& b, const LineCushion& c, const PhysicsParams& p);
+// Both cushion responses return false when the impact solver gave up and the ball took a plain
+// restitution bounce instead; the caller records that as solver_fallback.
+bool collide_line(BallState& b, const LineCushion& c, const PhysicsParams& p);
 
 // A jaw: the same model, normal along the line from the arc centre to the ball, with
 // jaw_restitution and jaw_friction.
-void collide_arc(BallState& b, const ArcCushion& c, const PhysicsParams& p);
+bool collide_arc(BallState& b, const ArcCushion& c, const PhysicsParams& p);
 
 }  // namespace ofs::phys
