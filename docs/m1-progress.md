@@ -91,3 +91,15 @@ fixes, ship (no TestFlight in M1; the next signed build needs a dry run first).
   section. Lead: cushion_restitution_min 0.70 (0284387, Alciatore TP B.6 and Mathavan 2009
   extrapolated; clamp assigned to fix-sim); ball-ball fast rolling throw bound relaxed to 2.5 deg.
   Open: the report's screw_follow series runs into cushions (check round).
+- fix-sim merged (ab1389d, e5b2359, fba520a, 6b992c3): group push for balls, cushions and jaws
+  below ball_rest_speed_m_s, held contacts (bonds) instead of the hold-back, detection drops
+  coefficients below rounding width; cushion reference test uses the same e; restitution floor
+  clamp. Lead: max_zero_time_chain 1000 (f98708c: a frozen line of 15-20 balls needs ~130
+  simultaneous collisions). New simulator constants kBondGap 1e-9 m, kBondSpeed 1e-12 m/s,
+  kStartSpeed 1e-6 m/s, kStaleWindow 1e-6 s, kMaxSweeps 2000. Open for the events owner:
+  critical_points' cubic estimates lose roots over wide coefficient spans (worked around).
+
+## Fix round result (9d66c75)
+Full gate green (8 lanes): fuzz 100k 0 failures, calibration 26/26, core 242 tests, Windows
+export. Bench baseline written: break-offs 0.20-0.45 ms (budget 2 ms). Pushed to origin for one
+CI run. Next: check round.
