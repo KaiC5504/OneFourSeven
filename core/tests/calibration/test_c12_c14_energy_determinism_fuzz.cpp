@@ -90,7 +90,7 @@ void check_energy(const ShotRecord& r, Problems& problems) {
 // Each kind of problem once per shot, at its first occurrence.
 void check_robust(const ShotRecord& r, const TableShape& shape, Problems& problems) {
     for (const Anomaly& a : r.anomalies)
-        if (a.kind == "nan" || is_guard(a.kind))
+        if (a.kind == "nan" || a.kind == "overlap" || a.kind == "solver_fallback" || is_guard(a.kind))
             problems.push_back({"anomaly " + a.kind, "at t=" + num(a.t) + ": " + a.detail});
     for (std::size_t b = 0; b < r.segments.size(); ++b)
         for (const Segment& s : r.segments[b])

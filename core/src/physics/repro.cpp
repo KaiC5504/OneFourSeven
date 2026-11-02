@@ -135,7 +135,7 @@ nlohmann::json make_result(const ShotRecord& r) {
             {"potted", std::move(potted)},
             {"final", to_json(r.final_state)},
             {"miscue", r.strike.miscue},
-            {"elevation_used_rad", r.strike.elevation_used_rad},
+            {"elevation_used_rad", number_to_json(r.strike.elevation_used_rad)},
             {"elevation_raised", r.strike.elevation_raised},
             {"anomalies", r.anomalies.size()},
             {"sim_us", r.sim_us},

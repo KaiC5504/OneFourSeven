@@ -287,6 +287,13 @@ TEST_CASE("bundle with a non-finite start state and strike round-trips through t
     CHECK(make_bundle(back, back_p).dump() == text);
 }
 
+TEST_CASE("bundle result writes a non-finite elevation as text, not null") {
+    ShotRecord r;
+    r.strike.elevation_used_rad = std::numeric_limits<double>::quiet_NaN();
+    const nlohmann::json result = nlohmann::json::parse(make_result(r).dump());
+    CHECK(result["elevation_used_rad"] == "nan");
+}
+
 TEST_CASE("bundle of a shot whose start state wasn't finite replays to the same result") {
     SimInput in = sample_input();
     in.start.balls[16].r.x = std::numeric_limits<double>::quiet_NaN();

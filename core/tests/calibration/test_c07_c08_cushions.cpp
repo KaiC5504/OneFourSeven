@@ -114,7 +114,10 @@ void check_case(const nlohmann::json& c, Frame f, std::vector<std::string>& fail
     BallState b = make_ball(table::Ball::cue, 0, r, to_table(vec_of(c["in"]["v"]), f, false),
                             to_table(vec_of(c["in"]["w"]), f, true));
     b.motion = classify(b, params());
-    collide_line(b, line, params());
+    if (!collide_line(b, line, params())) {
+        failures.push_back(case_name(c) + ": the impact solver gave up (plain restitution bounce)");
+        return;
+    }
     const Vec3 v_out = from_table(b.v, f, false);
     const Compared got = compare(c, v_out);
     const bool angle_ok = std::abs(got.angle - got.angle_expected) <= kAngleTolDeg;
@@ -206,9 +209,10 @@ TEST_CASE("C8 running side widens and check side narrows the rebound, by Mathava
         const LineCushion line = cushion_in({0, false}, r);
         BallState b = make_ball(table::Ball::cue, 0, r, vec_of(c["in"]["v"]), vec_of(c["in"]["w"]));
         b.motion = classify(b, params());
-        collide_line(b, line, params());
+        const bool solved = collide_line(b, line, params());
         std::ostringstream key;
         key << "V=" << c["speed_m_s"].get<double>() << " incidence=" << c["incidence_deg"].get<double>();
+        CHECK_MESSAGE(solved, key.str() << " side=" << c["side"].get<double>() << ": the impact solver gave up");
         by_shot[key.str()].push_back({c["side"].get<double>(), rebound_angle_deg(b.v)});
     }
     std::vector<std::string> unordered;

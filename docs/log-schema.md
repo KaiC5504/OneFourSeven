@@ -58,8 +58,11 @@ Every line is one JSON object:
 | `table.invalid` | error | the table shape file was refused; `problems` lists every fault found | `hash`, `problems` |
 
 `physics.anomaly` kinds: `event_guard` (max_events reached), `zero_time_chain` (too many
-simultaneous events in a row), `time_cap` (still moving at time_cap_s), `solver_fallback`,
+simultaneous events in a row), `time_cap` (still moving at time_cap_s), `solver_fallback` (a
+cushion impact solve that gave up and took a plain bounce, a group contact solve that didn't
+converge, or a detection time that came back NaN or negative and was ignored; the shot carries on),
 `energy_gain`, `overlap`, `nan`. The first three end the shot with every ball at rest where it is.
+The fuzz fails a shot on any of them; calibration C12 checks `energy_gain` and C14 the rest.
 
 **Repro bundle** (`core/include/ofs/physics/repro.hpp`): `v` (2), `seed` (decimal string),
 `params_hash` (the parameter file's hash), `params` (every physics value by name),

@@ -90,9 +90,10 @@ const std::vector<Field>& fields() {
         // runaway shot to seconds and some hundreds of megabytes, where 1e7 could run a phone out
         // of memory.
         {"max_events", nullptr, &PhysicsParams::max_events, 100.0, 1e6},
-        // Events this close are resolved in kind order, so a later one can go first and leave its
-        // closing speed times zero_time_s of overlap, which must stay under the simulator's 1e-7 m:
-        // 2e-9 overlapped in 1 of 40,000 shots at max_cue_speed_m_s 20, 5e-9 in 3 at the default.
+        // Events still resolve strictly in time order; zero_time_s only feeds the chain guard and
+        // lets a detection time that rounding put just in the past be taken as now. A ball taken
+        // that way is up to its closing speed times zero_time_s past contact, so the cap keeps that
+        // near kOverlapTolerance_m (1e-9 m at 1 m/s).
         {"zero_time_s", &PhysicsParams::zero_time_s, nullptr, 0.0, 1e-9},
         {"max_zero_time_chain", nullptr, &PhysicsParams::max_zero_time_chain, 2.0, 1e6},
     };

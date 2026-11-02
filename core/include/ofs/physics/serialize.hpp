@@ -22,6 +22,8 @@ namespace ofs::phys {
 nlohmann::json to_json(const BallState& b);
 nlohmann::json to_json(const TableState& s);
 nlohmann::json to_json(const CueStrike& c);
+// A double as JSON, with NaN and the infinities as "nan", "inf", "-inf" (JSON has neither).
+nlohmann::json number_to_json(double v);
 
 // False with a reason on anything malformed: unknown ball names, wrong array lengths, a value that
 // is neither a finite number nor one of those three strings, an out-of-range red index.

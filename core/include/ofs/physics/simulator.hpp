@@ -8,7 +8,8 @@
 // Events resolve one at a time, earliest first; events at exactly the same time go lowest
 // (kind, a, b, body) first. That order, the seeded rack gaps and Rng make a shot bit-identical for
 // the same input on one platform (C13). Events within zero_time_s of each other count as
-// simultaneous only for the max_zero_time_chain guard.
+// simultaneous only for the max_zero_time_chain guard, and a detection time no more than
+// zero_time_s in the past (rounding) is taken as now.
 //
 // A contact closing slower than ball_rest_speed_m_s is a push rather than a bounce: its balls,
 // and every ball held to them, take perfectly inelastic impulses together. The contact is then
