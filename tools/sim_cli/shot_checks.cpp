@@ -140,9 +140,9 @@ std::vector<double> boundary_times(const Path& path, const phys::TableShape& t) 
 std::vector<ShotFailure> check_record(const phys::SimInput& in, const phys::ShotRecord& r,
                                       const PlayArea& area) {
     std::vector<ShotFailure> out;
-    for (const phys::Anomaly& a : r.anomalies) {
-        if (a.kind != "solver_fallback") out.push_back({"anomaly:" + a.kind, anomaly_text(a)});
-    }
+    // solver_fallback included: it covers a dropped detection (a missed collision) and an
+    // unconverged contact solve as well as a cushion solve that gave up.
+    for (const phys::Anomaly& a : r.anomalies) out.push_back({"anomaly:" + a.kind, anomaly_text(a)});
     const std::size_t n = in.start.balls.size();
     if (r.segments.size() != n || r.final_state.balls.size() != n) {
         out.push_back({"record", format("%zu balls in, %zu segment lists and %zu final balls out", n,

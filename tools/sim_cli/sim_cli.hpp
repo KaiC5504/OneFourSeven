@@ -179,7 +179,7 @@ struct ShotFailure {
     std::string detail;
 };
 
-// C12 and C14 on one record, every failure found: anomalies other than solver fallbacks, NaN,
+// C12 and C14 on one record, every failure found: any anomaly, NaN,
 // balls overlapping or outside the playing area at any event time, a ball into a cushion, jaw or
 // drop circle at any moment between events, a rise in total kinetic energy from one event time to
 // the next, balls not at rest at the end.

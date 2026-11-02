@@ -48,6 +48,7 @@
    "zero_time_s": 1e-09
   },
   "params_hash": "ab06a56d6608ce71",
+  "params_values_hash": "9c08198604fbad6e",
   "seed": "18045464461395506697",
   "start": {
    "balls": [
@@ -441,7 +442,7 @@
    "tip_y": 0.3081819743514592
   },
   "table_hash": "cf92efd6db3fff39",
-  "v": 1
+  "v": 2
  },
  "result": {
   "anomalies": 0,
@@ -3021,7 +3022,7 @@
   },
   "miscue": false,
   "potted": [],
-  "sim_us": 1251.2,
+  "sim_us": 1098.2,
   "t_end": 8.298532518483382
  }
 }

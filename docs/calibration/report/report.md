@@ -83,7 +83,7 @@ Setup: Stun shots (no spin at contact): throw is the angle between the object ba
 
 ![Cushion rebound angle and speed against incidence](cushion_rebound.png)
 
-The angle a plain rolling cue ball comes off the side cushion at, against the angle it goes in at, for four speeds, and how much of its speed it keeps. Rebound angles run 0.0 to 79.7 degrees and the ball keeps 70.2 to 94.3% of its speed. Up to 2 m/s the speeds give the same angles to within 0.05 degrees, so their lines lie on top of each other; only the firm hit's restitution falls. Against the target (C7): worst 0.05 deg and 0.08% of the speed off the fine-step Mathavan solution over 36 cases; the target is 1 deg, 2% (the suite also checks side, stun and screw).
+The angle a plain rolling cue ball comes off the side cushion at, against the angle it goes in at, at 0.5, 1, 2 and 4 m/s, and how much of its speed it keeps. Rebound angles run 0.0 to 79.7 degrees and the ball keeps 70.2 to 94.3% of its speed. Up to 2 m/s the speeds give the same angles to within 0.05 degrees, so their lines lie on top of each other; only the firm hit's restitution falls. Against the target (C7): worst 0.05 deg and 0.08% of the speed off the fine-step Mathavan solution over 36 cases; the target is 1 deg, 2% (the suite also checks side, stun and screw).
 
 Setup: A rolling ball without side into the left side cushion. Angles from the cushion normal; rebound_deg just after the impact, rebound_rolling_deg once the ball rolls again.
 
@@ -131,6 +131,6 @@ Setup: Full-ball hit on a red 1 m away (centre to centre), simulated by this rep
 
 ![Simulation time of break-offs](break_sim_time.png)
 
-How long the simulation of each break-off took on this PC. Over 200 break-offs the simulation took a median of 268 us and at most 589 us, within the 2000 us budget (spec 7.13).
+How long the simulation of each break-off took on this PC. Over 200 break-offs the simulation took a median of 260 us and at most 479 us, within the 2000 us budget (spec 7.13).
 
 Setup: Wall-clock time of simulate() per break-off, measured in a release build; only release timings count against the budget.

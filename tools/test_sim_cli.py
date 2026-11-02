@@ -16,6 +16,9 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 BUILD = ROOT / "build" / "windows" / "tools" / "sim_cli"
 FIXTURES = ROOT / "core" / "tests" / "fixtures" / "positions"
 STRAIGHT = FIXTURES / "straight_1m.json"
+BENCH_SHOTS = sorted((ROOT / "tools" / "sim_cli" / "bench_shots").glob("*.json"))
+PARAMS_FILE = ROOT / "core" / "data" / "table_params.json"
+TABLE_FILE = ROOT / "core" / "data" / "table_shape.json"
 
 
 def find_cli():
@@ -42,13 +45,31 @@ def shown(result):
     return f"exit {result.returncode}\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}"
 
 
-def table_hash():
-    """The content hash of core/data/table_shape.json, as simulate prints it."""
-    result = run("simulate", STRAIGHT, "--no-strike")
+def table_hash(table=None):
+    """The content hash of core/data/table_shape.json (or `table`), as simulate prints it."""
+    result = run("simulate", STRAIGHT, "--no-strike", *(("--table", table) if table else ()))
     match = re.search(r"^params\s+\S+, table (\S+)$", result.stdout, re.MULTILINE)
     if result.returncode != 0 or not match:
         raise AssertionError("simulate printed no table hash:\n" + shown(result))
     return match.group(1)
+
+
+def other_table(folder):
+    """table_shape.json with a different note: the same outline under another hash."""
+    table = json.loads(TABLE_FILE.read_text(encoding="utf-8"))
+    table["_note"] += " A different file, so a different hash."
+    path = pathlib.Path(folder) / "other_table.json"
+    path.write_text(json.dumps(table), encoding="utf-8")
+    return path
+
+
+def params_with(folder, **values):
+    """table_params.json with some values changed."""
+    params = json.loads(PARAMS_FILE.read_text(encoding="utf-8"))
+    params["values"].update(values)
+    path = pathlib.Path(folder) / "params.json"
+    path.write_text(json.dumps(params), encoding="utf-8")
+    return path
 
 
 class CliTestCase(unittest.TestCase):
@@ -273,6 +294,23 @@ class ReplayTest(CliTestCase):
         self.assert_exit(result, 0)
         self.assertIn("OK", result.stdout)
 
+    def test_update_writes_an_old_bundle_at_the_current_version(self):
+        path = self.bundle_file(None)
+        old = json.loads(path.read_text(encoding="utf-8"))
+        current = dict(old["bundle"])
+        old["bundle"]["v"] = 1
+        del old["bundle"]["params_values_hash"]
+        old["stress"] = {"kept": True}
+        path.write_text(json.dumps(old), encoding="utf-8")
+        self.assert_exit(run("replay", path, "--update"), 0)
+        updated = json.loads(path.read_text(encoding="utf-8"))
+        self.assertEqual(updated["bundle"], dict(current, table_hash=table_hash()))
+        self.assertEqual(updated["stress"], {"kept": True})
+        result = run("replay", path)
+        self.assert_exit(result, 0)
+        self.assertIn("OK", result.stdout)
+        self.assertNotIn("warning", result.stdout)
+
     def test_update_refuses_a_log(self):
         log, _ = self.simulate_with_log()
         self.assert_exit(run("replay", log, "--update"), 2)
@@ -298,11 +336,7 @@ class ReplayTest(CliTestCase):
         self.assertNotIn("warning", result.stdout)
 
     def test_another_table_file_is_checked_against_the_bundle(self):
-        table = json.loads((ROOT / "core" / "data" / "table_shape.json").read_text(encoding="utf-8"))
-        table["_note"] += " A different file, so a different hash."
-        other = self.tmp / "other_table.json"
-        other.write_text(json.dumps(table), encoding="utf-8")
-        result = run("replay", self.bundle_file(table_hash()), "--table", other)
+        result = run("replay", self.bundle_file(table_hash()), "--table", other_table(self.tmp))
         self.assert_exit(result, 1)
         self.assertIn("but other_table.json is", result.stdout)
 
@@ -391,6 +425,24 @@ class FuzzTest(CliTestCase):
                        "sim time:", "speed:", "inputs digest:"):
             self.assertIn(prefix, output)
 
+    def test_a_solver_fallback_fails_the_shot_with_its_bundle(self):
+        output = self.fuzz("--shots", 3, "--seed", 1, "--threads", 2, "--inject-anomaly", "solver_fallback",
+                           codes=(1,))
+        for shot in range(3):
+            self.assertIn(f"FAIL shot {shot} (", output)
+        self.assertRegex(output, r"anomaly:solver_fallback: solver_fallback at t=0 s, balls \[\d+\]: injected by "
+                                 r"--inject-anomaly")
+        self.assertIn("failures by kind: anomaly:solver_fallback 3", output)
+        self.assertIn("solver fallbacks 3", output)
+        bundles = sorted((self.tmp / "failures").glob("fuzz-1-*.json"))
+        self.assertEqual([path.name for path in bundles], [f"fuzz-1-00000{shot}.json" for shot in range(3)])
+        written = json.loads(bundles[0].read_text(encoding="utf-8"))
+        self.assertEqual([f["kind"] for f in written["fuzz"]["failures"]], ["anomaly:solver_fallback"])
+        self.assertEqual(written["result"]["anomalies"], 1)
+        replayed = run("replay", bundles[0])
+        self.assert_exit(replayed, 0)
+        self.assertIn("OK", replayed.stdout)
+
     def test_the_shot_set_depends_on_the_seed_not_the_threads(self):
         # Failing shots don't matter here (the test above covers them), only that the results agree.
         one = self.fuzz("--shots", 24, "--seed", 5, "--threads", 1, codes=(0, 1))
@@ -401,7 +453,8 @@ class FuzzTest(CliTestCase):
         self.assertNotEqual(self.line(one, "inputs digest:"), self.line(other, "inputs digest:"))
 
 
-SHOTS = 20
+GENERATED_SHOTS = 15
+SHOTS = GENERATED_SHOTS + len(BENCH_SHOTS)
 BIG_SHOT = "break_7.0ms_rack2"
 
 
@@ -426,8 +479,8 @@ class BenchTest(CliTestCase):
         path.write_text(json.dumps(data), encoding="utf-8")
         return path
 
-    def check(self, baseline, *extra):
-        return run("bench", "--runs", 2, "--check", "--budget-us", 1e12, "--baseline", baseline, *extra, timeout=300)
+    def check(self, baseline, budget_us=1e12):
+        return run("bench", "--runs", 2, "--check", "--budget-us", budget_us, "--baseline", baseline, timeout=300)
 
     def regressed(self, result):
         return [line.split()[0] for line in result.stdout.splitlines() if "REGRESSED" in line]
@@ -435,21 +488,24 @@ class BenchTest(CliTestCase):
     def test_lists_every_shot_and_writes_a_baseline(self):
         self.assert_exit(self.written, 0)
         for name in ("break_4.5ms_rack1", "break_10.0ms_rack3", "long_multi_cushion", "cluster_split",
-                     "pot_black_corner", "slow_roll_nap", "pack_break_off", "pack_slow_roll"):
+                     "pot_black_corner", "slow_roll_nap", *(path.stem for path in BENCH_SHOTS)):
             self.assertIn(name, self.written.stdout)
         self.assertNotIn("check:", self.written.stdout)
+        self.assertRegex(self.written.stdout, r"(?m)^cores: (pinned to the \d+ of \d+ logical cores of the fastest "
+                                              r"kind|all \d+ logical cores are one kind|not pinned)")
         data = json.loads(self.measured.read_text(encoding="utf-8"))
         self.assertEqual(len(data["shots"]), SHOTS)
-        self.assertEqual(data["version"], 2)
+        self.assertEqual(data["version"], 3)
         self.assertEqual(data["build"], "debug")
         self.assertRegex(data["machine"], r", \d+ logical cores$")
         self.assertGreater(data["probe_us"], 0)
         for shot in data["shots"].values():
             self.assertGreater(shot["probe_units"], 0)
         # The bench runs the recorded pack shots themselves: same events as their stored result.
-        for name in ("pack_break_off", "pack_slow_roll"):
-            recorded = json.loads((ROOT / "tools" / "sim_cli" / "bench_shots" / f"{name}.json").read_text(encoding="utf-8"))
-            self.assertEqual(data["shots"][name]["events"], recorded["result"]["events"])
+        self.assertGreater(len(BENCH_SHOTS), 0)
+        for path in BENCH_SHOTS:
+            recorded = json.loads(path.read_text(encoding="utf-8"))
+            self.assertEqual(data["shots"][path.stem]["events"], recorded["result"]["events"], path.stem)
 
     def test_check_reports_a_regression_against_the_baseline(self):
         def edit(data):
@@ -459,7 +515,40 @@ class BenchTest(CliTestCase):
         result = self.check(self.baseline(edit))
         self.assert_exit(result, 1)
         self.assertEqual(self.regressed(result), [BIG_SHOT], result.stdout)
-        self.assertIn("check: 0 over the 1000000000000 us budget, 1 regressed more than 25% + 50 us", result.stdout)
+        self.assertIn("check: 0 over the 1000000000000 us budget on scaled_us, 1 regressed more than 25% + 50 us",
+                      result.stdout)
+
+    def over_budget(self, result):
+        return [line.split()[0] for line in result.stdout.splitlines() if "OVER BUDGET" in line]
+
+    def test_a_busy_pc_does_not_push_a_shot_over_the_budget(self):
+        # The baseline's PC a billion times faster: this run is as slow against it as a very busy PC
+        # would be, so every raw median is over a 1 us budget, but the probe-scaled times are not.
+        def edit(data):
+            data["probe_us"] *= 1e-9
+            for shot in data["shots"].values():
+                shot["probe_units"] = 1e12
+        result = self.check(self.baseline(edit), budget_us=1)
+        self.assert_exit(result, 0)
+        medians = [float(line.split()[3]) for line in result.stdout.splitlines()
+                   if line.split() and line.split()[-1] == "ok"]
+        self.assertEqual(len(medians), SHOTS, result.stdout)
+        self.assertTrue(all(median > 1 for median in medians), medians)
+        self.assertEqual(self.over_budget(result), [])
+        self.assertIn("note: the budget and the regression check apply to scaled_us", result.stdout)
+        self.assertIn("check: 0 over the 1 us budget on scaled_us", result.stdout)
+
+    def test_a_shot_over_the_budget_at_the_baseline_speed_fails(self):
+        # The baseline's PC a million times slower: every shot's time at that speed is over a budget
+        # that its raw median is far under.
+        def edit(data):
+            data["probe_us"] *= 1e6
+            for shot in data["shots"].values():
+                shot["probe_units"] = 1e12
+        result = self.check(self.baseline(edit), budget_us=1e6)
+        self.assert_exit(result, 1)
+        self.assertEqual(len(self.over_budget(result)), SHOTS, result.stdout)
+        self.assertIn(f"check: {SHOTS} over the 1000000 us budget on scaled_us", result.stdout)
 
     def test_the_absolute_slack_absorbs_differences_of_a_few_microseconds(self):
         # Every shot ten times its baseline: the slack is 50 us at the baseline machine's speed, so with
@@ -493,8 +582,9 @@ class BenchTest(CliTestCase):
         cases = (({"machine": "Another CPU, 4 logical cores"}, "the baseline was recorded on Another CPU, 4 logical "
                   "cores, not this machine"),
                  ({"build": "release"}, "the baseline was recorded with a release build, this is a debug build"),
-                 ({"version": 1, "machine": None}, "the baseline names no machine or speed probe (written before "
-                  "baseline version 2)"))
+                 ({"version": 2}, "the baseline is version 2, from before version 3 timed every shot on the fastest "
+                  "kind of core"),
+                 ({"machine": None}, "the baseline names no machine or speed probe"))
         for change, why in cases:
             with self.subTest(change=change):
                 def edit(data):
@@ -507,8 +597,9 @@ class BenchTest(CliTestCase):
                 result = self.check(self.baseline(edit))
                 self.assert_exit(result, 0)
                 self.assertEqual(self.regressed(result), [])
-                self.assertIn("note: no regression check: " + why, result.stdout)
-                self.assertIn("regressions not checked: " + why, result.stdout)
+                self.assertIn("note: no regression check, and the budget applies to the raw median: " + why,
+                              result.stdout)
+                self.assertIn("on the raw median, regressions not checked: " + why, result.stdout)
 
     def test_the_committed_baseline_reads(self):
         result = run("bench", "--runs", 1, timeout=300)
@@ -520,13 +611,40 @@ class BenchTest(CliTestCase):
                      timeout=300)
         self.assert_exit(result, 1)
         self.assertEqual(result.stdout.count("OVER BUDGET"), SHOTS)
+        self.assertIn("note: no baseline file, so the budget applies to the raw median", result.stdout)
+        self.assertIn(f"check: {SHOTS} over the 0 us budget on the raw median", result.stdout)
 
     def test_the_recorded_shots_replay(self):
-        for name in ("pack_break_off", "pack_slow_roll"):
-            with self.subTest(shot=name):
-                result = run("replay", ROOT / "tools" / "sim_cli" / "bench_shots" / f"{name}.json", timeout=300)
+        self.assertGreater(len(BENCH_SHOTS), 0)
+        this_table = table_hash()
+        for path in BENCH_SHOTS:
+            with self.subTest(shot=path.stem):
+                bundle = json.loads(path.read_text(encoding="utf-8"))["bundle"]
+                self.assertEqual(bundle["v"], 2)
+                self.assertIn("params_values_hash", bundle)
+                self.assertEqual(bundle["table_hash"], this_table)
+                result = run("replay", path, timeout=300)
                 self.assert_exit(result, 0)
                 self.assertIn("OK", result.stdout)
+
+    def test_a_recorded_shot_from_another_table_is_refused(self):
+        other = other_table(self.tmp)
+        other_hash = table_hash(other)
+        result = run("bench", "--runs", 1, "--table", other, timeout=300)
+        self.assert_exit(result, 2)
+        self.assertIn(f"recorded shots from another cushion outline than other_table.json ({other_hash}):",
+                      result.stderr)
+        for path in BENCH_SHOTS:
+            self.assertIn(f"tools/sim_cli/bench_shots/{path.name} was recorded on table {table_hash()}",
+                          result.stderr)
+        self.assertIn("ofs_sim_cli replay FILE --update", result.stderr)
+        self.assertIn("--force-table", result.stderr)
+
+        forced = run("bench", "--runs", 1, "--table", other, "--force-table", timeout=300)
+        self.assert_exit(forced, 0)
+        for path in BENCH_SHOTS:
+            self.assertIn(f"warning: tools/sim_cli/bench_shots/{path.name} was recorded on table {table_hash()}; "
+                          f"timing it on other_table.json ({other_hash}) as --force-table asks", forced.stdout)
 
 
 class CalibrateTest(CliTestCase):
@@ -536,6 +654,8 @@ class CalibrateTest(CliTestCase):
         self.assert_exit(result, 0)
         series, problems = calibration_report.load_series(out)
         self.assertEqual(problems, [])
+        # Every setup value the report quotes is in the summaries, and no shot had an anomaly.
+        self.assertEqual(calibration_report.series_problems(series), [])
         self.assertEqual(set(series), set(calibration_report.ORDER))
         params_hash = result.stdout.splitlines()[-1].split()[1].rstrip(",")
         for s in series.values():
@@ -553,13 +673,34 @@ class CalibrateTest(CliTestCase):
         self.assertEqual(summary["swerve"]["cue_speed_m_s"], 1.5)
         self.assertEqual(summary["deflection"]["cue_ball_speed_m_s"], 1.0)
         self.assertEqual(summary["cushion_side"]["cue_ball_speed_m_s"], 1.5)
-        self.assertEqual(summary["cushion_side"]["speed_m_s"], 1.5)
+        self.assertEqual(summary["cushion_side"]["incidence_deg"], 45.0)
         self.assertEqual(summary["throw"]["cue_ball_speeds_m_s"], [0.5, 1.5, 4.0])
         self.assertEqual(summary["cushion_rebound"]["cue_ball_speeds_m_s"], [0.5, 1.0, 2.0, 4.0])
         self.assertEqual(summary["screw_follow"]["cue_speeds_m_s"], [1.0, 2.0, 3.0])
         for name in ("squirt", "swerve", "lag", "screw_follow"):
             self.assertIn("start_x_m", summary[name], name)
             self.assertIn("start_y_m", summary[name], name)
+
+    def test_every_anomaly_is_recorded_and_reported(self):
+        # A one-second time cap stops the lag's slow rolls (and others) before they come to rest.
+        out = self.tmp / "calibration"
+        result = run("calibrate", "--out", out, "--breaks", 1, "--params", params_with(self.tmp, time_cap_s=1.0),
+                     timeout=120)
+        self.assert_exit(result, 0)
+        lag = json.loads((out / "lag.json").read_text(encoding="utf-8"))
+        self.assertGreater(len(lag["anomalies"]), 0)
+        for anomaly in lag["anomalies"]:
+            self.assertEqual(set(anomaly), {"shot", "kind", "t", "balls", "detail"})
+            self.assertEqual(anomaly["kind"], "time_cap")
+            self.assertRegex(anomaly["shot"], r"^cue speed [0-9.]+ m/s$")
+        self.assertRegex(result.stdout, rf"(?m)^lag +{len(lag['rows'])} rows, {len(lag['anomalies'])} anomalies ")
+        series, _ = calibration_report.load_series(out)
+        report = calibration_report.assemble_report(series, {}, [])
+        listed = report[report.index("## Data problems"):]
+        first = lag["anomalies"][0]
+        self.assertIn(f"- lag: a time_cap anomaly in the shot '{first['shot']}' at t = {first['t']:.6g} s (balls 0): "
+                      f"{first['detail']}", listed)
+        self.assertEqual(listed.count("\n- lag: a time_cap anomaly"), len(lag["anomalies"]))
 
     def test_the_level_swerve_shot_is_level(self):
         out = self.tmp / "calibration"
