@@ -22,7 +22,9 @@ calibration (core/tests/calibration, reference fixtures, docs/calibration/target
 (macOS editor extension, export log checker, idle max_fps cap; branch m1-infra on origin).
 Merged: ball-ball (764d9e8: TP A.14 impulse model, throw matches eq. 15-17 to 1e-12, 28 ns per
 collision; friction speed confirmed in m/s; ~3% more spin transfer than pooltool, which sizes
-friction from the separation speed).
+friction from the separation speed). motion (41ef4e3: pooltool evolve ported to the table frame;
+evolve ~21 ns; nap = sideways push scaled by 2 ref/(s + ref), with/against/across behaviours,
+off below the lowest re-tick threshold; right-hand side is w.z > 0, cue agent told).
 
 ## After wave 1
 Enable ofs_calibration_tests in ctest and the simulator's skipped integration tests; apply
