@@ -205,7 +205,7 @@ def main() -> int:
         print("ok")
         return 0
     OUT.parent.mkdir(parents=True, exist_ok=True)
-    OUT.write_text(text, encoding="utf-8")
+    OUT.write_text(text, encoding="utf-8", newline="\n")
     c = data["convergence"]
     print(f"wrote {OUT.relative_to(ROOT)}: {len(data['cases'])} cases, "
           f"N vs 2N: speed {c['max_rel_speed_diff']:.2e} rel, angle {c['max_angle_diff_deg']:.2e} deg")
