@@ -212,6 +212,7 @@ FuzzShot make_fuzz_shot(std::uint64_t seed, std::uint64_t index, const Setup& se
     shot.in.cue_ball = 0;
     shot.in.has_strike = true;
     shot.in.params_hash = setup.params_hash;
+    shot.in.table_hash = setup.table_hash;
     const double kind = rng.uniform();
     shot.kind = kind < 0.2    ? FuzzKind::break_off
                 : kind < 0.55 ? FuzzKind::scattered

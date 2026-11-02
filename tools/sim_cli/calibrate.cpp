@@ -53,14 +53,45 @@ phys::BallState moving_cue_ball(Vec3 r, Vec3 v, double wz, bool rolling) {
     return b;
 }
 
-phys::ShotRecord run(const Setup& s, std::vector<phys::BallState> balls, const phys::CueStrike* strike) {
+phys::ShotRecord run_on(const Setup& s, const phys::TableShape& table, std::vector<phys::BallState> balls,
+                        const phys::CueStrike* strike) {
     phys::SimInput in;
     in.start.balls = std::move(balls);
     in.cue_ball = 0;
     in.has_strike = strike != nullptr;
     if (strike != nullptr) in.strike = *strike;
     in.params_hash = s.params_hash;
-    return phys::simulate(in, s.table, s.params);
+    return phys::simulate(in, table, s.params);
+}
+
+phys::ShotRecord run(const Setup& s, std::vector<phys::BallState> balls, const phys::CueStrike* strike) {
+    return run_on(s, s.table, std::move(balls), strike);
+}
+
+// The real outline scaled up about the table's centre, as tools/calibration_report.py's own shots
+// use it: a shot that would reach a cushion on the real table runs its whole length, and the rail
+// is too far away to raise the cue.
+constexpr double kEndlessScale = 20.0;
+
+phys::TableShape endless_table(const phys::TableShape& t) {
+    phys::TableShape out = t;
+    const auto scale = [](ofs::table::Vec2& p) {
+        p.x *= kEndlessScale;
+        p.y *= kEndlessScale;
+    };
+    for (phys::LineCushion& line : out.lines) {
+        scale(line.p1);
+        scale(line.p2);
+    }
+    for (phys::ArcCushion& arc : out.arcs) {
+        scale(arc.centre);
+        arc.radius *= kEndlessScale;
+    }
+    for (phys::Pocket& pocket : out.pockets) {
+        scale(pocket.drop_centre);
+        pocket.drop_radius *= kEndlessScale;
+    }
+    return out;
 }
 
 bool is_contact(phys::EventKind k) {
@@ -135,7 +166,16 @@ struct Rebound {
     double rolling = kNaN;
 };
 
-// A rolling ball sent into the side cushion at `incidence_deg` from its normal, 0.25 m out.
+constexpr double kCushionRunUp = 0.25;  // m from where the ball meets the cushion
+
+// What every cushion shot shares, for a series' summary.
+nlohmann::json cushion_setup(const Cushion& c) {
+    const Vec3 contact = c.nose + c.normal * kR;
+    return {{"spin", "rolling"}, {"start_distance_m", kCushionRunUp}, {"contact_x_m", contact.x},
+            {"contact_y_m", contact.y}};
+}
+
+// A rolling ball sent into the side cushion at `incidence_deg` from its normal, kCushionRunUp out.
 Rebound cushion_shot(const Setup& s, const Cushion& c, double speed, double incidence_deg, double side) {
     const double a = radians(incidence_deg);
     const Vec3 dir = -c.normal * std::cos(a) + c.tangent * std::sin(a);
@@ -143,7 +183,8 @@ Rebound cushion_shot(const Setup& s, const Cushion& c, double speed, double inci
     // Running side turns the contact point against the direction of travel along the cushion.
     const double running = (-c.normal.y * c.tangent.x + c.normal.x * c.tangent.y) >= 0.0 ? 1.0 : -1.0;
     const double wz = side * running * speed / kR;
-    const phys::ShotRecord r = run(s, {moving_cue_ball(contact - dir * 0.25, dir * speed, wz, true)}, nullptr);
+    const phys::ShotRecord r =
+        run(s, {moving_cue_ball(contact - dir * kCushionRunUp, dir * speed, wz, true)}, nullptr);
     Rebound out;
     const phys::ShotEvent* hit = first_of(r, phys::EventKind::ball_line, 0);
     if (hit == nullptr) return out;
@@ -171,7 +212,8 @@ Series cushion_rebound(const Setup& s) {
                {"speed_m_s", "incidence_deg", "incidence_measured_deg", "rebound_deg", "speed_ratio",
                 "rebound_rolling_deg"}};
     const Cushion c = side_cushion(s.table);
-    for (double speed : {0.5, 1.0, 2.0, 4.0}) {
+    const double speeds[] = {0.5, 1.0, 2.0, 4.0};
+    for (double speed : speeds) {
         for (int i = 0; i <= 16; ++i) {
             const double incidence = 5.0 * i;
             const Rebound r = cushion_shot(s, c, speed, incidence, 0.0);
@@ -179,6 +221,9 @@ Series cushion_rebound(const Setup& s) {
                                 number(r.rolling)});
         }
     }
+    out.summary = cushion_setup(c);
+    out.summary["cue_ball_speeds_m_s"] = speeds;
+    out.summary["side"] = 0.0;
     out.notes.push_back("A rolling ball without side into the left side cushion. Angles from the cushion "
                         "normal; rebound_deg just after the impact, rebound_rolling_deg once the ball rolls "
                         "again.");
@@ -189,12 +234,18 @@ Series cushion_side(const Setup& s) {
     Series out{"cushion_side", "Running and check side off a cushion", "C8",
                {"side", "rebound_deg", "speed_ratio", "rebound_rolling_deg"}};
     const Cushion c = side_cushion(s.table);
+    const double speed = 1.5;
+    const double incidence = 45.0;
     for (int i = -4; i <= 4; ++i) {
         const double side = 0.25 * i;
-        const Rebound r = cushion_shot(s, c, 1.5, 45.0, side);
+        const Rebound r = cushion_shot(s, c, speed, incidence, side);
         out.rows.push_back({side, number(r.rebound), number(r.speed_ratio), number(r.rolling)});
     }
-    out.summary = {{"speed_m_s", 1.5}, {"incidence_deg", 45.0}};
+    out.summary = cushion_setup(c);
+    // speed_m_s is the name the 909c010 report reads; cue_ball_speed_m_s matches the other series.
+    out.summary["speed_m_s"] = speed;
+    out.summary["cue_ball_speed_m_s"] = speed;
+    out.summary["incidence_deg"] = incidence;
     out.notes.push_back("side is w_z R / v at the start, positive for running side, negative for check side.");
     return out;
 }
@@ -204,13 +255,21 @@ struct Cut {
     const phys::ShotEvent* hit = nullptr;
 };
 
-// The cue ball 1 mm short of contact with a red at a cut of `cut_deg`, travelling along +x.
+const Vec3 kCutObject{0.3, 0.0, 0.0};
+constexpr double kCutGap = 1e-3;  // m the cue ball travels to the contact
+
+nlohmann::json cut_setup() {
+    return {{"object_ball_x_m", kCutObject.x}, {"object_ball_y_m", kCutObject.y}, {"gap_m", kCutGap},
+            {"aim_deg", 0.0}, {"side", 0.0}};
+}
+
+// The cue ball kCutGap short of contact with a red at a cut of `cut_deg`, travelling along +x.
 Cut cut_shot(const Setup& s, double cut_deg, double speed, bool rolling) {
-    const Vec3 object{0.3, 0.0, 0.0};
+    const Vec3 object = kCutObject;
     const double a = radians(cut_deg);
     const Vec3 centres{std::cos(a), std::sin(a), 0.0};
     const Vec3 dir{1.0, 0.0, 0.0};
-    const Vec3 start = object - centres * (2.0 * kR) - dir * 1e-3;
+    const Vec3 start = object - centres * (2.0 * kR) - dir * kCutGap;
     Cut out;
     out.record =
         run(s, {moving_cue_ball(start, dir * speed, 0.0, rolling), ball(Ball::red, 0, object)}, nullptr);
@@ -221,7 +280,11 @@ Cut cut_shot(const Setup& s, double cut_deg, double speed, bool rolling) {
 Series throw_series(const Setup& s) {
     Series out{"throw", "Cut-induced throw against cut", "C6",
                {"speed_m_s", "cut_deg", "fraction", "throw_deg"}};
-    for (double speed : {0.5, 1.5, 4.0}) {
+    const double speeds[] = {0.5, 1.5, 4.0};
+    out.summary = cut_setup();
+    out.summary["cue_ball_speeds_m_s"] = speeds;
+    out.summary["spin"] = "stun";
+    for (double speed : speeds) {
         for (int i = 0; i <= 16; ++i) {
             const double cut = 5.0 * i;
             const Cut c = cut_shot(s, cut, speed, false);
@@ -245,10 +308,13 @@ Series throw_series(const Setup& s) {
 Series deflection_series(const Setup& s) {
     Series out{"deflection", "Cue ball deflection against cut, rolling and stunned", "C4, C5",
                {"mode", "cut_deg", "fraction", "separation_deg", "cue_deflection_deg"}};
+    const double speed = 1.0;
+    out.summary = cut_setup();
+    out.summary["cue_ball_speed_m_s"] = speed;
     for (bool rolling : {true, false}) {
         for (int i = 0; i <= 17; ++i) {
             const double cut = 5.0 * i;
-            const Cut c = cut_shot(s, cut, 1.0, rolling);
+            const Cut c = cut_shot(s, cut, speed, rolling);
             double separation = kNaN;
             double deflection = kNaN;
             if (c.hit != nullptr) {
@@ -274,13 +340,16 @@ Series deflection_series(const Setup& s) {
 Series screw_follow(const Setup& s) {
     Series out{"screw_follow", "Screw-back and follow distance against tip offset", "7.12",
                {"speed_m_s", "tip_y", "distance_m"}};
-    for (double speed : {1.0, 2.0, 3.0}) {
+    const phys::TableShape endless = endless_table(s.table);
+    const Vec3 cue{-0.5, 0.0, 0.0};
+    const Vec3 red{0.5, 0.0, 0.0};
+    const double speeds[] = {1.0, 2.0, 3.0};
+    for (double speed : speeds) {
         for (int i = -5; i <= 5; ++i) {
             phys::CueStrike c;
             c.speed_m_s = speed;
             c.tip_y = 0.1 * i;
-            const phys::ShotRecord r =
-                run(s, {ball(Ball::cue, 0, {-0.5, 0.0, 0.0}), ball(Ball::red, 0, {0.5, 0.0, 0.0})}, &c);
+            const phys::ShotRecord r = run_on(s, endless, {ball(Ball::cue, 0, cue), ball(Ball::red, 0, red)}, &c);
             double distance = kNaN;
             if (const phys::ShotEvent* hit = first_of(r, phys::EventKind::ball_ball, 0)) {
                 distance = r.final_state.balls[0].r.x - state_after(r, 0, hit->t).r.x;
@@ -288,23 +357,37 @@ Series screw_follow(const Setup& s) {
             out.rows.push_back({speed, c.tip_y, number(distance)});
         }
     }
-    out.notes.push_back("Full-ball hit on a red 1 m away (straight_1m). Distance from the impact to where the "
-                        "cue ball stops, along the aim: negative is screw back.");
+    out.summary = {{"cue_speeds_m_s", speeds}, {"start_x_m", cue.x},      {"start_y_m", cue.y},
+                   {"object_ball_x_m", red.x}, {"object_ball_y_m", red.y}, {"aim_deg", 0.0},
+                   {"tip_x", 0.0},             {"elevation_deg", 0.0},    {"table_scale", kEndlessScale},
+                   {"playing_length_m", ofs::table::kPlayingLength}};
+    out.notes.push_back(format("Full-ball hit on a red 1 m away (straight_1m) on the real outline scaled up %g "
+                               "times, so no cushion is in reach. Distance from the impact to where the cue ball "
+                               "stops, along the aim: negative is screw back.",
+                               kEndlessScale));
     return out;
 }
 
 Series squirt_series(const Setup& s) {
     Series out{"squirt", "Squirt against side", "C9", {"tip_x", "squirt_deg", "ball_speed_m_s", "miscue"}};
-    phys::TableState lone{{ball(Ball::cue, 0, {0.0, 0.0, 0.0})}};
+    const Vec3 start{0.0, 0.0, 0.0};
+    const double speed = 3.0;
+    phys::TableState lone{{ball(Ball::cue, 0, start)}};
     for (int i = 0; i <= 14; ++i) {
         phys::CueStrike c;
-        c.speed_m_s = 3.0;
+        c.speed_m_s = speed;
         c.tip_x = 0.05 * i;
         ofs::Rng rng(147);
         const phys::StrikeOutcome o = phys::strike(lone, 0, c, s.table, s.params, rng);
         out.rows.push_back({c.tip_x, degrees(o.squirt_rad), norm_xy(o.v), o.miscue});
     }
-    out.summary = {{"miscue_limit", s.params.miscue_limit}};
+    out.summary = {{"miscue_limit", s.params.miscue_limit},
+                   {"cue_speed_m_s", speed},
+                   {"start_x_m", start.x},
+                   {"start_y_m", start.y},
+                   {"aim_deg", 0.0},
+                   {"tip_y", 0.0},
+                   {"elevation_deg", 0.0}};
     out.notes.push_back("A level cue at 3 m/s. squirt_deg is signed from the aim line.");
     return out;
 }
@@ -313,15 +396,21 @@ Series swerve_series(const Setup& s) {
     Series out{"swerve", "Swerve paths with an elevated cue and side", "C10",
                {"variant", "elevation_deg", "tip_x", "t_s", "x_m", "y_m"}};
     const double variants[][2] = {{0.0, 0.4}, {15.0, 0.4}, {30.0, 0.4}, {30.0, -0.4}, {45.0, 0.4}};
+    // From the baulk end the rail behind the ball lifts a level cue (by 2.8 deg at x = -1.3); from
+    // about x = -0.3 up the table it no longer reaches the cue, so the level shot is level.
+    const Vec3 start{-0.2, 0.0, 0.0};
+    const double speed = 1.5;
+    nlohmann::json used = nlohmann::json::object();
     for (const auto& variant : variants) {
         phys::CueStrike c;
-        c.speed_m_s = 1.5;
+        c.speed_m_s = speed;
         c.elevation_rad = radians(variant[0]);
         c.tip_x = variant[1];
-        const phys::ShotRecord r = run(s, {ball(Ball::cue, 0, {-1.3, 0.0, 0.0})}, &c);
+        const phys::ShotRecord r = run(s, {ball(Ball::cue, 0, start)}, &c);
         const phys::ShotEvent* stop = first_contact(r, 0, -1.0);
         const double end = std::fmin(stop != nullptr ? stop->t : r.t_end, 5.0);
         const std::string label = format("%.0f deg, tip %+.2f", variant[0], variant[1]);
+        used[label] = degrees(r.strike.elevation_used_rad);
         for (int k = 0;; ++k) {
             const double t = std::fmin(0.01 * k, end);
             const Vec3 p = state_after(r, 0, t).r;
@@ -329,8 +418,12 @@ Series swerve_series(const Setup& s) {
             if (t >= end) break;
         }
     }
-    out.notes.push_back("Aiming along +x at 1.5 m/s; positive tip_x is right of centre as the player sees it, "
-                        "which is towards -y. Each path stops at the cue ball's first contact.");
+    out.summary = {{"cue_speed_m_s", speed}, {"start_x_m", start.x}, {"start_y_m", start.y},
+                   {"aim_deg", 0.0},         {"tip_y", 0.0},         {"elevation_used_deg", used}};
+    out.notes.push_back(format("Aiming along +x at %.1f m/s from (%.2f, %.2f); positive tip_x is right of centre "
+                               "as the player sees it, which is towards -y. Each path stops at the cue ball's first "
+                               "contact.",
+                               speed, start.x, start.y));
     return out;
 }
 
@@ -378,7 +471,9 @@ Series lag_series(const Setup& s) {
         lag_cue = hi;
         lag_ball = number(ball_speed);
     }
-    out.summary = {{"lag_cue_speed_m_s", lag_cue}, {"lag_ball_speed_m_s", lag_ball}, {"start_x_m", start.x}};
+    out.summary = {{"lag_cue_speed_m_s", lag_cue}, {"lag_ball_speed_m_s", lag_ball}, {"start_x_m", start.x},
+                   {"start_y_m", start.y},          {"aim_deg", 0.0},                {"tip_x", 0.0},
+                   {"tip_y", 0.0},                  {"elevation_deg", 0.0}};
     out.notes.push_back("Centre ball from the middle of the baulk line straight up the table. The lag is the "
                         "slowest cue speed whose cue ball touches the top cushion and then the baulk cushion.");
     return out;
