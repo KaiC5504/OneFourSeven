@@ -33,6 +33,10 @@ endif()
 
 add_subdirectory(core)
 
+if(OFS_BUILD_TESTS)
+    add_subdirectory(tools/sim_cli)
+endif()
+
 if(OFS_BUILD_GDEXT)
     add_subdirectory(gdext)
 endif()

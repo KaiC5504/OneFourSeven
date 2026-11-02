@@ -8,7 +8,9 @@
     "params",
     "devlink",
     "log",
-    "harness"
+    "harness",
+    "physics",
+    "shot"
   ],
   "events": {
     "app.start": {
@@ -485,6 +487,70 @@
         },
         "bytes": {
           "type": "integer",
+          "required": true
+        }
+      }
+    },
+    "shot.simulated": {
+      "subsystem": "shot",
+      "levels": [
+        "info"
+      ],
+      "fields": {
+        "bundle": {
+          "type": "object",
+          "required": true
+        },
+        "result": {
+          "type": "object",
+          "required": true
+        }
+      }
+    },
+    "physics.anomaly": {
+      "subsystem": "physics",
+      "levels": [
+        "warn"
+      ],
+      "fields": {
+        "kind": {
+          "type": "string",
+          "required": true
+        },
+        "t": {
+          "type": "number",
+          "required": true
+        },
+        "balls": {
+          "type": "array",
+          "required": true
+        },
+        "detail": {
+          "type": "string",
+          "required": true
+        },
+        "bundle": {
+          "type": "object",
+          "required": true
+        }
+      }
+    },
+    "params.invalid": {
+      "subsystem": "params",
+      "levels": [
+        "error"
+      ],
+      "fields": {
+        "key": {
+          "type": "string",
+          "required": true
+        },
+        "value": {
+          "type": "any",
+          "required": true
+        },
+        "reason": {
+          "type": "string",
           "required": true
         }
       }

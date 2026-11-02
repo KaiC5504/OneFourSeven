@@ -9,7 +9,7 @@ Every line is one JSON object:
 | `session` | `YYYYMMDD-HHMMSS-xxxxxx`, one per app launch |
 | `build` | the build number (TestFlight build on iOS, `dev` for local builds) |
 | `platform` | `windows` or `ios` (`ios-simulator` in CI) |
-| `subsystem` | one of `app`, `perf`, `table`, `params`, `devlink`, `log`, `harness` |
+| `subsystem` | one of `app`, `perf`, `table`, `params`, `devlink`, `log`, `harness`, `physics`, `shot` |
 | `level` | `debug`, `info`, `warn`, `error` |
 | `event` | the event name below |
 | `data` | the event's fields |
@@ -47,3 +47,24 @@ Every line is one JSON object:
 | `queued_lines` (changed) | | in devlink events: lines written but not yet acknowledged by the PC | |
 | `app.start` `settings` | | | `{link_enabled}` |
 | `devlink.backlog` | info | on connect, earlier sessions are waiting to upload | `sessions`, `bytes` |
+
+## Added in M1 (physics core)
+
+| Event | Level | When | Fields |
+| --- | --- | --- | --- |
+| `shot.simulated` | info | every simulated shot (sim_cli now, the game from M2) | `bundle` (the repro bundle), `result` |
+| `physics.anomaly` | warn | the simulator hit a guard or found something impossible | `kind`, `t` (seconds into the shot), `balls` (indices), `detail`, `bundle` |
+| `params.invalid` | error | a parameter in `table_params.json` was refused; that field keeps its default | `key`, `value`, `reason` |
+
+`physics.anomaly` kinds: `event_guard` (max_events reached), `zero_time_chain` (too many
+simultaneous events in a row), `time_cap` (still moving at time_cap_s), `solver_fallback`,
+`energy_gain`, `overlap`, `nan`. The first three end the shot with every ball at rest where it is.
+
+**Repro bundle** (`core/include/ofs/physics/repro.hpp`): `v` (1), `seed` (decimal string),
+`params_hash`, `params` (every physics value by name), `cue_ball`, `has_strike`, `strike`
+(`aim_rad`, `tip_x`, `tip_y`, `elevation_rad`, `speed_m_s`), `start` (every ball: `ball`, `index`,
+`r`, `v`, `w`, `motion`, `pocket`, doubles at full precision). `tools/sim_cli replay` re-runs it.
+
+**Result:** `events`, `t_end`, `potted` (`ball`, `pocket`, `t`), `final` (as `start`), `miscue`,
+`elevation_used_rad`, `elevation_raised`, `anomalies`, `sim_us`, `event_list` (the first 400 events as
+`[t, kind, a, b, body]`), `event_digest` (FNV-1a 64 over all of them).

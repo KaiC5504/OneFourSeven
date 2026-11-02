@@ -1,0 +1,32 @@
+{
+  "name": "cut_half_ball",
+  "note": "As straight_1m with the red offset by R: aiming at 0 rad is a half-ball hit (30 degree cut). C4, C5, C6.",
+  "cue_ball": 0,
+  "start": {
+    "balls": [
+      {
+        "ball": "cue",
+        "index": 0,
+        "r": [
+          -0.5,
+          0.0
+        ]
+      },
+      {
+        "ball": "red",
+        "index": 0,
+        "r": [
+          0.5,
+          0.02625
+        ]
+      }
+    ]
+  },
+  "strike": {
+    "aim_rad": 0.0,
+    "tip_x": 0.0,
+    "tip_y": 0.0,
+    "elevation_rad": 0.0,
+    "speed_m_s": 2.0
+  }
+}

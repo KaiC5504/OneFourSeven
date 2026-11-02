@@ -1,5 +1,242 @@
 {
-  "schema_version": 1,
-  "_note": "Physics parameters (spec 7.10). M0 ships the file and its plumbing only; M1 fills in every value with a source and a note.",
-  "values": {}
+  "schema_version": 2,
+  "_note": "Physics parameters (spec 7.10). 'values' is what the physics loads; 'docs' gives each value's unit, source and note. Change a value only with its source.",
+  "values": {
+    "ball_mass_kg": 0.141,
+    "gravity_m_s2": 9.81,
+    "slide_friction": 0.2,
+    "roll_friction": 0.008,
+    "spin_friction_per_r": 0.4444444444444444,
+    "ball_restitution": 0.94,
+    "ball_friction_a": 0.009951,
+    "ball_friction_b": 0.108,
+    "ball_friction_c": 1.088,
+    "cushion_restitution": 0.98,
+    "cushion_friction": 0.14,
+    "cushion_table_friction": 0.212,
+    "cushion_contact_height_m": 0.0333,
+    "jaw_restitution": 0.8,
+    "jaw_friction": 0.14,
+    "cue_mass_kg": 0.54,
+    "cue_tip_restitution": 0.75,
+    "cue_end_mass_kg": 0.0075,
+    "miscue_limit": 0.55,
+    "miscue_speed_factor": 0.35,
+    "miscue_max_angle_rad": 0.05,
+    "cue_tip_diameter_m": 0.0095,
+    "cue_butt_diameter_m": 0.029,
+    "cue_length_m": 1.45,
+    "cue_clearance_m": 0.002,
+    "max_elevation_rad": 1.3962634015954636,
+    "max_cue_speed_m_s": 10.0,
+    "nap_tick_ratio": 0.5,
+    "nap_lateral_coeff": 0.00012,
+    "nap_spin_coeff": 0.0002,
+    "nap_speed_ref_m_s": 0.3,
+    "nap_speed_max_m_s": 1.5,
+    "nap_speed_min_m_s": 0.02,
+    "rack_gap_min_m": 1e-05,
+    "rack_gap_max_m": 0.0001,
+    "time_cap_s": 120.0,
+    "max_events": 50000,
+    "zero_time_s": 1e-09,
+    "max_zero_time_chain": 100
+  },
+  "docs": {
+    "ball_mass_kg": {
+      "unit": "kg",
+      "source": "spec 6.1 starting value",
+      "note": "Confirm against published 52.5 mm phenolic snooker ball sets (tuner, M1 wave 2)."
+    },
+    "gravity_m_s2": {
+      "unit": "m/s^2",
+      "source": "standard gravity",
+      "note": ""
+    },
+    "slide_friction": {
+      "unit": "",
+      "source": "spec 7.10; Alciatore, billiards.colostate.edu FAQ physical properties; pooltool (Apache-2.0) BallParams.u_s",
+      "note": "Ball-cloth sliding friction. Sets how long stun and screw last before the ball grips."
+    },
+    "roll_friction": {
+      "unit": "",
+      "source": "spec 7.10 range 0.005-0.01 for fast snooker cloth",
+      "note": "Rolling resistance; calibrated against C11 (table speed) by the tuner."
+    },
+    "spin_friction_per_r": {
+      "unit": "",
+      "source": "pooltool (Apache-2.0) BallParams.u_sp_proportionality = 10*2/5/9",
+      "note": "Spinning friction divided by R; side spin decays at 5/2 * this * g rad/s^2."
+    },
+    "ball_restitution": {
+      "unit": "",
+      "source": "spec 7.4 (phenolic balls 0.92-0.98)",
+      "note": "Tuned against C2/C3 (stun stop and follow-through)."
+    },
+    "ball_friction_a": {
+      "unit": "",
+      "source": "Alciatore, billiards.colostate.edu TP A-14 fit; pooltool (Apache-2.0) AlciatoreBallBallFriction.a",
+      "note": "Ball-ball friction mu = a + b exp(-c v_rel), v_rel in m/s. Gives throw and spin transfer (C6)."
+    },
+    "ball_friction_b": {
+      "unit": "",
+      "source": "Alciatore, billiards.colostate.edu TP A-14 fit; pooltool (Apache-2.0) AlciatoreBallBallFriction.b",
+      "note": ""
+    },
+    "ball_friction_c": {
+      "unit": "s/m",
+      "source": "Alciatore, billiards.colostate.edu TP A-14 fit; pooltool (Apache-2.0) AlciatoreBallBallFriction.c",
+      "note": ""
+    },
+    "cushion_restitution": {
+      "unit": "",
+      "source": "Mathavan, Jackson & Parkin (2010), Proc. IMechE C 224(9):1863-1873, snooker values (cushion agent confirms)",
+      "note": "e_e in the Mathavan model; with the friction terms it gives the speed-dependent loss (C7)."
+    },
+    "cushion_friction": {
+      "unit": "",
+      "source": "Mathavan, Jackson & Parkin (2010), Proc. IMechE C 224(9):1863-1873 mu_w (cushion agent confirms)",
+      "note": "Ball-cushion sliding friction."
+    },
+    "cushion_table_friction": {
+      "unit": "",
+      "source": "Mathavan, Jackson & Parkin (2010), Proc. IMechE C 224(9):1863-1873 mu_s (cushion agent confirms)",
+      "note": "Ball-cloth friction during the cushion impact."
+    },
+    "cushion_contact_height_m": {
+      "unit": "m",
+      "source": "about 63.5% of the ball's diameter, the common cushion nose height (cushion agent confirms against Mathavan)",
+      "note": "Sets theta = asin((h - R) / R), the angle of the cushion's push; running and check side depend on it (C8)."
+    },
+    "jaw_restitution": {
+      "unit": "",
+      "source": "starting guess; spec 6.3 owner check (tight pockets)",
+      "note": "Jaws use the cushion model with their own restitution: firm balls rattle, slow ones drop."
+    },
+    "jaw_friction": {
+      "unit": "",
+      "source": "same as cushion_friction to start",
+      "note": ""
+    },
+    "cue_mass_kg": {
+      "unit": "kg",
+      "source": "spec 7.3 (a typical snooker cue)",
+      "note": "Effective cue mass in the tip impulse."
+    },
+    "cue_tip_restitution": {
+      "unit": "",
+      "source": "starting guess within Marlow's / Alciatore, billiards.colostate.edu's tip efficiency range (cue agent confirms)",
+      "note": "Sets how much cue speed becomes ball speed."
+    },
+    "cue_end_mass_kg": {
+      "unit": "kg",
+      "source": "pooltool (Apache-2.0) stick_ball/squirt.py model; tuned to C9 (1-3 degrees at maximum side)",
+      "note": "Squirt grows with this."
+    },
+    "miscue_limit": {
+      "unit": "fraction of R",
+      "source": "spec 7.3",
+      "note": "Tip offsets beyond this miscue."
+    },
+    "miscue_speed_factor": {
+      "unit": "",
+      "source": "starting guess",
+      "note": "A miscued ball keeps at most this fraction of the full-hit speed."
+    },
+    "miscue_max_angle_rad": {
+      "unit": "rad",
+      "source": "starting guess",
+      "note": "A miscue sends the ball within this angle of the aim."
+    },
+    "cue_tip_diameter_m": {
+      "unit": "m",
+      "source": "spec 7.3",
+      "note": ""
+    },
+    "cue_butt_diameter_m": {
+      "unit": "m",
+      "source": "spec 7.3",
+      "note": ""
+    },
+    "cue_length_m": {
+      "unit": "m",
+      "source": "spec 7.3",
+      "note": ""
+    },
+    "cue_clearance_m": {
+      "unit": "m",
+      "source": "starting guess",
+      "note": "Margin the cue keeps over a rail or ball when the elevation is raised."
+    },
+    "max_elevation_rad": {
+      "unit": "rad",
+      "source": "80 degrees, a near-vertical masse",
+      "note": ""
+    },
+    "max_cue_speed_m_s": {
+      "unit": "m/s",
+      "source": "starting guess: above the hardest snooker shots",
+      "note": ""
+    },
+    "nap_tick_ratio": {
+      "unit": "",
+      "source": "M1 contracts (nap.hpp)",
+      "note": "A rolling ball's nap is re-evaluated each time its speed falls by this factor."
+    },
+    "nap_lateral_coeff": {
+      "unit": "times g",
+      "source": "starting guess: about 1-2 cm of drift over a slow 1 m roll",
+      "note": "Spec 7.8: the owner's feel decides it."
+    },
+    "nap_spin_coeff": {
+      "unit": "times g",
+      "source": "starting guess",
+      "note": "Side spin holding with the nap; spec 7.8."
+    },
+    "nap_speed_ref_m_s": {
+      "unit": "m/s",
+      "source": "starting guess",
+      "note": "Speed at which the lateral term equals nap_lateral_coeff * g."
+    },
+    "nap_speed_max_m_s": {
+      "unit": "m/s",
+      "source": "starting guess",
+      "note": "Firm shots are barely affected (spec 7.8)."
+    },
+    "nap_speed_min_m_s": {
+      "unit": "m/s",
+      "source": "starting guess",
+      "note": "No re-evaluation below this speed."
+    },
+    "rack_gap_min_m": {
+      "unit": "m",
+      "source": "spec 7.7 (0.01-0.1 mm)",
+      "note": ""
+    },
+    "rack_gap_max_m": {
+      "unit": "m",
+      "source": "spec 7.7 (0.01-0.1 mm)",
+      "note": ""
+    },
+    "time_cap_s": {
+      "unit": "s",
+      "source": "starting guess",
+      "note": "A shot still moving after this is stopped and logged (C12)."
+    },
+    "max_events": {
+      "unit": "",
+      "source": "starting guess",
+      "note": "Event-loop guard (spec 7.7)."
+    },
+    "zero_time_s": {
+      "unit": "s",
+      "source": "starting guess",
+      "note": "Events closer than this are simultaneous."
+    },
+    "max_zero_time_chain": {
+      "unit": "",
+      "source": "starting guess",
+      "note": "Simultaneous events in a row before the guard trips (spec 7.7)."
+    }
+  }
 }

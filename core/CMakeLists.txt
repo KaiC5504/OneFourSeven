@@ -4,6 +4,21 @@ add_library(ofs_core STATIC
     src/log_schema.cpp
     src/params.cpp
     src/table_geometry.cpp
+    src/rng.cpp
+    src/math/roots.cpp
+    src/physics/physics_params.cpp
+    src/physics/serialize.cpp
+    src/physics/motion.cpp
+    src/physics/nap.cpp
+    src/physics/detect.cpp
+    src/physics/collide_ball.cpp
+    src/physics/collide_cushion.cpp
+    src/physics/table_shape.cpp
+    src/physics/cue.cpp
+    src/physics/shot_record.cpp
+    src/physics/simulator.cpp
+    src/physics/repro.cpp
+    src/physics/rack.cpp
 )
 
 target_include_directories(ofs_core
@@ -30,11 +45,37 @@ if(OFS_BUILD_TESTS)
         tests/test_log_schema.cpp
         tests/test_params.cpp
         tests/test_table_geometry.cpp
+        tests/test_rng.cpp
+        tests/physics/test_physics_params.cpp
+        tests/physics/test_serialize.cpp
+        tests/physics/test_roots.cpp
+        tests/physics/test_detect.cpp
+        tests/physics/test_motion.cpp
+        tests/physics/test_nap.cpp
+        tests/physics/test_collide_ball.cpp
+        tests/physics/test_collide_cushion.cpp
+        tests/physics/test_table_shape.cpp
+        tests/physics/test_cue.cpp
+        tests/physics/test_shot_record.cpp
+        tests/physics/test_simulator.cpp
+        tests/physics/test_repro.cpp
+        tests/physics/test_rack.cpp
     )
     target_link_libraries(ofs_core_tests PRIVATE ofs_core)
     target_compile_definitions(ofs_core_tests PRIVATE
         OFS_TEST_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures")
     add_test(NAME ofs_core_tests COMMAND ofs_core_tests)
+
+    # The independent calibration suite (spec 7.11, C1-C14). Its owner adds files freely, hence the
+    # glob. Disabled in ctest until the physics it checks has merged (M1 wave 1); run the
+    # executable directly before then.
+    file(GLOB OFS_CALIBRATION_SOURCES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tests/calibration/*.cpp)
+    add_executable(ofs_calibration_tests ${OFS_CALIBRATION_SOURCES})
+    target_link_libraries(ofs_calibration_tests PRIVATE ofs_core)
+    target_compile_definitions(ofs_calibration_tests PRIVATE
+        OFS_TEST_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures")
+    add_test(NAME ofs_calibration_tests COMMAND ofs_calibration_tests)
+    set_tests_properties(ofs_calibration_tests PROPERTIES LABELS calibration DISABLED TRUE)
 
     # Prints content_hash for each JSONL line on stdin; tools/test_devlink.py compares it
     # with devlink.py's hash over thousands of values.

@@ -1,0 +1,32 @@
+{
+  "name": "cut_quarter_ball",
+  "note": "Red offset by 1.5 R: a quarter-ball hit aiming at 0 rad. C4.",
+  "cue_ball": 0,
+  "start": {
+    "balls": [
+      {
+        "ball": "cue",
+        "index": 0,
+        "r": [
+          -0.5,
+          0.0
+        ]
+      },
+      {
+        "ball": "red",
+        "index": 0,
+        "r": [
+          0.5,
+          0.039375
+        ]
+      }
+    ]
+  },
+  "strike": {
+    "aim_rad": 0.0,
+    "tip_x": 0.0,
+    "tip_y": 0.0,
+    "elevation_rad": 0.0,
+    "speed_m_s": 2.0
+  }
+}

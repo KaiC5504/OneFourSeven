@@ -1,0 +1,24 @@
+{
+  "name": "towards_top_left_jaw",
+  "note": "A red rolling along the top cushion line into the top-left corner pocket's jaws (set its velocity in the test).",
+  "cue_ball": 0,
+  "start": {
+    "balls": [
+      {
+        "ball": "red",
+        "index": 0,
+        "r": [
+          1.3845,
+          0.86075
+        ]
+      }
+    ]
+  },
+  "strike": {
+    "aim_rad": 0.0,
+    "tip_x": 0.0,
+    "tip_y": 0.0,
+    "elevation_rad": 0.0,
+    "speed_m_s": 1.0
+  }
+}

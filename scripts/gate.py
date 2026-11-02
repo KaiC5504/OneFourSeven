@@ -5,7 +5,9 @@
     python scripts/gate.py --quick   # without the Windows export, for the edit loop; records no pass
 
 One Debug configure and build of the core, the extension and ofs_params_hash, then the core tests
-(ctest), the Godot tests (sync_data, --import, res://tests/run_tests.gd), a short headless run of
+(ctest), a Release build of the core alone for the physics lane (the calibration suite, a fuzz of
+random shots: 2,000 with --quick, the full 100,000 of spec C14 otherwise, and the simulation
+benchmarks against the 2 ms budget), the Godot tests (sync_data, --import, res://tests/run_tests.gd), a short headless run of
 the game whose session log must pass tools/check_logs.py with no app.error, the PC tools' tests
 and the workflow tests. The full gate adds a Windows export (build_windows.py --check). Lanes run
 in parallel unless one depends on another.
@@ -35,6 +37,10 @@ import godot_tools
 
 ROOT = Path(__file__).resolve().parents[1]
 BUILD = ROOT / "build" / "windows"
+# Release, core only: the fuzz and benchmarks measure optimised code, without godot-cpp's build.
+PHYSICS_BUILD = ROOT / "build" / "windows-physics"
+FUZZ_SHOTS_QUICK = 2000
+FUZZ_SHOTS_FULL = 100_000
 LOGS = ROOT / "build" / "gate"
 GAME = ROOT / "game"
 # The logs lane's own user:// (Godot has no flag for it), so no other run's session can mix in.
@@ -123,6 +129,24 @@ def params_hash_tool() -> Path:
 
 def params_hash_built() -> Result:
     return True, f"built {params_hash_tool().relative_to(ROOT)}"
+
+
+def sim_cli() -> Path:
+    name = "ofs_sim_cli.exe" if sys.platform == "win32" else "ofs_sim_cli"
+    for path in (PHYSICS_BUILD / "tools" / "sim_cli" / "Release" / name, PHYSICS_BUILD / "tools" / "sim_cli" / name):
+        if path.exists():
+            return path
+    raise SystemExit(f"the physics build made no {name} in {PHYSICS_BUILD / 'tools' / 'sim_cli'}")
+
+
+def physics_steps(quick: bool) -> list[Step]:
+    shots = FUZZ_SHOTS_QUICK if quick else FUZZ_SHOTS_FULL
+    return configure_and_build(PHYSICS_BUILD, "Release", ["-DOFS_BUILD_GDEXT=OFF"]) + [
+        step(["ctest", "--test-dir", PHYSICS_BUILD, "-C", "Release", "-L", "calibration", "--output-on-failure"]),
+        # Both report every failing shot before exiting, each with a replayable bundle.
+        lambda: run([sim_cli(), "fuzz", "--shots", str(shots), "--seed", "1"], timeout=1800),
+        lambda: run([sim_cli(), "bench", "--check"]),
+    ]
 
 
 def godot() -> str:
@@ -245,8 +269,10 @@ def lanes(quick: bool) -> list[Lane]:
         Lane("workflows", [python_tests("test_ci")]),
         Lane("tools", [python_tests("tools", lambda: {"OFS_PARAMS_HASH": str(params_hash_tool())})],
              after=["build"]),
-        Lane("core", [step(["ctest", "--test-dir", BUILD, "-C", "Debug", "--output-on-failure"])],
-             after=["build"]),
+        # The calibration suite runs in the physics lane, optimised.
+        Lane("core", [step(["ctest", "--test-dir", BUILD, "-C", "Debug", "-LE", "calibration",
+                            "--output-on-failure"])], after=["build"]),
+        Lane("physics", physics_steps(quick)),
         Lane("godot", [step([sys.executable, ROOT / "scripts" / "sync_data.py"]), godot_import, godot_tests],
              after=["build"]),
         # Needs the Godot lane's import.

@@ -29,7 +29,8 @@ func test_embedded_hash_is_taken_from_the_file_text() -> void:
 	# Godot reads every JSON number as a float, so hashing the re-serialised Dictionary
 	# would turn schema_version 1 into 1.0 and miss devlink.py's hash.
 	var text := FileAccess.get_file_as_string("res://data/table_params.json")
-	check(text.contains('"schema_version": 1') or text.contains('"schema_version":1'), "schema_version is an integer")
+	var integer_version := RegEx.create_from_string('"schema_version":\\s*\\d+\\s*[,}]')
+	check(integer_version.search(text) != null, "schema_version is an integer")
 	var reserialised := JSON.stringify({"table_params": JSON.parse_string(text)})
 	check(Params.current_hash() != OfsLog.content_hash(reserialised), "integers in the file stay integers")
 

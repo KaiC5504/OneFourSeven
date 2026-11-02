@@ -1,0 +1,28 @@
+{
+  "name": "slow_to_middle_left",
+  "note": "A red 0.3 m from the left middle pocket, heading straight in slowly (set its velocity in the test).",
+  "cue_ball": 0,
+  "start": {
+    "balls": [
+      {
+        "ball": "red",
+        "index": 0,
+        "r": [
+          0.0,
+          0.589
+        ],
+        "v": [
+          0.0,
+          0.25
+        ]
+      }
+    ]
+  },
+  "strike": {
+    "aim_rad": 1.5707963267948966,
+    "tip_x": 0.0,
+    "tip_y": 0.0,
+    "elevation_rad": 0.0,
+    "speed_m_s": 0.5
+  }
+}
