@@ -103,3 +103,10 @@ fixes, ship (no TestFlight in M1; the next signed build needs a dry run first).
 Full gate green (8 lanes): fuzz 100k 0 failures, calibration 26/26, core 242 tests, Windows
 export. Bench baseline written: break-offs 0.20-0.45 ms (budget 2 ms). Pushed to origin for one
 CI run. Next: check round.
+
+## Check round (launched on 743b514, read-only)
+physics vs papers, C++ review, silent failures + logging/replay, test gaps, spec check + report
+review, GDScript/CI, comment style, statistics run (3 new fuzz seeds, stress, determinism).
+CI on 743b514 running (iOS compile check with the macOS editor extension, Windows CI full gate).
+After: group findings by file into fix agents, re-run what failed, seam review, ship (no
+TestFlight in M1; the report page for KaiC).
