@@ -2,15 +2,15 @@
   "schema_version": 2,
   "_note": "Physics parameters (spec 7.10). 'values' is what the physics loads; 'docs' gives each value's unit, source and note. Change a value only with its source.",
   "values": {
-    "ball_mass_kg": 0.141,
+    "ball_mass_kg": 0.1406,
     "gravity_m_s2": 9.81,
-    "slide_friction": 0.2,
-    "roll_friction": 0.008,
+    "slide_friction": 0.212,
+    "roll_friction": 0.01,
     "spin_friction_per_r": 0.4444444444444444,
     "ball_restitution": 0.94,
-    "ball_friction_a": 0.009951,
-    "ball_friction_b": 0.108,
-    "ball_friction_c": 1.088,
+    "ball_friction_a": 0.058,
+    "ball_friction_b": 0.092,
+    "ball_friction_c": 2.73,
     "ball_rest_speed_m_s": 0.001,
     "cushion_restitution": 0.98,
     "cushion_friction": 0.14,
@@ -48,8 +48,8 @@
   "docs": {
     "ball_mass_kg": {
       "unit": "kg",
-      "source": "spec 6.1 starting value",
-      "note": "Confirm against published 52.5 mm phenolic snooker ball sets (tuner, M1 wave 2)."
+      "source": "Mathavan, Jackson & Parkin (2010), Proc. IMechE C 224(9):1863-1873, sec. 3.2: 'For a snooker ball, M = 0.1406 kg and R = 26.25 mm' (their measured snooker set); spec 6.1 starting value 0.141",
+      "note": "WPBSA rules fix only the diameter and a 3 g spread within a set. Retail listings for Aramith Tournament Champion 52.5 mm sets quote about 142 g (+-2 g), Aramith Premier 52.4 mm about 126-128 g; Mathavan's measured ball sits inside that spread and is the ball the cushion model was fitted with."
     },
     "gravity_m_s2": {
       "unit": "m/s^2",
@@ -58,38 +58,38 @@
     },
     "slide_friction": {
       "unit": "",
-      "source": "spec 7.10; Alciatore, billiards.colostate.edu FAQ physical properties; pooltool (Apache-2.0) BallParams.u_s",
-      "note": "Ball-cloth sliding friction. Sets how long stun and screw last before the ball grips."
+      "source": "Mathavan, Jackson & Parkin (2009), 'Application of high-speed imaging to determine the dynamics of billiards', Am. J. Phys. 77(9):788-794, doi:10.1119/1.3157159: snooker ball on a Riley Renaissance table, sliding deceleration 1.75-2.40 m/s^2 (0.178-0.245); 0.212 is the average Mathavan et al. (2010) sec. 3.2 use, as cushion_table_friction does",
+      "note": "Ball-cloth sliding friction. Sets how long stun and screw last before the ball grips. Was 0.2 (Alciatore's typical pool value, physical properties FAQ 0.15-0.4)."
     },
     "roll_friction": {
       "unit": "",
-      "source": "spec 7.10 range 0.005-0.01 for fast snooker cloth",
-      "note": "Rolling resistance; calibrated against C11 (table speed) by the tuner."
+      "source": "C11 lag (docs/calibration/targets.md) at the fast end of the snooker evidence: Mathavan et al. (2009) Am. J. Phys. 77(9):788-794 measured 0.0127-0.0129 on an unheated laboratory Riley Renaissance (10 x 5 ft); spec 7.10 0.005-0.01; Alciatore physical properties FAQ 0.005-0.015 (pool)",
+      "note": "Rolling resistance. The only snooker measurement (0.0127) is slower than C11 allows (effective slope at most 0.0105, competition pool cloth); a tournament table's heated slate and freshly ironed cloth play faster than a lab table, so this takes the C11 range's slow end: the lag needs a 2.14 m/s cue ball (C11 band 1.55-2.32) and its last length takes 8.4 s (effective slope 0.0101). Was 0.008. Owner judges the pace by feel in M2."
     },
     "spin_friction_per_r": {
       "unit": "",
-      "source": "pooltool (Apache-2.0) BallParams.u_sp_proportionality = 10*2/5/9",
-      "note": "Spinning friction divided by R; side spin decays at 5/2 * this * g rad/s^2."
+      "source": "pooltool (Apache-2.0) BallParams.u_sp_proportionality = 10*2/5/9; Alciatore physical properties FAQ: spin deceleration 5-15 rad/s^2",
+      "note": "Spinning friction divided by R; side spin decays at 5/2 * this * g = 10.9 rad/s^2, mid-range of Alciatore's 5-15."
     },
     "ball_restitution": {
       "unit": "",
-      "source": "spec 7.4 (phenolic balls 0.92-0.98)",
-      "note": "Tuned against C2/C3 (stun stop and follow-through)."
+      "source": "spec 7.4; Alciatore physical properties FAQ: ball-ball 0.92-0.98",
+      "note": "Tuned against C2/C3 (stun stop and follow-through). Mathavan et al. (2009) Table I measured object-ball speeds 5-9% under the e = 1 theory, which hints at the low end; kept mid-range."
     },
     "ball_friction_a": {
       "unit": "",
-      "source": "Alciatore, billiards.colostate.edu TP A-14 fit; pooltool (Apache-2.0) AlciatoreBallBallFriction.a",
-      "note": "Ball-ball friction mu = a + b exp(-c v_rel), v_rel in m/s. Gives throw and spin transfer (C6)."
+      "source": "least-squares refit (spec 7.4) of TP A.14's model to the published half-ball-region stun throw: Alciatore, 'Throw - Part II: results', Billiards Digest Sept 2006, Diagram 4 (25, 30, 35 deg at 1, 3, 7 mph) and Jewett 1995 (27, 30, 36 deg); fixture core/tests/fixtures/reference/throw_published.json",
+      "note": "Ball-ball friction mu = a + b exp(-c v_rel), v_rel the contact sliding speed in m/s; gives throw and spin transfer (C6). TP A.14's own fit (a 0.009951, b 0.108, c 1.088, from Marlow's data) threw 4.86 / 3.55 / 1.70 deg at a half-ball stun hit at 1 / 3 / 7 mph against 4.5 / 4.1 / 3.45 measured (RMS 1.23 deg over 17 points); the refit gives 4.86 / 4.16 / 3.39 (RMS 0.22 deg against Alciatore's 9 points, 0.55 over all 17; 1 mph is capped by the balls gearing, 4.86 deg). mu runs 0.13 at 0.1 m/s to 0.058 above 2 m/s, inside Alciatore's published 0.03-0.08 at playing speeds. No snooker-ball throw data was found; these are pool balls, the same phenolic resin."
     },
     "ball_friction_b": {
       "unit": "",
-      "source": "Alciatore, billiards.colostate.edu TP A-14 fit; pooltool (Apache-2.0) AlciatoreBallBallFriction.b",
-      "note": ""
+      "source": "least-squares refit with ball_friction_a (see there)",
+      "note": "Was 0.108 (TP A.14)."
     },
     "ball_friction_c": {
       "unit": "s/m",
-      "source": "Alciatore, billiards.colostate.edu TP A-14 fit; pooltool (Apache-2.0) AlciatoreBallBallFriction.c",
-      "note": ""
+      "source": "least-squares refit with ball_friction_a (see there)",
+      "note": "Was 1.088 (TP A.14)."
     },
     "ball_rest_speed_m_s": {
       "unit": "m/s",
@@ -98,18 +98,18 @@
     },
     "cushion_restitution": {
       "unit": "",
-      "source": "Mathavan, Jackson & Parkin (2010), Proc. IMechE C 224(9):1863-1873, snooker values (cushion agent confirms)",
-      "note": "e_e in the Mathavan model; with the friction terms it gives the speed-dependent loss (C7)."
+      "source": "Mathavan, Jackson & Parkin (2010), Proc. IMechE C 224(9):1863-1873, sec. 3.5: e_e = 0.98 with mu_w = 0.14 minimise the RMS error against measured snooker rebounds",
+      "note": "e_e in the Mathavan model; with the friction terms it gives the speed-dependent loss (C7). A rolling ball straight in rebounds at 0.911 of its speed, matching the 0.910 low-speed gradient Mathavan et al. (2009) Am. J. Phys. 77:788 measured (their 0.818 is a straight-line fit over 0.28-3.5 m/s that includes the high-speed fall-off)."
     },
     "cushion_friction": {
       "unit": "",
-      "source": "Mathavan, Jackson & Parkin (2010), Proc. IMechE C 224(9):1863-1873 mu_w (cushion agent confirms)",
+      "source": "Mathavan, Jackson & Parkin (2010), Proc. IMechE C 224(9):1863-1873, sec. 3.5: mu_w = 0.14 (fitted with e_e = 0.98)",
       "note": "Ball-cushion sliding friction."
     },
     "cushion_table_friction": {
       "unit": "",
-      "source": "Mathavan, Jackson & Parkin (2010), Proc. IMechE C 224(9):1863-1873 mu_s (cushion agent confirms)",
-      "note": "Ball-cloth friction during the cushion impact."
+      "source": "Mathavan, Jackson & Parkin (2010), Proc. IMechE C 224(9):1863-1873, sec. 3.2: mu_s = 0.212, the average of their measured 0.178-0.245 (Am. J. Phys. 77:788, 2009)",
+      "note": "Ball-cloth friction during the cushion impact; equal to slide_friction."
     },
     "cushion_contact_height_m": {
       "unit": "m",
@@ -128,8 +128,8 @@
     },
     "jaw_restitution": {
       "unit": "",
-      "source": "starting guess, no source (the jaw rubber alone would suggest 0.98); spec 6.3 owner check",
-      "note": "Jaws use the cushion model with their own restitution: firm balls rattle, slow ones drop."
+      "source": "documented starting value, no published measurement found for snooker jaws (the jaw rubber alone would suggest 0.98); spec 6.3 owner check",
+      "note": "Jaws use the cushion model with their own restitution: firm balls rattle, slow ones drop. The owner tunes it by feel in M2."
     },
     "jaw_friction": {
       "unit": "",
