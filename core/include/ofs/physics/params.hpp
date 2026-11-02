@@ -25,6 +25,10 @@ struct PhysicsParams {
     double ball_friction_a = 9.951e-3;
     double ball_friction_b = 0.108;
     double ball_friction_c = 1.088;
+    // Below this approach speed two balls are being pushed together (a sliding ball's friction
+    // re-closing a contact), not bouncing: they leave rolling together instead of re-colliding
+    // without end (inelastic collapse; simulator.hpp).
+    double ball_rest_speed_m_s = 1.0e-3;
 
     // Cushions and jaws (spec 7.5, Mathavan et al. 2010).
     double cushion_restitution = 0.98;

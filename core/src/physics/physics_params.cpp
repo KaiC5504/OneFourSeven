@@ -33,6 +33,7 @@ const std::vector<Field>& fields() {
         {"ball_friction_a", &PhysicsParams::ball_friction_a, nullptr, 0.0, 1.0},
         {"ball_friction_b", &PhysicsParams::ball_friction_b, nullptr, 0.0, 1.0},
         {"ball_friction_c", &PhysicsParams::ball_friction_c, nullptr, 0.0, 100.0},
+        {"ball_rest_speed_m_s", &PhysicsParams::ball_rest_speed_m_s, nullptr, 0.0, 0.05},
         {"cushion_restitution", &PhysicsParams::cushion_restitution, nullptr, 0.0, 1.0},
         {"cushion_friction", &PhysicsParams::cushion_friction, nullptr, 0.0, 2.0},
         {"cushion_table_friction", &PhysicsParams::cushion_table_friction, nullptr, 0.0, 2.0},
