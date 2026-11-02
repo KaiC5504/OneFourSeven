@@ -110,3 +110,11 @@ review, GDScript/CI, comment style, statistics run (3 new fuzz seeds, stress, de
 CI on 743b514 running (iOS compile check with the macOS editor extension, Windows CI full gate).
 After: group findings by file into fix agents, re-run what failed, seam review, ship (no
 TestFlight in M1; the report page for KaiC).
+Check round state (for resuming): findings so far are collected in
+C:\Users\KaiChuan\AppData\Local\Temp\claude\D--Repos-Apps-Snooker\76e9ffe0-40a1-44fe-85a4-f25eed10d4fe\scratchpad\m1-findings.md
+(comments, logging/replay, statistics, spec+report). Still running: physics vs papers, C++
+review, test gaps, GDScript/CI, and the CI watcher on 743b514. When all are in: group the
+findings by file into fix agents (one message), then re-run fuzz on several seeds, calibration,
+bench, regenerate the report with corrected plain words, seam review, ship. Decided: swerve
+curves while sliding (parabola, bends most late) - the model is right, the spec's C10 wording
+is loose; cloth pace roll 0.010 stays for KaiC's M2 feel check.
