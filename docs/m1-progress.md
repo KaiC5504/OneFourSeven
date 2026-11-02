@@ -35,3 +35,11 @@ Enable ofs_calibration_tests in ctest and the simulator's skipped integration te
 the agents' param recommendations to table_params.json; write tools/sim_cli/bench_baseline.json.
 Wave 2: tuner (table_params.json values against C1-C11, calibration report). Then checks,
 fixes, ship (no TestFlight in M1; the next signed build needs a dry run first).
+
+## Findings in flight
+- Simulator: inelastic collapse in break-off packs (134/500 tripped zero_time_chain with
+  stand-in physics). Fix assigned to the simulator agent: ball-ball approaches below
+  ball_rest_speed_m_s (5d03e4c, 1 mm/s) resolve as a sustained push, both balls leaving
+  rolling with the pair's angular momentum about their cloth contacts conserved.
+- Events: touching pairs with ~zero normal velocity and inward acceleration must be contact
+  at t = 0 (42 overlaps otherwise); the simulator agent told m1-events directly.
