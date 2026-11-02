@@ -88,7 +88,8 @@ double sin_theta(const PhysicsParams& p) { return (p.cushion_contact_height_m - 
 // The restitution collide_line uses for this incoming normal speed (params.hpp).
 double cushion_e(double vy, const PhysicsParams& p) {
     const double over = std::max(0.0, vy - p.cushion_rigid_limit_m_s);
-    return std::clamp(p.cushion_restitution - p.cushion_restitution_slope_per_m_s * over, 0.0, p.cushion_restitution);
+    return std::min(p.cushion_restitution, std::max(p.cushion_restitution_min,
+                                                    p.cushion_restitution - p.cushion_restitution_slope_per_m_s * over));
 }
 
 BallState ball_from_local(const Local& y) {
@@ -137,7 +138,7 @@ TEST_CASE("cushion: fast Mathavan model matches the 5000-step reference over the
     double worst_angle = 0.0;
     int cases = 0;
     for (int alpha_deg = 5; alpha_deg <= 85; alpha_deg += 10) {
-        // 12 m/s takes the sloped restitution to zero at steep incidence.
+        // 12 m/s takes the sloped restitution to its floor at steep incidence.
         for (double v0 : {0.2, 1.0, 3.0, 6.0, 12.0}) {
             for (double top : {-1.0, 0.0, 0.5, 1.0, 2.0}) {
                 for (double side : {-2.0, -1.0, 0.0, 1.0, 2.0}) {
@@ -323,6 +324,23 @@ TEST_CASE("cushion: a restitution slope lowers rebounds only above the rigid-cus
     };
     CHECK(hit_jaw(2.0, sloped) == hit_jaw(2.0, flat));
     CHECK(hit_jaw(3.4, sloped) < hit_jaw(3.4, flat));
+}
+
+TEST_CASE("cushion: restitution stops falling at cushion_restitution_min and never exceeds its base") {
+    // params.hpp: the slope is fitted only up to 3.5 m/s.
+    PhysicsParams sloped;
+    sloped.cushion_restitution_slope_per_m_s = 0.16;
+    PhysicsParams floor_flat = sloped;
+    floor_flat.cushion_restitution_slope_per_m_s = 0.0;
+    floor_flat.cushion_restitution = sloped.cushion_restitution_min;
+    const Local fast = paper_state(12.0, kPi / 2.0, 1.0, 0.0);
+    CHECK(speed(hit_line(fast, sloped)) == speed(hit_line(fast, floor_flat)));
+    // A base below the floor is kept as it is.
+    PhysicsParams low = sloped;
+    low.cushion_restitution = 0.5;
+    PhysicsParams low_flat = low;
+    low_flat.cushion_restitution_slope_per_m_s = 0.0;
+    CHECK(speed(hit_line(fast, low)) == speed(hit_line(fast, low_flat)));
 }
 
 TEST_CASE("cushion: a jaw hit on its centre line rebounds straight back") {
