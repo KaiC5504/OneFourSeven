@@ -37,7 +37,13 @@ cache with bounding-box culling, ~3-4 quartics and ~1 us loop overhead per event
 per break-off; the push rule plus a short contact hold-back after a push (review in checks);
 500 break-offs: anomalies 26 -> 0; 12 integration tests skip-decorated until merge).
 Expected red until events + cushions merge: physics lane fuzz (tunnel 1721, overlap 162,
-time_cap 59, all from stub detection and an empty table).
+time_cap 59, all from stub detection and an empty table). calibration (57d23b5, 99e825a: 26
+cases, each checked through simulate() and on the model alone; C7/C8 oracle = the paper's
+equations in tools/gen_reference.py, agreeing with pooltool's solver to 1.4e-5; published
+numbers: throw 4.5/4.1/3.45 deg at 1/3/7 mph (BD Sept 2006), lag 1.63-2.20 m/s from pool cloth
+data). Findings for the tuner: C6 fast throw 1.70 deg vs 3.45 measured (refit ball_friction_*);
+Mathavan's 0.818 straight-in ratio isn't reproduced by its own model (0.911), so C7 checks the
+model. Regenerate the cushion fixture whenever cushion params change.
 
 ## After wave 1
 Enable ofs_calibration_tests in ctest and the simulator's skipped integration tests; apply
