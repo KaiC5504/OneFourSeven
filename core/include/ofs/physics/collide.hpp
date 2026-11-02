@@ -12,8 +12,9 @@ namespace ofs::phys {
 
 // Ball-ball (spec 7.4): normal impulse with ball_restitution, and contact friction from
 // mu = ball_friction_a + ball_friction_b * exp(-ball_friction_c * v_rel) (Alciatore's fit,
-// TP A-14), giving cut-induced throw, spin-induced throw and spin transfer. Reference:
-// pooltool/physics/resolve/ball_ball/frictional_mathavan with AlciatoreBallBallFriction.
+// TP A-14), giving cut-induced throw, spin-induced throw and spin transfer: one instantaneous
+// impulse (TP A.14, as pooltool's frictional_inelastic), not frictional_mathavan's numerical
+// integration, which is too slow for the per-shot budget.
 void collide_balls(BallState& a, BallState& b, const PhysicsParams& p);
 
 // Ball-cushion (spec 7.5): Mathavan, Jackson & Parkin (2010), contact at

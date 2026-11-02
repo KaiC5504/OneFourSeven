@@ -25,21 +25,30 @@ struct PhysicsParams {
     double ball_friction_a = 9.951e-3;
     double ball_friction_b = 0.108;
     double ball_friction_c = 1.088;
+    // Below this approach speed two balls are being pushed together (a sliding ball's friction
+    // re-closing a contact), not bouncing: they leave rolling together instead of re-colliding
+    // without end (inelastic collapse; simulator.hpp).
+    double ball_rest_speed_m_s = 1.0e-3;
 
     // Cushions and jaws (spec 7.5, Mathavan et al. 2010).
     double cushion_restitution = 0.98;
     double cushion_friction = 0.14;        // mu_w, ball-cushion
     double cushion_table_friction = 0.212;  // mu_s, ball-cloth during the impact
-    double cushion_contact_height_m = 0.0333;  // height of the cushion nose's contact above the cloth
+    double cushion_contact_height_m = 0.03675;  // height of the cushion nose's contact above the cloth
+    // Mathavan's model loses the same fraction of speed at any speed; above this normal speed the
+    // cushion stops acting rigid and measured rebounds fall below it (Mathavan 2010, Fig. 7), so
+    // cushion and jaw restitution drop by the slope per m/s of normal speed beyond it.
+    double cushion_rigid_limit_m_s = 2.5;
+    double cushion_restitution_slope_per_m_s = 0.0;
     double jaw_restitution = 0.8;
     double jaw_friction = 0.14;
 
     // Cue (spec 7.3).
     double cue_mass_kg = 0.54;
     double cue_tip_restitution = 0.75;
-    double cue_end_mass_kg = 0.0075;  // drives squirt
+    double cue_end_mass_kg = 0.0047;  // drives squirt
     double miscue_limit = 0.55;        // tip offset, fraction of R
-    double miscue_speed_factor = 0.35;  // fraction of the cue speed a miscued ball keeps, at most
+    double miscue_speed_factor = 0.35;  // fraction of the full-hit ball speed a miscue keeps, at most
     double miscue_max_angle_rad = 0.05;
     double cue_tip_diameter_m = 0.0095;
     double cue_butt_diameter_m = 0.029;
