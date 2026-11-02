@@ -570,3 +570,160 @@ TEST_CASE("simulate zero-time chain guard: too many simultaneous events end the 
     REQUIRE(logged.size() == 1);
     check_anomaly_line(logged[0], in, p, "zero_time_chain");
 }
+
+namespace {
+
+// The deepest any two balls sink into each other, or a ball into a cushion line, at any event
+// time: the fuzz's check (tools/sim_cli/shot_checks.cpp) fails anything past 1e-9 m.
+double deepest_overlap(const ShotRecord& r) {
+    double worst = 0.0;
+    std::vector<double> times{0.0, r.t_end};
+    for (const ShotEvent& e : r.events) times.push_back(e.t);
+    for (const double t : times) {
+        const TableState s = r.state_at(t);
+        for (std::size_t i = 0; i < s.balls.size(); ++i) {
+            const BallState& a = s.balls[i];
+            if (a.motion == Motion::pocketed) continue;
+            for (std::size_t j = i + 1; j < s.balls.size(); ++j) {
+                const BallState& b = s.balls[j];
+                if (b.motion == Motion::pocketed) continue;
+                worst = std::max(worst, 2.0 * kR - std::hypot(a.r.x - b.r.x, a.r.y - b.r.y));
+            }
+            for (const LineCushion& c : table().lines) {
+                const double gap = (a.r.x - c.p1.x) * c.normal.x + (a.r.y - c.p1.y) * c.normal.y - kR;
+                const double len = std::hypot(c.p2.x - c.p1.x, c.p2.y - c.p1.y);
+                const double along = ((a.r.x - c.p1.x) * (c.p2.x - c.p1.x) + (a.r.y - c.p1.y) * (c.p2.y - c.p1.y)) / len;
+                if (gap > -kR && along >= 0.0 && along <= len) worst = std::max(worst, -gap);
+            }
+        }
+    }
+    return worst;
+}
+
+const LineCushion& baulk_cushion() {
+    for (const LineCushion& c : table().lines) {
+        if (c.normal.x == 1.0) return c;
+    }
+    FAIL("no baulk cushion");
+    return table().lines.front();
+}
+
+BallState on_baulk_cushion(ofs::table::Ball kind, int index, double y) {
+    return ball(kind, index, baulk_cushion().p1.x + kR, y);
+}
+
+void check_clean(const ShotRecord& r) {
+    for (const Anomaly& a : r.anomalies) FAIL_CHECK(a.kind << ": " << a.detail);
+    CHECK(deepest_overlap(r) <= 1e-9);
+    for (const BallState& b : r.final_state.balls) CHECK(at_rest(b));
+    MESSAGE(r.events.size() << " events");
+}
+
+}  // namespace
+
+TEST_CASE("simulate a ball spun into the cushion it touches: it settles and rolls along it") {
+    // fuzz seed 1 shots 19989, 19996: a ball left sliding along a cushion with its slip pointing out
+    // of it, so cloth friction drives it back in with no normal speed to bounce on. Detection found
+    // the contact at t = 0 each time, the cushion model had nothing to do, and the chain never
+    // ended. Now it is a push: the ball settles to rolling along the cushion and is held there.
+    SimInput in;
+    BallState cue = on_baulk_cushion(ofs::table::Ball::cue, 0, 0.0);
+    cue.v = {0.0, 0.4, 0.0};
+    cue.w = {-0.4 / kR, -10.0, 0.0};  // slip u.x = +10 R: friction drives the ball into the cushion
+    in.start.balls = {cue};
+    in.has_strike = false;
+    const ShotRecord r = simulate(in, table(), file_params());
+    check_clean(r);
+    CHECK(r.events.size() < 20);
+    const BallState& end = r.final_state.balls[0];
+    CHECK(end.r.x == doctest::Approx(baulk_cushion().p1.x + kR).epsilon(1e-12));
+    CHECK(end.r.y > 0.05);
+}
+
+TEST_CASE("simulate a ball rolling into a cushion slower than ball_rest_speed_m_s: no bounce chain") {
+    SimInput in;
+    BallState cue = ball(ofs::table::Ball::cue, 0, baulk_cushion().p1.x + kR + 1e-7, 0.0);
+    cue.v = {-5e-4, 2e-3, 0.0};
+    cue.w = {-2e-3 / kR, -5e-4 / kR, 0.0};
+    in.start.balls = {cue};
+    in.has_strike = false;
+    const ShotRecord r = simulate(in, table(), file_params());
+    check_clean(r);
+    CHECK(r.events.size() < 20);
+}
+
+TEST_CASE("simulate a slow push into a frozen pair resolves the three balls in one event") {
+    // fuzz seed 1 shots 19759, 19822 (break-offs): one pair's push re-closed the next pair's
+    // contact, and pairwise pushes passed the speed back and forth for 100 simultaneous events.
+    SimInput in;
+    BallState cue = ball(ofs::table::Ball::cue, 0, 0.0, 0.0);
+    cue.v = {5e-4, 0.0, 0.0};
+    cue.w = {0.0, 5e-4 / kR, 0.0};
+    in.start.balls = {cue, ball(ofs::table::Ball::red, 0, 2.0 * kR + 1e-6, 0.0),
+                      ball(ofs::table::Ball::red, 1, 4.0 * kR + 1e-6, 0.0)};
+    in.has_strike = false;
+    const ShotRecord r = simulate(in, table(), file_params());
+    check_clean(r);
+    const Contact c = first_contact(r);
+    REQUIRE(c.event != nullptr);
+    std::size_t contacts = 0;
+    for (const ShotEvent& e : r.events) contacts += e.kind == EventKind::ball_ball ? 1 : 0;
+    CHECK(contacts <= 2);
+    // All three leave at a third of the speed, the third ball's contact resolved with the push.
+    CHECK(c.a_after.v.x == doctest::Approx(5e-4 / 3.0).epsilon(1e-9));
+    bool third_pushed = false;
+    for (const Segment& s : r.segments[2]) {
+        if (s.t0 != c.event->t) continue;
+        third_pushed = true;
+        CHECK(s.start.v.x == doctest::Approx(5e-4 / 3.0).epsilon(1e-9));
+    }
+    CHECK(third_pushed);
+}
+
+TEST_CASE("simulate a pushing pair rolls on touching, never sinking into each other") {
+    // fuzz seed 1, 1,140 break-off shots: after a push, rolling resistance along two headings drove
+    // the pair together, and the hold-back that let them sink 5e-8 m before re-pushing showed as
+    // overlaps (and thousands of re-pushes). A held contact keeps their normal accelerations equal.
+    SimInput in;
+    BallState a = ball(ofs::table::Ball::cue, 0, 0.0, 0.0);
+    a.v = {0.3, 0.2, 0.0};
+    a.w = {-0.2 / kR, 0.3 / kR, 0.0};
+    BallState b = ball(ofs::table::Ball::red, 0, 2.0 * kR, 0.0);
+    b.v = {0.3, 0.0, 0.0};
+    b.w = {0.0, 0.3 / kR, 0.0};
+    in.start.balls = {a, b};
+    in.has_strike = false;
+    const ShotRecord r = simulate(in, table(), file_params());
+    check_clean(r);
+    CHECK(r.events.size() < 30);
+}
+
+TEST_CASE("simulate a ball rolling slowly into a ball frozen on a cushion: squeezed, then held") {
+    SimInput in;
+    BallState cue = ball(ofs::table::Ball::cue, 0, baulk_cushion().p1.x + 3.0 * kR + 1e-6, 0.01);
+    cue.v = {-5e-4, 1e-4, 0.0};
+    cue.w = {-1e-4 / kR, -5e-4 / kR, 0.0};
+    in.start.balls = {cue, on_baulk_cushion(ofs::table::Ball::red, 0, 0.0)};
+    in.has_strike = false;
+    const ShotRecord r = simulate(in, table(), file_params());
+    check_clean(r);
+    CHECK(r.events.size() < 30);
+}
+
+TEST_CASE("simulate a ball rolling between two resting balls almost in line with it") {
+    // fuzz seed 7 shot 15001: the two contacts' normals differ by 0.003 rad, which Gauss-Seidel
+    // alone closes on at ~1e-5 per sweep; the pushes alternated for 100 simultaneous events.
+    const ofs::Vec3 u = ofs::unit_or_zero(ofs::Vec3{0.862, -0.507, 0.0});
+    const ofs::Vec3 u2 = ofs::unit_or_zero(ofs::Vec3{0.861, -0.509, 0.0});
+    const ofs::Vec3 mid{1.0805, -0.0262, 0.0};
+    SimInput in;
+    BallState rolling = ball(ofs::table::Ball::red, 1, mid.x, mid.y);
+    rolling.v = {-1.23e-5, -2.08e-5, 0.0};
+    rolling.w = {2.08e-5 / kR, -1.23e-5 / kR, 0.0};
+    in.start.balls = {ball(ofs::table::Ball::red, 0, mid.x - 2.0 * kR * u.x, mid.y - 2.0 * kR * u.y), rolling,
+                      ball(ofs::table::Ball::red, 2, mid.x + 2.0 * kR * u2.x, mid.y + 2.0 * kR * u2.y)};
+    in.has_strike = false;
+    const ShotRecord r = simulate(in, table(), file_params());
+    check_clean(r);
+    CHECK(r.events.size() < 30);
+}

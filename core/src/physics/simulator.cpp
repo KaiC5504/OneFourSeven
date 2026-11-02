@@ -41,6 +41,9 @@ constexpr int kMaxSweeps = 2000;
 // s: a held ball whose segment ends sooner than this keeps it when only its contact forces change.
 constexpr double kStaleWindow = 1e-6;
 constexpr unsigned char kForcesChanged = 2;  // changed_: only the contact acceleration
+// m/s: a push closing slower than this leaves a ball at rest where it is. Started at this speed a
+// ball would roll 6e-12 m and stop within 1.3e-5 s.
+constexpr double kStartSpeed = 1e-6;
 // Slack on the bounding boxes that cull detection; far above the rounding of the box arithmetic.
 constexpr double kBoxMargin = 1e-6;
 // A shot that trips a check at every event would otherwise grow its record without bound.
@@ -122,7 +125,8 @@ Box path_box(const Trajectory& path, double T) {
 // impulses, solved together so that a push which re-closes a neighbour's contact is resolved in
 // the same event: each ball-ball pair leaves with one speed along its normal, a ball against a
 // cushion or jaw with none into it. Every step only brings a normal speed towards zero, so kinetic
-// energy never rises.
+// energy never rises. A ball at rest takes part only when a push closes on it at kStartSpeed or
+// more; otherwise it stands like a cushion.
 //
 // What re-closed the contact is still there: rolling resistance along two different headings, or
 // the nap, drives the pair (or the ball and cushion) together. So the contact is held (a Bond):
@@ -142,6 +146,117 @@ void set_rolling(BallState& b, Vec3 v, const PhysicsParams& p) {
 double wrap_two_pi(double a) {
     a = std::fmod(a, kTwoPi);
     return a < 0.0 ? a + kTwoPi : a;
+}
+
+// A held contact in a group solve: `lambda` (an impulse or a force, per unit mass) moves slot a by
+// -lambda n and slot b, or nothing for a cushion, by +lambda n.
+struct Contact {
+    std::size_t a;
+    int b;
+    Vec3 n;  // from a into b
+    double lambda;
+};
+
+double closing(const std::vector<Vec3>& x, const Contact& c) {
+    return dot(c.b >= 0 ? x[c.a] - x[static_cast<std::size_t>(c.b)] : x[c.a], c.n);
+}
+
+// How much one unit of l's lambda opens k.
+double opening(const Contact& k, const Contact& l, const std::vector<unsigned char>& mobile) {
+    double s = 0.0;
+    auto moved = [&](std::size_t ball, double sign) {
+        if (!mobile[ball]) return;
+        const double d = sign * dot(l.n, k.n);
+        if (ball == k.a) s -= d;
+        if (k.b >= 0 && ball == static_cast<std::size_t>(k.b)) s += d;
+    };
+    moved(l.a, -1.0);
+    if (l.b >= 0) moved(static_cast<std::size_t>(l.b), 1.0);
+    return s;
+}
+
+// lambda >= 0 for every contact, none closing, and lambda zero wherever the contact opens: the
+// perfectly inelastic multi-contact problem, for velocities or accelerations alike (every mobile
+// ball has the same effective mass). Gauss-Seidel first, which settles most groups, then an exact
+// solve on the contacts it left pushing: two contacts with nearly parallel normals (a ball wedged
+// between two others in a line) shrink Gauss-Seidel's error by only ~angle^2 per sweep.
+void solve_contacts(std::vector<Vec3>& x, const std::vector<unsigned char>& mobile, std::vector<Contact>& cs,
+                    double scale) {
+    auto movable = [&](const Contact& c) { return mobile[c.a] || (c.b >= 0 && mobile[static_cast<std::size_t>(c.b)]); };
+    auto apply = [&](std::vector<Vec3>& y, const Contact& c, double step) {
+        if (mobile[c.a]) y[c.a] -= c.n * step;
+        if (c.b >= 0 && mobile[static_cast<std::size_t>(c.b)]) y[static_cast<std::size_t>(c.b)] += c.n * step;
+    };
+    const std::vector<Vec3> x0 = x;
+    const double settled = 1e-16 * scale;
+    bool converged = cs.empty();
+    for (int sweep = 0; sweep < kMaxSweeps && !converged; ++sweep) {
+        double worst = 0.0;
+        for (Contact& c : cs) {
+            if (!movable(c)) continue;
+            const double next = std::max(0.0, c.lambda + closing(x, c) / opening(c, c, mobile));
+            const double step = next - c.lambda;
+            if (step == 0.0) continue;
+            c.lambda = next;
+            apply(x, c, step);
+            worst = std::max(worst, std::abs(step));
+        }
+        converged = worst <= settled;
+    }
+    if (converged) return;
+
+    const double tol = 1e-14 * scale;
+    std::vector<unsigned char> active(cs.size(), 0);
+    for (std::size_t k = 0; k < cs.size(); ++k) active[k] = movable(cs[k]) && cs[k].lambda > 0.0;
+    for (std::size_t round = 0; round < 2 * cs.size() + 2; ++round) {
+        std::vector<std::size_t> idx;
+        for (std::size_t k = 0; k < cs.size(); ++k) {
+            if (active[k]) idx.push_back(k);
+        }
+        const std::size_t m = idx.size();
+        std::vector<double> a(m * (m + 1));
+        double diag = 0.0;
+        for (std::size_t i = 0; i < m; ++i) {
+            for (std::size_t j = 0; j < m; ++j) a[i * (m + 1) + j] = opening(cs[idx[i]], cs[idx[j]], mobile);
+            a[i * (m + 1) + m] = closing(x0, cs[idx[i]]);
+            diag = std::max(diag, a[i * (m + 1) + i]);
+        }
+        for (std::size_t c = 0; c < m; ++c) {
+            std::size_t pivot = c;
+            for (std::size_t r = c + 1; r < m; ++r) {
+                if (std::abs(a[r * (m + 1) + c]) > std::abs(a[pivot * (m + 1) + c])) pivot = r;
+            }
+            if (!(std::abs(a[pivot * (m + 1) + c]) > 1e-12 * diag)) return;  // dependent contacts: keep the sweeps' answer
+            for (std::size_t j = 0; j <= m; ++j) std::swap(a[c * (m + 1) + j], a[pivot * (m + 1) + j]);
+            for (std::size_t r = 0; r < m; ++r) {
+                if (r == c) continue;
+                const double f = a[r * (m + 1) + c] / a[c * (m + 1) + c];
+                for (std::size_t j = c; j <= m; ++j) a[r * (m + 1) + j] -= f * a[c * (m + 1) + j];
+            }
+        }
+        std::vector<double> lam(cs.size(), 0.0);
+        std::vector<Vec3> y = x0;
+        bool ok = true;
+        for (std::size_t i = 0; i < m; ++i) {
+            lam[idx[i]] = a[i * (m + 1) + m] / a[i * (m + 1) + i];
+            if (lam[idx[i]] < 0.0) {
+                active[idx[i]] = 0;
+                ok = false;
+            }
+            apply(y, cs[idx[i]], lam[idx[i]]);
+        }
+        if (!ok) continue;
+        for (std::size_t k = 0; k < cs.size(); ++k) {
+            if (!active[k] && movable(cs[k]) && closing(y, cs[k]) > tol) {
+                active[k] = 1;
+                ok = false;
+            }
+        }
+        if (!ok) continue;
+        x = y;
+        for (std::size_t k = 0; k < cs.size(); ++k) cs[k].lambda = lam[k];
+        return;
+    }
 }
 
 Box circle_box(table::Vec2 c, double radius) { return {c.x - radius, c.y - radius, c.x + radius, c.y + radius}; }
@@ -640,36 +755,23 @@ void Simulation::push_group() {
         changed_[static_cast<std::size_t>(k.a)] = 1;
     }
 
-    struct Contact {
-        std::size_t a;
-        int b;  // slot, -1 for a cushion
-        Vec3 n;
-        double impulse;
-    };
     std::vector<Contact> contacts;
     for (const Bond& k : bonds_) {
         if (!in_group_[static_cast<std::size_t>(k.a)]) continue;
         contacts.push_back({static_cast<std::size_t>(slot[static_cast<std::size_t>(k.a)]),
                             k.b >= 0 ? slot[static_cast<std::size_t>(k.b)] : -1, bond_normal(k), 0.0});
     }
-    const double settled = 1e-16 * scale;
-    for (int sweep = 0; sweep < kMaxSweeps; ++sweep) {
-        double worst = 0.0;
-        for (Contact& c : contacts) {
-            const bool ma = mobile[c.a] != 0;
-            const bool mb = c.b >= 0 && mobile[static_cast<std::size_t>(c.b)] != 0;
-            if (!ma && !mb) continue;
-            const double closing = dot(c.b >= 0 ? v[c.a] - v[static_cast<std::size_t>(c.b)] : v[c.a], c.n);
-            const double next = std::max(0.0, c.impulse + closing / ((ma ? 1.0 : 0.0) + (mb ? 1.0 : 0.0)));
-            const double step = next - c.impulse;
-            if (step == 0.0) continue;
-            c.impulse = next;
-            if (ma) v[c.a] -= c.n * step;
-            if (mb) v[static_cast<std::size_t>(c.b)] += c.n * step;
-            worst = std::max(worst, std::abs(step));
+    // A ball at rest is set rolling only by a push that could start it; one under kStartSpeed would
+    // stop it again at once while its neighbour, still pressing, re-closed the contact.
+    for (const Contact& c : contacts) {
+        if (c.b < 0) continue;
+        const auto ub = static_cast<std::size_t>(c.b);
+        if (dot(v[c.a] - v[ub], c.n) < kStartSpeed) continue;
+        for (const std::size_t g : {c.a, ub}) {
+            if (work_[static_cast<std::size_t>(group_[g])].motion != Motion::pocketed) mobile[g] = 1;
         }
-        if (worst <= settled) break;
     }
+    solve_contacts(v, mobile, contacts, scale);
     for (std::size_t g = 0; g < group_.size(); ++g) {
         const auto u = static_cast<std::size_t>(group_[g]);
         BallState& s = work_[u];
@@ -712,12 +814,6 @@ void Simulation::hold_contacts(std::vector<Bond>& dropped) {
         mobile[g] = 1;
         scale = std::max(scale, norm_xy(base[g]));
     }
-    struct Contact {
-        std::size_t a;
-        int b;
-        Vec3 n;
-        double force;
-    };
     std::vector<Contact> contacts;
     for (const Bond& k : bonds_) {
         if (!in_group_[static_cast<std::size_t>(k.a)]) continue;
@@ -725,23 +821,7 @@ void Simulation::hold_contacts(std::vector<Bond>& dropped) {
         const int b = k.b >= 0 ? slot[static_cast<std::size_t>(k.b)] : -1;
         if (mobile[a] || (b >= 0 && mobile[static_cast<std::size_t>(b)])) contacts.push_back({a, b, bond_normal(k), 0.0});
     }
-    const double settled = 1e-16 * scale;
-    for (int sweep = 0; sweep < kMaxSweeps && !contacts.empty(); ++sweep) {
-        double worst = 0.0;
-        for (Contact& c : contacts) {
-            const bool ma = mobile[c.a] != 0;
-            const bool mb = c.b >= 0 && mobile[static_cast<std::size_t>(c.b)] != 0;
-            const double closing = dot(c.b >= 0 ? acc[c.a] - acc[static_cast<std::size_t>(c.b)] : acc[c.a], c.n);
-            const double next = std::max(0.0, c.force + closing / ((ma ? 1.0 : 0.0) + (mb ? 1.0 : 0.0)));
-            const double step = next - c.force;
-            if (step == 0.0) continue;
-            c.force = next;
-            if (ma) acc[c.a] -= c.n * step;
-            if (mb) acc[static_cast<std::size_t>(c.b)] += c.n * step;
-            worst = std::max(worst, std::abs(step));
-        }
-        if (worst <= settled) break;
-    }
+    solve_contacts(acc, mobile, contacts, scale);
     for (std::size_t g = 0; g < group_.size(); ++g) {
         const auto u = static_cast<std::size_t>(group_[g]);
         const Vec3 extra = mobile[g] ? Vec3{acc[g].x - base[g].x, acc[g].y - base[g].y, 0.0} : Vec3{};

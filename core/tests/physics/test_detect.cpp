@@ -396,6 +396,22 @@ TEST_CASE("detection agrees with a brute-force search on random cases") {
     CHECK(pockets.contacts > 1000);
 }
 
+TEST_CASE("ball_ball_time: rounding noise in the relative acceleration doesn't hide a contact") {
+    // fuzz seed 1 shot 6505: two balls leaving the baulk cushion with one cloth deceleration, so
+    // the relative path is a straight line, except for c2.y = -8.8e-17 left by rounding. That gave
+    // a quartic whose top coefficients are ~1e-16 and ~1e-32, and the cubic estimate of its
+    // derivative's roots lost the closest approach at 0.287 s: the balls passed through each other.
+    const Trajectory a = traj({-1.758250000, 0.203470298}, {1.9844, -0.797041}, {-0.981, -8.7648e-17}, 0.36191);
+    const Trajectory b = traj({-1.734537100, -0.134754844}, {1.73902, 0.34733}, {-0.981, 0.0}, 0.310352);
+    const double t = ball_ball_time(a, b, R, 10.0);
+    REQUIRE(t < kNever);
+    const Vec3 d = a.at(t) - b.at(t);
+    CHECK(std::hypot(d.x, d.y) == doctest::Approx(2.0 * R).epsilon(1e-12));
+    Trajectory clean = a;
+    clean.c2.y = 0.0;
+    CHECK(t == doctest::Approx(ball_ball_time(clean, b, R, 10.0)).epsilon(1e-12));
+}
+
 TEST_CASE("detection micro-benchmark" * doctest::skip()) {
     Rng rng(99);
     constexpr int kSets = 1024;
