@@ -53,8 +53,22 @@ may sit too deep, owner judges). infra (f66622b, eee3c8a: macOS editor extension
 ios-compile, fresh in testflight; check-godot-log fails the export on any script error; run
 41396740025 green with zero errors; idle cap 30 fps, Windows idle 6.9 -> 33.3 ms per frame). Next
 signed build needs `testflight.py start --dry-run` first.
-Waiting on: events (49a05c9 already returns t = 0 for driven-together touching pairs).
-Push held until events merges, so CI runs once on the complete physics.
+events (49a05c9: root isolation by critical points + Halley, never loses a tangent root; brute
+force 0 disagreements over ~54k cases; ball_ball_time ~150-220 ns, solve_quartic ~400 ns, which
+detection doesn't use). Wave 1 complete; base 0bc09e8 (root helpers in roots.hpp, simulator
+integration tests and calibration ctest enabled).
+
+## First full run (0bc09e8)
+bench: every median under 2 ms (break-offs 0.35-1.26 ms). fuzz 20k: 1,880 fail
+(zero_time_chain 1,155, overlap 1,220). Calibration 20/26 pass; failing: C6 throw (params),
+C4 named positions (test setup), generator legality (test checks infinite facing lines),
+C12/C14 (the physics failures above).
+
+## Fix round + wave 2 (launched together)
+m1-fix-sim (simulator/detect: zero-time chains incl. sustained pushes into cushions, overlaps),
+m1-fix-calib (the two calibration test bugs), m1-tuner (C6 friction refit, C11, sources, the
+calibration report with a plain-words section). Push to origin held until these merge, so CI
+runs once on fixed physics. Then: bench baseline, check round, ship.
 
 ## After wave 1
 Enable ofs_calibration_tests in ctest and the simulator's skipped integration tests; apply
