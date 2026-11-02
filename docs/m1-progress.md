@@ -84,3 +84,10 @@ fixes, ship (no TestFlight in M1; the next signed build needs a dry run first).
 - Events: touching pairs with ~zero normal velocity and inward acceleration must be contact
   at t = 0 (42 overlaps otherwise); the simulator agent told m1-events directly.
 - fix-calib merged (9866672): C4 setup and generator legality fixed; now 22/26 calibration pass. Open: C6 (tuner), C12 139/2000 + C14 638/5000 (fix-sim), cushion fast-vs-reference 0.16 deg after slope 0.16 (sent to fix-sim).
+- tuner merged (9e2c8b3, 3166177): ball friction 0.058/0.092/2.73 (fit to 17 published stun
+  throw points), slide 0.212 and mass 0.1406 (Mathavan), roll 0.010 (C11's fast end; the only
+  snooker measurement, Mathavan 2009, is 0.0127 on an unheated lab table: cloth pace is for
+  KaiC's M2 feel check). C1-C11 pass. Report in docs/calibration/report/ with a plain-words
+  section. Lead: cushion_restitution_min 0.70 (0284387, Alciatore TP B.6 and Mathavan 2009
+  extrapolated; clamp assigned to fix-sim); ball-ball fast rolling throw bound relaxed to 2.5 deg.
+  Open: the report's screw_follow series runs into cushions (check round).
