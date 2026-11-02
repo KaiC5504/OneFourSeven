@@ -215,7 +215,7 @@ Each ball is always in one of these states. The transitions between them are eve
 | Stationary | At rest | none |
 | Spinning | No translation, side spin only (ω about the vertical axis) | ω_z decays linearly (spin friction) |
 | Sliding | Contact point slipping on the cloth | Sliding friction (μ_s) acts against the slip velocity; linear velocity and spin change linearly until slip reaches zero |
-| Rolling | Contact point not slipping | Rolling resistance (μ_r) decelerates the ball; side spin decays independently |
+| Rolling | Contact point not slipping | Rolling resistance (μ_r) decelerates the ball; side spin decays independently; a ball held against others (7.7) also carries its contact acceleration |
 
 Sliding to rolling happens at the analytic time t = 2|u₀| / (7 μ_s g), where u₀ is the
 initial slip velocity. Swerve comes out of the sliding equations naturally when the spin
@@ -261,6 +261,10 @@ elevation θ and cue speed V.
   Mathavan proves unworkable, and the builder notes the trade-off.
 - Straight cushion sections are line segments. Pocket jaws are curved segments using the
   same impact model with their own tunable restitution.
+- With the contact at height h, both contacts (cushion and cloth) can stick and wedge the
+  ball once h ≥ 2R / (1 + μ²), μ the lower of the cushion and cloth frictions. The impact
+  then falls back to a plain restitution bounce and logs it. The parameter ranges (height
+  ≤ 45 mm, frictions ≤ 0.25) keep every allowed table clear of that height.
 
 ### 7.6 Pockets
 - A ball is potted when its centre passes the pocket's drop boundary, a region behind
@@ -272,8 +276,14 @@ elevation θ and cue speed V.
 
 ### 7.7 The break-off and clusters
 - Simultaneous contact between three or more balls is resolved as a sequence of
-  pairwise collisions. The rack is built with microscopic random gaps (order of
-  0.01–0.1 mm, seeded) so collisions arrive in a defined order, as pooltool does.
+  pairwise collisions, strictly in time order. The rack is built with microscopic random
+  gaps (order of 0.01–0.1 mm, seeded) so collisions arrive in a defined order, as
+  pooltool does.
+- A contact closing slower than ball_rest_speed (1 mm/s) is a push, not a bounce: the
+  balls touching it take perfectly inelastic impulses together and the contact is then
+  held, with contact forces keeping the balls touching until they part, one slides or one
+  is potted. Without this, slow balls in a pack bounce off each other without end
+  (inelastic collapse).
 - There is a guard against infinite or near-zero-time event loops, such as a ball wedged
   between two balls or a ball in a jaw corner.
 - **Owner check:** break-off pack spread looks and feels right. A thin hit on the end red
@@ -326,7 +336,7 @@ friction from pooltool's default, e_b ≈ 0.94. Cushion and jaw constants from M
 | C7 | Cushion rebounds, plain ball, a range of angles and speeds | Rebound angle and speed match Mathavan's model and data |
 | C8 | Running vs check side off a cushion | Widens vs narrows the rebound angle in the right direction and rough magnitude |
 | C9 | Maximum side | Squirt angle within the tunable range (starting 1–3°) |
-| C10 | Swerve (elevated cue, side) | Curves in the direction of the side and only once the cue ball starts to grip |
+| C10 | Swerve (elevated cue, side) | Squirts away from the side, then curves towards it while it slides, bending most just before it grips; straight once rolling |
 | C11 | Table speed | Rolling resistance calibrated so a "lag" (cue ball to the top cushion and back to the baulk cushion) needs a cue-ball speed in a realistic range for a fast tournament cloth; the source is recorded |
 | C12 | Energy | Total kinetic energy never increases; every shot ends with all balls at rest within a time cap |
 | C13 | Determinism | Same start state, shot inputs and seed give a bit-identical shot record on the same platform |
