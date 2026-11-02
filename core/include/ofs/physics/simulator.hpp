@@ -5,15 +5,26 @@
 // change are cached, so each event re-solves only what it touched (spec 7.13: a break-off in
 // <= 2 ms on one desktop core).
 //
-// Simultaneous events (within zero_time_s) resolve one at a time in a fixed order: earliest time,
-// then kind, then ball indices, then body. That order, the seeded rack gaps and Rng make a shot
-// bit-identical for the same input on one platform (C13).
+// Events resolve one at a time, earliest first; events at exactly the same time go lowest
+// (kind, a, b, body) first. That order, the seeded rack gaps and Rng make a shot bit-identical for
+// the same input on one platform (C13). Events within zero_time_s of each other count as
+// simultaneous only for the max_zero_time_chain guard.
+//
+// A contact closing slower than ball_rest_speed_m_s is a push rather than a bounce: its balls,
+// and every ball held to them, take perfectly inelastic impulses together. The contact is then
+// held (a bond): no longer searched for, it gives its balls contact forces that keep them touching
+// until one of them slides or is potted, or they part. A held contact that drifts open or closed
+// by less than 1e-6 m/s is brought back to zero rather than let go.
 //
 // Guards (each logged as physics.anomaly with the shot's repro bundle, and kept in
 // ShotRecord::anomalies): max_events, max_zero_time_chain in a row and time_cap_s end the shot
 // with every ball brought to rest where it is; a non-finite value reverts that ball to its last
-// finite state at rest; two balls found overlapping are pushed apart along their centre line to
-// touching; a rise in total kinetic energy across an event is logged. The shot always ends.
+// finite state at rest; two balls found closer than 2R - kOverlapTolerance_m are pushed apart
+// along their centre line to touching; a rise in total kinetic energy across an event is logged.
+// solver_fallback records a cushion impact whose solver gave up (the ball took a plain
+// restitution bounce), a group contact solve that didn't converge even with its exact solve, and a
+// detection or segment time that came back NaN or negative (ignored); the shot carries on. The
+// shot always ends.
 
 #include <cstdint>
 #include <string>

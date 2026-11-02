@@ -25,24 +25,24 @@ namespace ofs::phys {
 namespace {
 
 constexpr double R = table::kBallRadius;
-// Contacts come out of the root solver exact to rounding, and simultaneous events resolved in
-// turn leave at most speed * zero_time_s (about 1e-8 m) of overlap. Beyond this it is real.
-constexpr double kOverlapTolerance = 1e-7;
 // A held contact (Bond) lasts while its bodies stay this close and their normal speed stays this
-// small: the solves leave rounding near 1e-17, and 1e-12 m/s over a whole shot is under 1e-10 m.
+// small: the solves leave rounding near 1e-17, and 1e-12 m/s until time_cap_s (120 s) is about
+// 1e-10 m.
 constexpr double kBondGap = 1e-9;
 constexpr double kBondSpeed = 1e-12;
 // How far past a cushion's ends (m) and a jaw's angles (rad) a held contact still counts.
 constexpr double kBondSlack = 1e-9;
 constexpr double kTwoPi = 6.283185307179586476925286766559;
-// Gauss-Seidel sweeps for a group's impulses and contact forces; groups of a few balls converge
-// to rounding in tens.
+// Gauss-Seidel sweeps for a group's impulses and contact forces before the exact solve takes
+// over (groups of a few balls converge to rounding in tens), and in all if that fails too.
+constexpr int kQuickSweeps = 64;
 constexpr int kMaxSweeps = 2000;
 // s: a held ball whose segment ends sooner than this keeps it when only its contact forces change.
 constexpr double kStaleWindow = 1e-6;
 constexpr unsigned char kForcesChanged = 2;  // changed_: only the contact acceleration
-// m/s: a push closing slower than this leaves a ball at rest where it is. Started at this speed a
-// ball would roll 6e-12 m and stop within 1.3e-5 s.
+// m/s: a push closing slower than this leaves a ball at rest where it is, and a held contact that
+// opens or closes slower than this stays held (hold_contacts()). Started at this speed a ball
+// would roll 5e-12 m and stop within 1e-5 s.
 constexpr double kStartSpeed = 1e-6;
 // Slack on the bounding boxes that cull detection; far above the rounding of the box arithmetic.
 constexpr double kBoxMargin = 1e-6;
@@ -66,6 +66,13 @@ constexpr std::array<const char*, 7> kAnomalyNames = {"event_guard", "zero_time_
 std::string fmt(double v) {
     char buf[32];
     std::snprintf(buf, sizeof buf, "%.9g", v);
+    return buf;
+}
+
+// Every bit of v, so the values can be fed back exactly.
+std::string fmt_exact(const Vec3& v) {
+    char buf[96];
+    std::snprintf(buf, sizeof buf, "(%.17g, %.17g, %.17g)", v.x, v.y, v.z);
     return buf;
 }
 
@@ -116,25 +123,8 @@ Box path_box(const Trajectory& path, double T) {
     return b;
 }
 
-// A contact closing slower than ball_rest_speed_m_s is a push, not a bounce: a sliding ball's
-// friction re-closing it, which bouncing turns into collisions without end (inelastic collapse).
-// The pushed balls settle to rolling first. Cloth friction has no moment about a ball's own cloth
-// contact, so L = I w + m R (z x v) about it is kept, and a ball rolling with the same L moves at
-// V = (5/7)(v + (2/5) R w x z) (TP 4.1); a horizontal force on a rolling ball moves V along it with
-// the same effective mass for every ball. The contacts of the group then take perfectly inelastic
-// impulses, solved together so that a push which re-closes a neighbour's contact is resolved in
-// the same event: each ball-ball pair leaves with one speed along its normal, a ball against a
-// cushion or jaw with none into it. Every step only brings a normal speed towards zero, so kinetic
-// energy never rises. A ball at rest takes part only when a push closes on it at kStartSpeed or
-// more; otherwise it stands like a cushion.
-//
-// What re-closed the contact is still there: rolling resistance along two different headings, or
-// the nap, drives the pair (or the ball and cushion) together. So the contact is held (a Bond):
-// the simulator gives the balls equal and opposite contact accelerations, carried in their nap
-// term, that keep their accelerations along the normal equal (or zero into a cushion), solved
-// again whenever any ball of the group starts a segment. Stationary and spinning balls hold still
-// against such forces (they are far below what it takes to start a ball rolling). While held, the
-// contact is not searched for: within a segment the bodies keep their distance along the normal.
+// The velocity a ball settles to once it rolls, its angular momentum about its cloth contact kept
+// (push_group()).
 Vec3 rolling_velocity(const BallState& b) { return (b.v + Vec3{b.w.y, -b.w.x, 0.0} * (0.4 * R)) * (5.0 / 7.0); }
 
 void set_rolling(BallState& b, Vec3 v, const PhysicsParams& p) {
@@ -155,6 +145,7 @@ struct Contact {
     int b;
     Vec3 n;  // from a into b
     double lambda;
+    bool held;  // kept at zero normal speed, lambda of either sign; otherwise lambda >= 0
 };
 
 double closing(const std::vector<Vec3>& x, const Contact& c) {
@@ -175,88 +166,147 @@ double opening(const Contact& k, const Contact& l, const std::vector<unsigned ch
     return s;
 }
 
-// lambda >= 0 for every contact, none closing, and lambda zero wherever the contact opens: the
-// perfectly inelastic multi-contact problem, for velocities or accelerations alike (every mobile
-// ball has the same effective mass). Gauss-Seidel first, which settles most groups, then an exact
-// solve on the contacts it left pushing: two contacts with nearly parallel normals (a ball wedged
-// between two others in a line) shrink Gauss-Seidel's error by only ~angle^2 per sweep.
-void solve_contacts(std::vector<Vec3>& x, const std::vector<unsigned char>& mobile, std::vector<Contact>& cs,
-                    double scale) {
-    auto movable = [&](const Contact& c) { return mobile[c.a] || (c.b >= 0 && mobile[static_cast<std::size_t>(c.b)]); };
-    auto apply = [&](std::vector<Vec3>& y, const Contact& c, double step) {
-        if (mobile[c.a]) y[c.a] -= c.n * step;
-        if (c.b >= 0 && mobile[static_cast<std::size_t>(c.b)]) y[static_cast<std::size_t>(c.b)] += c.n * step;
-    };
-    const std::vector<Vec3> x0 = x;
+bool movable(const Contact& c, const std::vector<unsigned char>& mobile) {
+    return mobile[c.a] || (c.b >= 0 && mobile[static_cast<std::size_t>(c.b)]);
+}
+
+void apply(std::vector<Vec3>& y, const Contact& c, double step, const std::vector<unsigned char>& mobile) {
+    if (mobile[c.a]) y[c.a] -= c.n * step;
+    if (c.b >= 0 && mobile[static_cast<std::size_t>(c.b)]) y[static_cast<std::size_t>(c.b)] += c.n * step;
+}
+
+// The perfectly inelastic multi-contact problem, for velocities or accelerations alike (every
+// mobile ball has the same effective mass): lambda >= 0 for every contact, none closing, and lambda
+// zero wherever the contact opens; a `held` contact is kept at zero instead, lambda of either sign.
+// Gauss-Seidel first, which settles most groups within kQuickSweeps, then an exact solve on the
+// contacts it left pushing: two contacts with nearly parallel normals (a ball wedged between two
+// others in a line) shrink Gauss-Seidel's error by only ~angle^2 per sweep. Should the exact solve
+// fail as well, Gauss-Seidel goes on to kMaxSweeps.
+class ContactSolver {
+public:
+    // False when neither converged: x and the lambdas are then Gauss-Seidel's last, and `residual`
+    // is the largest normal speed (or acceleration) it left where there should be none.
+    bool solve(std::vector<Vec3>& x, const std::vector<unsigned char>& mobile, std::vector<Contact>& cs,
+               double scale);
+    double residual = 0.0;
+
+private:
+    static bool sweep(std::vector<Vec3>& x, const std::vector<unsigned char>& mobile, std::vector<Contact>& cs,
+                      double settled, int sweeps);
+    bool exact(std::vector<Vec3>& x, const std::vector<unsigned char>& mobile, std::vector<Contact>& cs, double tol);
+
+    std::vector<Vec3> x0_, y_;
+    std::vector<unsigned char> active_;
+    std::vector<std::size_t> idx_, pivot_col_;
+    std::vector<double> a_, lam_;
+};
+
+bool ContactSolver::solve(std::vector<Vec3>& x, const std::vector<unsigned char>& mobile, std::vector<Contact>& cs,
+                          double scale) {
+    residual = 0.0;
+    if (cs.empty()) return true;
+    x0_ = x;
     const double settled = 1e-16 * scale;
-    bool converged = cs.empty();
-    for (int sweep = 0; sweep < kMaxSweeps && !converged; ++sweep) {
+    if (sweep(x, mobile, cs, settled, kQuickSweeps)) return true;
+    // Its own rounding grows as 1 / angle^2 between nearly parallel normals.
+    if (exact(x, mobile, cs, 1e-12 * scale)) return true;
+    if (sweep(x, mobile, cs, settled, kMaxSweeps - kQuickSweeps)) return true;
+    for (const Contact& c : cs) {
+        if (!movable(c, mobile)) continue;
+        const double s = closing(x, c);
+        residual = std::max(residual, c.held || c.lambda > 0.0 ? std::abs(s) : s);
+    }
+    return false;
+}
+
+bool ContactSolver::sweep(std::vector<Vec3>& x, const std::vector<unsigned char>& mobile, std::vector<Contact>& cs,
+                          double settled, int sweeps) {
+    for (int k = 0; k < sweeps; ++k) {
         double worst = 0.0;
         for (Contact& c : cs) {
-            if (!movable(c)) continue;
-            const double next = std::max(0.0, c.lambda + closing(x, c) / opening(c, c, mobile));
+            if (!movable(c, mobile)) continue;
+            double next = c.lambda + closing(x, c) / opening(c, c, mobile);
+            if (!c.held) next = std::max(0.0, next);
             const double step = next - c.lambda;
             if (step == 0.0) continue;
             c.lambda = next;
-            apply(x, c, step);
-            worst = std::max(worst, std::abs(step));
+            apply(x, c, step, mobile);
+            // Written so that a NaN step is never taken for a settled one.
+            if (!(std::abs(step) <= worst)) worst = std::abs(step);
         }
-        converged = worst <= settled;
+        if (worst <= settled) return true;
     }
-    if (converged) return;
+    return false;
+}
 
-    const double tol = 1e-14 * scale;
-    std::vector<unsigned char> active(cs.size(), 0);
-    for (std::size_t k = 0; k < cs.size(); ++k) active[k] = movable(cs[k]) && cs[k].lambda > 0.0;
-    for (std::size_t round = 0; round < 2 * cs.size() + 2; ++round) {
-        std::vector<std::size_t> idx;
-        for (std::size_t k = 0; k < cs.size(); ++k) {
-            if (active[k]) idx.push_back(k);
+bool ContactSolver::exact(std::vector<Vec3>& x, const std::vector<unsigned char>& mobile, std::vector<Contact>& cs,
+                          double tol) {
+    const std::size_t nc = cs.size();
+    active_.assign(nc, 0);
+    for (std::size_t k = 0; k < nc; ++k) active_[k] = movable(cs[k], mobile) && (cs[k].held || cs[k].lambda > 0.0);
+    for (std::size_t round = 0; round < 8 * nc + 8; ++round) {
+        idx_.clear();
+        for (std::size_t k = 0; k < nc; ++k) {
+            if (active_[k]) idx_.push_back(k);
         }
-        const std::size_t m = idx.size();
-        std::vector<double> a(m * (m + 1));
+        const std::size_t m = idx_.size();
+        const std::size_t w = m + 1;
+        a_.assign(m * w, 0.0);
         double diag = 0.0;
         for (std::size_t i = 0; i < m; ++i) {
-            for (std::size_t j = 0; j < m; ++j) a[i * (m + 1) + j] = opening(cs[idx[i]], cs[idx[j]], mobile);
-            a[i * (m + 1) + m] = closing(x0, cs[idx[i]]);
-            diag = std::max(diag, a[i * (m + 1) + i]);
+            for (std::size_t j = 0; j < m; ++j) a_[i * w + j] = opening(cs[idx_[i]], cs[idx_[j]], mobile);
+            a_[i * w + m] = closing(x0_, cs[idx_[i]]);
+            diag = std::max(diag, a_[i * w + i]);
         }
-        for (std::size_t c = 0; c < m; ++c) {
-            std::size_t pivot = c;
-            for (std::size_t r = c + 1; r < m; ++r) {
-                if (std::abs(a[r * (m + 1) + c]) > std::abs(a[pivot * (m + 1) + c])) pivot = r;
+        // Gauss-Jordan. A contact the ones before it already fix (a ring of touching balls has one
+        // more contact than it needs) has no pivot; its lambda stays zero, and its row must then be
+        // satisfied by the others.
+        pivot_col_.clear();
+        std::size_t row = 0;
+        for (std::size_t c = 0; c < m && row < m; ++c) {
+            std::size_t pivot = row;
+            for (std::size_t r = row + 1; r < m; ++r) {
+                if (std::abs(a_[r * w + c]) > std::abs(a_[pivot * w + c])) pivot = r;
             }
-            if (!(std::abs(a[pivot * (m + 1) + c]) > 1e-12 * diag)) return;  // dependent contacts: keep the sweeps' answer
-            for (std::size_t j = 0; j <= m; ++j) std::swap(a[c * (m + 1) + j], a[pivot * (m + 1) + j]);
+            if (!(std::abs(a_[pivot * w + c]) > 1e-12 * diag)) continue;
+            for (std::size_t j = 0; j <= m; ++j) std::swap(a_[row * w + j], a_[pivot * w + j]);
             for (std::size_t r = 0; r < m; ++r) {
-                if (r == c) continue;
-                const double f = a[r * (m + 1) + c] / a[c * (m + 1) + c];
-                for (std::size_t j = c; j <= m; ++j) a[r * (m + 1) + j] -= f * a[c * (m + 1) + j];
+                if (r == row) continue;
+                const double f = a_[r * w + c] / a_[row * w + c];
+                if (f == 0.0) continue;
+                for (std::size_t j = c; j <= m; ++j) a_[r * w + j] -= f * a_[row * w + j];
             }
+            pivot_col_.push_back(c);
+            ++row;
         }
-        std::vector<double> lam(cs.size(), 0.0);
-        std::vector<Vec3> y = x0;
-        bool ok = true;
-        for (std::size_t i = 0; i < m; ++i) {
-            lam[idx[i]] = a[i * (m + 1) + m] / a[i * (m + 1) + i];
-            if (lam[idx[i]] < 0.0) {
-                active[idx[i]] = 0;
-                ok = false;
-            }
-            apply(y, cs[idx[i]], lam[idx[i]]);
+        for (std::size_t r = row; r < m; ++r) {
+            if (!(std::abs(a_[r * w + m]) <= tol)) return false;
         }
-        if (!ok) continue;
-        for (std::size_t k = 0; k < cs.size(); ++k) {
-            if (!active[k] && movable(cs[k]) && closing(y, cs[k]) > tol) {
-                active[k] = 1;
-                ok = false;
-            }
+        lam_.assign(nc, 0.0);
+        y_ = x0_;
+        for (std::size_t r = 0; r < row; ++r) {
+            const std::size_t k = idx_[pivot_col_[r]];
+            lam_[k] = a_[r * w + m] / a_[r * w + pivot_col_[r]];
+            if (!std::isfinite(lam_[k])) return false;
+            apply(y_, cs[k], lam_[k], mobile);
         }
-        if (!ok) continue;
-        x = y;
-        for (std::size_t k = 0; k < cs.size(); ++k) cs[k].lambda = lam[k];
-        return;
+        // Murty's least-index rule: only the first contact that breaks the conditions changes side,
+        // which can't cycle while the contacts are independent. Changing every such contact at once
+        // cycled on a ball wedged almost in line between two others.
+        std::size_t flip = nc;
+        for (std::size_t k = 0; k < nc && flip == nc; ++k) {
+            if (cs[k].held || !movable(cs[k], mobile)) continue;
+            if (active_[k] ? lam_[k] < 0.0 : closing(y_, cs[k]) > tol) flip = k;
+        }
+        if (flip < nc) {
+            active_[flip] = !active_[flip];
+            continue;
+        }
+        x = y_;
+        for (std::size_t k = 0; k < nc; ++k) cs[k].lambda = lam_[k];
+        return true;
     }
+    return false;
 }
 
 Box circle_box(table::Vec2 c, double radius) { return {c.x - radius, c.y - radius, c.x + radius, c.y + radius}; }
@@ -283,8 +333,8 @@ struct Next {
     int body = -1;
 };
 
-// A held contact (see rolling_velocity()): ball a against ball b, or with b = -1 against cushion
-// line or jaw arc `body`.
+// A held contact (see push_group()): ball a against ball b, or with b = -1 against cushion line
+// or jaw arc `body`.
 struct Bond {
     int a = -1;
     int b = -1;
@@ -319,11 +369,18 @@ private:
     void join(int i, const BallState& s);
     void gather_bonded();
     Vec3 bond_normal(const Bond& k) const;
-    bool bond_holds(const Bond& k) const;
+    bool bond_touches(const Bond& k) const;
+    double bond_closing(const Bond& k) const;
     bool bonded_body(int i, EventKind kind, int body) const;
     void add_bond(const Bond& k);
+    void drop_bond(const Bond& k);
+    void group_contacts(bool held, bool pushes_one_sided);
     void push_group();
-    void hold_contacts(std::vector<Bond>& dropped);
+    void hold_contacts();
+    void restick();
+    bool drop_parting();
+    void solve_group(double scale, const char* what, const char* unit);
+    void cushion_fallback(const Next& e, const BallState& before);
     void keep_finite(int i, BallState& b, const BallState& fallback, double t, const char* when);
     void separate(int i, BallState& b, double t, int other, const BallState* other_state);
     void stop_all(double t, AnomalyKind kind, std::vector<int> balls, std::string detail);
@@ -355,7 +412,16 @@ private:
     std::vector<unsigned char> in_group_;
     std::vector<unsigned char> changed_;  // the state differs from the one its segment gives
     std::vector<BallState> work_;
-    std::vector<Bond> pushes_;  // the contacts of this event's push
+    std::vector<Bond> pushes_;   // the contacts of this event's push
+    std::vector<Bond> dropped_;  // the bonds this event ended
+    std::vector<int> restarted_;
+    // A group solve: each ball's place in group_ (stale outside it), and per place whether it
+    // moves, its velocity or acceleration, and its acceleration without contact forces.
+    std::vector<int> slot_;
+    std::vector<unsigned char> mobile_;
+    std::vector<Vec3> x_, base_;
+    std::vector<Contact> contacts_;
+    ContactSolver solver_;
 };
 
 void Simulation::anomaly(AnomalyKind kind, double t, std::vector<int> balls, std::string detail) {
@@ -529,16 +595,17 @@ void Simulation::refresh_cushion(int i) {
     }
 }
 
-// The earliest time over every cache, then, among everything within zero_time_s of it, the lowest
+// The earliest time over every cache, then, among everything at exactly that time, the lowest
 // (kind, a, b, body). Pairs come first (ball_ball is the lowest kind) in (a, b) order, which is
-// the packed order of pair_t_.
+// the packed order of pair_t_. Taking a later event first, even one within zero_time_s, would carry
+// the earlier event's balls up to speed * zero_time_s (1e-8 m) into each other before it resolved.
 bool Simulation::next_event(Next& out) const {
     double t_min = kNever;
     for (const double t : pair_t_) t_min = std::min(t_min, t);
     for (const double t : cushion_t_) t_min = std::min(t_min, t);
     for (const double t : own_t_) t_min = std::min(t_min, t);
     if (!(t_min < kNever)) return false;
-    const double limit = t_min + p_.zero_time_s;
+    const double limit = t_min;
 
     for (int i = 0; i < n_; ++i) {
         for (int j = i + 1; j < n_; ++j) {
@@ -593,7 +660,7 @@ void Simulation::separate(int i, BallState& b, double t, int other, const BallSt
         }
         const Vec3 d{b.r.x - rj.x, b.r.y - rj.y, 0.0};
         const double dist = norm_xy(d);
-        if (dist >= 2.0 * R - kOverlapTolerance) continue;
+        if (dist >= 2.0 * R - kOverlapTolerance_m) continue;
         const Vec3 dir = dist > 0.0 ? d / dist : Vec3{1.0, 0.0, 0.0};
         b.r = {rj.x + dir.x * (2.0 * R), rj.y + dir.y * (2.0 * R), 0.0};
         anomaly(AnomalyKind::overlap, t, {i, j},
@@ -658,18 +725,16 @@ Vec3 Simulation::bond_normal(const Bond& k) const {
     return unit_or_zero(Vec3{c.centre.x - ra.x, c.centre.y - ra.y, 0.0});
 }
 
-// Still touching, on the cushion's span, and neither approaching nor separating. A sliding ball's
-// friction can drive it anywhere, so it isn't held: its contact is searched for again.
-bool Simulation::bond_holds(const Bond& k) const {
+// Still touching and on the cushion's span. A sliding ball's friction can drive it anywhere, so it
+// isn't held: its contact is searched for again.
+bool Simulation::bond_touches(const Bond& k) const {
     const BallState& a = work_[static_cast<std::size_t>(k.a)];
     if (a.motion == Motion::pocketed || a.motion == Motion::sliding) return false;
-    Vec3 vb{};
     double gap = 0.0;
     if (k.kind == EventKind::ball_ball) {
         const BallState& b = work_[static_cast<std::size_t>(k.b)];
         if (b.motion == Motion::pocketed || b.motion == Motion::sliding) return false;
         gap = norm_xy(Vec3{b.r.x - a.r.x, b.r.y - a.r.y, 0.0}) - 2.0 * R;
-        vb = b.v;
     } else if (k.kind == EventKind::ball_line) {
         const LineCushion& c = table_.lines[static_cast<std::size_t>(k.body)];
         const double dx = a.r.x - c.p1.x;
@@ -691,8 +756,13 @@ bool Simulation::bond_holds(const Bond& k) const {
             if (off > span + kBondSlack && off < kTwoPi - kBondSlack) return false;
         }
     }
-    if (std::abs(gap) > kBondGap) return false;
-    return std::abs(dot(a.v - vb, bond_normal(k))) <= kBondSpeed;
+    return std::abs(gap) <= kBondGap;
+}
+
+// Positive while the bodies approach each other.
+double Simulation::bond_closing(const Bond& k) const {
+    const Vec3 vb = k.b >= 0 ? work_[static_cast<std::size_t>(k.b)].v : Vec3{};
+    return dot(work_[static_cast<std::size_t>(k.a)].v - vb, bond_normal(k));
 }
 
 bool Simulation::bonded_body(int i, EventKind kind, int body) const {
@@ -711,25 +781,71 @@ void Simulation::add_bond(const Bond& k) {
     bonds_.push_back(k);
 }
 
-// The push of rolling_velocity()'s comment over every held contact of the group, by Gauss-Seidel
-// on accumulated impulses: each step sets one contact's normal speed to zero, or gives back impulse
-// it no longer needs.
+// Only marks it: the caller takes it out of bonds_.
+void Simulation::drop_bond(const Bond& k) {
+    dropped_.push_back(k);
+    if (k.b >= 0) pair_bonded_[pair_index(k.a, k.b)] = 0;
+}
+
+// contacts_ from the group's bonds, with slot_ set for every ball of the group. With
+// `pushes_one_sided`, this event's pushes are not held whatever `held` says.
+void Simulation::group_contacts(bool held, bool pushes_one_sided) {
+    for (std::size_t g = 0; g < group_.size(); ++g) slot_[static_cast<std::size_t>(group_[g])] = static_cast<int>(g);
+    contacts_.clear();
+    for (const Bond& k : bonds_) {
+        if (!in_group_[static_cast<std::size_t>(k.a)]) continue;
+        const bool pushed = pushes_one_sided && std::any_of(pushes_.begin(), pushes_.end(), [&](const Bond& p) {
+                                return p.a == k.a && p.b == k.b && p.kind == k.kind && p.body == k.body;
+                            });
+        contacts_.push_back({static_cast<std::size_t>(slot_[static_cast<std::size_t>(k.a)]),
+                             k.b >= 0 ? slot_[static_cast<std::size_t>(k.b)] : -1, bond_normal(k), 0.0,
+                             held && !pushed});
+    }
+}
+
+void Simulation::solve_group(double scale, const char* what, const char* unit) {
+    if (solver_.solve(x_, mobile_, contacts_, scale)) return;
+    anomaly(AnomalyKind::solver_fallback, now_, group_,
+            std::string(what) + " for " + std::to_string(group_.size()) + " balls over " +
+                std::to_string(contacts_.size()) + " contacts did not converge: " + fmt(solver_.residual) + " " +
+                unit + " left along a normal; kept the last Gauss-Seidel sweep");
+}
+
+// A contact closing slower than ball_rest_speed_m_s is a push, not a bounce: a sliding ball's
+// friction re-closing it, which bouncing turns into collisions without end (inelastic collapse).
+// The pushed balls settle to rolling first. Cloth friction has no moment about a ball's own cloth
+// contact, so L = I w + m R (z x v) about it is kept, and a ball rolling with the same L moves at
+// V = (5/7)(v + (2/5) R w x z) (TP 4.1); a horizontal force on a rolling ball moves V along it with
+// the same effective mass for every ball. The contacts of the group then take perfectly inelastic
+// impulses, solved together (ContactSolver: Gauss-Seidel, then the exact solve) so that a push
+// which re-closes a neighbour's contact is resolved in the same event: each ball-ball pair leaves
+// with one speed along its normal, a ball against a cushion or jaw with none into it. Every step
+// only brings a normal speed towards zero, so kinetic energy never rises. A ball at rest takes part
+// only when a push closes on it at kStartSpeed or more; otherwise it stands like a cushion.
+//
+// What re-closed the contact is still there: rolling resistance along two different headings, or
+// the nap, drives the pair (or the ball and cushion) together. So the contact is held (a Bond):
+// the simulator gives the balls equal and opposite contact accelerations, carried in their nap
+// term, that keep their accelerations along the normal equal (or zero into a cushion), solved
+// again whenever any ball of the group starts a segment (hold_contacts()). Stationary and spinning
+// balls hold still against such forces (they are far below what it takes to start a ball
+// rolling). While held, the contact is not searched for: within a segment the bodies keep their
+// distance along the normal.
 void Simulation::push_group() {
-    std::vector<Vec3> v(group_.size());
-    std::vector<unsigned char> mobile(group_.size(), 0);
-    std::vector<int> slot(static_cast<std::size_t>(n_), -1);
+    const std::size_t m = group_.size();
+    x_.assign(m, Vec3{});
+    mobile_.assign(m, 0);
     double scale = 0.0;
-    for (std::size_t g = 0; g < group_.size(); ++g) {
+    for (std::size_t g = 0; g < m; ++g) {
         const auto u = static_cast<std::size_t>(group_[g]);
-        slot[u] = static_cast<int>(g);
         BallState& s = work_[u];
         if (s.motion == Motion::sliding) {
             set_rolling(s, rolling_velocity(s), p_);
             changed_[u] = 1;
         }
-        mobile[g] = s.motion == Motion::rolling;
-        v[g] = mobile[g] ? Vec3{s.v.x, s.v.y, 0.0} : Vec3{};
-        scale = std::max(scale, norm_xy(v[g]));
+        mobile_[g] = s.motion == Motion::rolling;
+        x_[g] = mobile_[g] ? Vec3{s.v.x, s.v.y, 0.0} : Vec3{};
+        scale = std::max(scale, norm_xy(x_[g]));
     }
     // The contact was found to rounding; start the held distance exactly at touching.
     for (const Bond& k : pushes_) {
@@ -755,81 +871,167 @@ void Simulation::push_group() {
         changed_[static_cast<std::size_t>(k.a)] = 1;
     }
 
-    std::vector<Contact> contacts;
-    for (const Bond& k : bonds_) {
-        if (!in_group_[static_cast<std::size_t>(k.a)]) continue;
-        contacts.push_back({static_cast<std::size_t>(slot[static_cast<std::size_t>(k.a)]),
-                            k.b >= 0 ? slot[static_cast<std::size_t>(k.b)] : -1, bond_normal(k), 0.0});
-    }
+    // The new contacts push; those already held stay held. Left one-sided, a slow pack's pushes
+    // opened neighbouring contacts by far less than ball_rest_speed_m_s, which re-closed as new
+    // pushes, round and round, until the pack stopped.
+    group_contacts(true, true);
     // A ball at rest is set rolling only by a push that could start it; one under kStartSpeed would
     // stop it again at once while its neighbour, still pressing, re-closed the contact.
-    for (const Contact& c : contacts) {
+    for (const Contact& c : contacts_) {
         if (c.b < 0) continue;
         const auto ub = static_cast<std::size_t>(c.b);
-        if (dot(v[c.a] - v[ub], c.n) < kStartSpeed) continue;
+        if (dot(x_[c.a] - x_[ub], c.n) < kStartSpeed) continue;
         for (const std::size_t g : {c.a, ub}) {
-            if (work_[static_cast<std::size_t>(group_[g])].motion != Motion::pocketed) mobile[g] = 1;
+            if (work_[static_cast<std::size_t>(group_[g])].motion != Motion::pocketed) mobile_[g] = 1;
         }
     }
-    solve_contacts(v, mobile, contacts, scale);
-    for (std::size_t g = 0; g < group_.size(); ++g) {
+    solve_group(scale, "push impulses", "m/s");
+    for (std::size_t g = 0; g < m; ++g) {
         const auto u = static_cast<std::size_t>(group_[g]);
         BallState& s = work_[u];
-        if (!mobile[g] || (v[g].x == s.v.x && v[g].y == s.v.y)) continue;
-        set_rolling(s, v[g], p_);
+        if (!mobile_[g] || (x_[g].x == s.v.x && x_[g].y == s.v.y)) continue;
+        set_rolling(s, x_[g], p_);
         changed_[u] = 1;
     }
 }
 
-// Drops the group's bonds that no longer hold (into `dropped`), then solves the contact
-// accelerations of those that do, by Gauss-Seidel as in push_group(). Only rolling balls move under
-// them; a ball whose contact acceleration changes needs a new segment.
-void Simulation::hold_contacts(std::vector<Bond>& dropped) {
+// Drops the group's bonds that no longer touch, or that open or close at kStartSpeed or more (into
+// dropped_), holds the rest at zero normal speed (restick()), then solves their contact
+// accelerations with ContactSolver, as push_group() does its impulses, dropping any that part
+// (drop_parting()). Only rolling balls move under them; a ball whose contact acceleration changes
+// needs a new segment.
+void Simulation::hold_contacts() {
     std::size_t kept = 0;
+    bool drifted = false;
     for (std::size_t q = 0; q < bonds_.size(); ++q) {
         const Bond k = bonds_[q];
-        if (in_group_[static_cast<std::size_t>(k.a)] && !bond_holds(k)) {
-            dropped.push_back(k);
-            if (k.b >= 0) pair_bonded_[pair_index(k.a, k.b)] = 0;
-            continue;
+        if (in_group_[static_cast<std::size_t>(k.a)]) {
+            const double speed = bond_touches(k) ? std::abs(bond_closing(k)) : kNever;
+            if (!(speed < kStartSpeed)) {
+                drop_bond(k);
+                continue;
+            }
+            drifted = drifted || speed > kBondSpeed;
         }
         bonds_[kept++] = k;
     }
     bonds_.resize(kept);
+    if (drifted) restick();
 
-    std::vector<Vec3> base(group_.size());
-    std::vector<Vec3> acc(group_.size());
-    std::vector<unsigned char> mobile(group_.size(), 0);
-    std::vector<int> slot(static_cast<std::size_t>(n_), -1);
+    const std::size_t m = group_.size();
+    base_.assign(m, Vec3{});
+    x_.assign(m, Vec3{});
+    mobile_.assign(m, 0);
     double scale = 0.0;
-    for (std::size_t g = 0; g < group_.size(); ++g) {
-        const auto u = static_cast<std::size_t>(group_[g]);
-        slot[u] = static_cast<int>(g);
-        const BallState& s = work_[u];
+    for (std::size_t g = 0; g < m; ++g) {
+        const BallState& s = work_[static_cast<std::size_t>(group_[g])];
         if (s.motion != Motion::rolling) continue;
         const Vec3 nap = nap_acceleration(s, p_);
         if (!finite(nap)) continue;
-        base[g] = trajectory(s, p_, nap).c2 * 2.0;
-        acc[g] = base[g];
-        mobile[g] = 1;
-        scale = std::max(scale, norm_xy(base[g]));
+        base_[g] = trajectory(s, p_, nap).c2 * 2.0;
+        mobile_[g] = 1;
+        scale = std::max(scale, norm_xy(base_[g]));
     }
-    std::vector<Contact> contacts;
-    for (const Bond& k : bonds_) {
-        if (!in_group_[static_cast<std::size_t>(k.a)]) continue;
-        const auto a = static_cast<std::size_t>(slot[static_cast<std::size_t>(k.a)]);
-        const int b = k.b >= 0 ? slot[static_cast<std::size_t>(k.b)] : -1;
-        if (mobile[a] || (b >= 0 && mobile[static_cast<std::size_t>(b)])) contacts.push_back({a, b, bond_normal(k), 0.0});
-    }
-    solve_contacts(acc, mobile, contacts, scale);
-    for (std::size_t g = 0; g < group_.size(); ++g) {
+    do {
+        x_ = base_;
+        group_contacts(false, false);
+        solve_group(scale, "contact forces", "m/s^2");
+    } while (drop_parting());
+    for (std::size_t g = 0; g < m; ++g) {
         const auto u = static_cast<std::size_t>(group_[g]);
-        const Vec3 extra = mobile[g] ? Vec3{acc[g].x - base[g].x, acc[g].y - base[g].y, 0.0} : Vec3{};
+        const Vec3 extra = mobile_[g] ? Vec3{x_[g].x - base_[g].x, x_[g].y - base_[g].y, 0.0} : Vec3{};
         if (extra != contact_acc_[u]) {
             contact_acc_[u] = extra;
             if (!changed_[u]) changed_[u] = kForcesChanged;
         }
     }
+}
+
+// A held contact's force does no work while its normal speed stays zero, which the solve takes it
+// to be. A ball almost in line between two others at rest is the exception: the force they need to
+// keep it from the gap grows as the angle closes, and then even the 1e-13 m/s a ball creeping out
+// opens them at lets that force feed it the power its rolling resistance takes, so it never stops.
+// A contact whose force does more work than a millionth of its balls' rolling losses is parting:
+// dropped, it is searched for again. True when it dropped any.
+bool Simulation::drop_parting() {
+    std::size_t kept = 0;
+    std::size_t c = 0;
+    bool any = false;
+    for (std::size_t q = 0; q < bonds_.size(); ++q) {
+        const Bond k = bonds_[q];
+        if (in_group_[static_cast<std::size_t>(k.a)]) {
+            const Contact& ct = contacts_[c++];
+            const double power = ct.lambda * -bond_closing(k);
+            double lost = norm_xy(base_[ct.a]) * norm_xy(work_[static_cast<std::size_t>(k.a)].v);
+            if (k.b >= 0) {
+                const auto b = static_cast<std::size_t>(k.b);
+                lost += norm_xy(base_[static_cast<std::size_t>(ct.b)]) * norm_xy(work_[b].v);
+            }
+            if (power > 1e-6 * lost && power > 0.0) {
+                drop_bond(k);
+                any = true;
+                continue;
+            }
+        }
+        bonds_[kept++] = k;
+    }
+    bonds_.resize(kept);
+    return any;
+}
+
+// A held contact drifts off zero normal speed when a push in the group opens it a little, one of
+// its balls stops (zeroing the speed its nap and contact forces left across its heading), or two
+// balls roll on round each other. Below kStartSpeed it is held at zero again by impulses of either
+// sign: balls pressed together stay in contact through the tenth of a micrometre they compress
+// under even these small forces, far more than the picometres such a drift opens before the
+// contact force closes it again. Released, it re-closes within microseconds as yet another push.
+// Bringing normal speeds to zero can't raise the kinetic energy.
+void Simulation::restick() {
+    const std::size_t m = group_.size();
+    x_.assign(m, Vec3{});
+    mobile_.assign(m, 0);
+    double scale = 0.0;
+    for (std::size_t g = 0; g < m; ++g) {
+        const BallState& s = work_[static_cast<std::size_t>(group_[g])];
+        mobile_[g] = s.motion == Motion::rolling;
+        x_[g] = mobile_[g] ? Vec3{s.v.x, s.v.y, 0.0} : Vec3{};
+        scale = std::max(scale, norm_xy(x_[g]));
+    }
+    group_contacts(true, false);
+    solve_group(scale, "held contact impulses", "m/s");
+    for (std::size_t g = 0; g < m; ++g) {
+        const auto u = static_cast<std::size_t>(group_[g]);
+        BallState& s = work_[u];
+        if (!mobile_[g] || (x_[g].x == s.v.x && x_[g].y == s.v.y)) continue;
+        set_rolling(s, x_[g], p_);
+        changed_[u] = 1;
+    }
+    // What still moves along a normal had no rolling ball to stop it.
+    std::size_t kept = 0;
+    for (std::size_t q = 0; q < bonds_.size(); ++q) {
+        const Bond k = bonds_[q];
+        if (in_group_[static_cast<std::size_t>(k.a)] && std::abs(bond_closing(k)) > kBondSpeed) {
+            drop_bond(k);
+            continue;
+        }
+        bonds_[kept++] = k;
+    }
+    bonds_.resize(kept);
+}
+
+// What the cushion response was given when its impact solve gave up, enough to rerun it alone.
+void Simulation::cushion_fallback(const Next& e, const BallState& before) {
+    std::string body = "cushion line " + std::to_string(e.body);
+    if (e.kind == EventKind::ball_arc) {
+        const int pocket = table_.arcs[static_cast<std::size_t>(e.body)].pocket;
+        const bool named = pocket >= 0 && pocket < static_cast<int>(table_.pockets.size());
+        body = "jaw arc " + std::to_string(e.body) + " (" +
+               (named ? table_.pockets[static_cast<std::size_t>(pocket)].name : std::to_string(pocket)) + " pocket)";
+    }
+    anomaly(AnomalyKind::solver_fallback, now_, {e.a},
+            "cushion impact solver gave up on ball " + std::to_string(e.a) + " against " + body + " at v = " +
+                fmt_exact(before.v) + " m/s, w = " + fmt_exact(before.w) +
+                " rad/s; it took a plain restitution bounce");
 }
 
 void Simulation::resolve(const Next& e, double t) {
@@ -866,8 +1068,8 @@ void Simulation::resolve(const Next& e, double t) {
             const LineCushion& c = table_.lines[static_cast<std::size_t>(e.body)];
             if (-(a.v.x * c.normal.x + a.v.y * c.normal.y) < p_.ball_rest_speed_m_s) {
                 pushes_.push_back({e.a, -1, EventKind::ball_line, e.body});
-            } else {
-                collide_line(a, c, p_);
+            } else if (!collide_line(a, c, p_)) {
+                cushion_fallback(e, a_before);
             }
             break;
         }
@@ -876,8 +1078,8 @@ void Simulation::resolve(const Next& e, double t) {
             const Vec3 n = unit_or_zero(Vec3{a.r.x - c.centre.x, a.r.y - c.centre.y, 0.0});
             if (-dot(a.v, n) < p_.ball_rest_speed_m_s) {
                 pushes_.push_back({e.a, -1, EventKind::ball_arc, e.body});
-            } else {
-                collide_arc(a, c, p_);
+            } else if (!collide_arc(a, c, p_)) {
+                cushion_fallback(e, a_before);
             }
             break;
         }
@@ -899,6 +1101,14 @@ void Simulation::resolve(const Next& e, double t) {
     keep_finite(e.a, a, a_before, t, std::string("after ").append(event_kind_name(e.kind)).c_str());
     if (pair) keep_finite(e.b, b, b_before, t, "after ball_ball");
 
+    r_.events.push_back({t, e.kind, e.a, e.b, e.body, a_before.motion, a.motion});
+
+    separate(e.a, a, t, e.b, pair ? &b : nullptr);
+    if (pair) separate(e.b, b, t, e.a, &a);
+
+    dropped_.clear();
+    hold_contacts();
+
     double ke_after = 0.0;
     for (const int i : group_) ke_after += kinetic_energy(work_[static_cast<std::size_t>(i)], p_);
     if (ke_after - ke_before > 1e-9 * ke_before + 1e-12) {
@@ -909,14 +1119,7 @@ void Simulation::resolve(const Next& e, double t) {
                     std::string(event_kind_name(e.kind)) + " event (body " + std::to_string(e.body) + ")");
     }
 
-    r_.events.push_back({t, e.kind, e.a, e.b, e.body, a_before.motion, a.motion});
-
-    separate(e.a, a, t, e.b, pair ? &b : nullptr);
-    if (pair) separate(e.b, b, t, e.a, &a);
-
-    std::vector<Bond> dropped;
-    hold_contacts(dropped);
-    std::vector<int> restarted;
+    restarted_.clear();
     for (const int i : group_) {
         const unsigned char why = changed_[static_cast<std::size_t>(i)];
         if (why == 0) continue;
@@ -924,12 +1127,12 @@ void Simulation::resolve(const Next& e, double t) {
         // heading would come from a speed that rounding has worn down to noise.
         if (why == kForcesChanged && live_[static_cast<std::size_t>(i)].end <= t + kStaleWindow) continue;
         start_segment(i, t, work_[static_cast<std::size_t>(i)]);
-        restarted.push_back(i);
+        restarted_.push_back(i);
     }
     // From here in_group_ marks the restarted balls already refreshed, so each pair is solved once.
     for (const int i : group_) in_group_[static_cast<std::size_t>(i)] = 0;
     group_.clear();
-    for (const int i : restarted) {
+    for (const int i : restarted_) {
         refresh_cushion(i);
         for (int j = 0; j < n_; ++j) {
             if (j != i && !in_group_[static_cast<std::size_t>(j)]) refresh_pair(i, j);
@@ -937,7 +1140,7 @@ void Simulation::resolve(const Next& e, double t) {
         in_group_[static_cast<std::size_t>(i)] = 1;
         group_.push_back(i);
     }
-    for (const Bond& k : dropped) {
+    for (const Bond& k : dropped_) {
         const bool a_done = in_group_[static_cast<std::size_t>(k.a)] != 0;
         if (k.b >= 0) {
             if (!a_done && !in_group_[static_cast<std::size_t>(k.b)]) refresh_pair(k.a, k.b);
@@ -971,6 +1174,7 @@ void Simulation::setup() {
     in_group_.assign(n, 0);
     changed_.assign(n, 0);
     work_.assign(n, BallState{});
+    slot_.assign(n, -1);
 
     for (const LineCushion& c : table_.lines) {
         line_box_.push_back({std::min(c.p1.x, c.p2.x) - R, std::min(c.p1.y, c.p2.y) - R, std::max(c.p1.x, c.p2.x) + R,
@@ -999,7 +1203,7 @@ void Simulation::setup() {
             if (b.motion == Motion::pocketed) continue;
             const Vec3 d{b.r.x - a.r.x, b.r.y - a.r.y, 0.0};
             const double dist = norm_xy(d);
-            if (dist >= 2.0 * R - kOverlapTolerance) continue;
+            if (dist >= 2.0 * R - kOverlapTolerance_m) continue;
             const Vec3 dir = dist > 0.0 ? d / dist : Vec3{1.0, 0.0, 0.0};
             b.r = {a.r.x + dir.x * (2.0 * R), a.r.y + dir.y * (2.0 * R), 0.0};
             anomaly(AnomalyKind::overlap, 0.0, {i, j},
