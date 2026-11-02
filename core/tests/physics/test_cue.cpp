@@ -636,3 +636,22 @@ TEST_CASE("obstruction: the minimum is capped at max_elevation_rad") {
     CHECK(o.elevation_used_rad == p.max_elevation_rad);
     CHECK(o.elevation_raised);
 }
+
+TEST_CASE("obstruction: the strike overload uses the tip offsets") {
+    // cue.hpp: the CueStrike form gives what strike() uses, so the elevation control can show it.
+    const PhysicsParams p;
+    const Fixture f = load_fixture("cue_ball_on_baulk_cushion");
+    const TableShape t = rectangle();
+    CueStrike centre = f.strike;
+    centre.tip_x = 0.0;
+    centre.tip_y = 0.0;
+    CHECK(min_cue_elevation(f.start, f.cue_ball, centre, t, p) ==
+          min_cue_elevation(f.start, f.cue_ball, f.strike.aim_rad, t, p));
+    CueStrike high = centre;
+    high.tip_y = 0.4;
+    ofs::Rng rng(1);
+    const double expected = min_cue_elevation(f.start, f.cue_ball, high, t, p);
+    CHECK(expected < min_cue_elevation(f.start, f.cue_ball, centre, t, p));
+    high.elevation_rad = 0.0;
+    CHECK(strike(f.start, f.cue_ball, high, t, p, rng).elevation_used_rad == expected);
+}

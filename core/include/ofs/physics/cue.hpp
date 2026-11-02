@@ -26,6 +26,11 @@ struct StrikeOutcome {
 // 0 when nothing is in the way. Never above max_elevation_rad.
 double min_cue_elevation(const TableState& s, int cue_ball, double aim_rad, const TableShape& t,
                          const PhysicsParams& p);
+// The same for the actual tip offsets: the minimum depends strongly on them (a cue ball against
+// the cushion needs about 41 degrees struck at centre, about 20 with tip_y 0.4). strike() uses
+// this one; the elevation control should too.
+double min_cue_elevation(const TableState& s, int cue_ball, const CueStrike& c, const TableShape& t,
+                         const PhysicsParams& p);
 
 // The cue ball's velocity and spin just after the tip leaves it. The elevation used is
 // max(requested, min_cue_elevation), capped at max_elevation_rad; the speed is capped at

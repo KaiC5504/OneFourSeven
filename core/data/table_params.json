@@ -21,7 +21,7 @@
     "jaw_friction": 0.14,
     "cue_mass_kg": 0.54,
     "cue_tip_restitution": 0.75,
-    "cue_end_mass_kg": 0.0075,
+    "cue_end_mass_kg": 0.0047,
     "miscue_limit": 0.55,
     "miscue_speed_factor": 0.35,
     "miscue_max_angle_rad": 0.05,
@@ -137,13 +137,13 @@
     },
     "cue_tip_restitution": {
       "unit": "",
-      "source": "starting guess within Marlow's / Alciatore, billiards.colostate.edu's tip efficiency range (cue agent confirms)",
-      "note": "Sets how much cue speed becomes ball speed."
+      "source": "Alciatore, billiards.colostate.edu physical properties: leather tips 0.71-0.75 (top of the range)",
+      "note": "Ball speed = (1+e) V / (1 + m/M + 5/2 (a^2 + b^2)) (TP A-30)."
     },
     "cue_end_mass_kg": {
       "unit": "kg",
-      "source": "pooltool (Apache-2.0) stick_ball/squirt.py model; tuned to C9 (1-3 degrees at maximum side)",
-      "note": "Squirt grows with this."
+      "source": "pooltool (Apache-2.0) SNOOKER_GENERIC cue end mass (ball mass / 30); stick_ball/squirt.py model",
+      "note": "Squirt grows with this: 2.0 degrees at maximum side (C9 asks 1-3)."
     },
     "miscue_limit": {
       "unit": "fraction of R",

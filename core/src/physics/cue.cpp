@@ -205,6 +205,11 @@ double min_cue_elevation(const TableState& s, int cue_ball, double aim_rad, cons
     return min_elevation(s, cue_ball, std::cos(aim_rad), std::sin(aim_rad), 0.0, 0.0, t, p);
 }
 
+double min_cue_elevation(const TableState& s, int cue_ball, const CueStrike& c, const TableShape& t,
+                         const PhysicsParams& p) {
+    return min_elevation(s, cue_ball, std::cos(c.aim_rad), std::sin(c.aim_rad), c.tip_x, c.tip_y, t, p);
+}
+
 StrikeOutcome strike(const TableState& s, int cue_ball, const CueStrike& c, const TableShape& t,
                      const PhysicsParams& p, Rng& rng) {
     // Both draws happen on every strike, so the stream afterwards never depends on whether it miscued.

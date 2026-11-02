@@ -42,9 +42,9 @@ struct PhysicsParams {
     // Cue (spec 7.3).
     double cue_mass_kg = 0.54;
     double cue_tip_restitution = 0.75;
-    double cue_end_mass_kg = 0.0075;  // drives squirt
+    double cue_end_mass_kg = 0.0047;  // drives squirt
     double miscue_limit = 0.55;        // tip offset, fraction of R
-    double miscue_speed_factor = 0.35;  // fraction of the cue speed a miscued ball keeps, at most
+    double miscue_speed_factor = 0.35;  // fraction of the full-hit ball speed a miscue keeps, at most
     double miscue_max_angle_rad = 0.05;
     double cue_tip_diameter_m = 0.0095;
     double cue_butt_diameter_m = 0.029;
