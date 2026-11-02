@@ -11,13 +11,18 @@ core/tests/fixtures/positions/; log events shot.simulated, physics.anomaly, para
 gate physics lane (Release core build, calibration ctest label, sim_cli fuzz 2k/100k, bench
 --check); ofs_calibration_tests DISABLED in ctest until wave 1 merges.
 
+Addendum abfa39a: cushion contact height 7R/5 (Mathavan); restitution falls above the rigid
+cushion limit (2.5 m/s normal speed, slope tuned later).
+
 ## Wave 1 (launched, 9 agents in worktrees)
 motion (motion.cpp, nap.cpp), events (roots.cpp, detect.cpp), ball-ball (collide_ball.cpp),
 cushions (collide_cushion.cpp, table_shape.cpp, table_shape.json), cue (cue.cpp), simulator
 (simulator.cpp, shot_record.cpp, repro.cpp, rack.cpp), tools (sim_cli, calibration_report.py),
 calibration (core/tests/calibration, reference fixtures, docs/calibration/targets.md), infra
 (macOS editor extension, export log checker, idle max_fps cap; branch m1-infra on origin).
-Merged: none yet.
+Merged: ball-ball (764d9e8: TP A.14 impulse model, throw matches eq. 15-17 to 1e-12, 28 ns per
+collision; friction speed confirmed in m/s; ~3% more spin transfer than pooltool, which sizes
+friction from the separation speed).
 
 ## After wave 1
 Enable ofs_calibration_tests in ctest and the simulator's skipped integration tests; apply
