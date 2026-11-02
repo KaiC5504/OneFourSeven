@@ -24,7 +24,11 @@ Merged: ball-ball (764d9e8: TP A.14 impulse model, throw matches eq. 15-17 to 1e
 collision; friction speed confirmed in m/s; ~3% more spin transfer than pooltool, which sizes
 friction from the separation speed). motion (41ef4e3: pooltool evolve ported to the table frame;
 evolve ~21 ns; nap = sideways push scaled by 2 ref/(s + ref), with/against/across behaviours,
-off below the lowest re-tick threshold; right-hand side is w.z > 0, cue agent told).
+off below the lowest re-tick threshold; right-hand side is w.z > 0, cue agent told). cue (25d6113:
+pooltool cue_strike with restitution, v = (1+e)V/(1 + m/M + 5/2(a^2+b^2)) (TP A-30); miscue draws
+the Rng exactly twice; obstruction closed form + fixed point, 41 deg on the baulk cushion, 34 deg
+over a red 7.5 mm behind; ~0.5 us per call). Lead: tip-aware min_cue_elevation overload,
+cue_end_mass_kg 0.0047 (squirt 3.05 -> 2.0 deg at max side).
 
 ## After wave 1
 Enable ofs_calibration_tests in ctest and the simulator's skipped integration tests; apply
