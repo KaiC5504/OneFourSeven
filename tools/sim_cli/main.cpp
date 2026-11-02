@@ -15,7 +15,7 @@ const char* const kUsage =
     "\n"
     "  simulate <position.json | rack:SEED> [--strike JSON] [--no-strike] [--seed N]\n"
     "           [--params P] [--table T] [--out record.json] [--log out.jsonl]\n"
-    "  replay <log.jsonl | bundle.json> [--line N] [--tolerance M] [--table T]\n"
+    "  replay <log.jsonl | bundle.json> [--line N] [--tolerance M] [--table T] [--force-table]\n"
     "  fuzz [--shots N] [--seed S] [--threads T] [--out DIR] [--hang-seconds S] [--params P] [--table T]\n"
     "  bench [--check] [--baseline FILE] [--write-baseline] [--runs N] [--budget-us U]\n"
     "        [--params P] [--table T]\n"

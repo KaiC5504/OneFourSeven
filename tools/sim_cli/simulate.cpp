@@ -145,8 +145,7 @@ int cmd_simulate(const std::vector<std::string>& argv) {
     Setup setup;
     if (!load_setup(args, setup)) return kExitUsage;
     ofs::log::info("params", "params.loaded",
-                   {{"source", args.value("params") ? *args.value("params") : "core/data/table_params.json"},
-                    {"hash", setup.params_hash}});
+                   {{"source", shareable_path(setup.params_file)}, {"hash", setup.params_hash}});
 
     Position pos;
     if (!load_position(args.positional[0], setup.params, pos, error)) return usage_error("simulate", error);
@@ -164,6 +163,7 @@ int cmd_simulate(const std::vector<std::string>& argv) {
     in.has_strike = has_strike;
     in.seed = seed;
     in.params_hash = setup.params_hash;
+    in.table_hash = setup.table_hash;
     if (!phys::from_json(strike, in.strike, error)) return usage_error("simulate", error);
     if (has_strike && (in.cue_ball < 0 || static_cast<std::size_t>(in.cue_ball) >= in.start.balls.size())) {
         return usage_error("simulate", format("cue_ball %d is not one of the %zu balls", in.cue_ball,

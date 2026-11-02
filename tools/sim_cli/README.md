@@ -31,7 +31,10 @@ ofs_sim_cli simulate rack:7 --seed 3 --out build/rack7.json --log build/rack7.js
 - `--seed` is the shot's random seed (miscues draw from it).
 - `--out` writes the full shot record (`record_json`), `--log` a JSONL log with `params.loaded`,
   any `physics.anomaly` and the `shot.simulated` line: the repro bundle and its result, which
-  `replay` reads and `tools/check_logs.py` accepts.
+  `replay` reads and `tools/check_logs.py` accepts. Its lines' `build` is `sim_cli-<core version>`
+  (plus `+<commit>` when the build defines `OFS_GIT_SHA`), and `params.loaded` names the parameter
+  file by its path in the repository, or by its bare name when it is elsewhere, so a shared log
+  never carries a home folder.
 
 ## replay
 
@@ -51,8 +54,11 @@ ofs_sim_cli replay build/fuzz-failures/fuzz-1-000123.json
 - A bare bundle is re-run and summarised; a `{bundle, result}` file (what `fuzz` writes) is
   compared like a log line.
 - The bundle carries its own parameters, so the phone's values are used; the cushion outline comes
-  from the local `table_shape.json` (or `--table`).
-- Exit 1 if any shot diverged, any anomaly didn't reproduce or any bundle couldn't be read.
+  from the local `table_shape.json` (or `--table`). A bundle names the outline it ran on by its
+  `table_hash`: one from another outline is refused (an ERROR line) unless `--force-table` is given,
+  and one without a `table_hash` is replayed with a warning that its table can't be checked.
+- Exit 1 if any shot diverged, any anomaly didn't reproduce, any bundle couldn't be read or any was
+  refused for its table.
 
 ## fuzz
 
@@ -71,10 +77,15 @@ ofs_sim_cli fuzz --shots 100000 --seed 1 --threads 8 --out build/fuzz-failures
   (a fifth miscue) and elevations up to the maximum.
 - Each shot fails on: an anomaly other than a solver fallback (`event_guard`, `zero_time_chain`,
   `time_cap`, `nan`, `overlap`, `energy_gain`), a non-finite value, two balls closer than 2R - 1e-9
-  m or a ball into a cushion or jaw, outside the playing area or unpotted inside a drop circle at
-  any event time, total kinetic energy rising from one event time to the next, a ball not at rest
-  at the end, or a shot still running after `--hang-seconds` (default 30). Every 100th shot is
-  simulated twice and its records compared byte for byte (C13).
+  m (`kOverlapTolerance_m`) or a ball into a cushion or jaw, outside the playing area or unpotted
+  inside a drop circle at any event time, total kinetic energy rising from one event time to the
+  next, a ball not at rest at the end, or a shot still running after `--hang-seconds` (default 30).
+  Every 100th shot is simulated twice and its records compared byte for byte (C13).
+- Between events every moving ball's path is checked too, so a ball that passes through a jaw or
+  a cushion and then drops (legal at every event time) still fails as `tunnel`. The check is exact,
+  not sampled: a segment's path is quadratic, so it finds every time the ball's distance from a
+  cushion line, jaw or drop circle, or its position along a line or around a jaw, reaches a limit,
+  and tests one point between each two of them. It adds about 13% to the fuzz's time.
 - Each failing shot is listed and its bundle written to `--out` (default `build/fuzz-failures`,
   cleared of earlier `fuzz-*.json` first) for `replay`. The summary gives failures by kind, events,
   simulation-time percentiles, shots per second and a digest of the shot inputs.
@@ -83,7 +94,10 @@ ofs_sim_cli fuzz --shots 100000 --seed 1 --threads 8 --out build/fuzz-failures
 
 Times fixed shots against the 2 ms budget of spec 7.13: break-offs at 4.5, 7 and 10 m/s on three
 seeded racks, a long multi-cushion shot, a six-ball cluster split, three pots with the colours on
-their spots and a slow roll with side and nap.
+their spots, a slow roll with side and nap, and the recorded pack-heavy shots in `bench_shots/`
+(bundles as `fuzz` writes them, each run with the parameters it carries and named after its file):
+`pack_break_off`, a break-off of 792 events, and `pack_slow_roll`, a slow roll into the pack of
+2,947.
 
 ```
 ofs_sim_cli bench
@@ -93,11 +107,21 @@ ofs_sim_cli bench --write-baseline
 
 - Each shot runs until it has at least 30 timings and a quarter of a second (at most 2,000);
   `--runs N` fixes the count. The table gives the median and p99 in microseconds.
+- Each run of a shot is followed by a run of the same length of a speed probe: fixed
+  floating-point work that shares no code with the physics. A shot's time in probe timings (the
+  median over its pairs) barely moves when the PC is busy, while a slower simulator moves it;
+  `scaled_us` is that time at the speed the baseline's machine had when it was written.
 - `--check` fails when a median is over the budget (`--budget-us`, default 2000) or, when the
-  baseline file exists (`--baseline`, default `tools/sim_cli/bench_baseline.json`), more than 25%
-  over its baseline median.
-- `--write-baseline` records this run's medians as the baseline. Write it from a Release build on
-  the PC the gate runs on.
+  baseline file exists (`--baseline`, default `tools/sim_cli/bench_baseline.json`), a shot's
+  `scaled_us` is more than 25% plus 50 us over its baseline. The 50 us keeps scheduler noise on
+  the 10-30 us shots from failing it. A shot missing from the baseline shows `(new)` and isn't
+  compared. A baseline from another machine (CPU name and logical core count) or another build
+  type, or one written before baseline version 2, isn't compared at all; a note says why.
+- `--write-baseline` records this run as the baseline, with the machine, the build type and the
+  probe's time. Write it from a Release build on the PC the gate runs on.
+- The gate runs `bench --check` on this PC. On CI (`CI` or `GITHUB_ACTIONS` set to `true`) it runs
+  plain `bench`, which only reports: a shared runner is neither the desktop core of the budget nor
+  the baseline's machine.
 
 ## calibrate
 

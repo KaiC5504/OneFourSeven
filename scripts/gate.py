@@ -6,9 +6,10 @@
 
 One Debug configure and build of the core, the extension and ofs_params_hash, then the core tests
 (ctest), a Release build of the core alone for the physics lane (the calibration suite, a fuzz of
-random shots: 2,000 with --quick, the full 100,000 of spec C14 otherwise, and the simulation
-benchmarks against the 2 ms budget), the Godot tests (sync_data, --import, res://tests/run_tests.gd), a short headless run of
-the game whose session log must pass tools/check_logs.py with no app.error, the PC tools' tests
+random shots: 2,000 with --quick, otherwise the full 100,000 of spec C14 on each of two seeds, and
+the simulation benchmarks against the 2 ms budget and the baseline, only reported on CI), the
+Godot tests (sync_data, --import, res://tests/run_tests.gd), a short headless run of the game
+whose session log must pass tools/check_logs.py with no app.error, the PC tools' tests
 and the workflow tests. The full gate adds a Windows export (build_windows.py --check). Lanes run
 in parallel unless one depends on another.
 
@@ -41,6 +42,8 @@ BUILD = ROOT / "build" / "windows"
 PHYSICS_BUILD = ROOT / "build" / "windows-physics"
 FUZZ_SHOTS_QUICK = 2000
 FUZZ_SHOTS_FULL = 100_000
+# The full gate fuzzes a second, unrelated shot set as well, so a fix tuned to seed 1 can't pass alone.
+FUZZ_SEEDS_FULL = (1, 4242)
 LOGS = ROOT / "build" / "gate"
 GAME = ROOT / "game"
 # The logs lane's own user:// (Godot has no flag for it), so no other run's session can mix in.
@@ -139,13 +142,26 @@ def sim_cli() -> Path:
     raise SystemExit(f"the physics build made no {name} in {PHYSICS_BUILD / 'tools' / 'sim_cli'}")
 
 
+def on_ci() -> bool:
+    return os.environ.get("CI") == "true" or os.environ.get("GITHUB_ACTIONS") == "true"
+
+
+def fuzz_step(shots: int, seed: int) -> Step:
+    # Each seed's failure bundles get their own folder, so the second run doesn't clear the first's.
+    out = ROOT / "build" / "fuzz-failures" / f"seed-{seed}"
+    return lambda: run([sim_cli(), "fuzz", "--shots", str(shots), "--seed", str(seed), "--out", out], timeout=1800)
+
+
 def physics_steps(quick: bool) -> list[Step]:
-    shots = FUZZ_SHOTS_QUICK if quick else FUZZ_SHOTS_FULL
+    fuzz = [fuzz_step(FUZZ_SHOTS_QUICK, 1)] if quick else [fuzz_step(FUZZ_SHOTS_FULL, seed) for seed in FUZZ_SEEDS_FULL]
+    # A CI runner is a shared VM, neither the desktop core the 2 ms budget is for nor the PC the
+    # baseline was timed on, so there the benchmarks are only reported.
+    bench = ["bench"] if on_ci() else ["bench", "--check"]
     return configure_and_build(PHYSICS_BUILD, "Release", ["-DOFS_BUILD_GDEXT=OFF"]) + [
         step(["ctest", "--test-dir", PHYSICS_BUILD, "-C", "Release", "-L", "calibration", "--output-on-failure"]),
         # Both report every failing shot before exiting, each with a replayable bundle.
-        lambda: run([sim_cli(), "fuzz", "--shots", str(shots), "--seed", "1"], timeout=1800),
-        lambda: run([sim_cli(), "bench", "--check"]),
+        *fuzz,
+        lambda: run([sim_cli(), *bench]),
     ]
 
 

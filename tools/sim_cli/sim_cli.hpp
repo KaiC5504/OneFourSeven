@@ -66,16 +66,23 @@ bool write_text_file(const std::string& path, const std::string& text, std::stri
 // OFS_CORE_DATA_DIR is <repo>/core/data, so the repository root is two levels up.
 std::string data_path(const std::string& file);
 std::string repo_path(const std::string& relative);
+// A path fit for a log or a written file: relative to the repository when it is inside it, else
+// the bare file name, so no home folder (and with it a username) leaves this PC.
+std::string shareable_path(const std::string& path);
 
 struct Setup {
     phys::PhysicsParams params;
     phys::TableShape table;
     std::string params_hash;  // content_hash({"table_params": file}), the game's and devlink's hash
     std::string table_hash;
+    std::string params_file;
+    std::string table_file;
 };
 
 // From --params and --table, else the files in core/data. Prints every problem to stderr.
 bool load_setup(const Args& args, Setup& out);
+// One table_shape.json and its content hash; every problem goes to stderr.
+bool load_table(const std::string& file, phys::TableShape& table, std::string& hash);
 
 struct Position {
     std::string name;
@@ -109,6 +116,9 @@ std::string anomaly_text(const phys::Anomaly& a);
 
 // Prints "<command>: <error>" and a pointer to the usage, returns kExitUsage.
 int usage_error(const std::string& command, const std::string& error);
+// The log lines' build field: "sim_cli-<core version>", plus "+<git sha>" when the build defines
+// OFS_GIT_SHA.
+std::string build_name();
 void configure_logger();
 
 double microseconds_since(std::chrono::steady_clock::time_point start);
@@ -170,8 +180,9 @@ struct ShotFailure {
 };
 
 // C12 and C14 on one record, every failure found: anomalies other than solver fallbacks, NaN,
-// balls overlapping or outside the playing area at any event time, a rise in total kinetic
-// energy from one event time to the next, balls not at rest at the end.
+// balls overlapping or outside the playing area at any event time, a ball into a cushion, jaw or
+// drop circle at any moment between events, a rise in total kinetic energy from one event time to
+// the next, balls not at rest at the end.
 std::vector<ShotFailure> check_record(const phys::SimInput& in, const phys::ShotRecord& r,
                                       const PlayArea& area);
 

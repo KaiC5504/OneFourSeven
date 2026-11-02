@@ -17,6 +17,14 @@ struct Item {
     nlohmann::json data;
 };
 
+// The table every bundle is replayed on, and whether a bundle from another table may use it.
+struct Table {
+    phys::TableShape shape;
+    std::string hash;
+    std::string name;  // shareable_path of its file, for messages
+    bool force = false;
+};
+
 struct Tally {
     int ok = 0;
     int diverged = 0;
@@ -38,8 +46,39 @@ std::string event_entry(const nlohmann::json& result, int index) {
     return (*it)[static_cast<std::size_t>(index)].dump();
 }
 
-bool replay_bundle(const Item& item, const nlohmann::json& bundle, const phys::TableShape& table,
-                   phys::ShotRecord& r, Tally& tally) {
+// A bundle's events depend on the cushions it ran against, which it names only by hash: replayed on
+// another outline it reports differences that are not divergences.
+bool table_matches(const Item& item, const nlohmann::json& bundle, const Table& table, Tally& tally) {
+    const auto recorded = bundle.find("table_hash");
+    if (recorded == bundle.end() || (recorded->is_string() && recorded->get<std::string>().empty())) {
+        std::printf("%-8s %-16s warning: the bundle has no table_hash, so its table can't be checked; "
+                    "replaying on %s (%s)\n",
+                    where(item).c_str(), item.kind.c_str(), table.name.c_str(), table.hash.c_str());
+        return true;
+    }
+    if (!recorded->is_string()) {
+        std::printf("%-8s %-16s ERROR        bundle unreadable: table_hash: want a string\n", where(item).c_str(),
+                    item.kind.c_str());
+        ++tally.errors;
+        return false;
+    }
+    const std::string hash = recorded->get<std::string>();
+    if (hash == table.hash) return true;
+    if (table.force) {
+        std::printf("%-8s %-16s warning: the bundle ran on table %s; replaying on %s (%s) as --force-table "
+                    "asks\n",
+                    where(item).c_str(), item.kind.c_str(), hash.c_str(), table.name.c_str(), table.hash.c_str());
+        return true;
+    }
+    std::printf("%-8s %-16s ERROR        table mismatch: the bundle ran on table %s, but %s is %s; pass that "
+                "table's file with --table, or --force-table to replay on this one anyway\n",
+                where(item).c_str(), item.kind.c_str(), hash.c_str(), table.name.c_str(), table.hash.c_str());
+    ++tally.errors;
+    return false;
+}
+
+bool replay_bundle(const Item& item, const nlohmann::json& bundle, const Table& table, phys::ShotRecord& r,
+                   Tally& tally) {
     phys::SimInput in;
     phys::PhysicsParams p;
     std::string error;
@@ -49,11 +88,12 @@ bool replay_bundle(const Item& item, const nlohmann::json& bundle, const phys::T
         ++tally.errors;
         return false;
     }
-    r = phys::simulate(in, table, p);
+    if (!table_matches(item, bundle, table, tally)) return false;
+    r = phys::simulate(in, table.shape, p);
     return true;
 }
 
-void replay_shot(const Item& item, const phys::TableShape& table, double tolerance, Tally& tally) {
+void replay_shot(const Item& item, const Table& table, double tolerance, Tally& tally) {
     const auto bundle = item.data.find("bundle");
     const auto logged = item.data.find("result");
     if (bundle == item.data.end()) {
@@ -88,7 +128,7 @@ void replay_shot(const Item& item, const phys::TableShape& table, double toleran
     ++tally.diverged;
 }
 
-void replay_anomaly(const Item& item, const phys::TableShape& table, Tally& tally) {
+void replay_anomaly(const Item& item, const Table& table, Tally& tally) {
     const auto bundle = item.data.find("bundle");
     if (bundle == item.data.end()) {
         std::printf("%-8s %-16s ERROR        no bundle\n", where(item).c_str(), item.kind.c_str());
@@ -196,7 +236,7 @@ bool collect_items(const std::string& path, const std::string& text, long long o
 }  // namespace
 
 int cmd_replay(const std::vector<std::string>& argv) {
-    const ArgSpec spec{{"line", "tolerance", "table"}, {}, 1, 1};
+    const ArgSpec spec{{"line", "tolerance", "table"}, {"force-table"}, 1, 1};
     Args args;
     std::string error;
     if (!parse_args(argv, spec, args, error)) return usage_error("replay", error);
@@ -207,15 +247,11 @@ int cmd_replay(const std::vector<std::string>& argv) {
         return usage_error("replay", error);
     }
     // A bundle carries its parameters but not the table outline, which comes from the local file.
-    Setup setup;
-    nlohmann::json table_json;
+    Table table;
     const std::string table_file = args.value("table") ? *args.value("table") : data_path("table_shape.json");
-    std::vector<std::string> problems;
-    if (!read_json_file(table_file, table_json, error)) return usage_error("replay", error);
-    if (!phys::load_table_shape(table_json, setup.table, problems)) {
-        for (const std::string& problem : problems) std::fprintf(stderr, "table: %s\n", problem.c_str());
-        return usage_error("replay", table_file + " was refused");
-    }
+    if (!load_table(table_file, table.shape, table.hash)) return usage_error("replay", table_file + " was refused");
+    table.name = shareable_path(table_file);
+    table.force = args.flag("force-table");
 
     const std::string& path = args.positional[0];
     std::string text;
@@ -226,9 +262,9 @@ int cmd_replay(const std::vector<std::string>& argv) {
     Tally tally;
     for (const Item& item : items) {
         if (item.kind == "physics.anomaly") {
-            replay_anomaly(item, setup.table, tally);
+            replay_anomaly(item, table, tally);
         } else {
-            replay_shot(item, setup.table, tolerance, tally);
+            replay_shot(item, table, tolerance, tally);
         }
     }
     std::printf("replayed %zu: %d ok, %d diverged, %d anomalies reproduced, %d not reproduced, "

@@ -17,6 +17,7 @@
 #include "ofs/physics/motion.hpp"
 #include "ofs/physics/rack.hpp"
 #include "ofs/physics/serialize.hpp"
+#include "ofs/version.hpp"
 #include "sim_cli.hpp"
 
 namespace sim_cli {
@@ -197,9 +198,47 @@ std::string data_path(const std::string& file) {
     return (fs::u8path(OFS_CORE_DATA_DIR) / fs::u8path(file)).lexically_normal().u8string();
 }
 
+namespace {
+
+fs::path repo_root() { return fs::u8path(OFS_CORE_DATA_DIR).lexically_normal().parent_path().parent_path(); }
+
+}  // namespace
+
 std::string repo_path(const std::string& relative) {
-    const fs::path root = fs::u8path(OFS_CORE_DATA_DIR).lexically_normal().parent_path().parent_path();
-    return (root / fs::u8path(relative)).lexically_normal().u8string();
+    return (repo_root() / fs::u8path(relative)).lexically_normal().u8string();
+}
+
+std::string shareable_path(const std::string& path) {
+    std::error_code ec;
+    // Canonical forms on both sides, so a drive letter's case or a relative path can't hide that
+    // the file is inside the repository.
+    const fs::path file = fs::weakly_canonical(fs::u8path(path), ec);
+    if (ec) return fs::u8path(path).filename().u8string();
+    const fs::path root = fs::weakly_canonical(repo_root(), ec);
+    if (!ec) {
+        const fs::path relative = file.lexically_relative(root);
+        if (!relative.empty() && *relative.begin() != fs::path("..")) return relative.generic_u8string();
+    }
+    return file.filename().u8string();
+}
+
+bool load_table(const std::string& file, phys::TableShape& table, std::string& hash) {
+    nlohmann::json table_json;
+    std::string error;
+    if (!read_json_file(file, table_json, error)) {
+        std::fprintf(stderr, "table: %s\n", error.c_str());
+        return false;
+    }
+    std::vector<std::string> problems;
+    const bool ok = phys::load_table_shape(table_json, table, problems);
+    if (!ok) {
+        for (const std::string& problem : problems) {
+            std::fprintf(stderr, "table: %s: %s\n", file.c_str(), problem.c_str());
+        }
+        if (problems.empty()) std::fprintf(stderr, "table: %s was refused\n", file.c_str());
+    }
+    hash = ofs::params::content_hash(table_json);
+    return ok;
 }
 
 bool load_setup(const Args& args, Setup& out) {
@@ -207,6 +246,8 @@ bool load_setup(const Args& args, Setup& out) {
     const std::string* table_arg = args.value("table");
     const std::string params_file = params_arg ? *params_arg : data_path("table_params.json");
     const std::string table_file = table_arg ? *table_arg : data_path("table_shape.json");
+    out.params_file = params_file;
+    out.table_file = table_file;
     bool ok = true;
     std::string error;
 
@@ -225,21 +266,7 @@ bool load_setup(const Args& args, Setup& out) {
         out.params_hash = ofs::params::content_hash(nlohmann::json{{"table_params", params_json}});
     }
 
-    nlohmann::json table_json;
-    if (!read_json_file(table_file, table_json, error)) {
-        std::fprintf(stderr, "table: %s\n", error.c_str());
-        ok = false;
-    } else {
-        std::vector<std::string> problems;
-        if (!phys::load_table_shape(table_json, out.table, problems)) {
-            for (const std::string& problem : problems) {
-                std::fprintf(stderr, "table: %s: %s\n", table_file.c_str(), problem.c_str());
-            }
-            if (problems.empty()) std::fprintf(stderr, "table: %s was refused\n", table_file.c_str());
-            ok = false;
-        }
-        out.table_hash = ofs::params::content_hash(table_json);
-    }
+    if (!load_table(table_file, out.table, out.table_hash)) ok = false;
     return ok;
 }
 
@@ -432,6 +459,14 @@ int usage_error(const std::string& command, const std::string& error) {
     return kExitUsage;
 }
 
+std::string build_name() {
+    std::string build = "sim_cli-" + std::string(ofs::core_version());
+#ifdef OFS_GIT_SHA
+    build += std::string("+") + OFS_GIT_SHA;
+#endif
+    return build;
+}
+
 void configure_logger() {
 #if defined(_WIN32)
     const char* platform = "windows";
@@ -440,7 +475,7 @@ void configure_logger() {
 #else
     const char* platform = "linux";
 #endif
-    ofs::log::Logger::instance().configure({ofs::log::new_session_id(), "sim_cli", platform});
+    ofs::log::Logger::instance().configure({ofs::log::new_session_id(), build_name(), platform});
 }
 
 double microseconds_since(std::chrono::steady_clock::time_point start) {

@@ -1,12 +1,9 @@
-"""Tests of ofs_sim_cli (tools/sim_cli) through its command line, against the Debug build.
-
-They pass on the M1 contracts' stubbed physics and on the real physics. Where a check needs the
-real simulator (a replay that matches, a tampered result that diverges), the stubbed run asserts what
-the CLI does without it and then skips the rest.
-"""
+"""Tests of ofs_sim_cli (tools/sim_cli) through its command line, against the Debug build (or the
+build OFS_SIM_CLI names)."""
 import json
 import os
 import pathlib
+import re
 import subprocess
 import sys
 import tempfile
@@ -45,20 +42,13 @@ def shown(result):
     return f"exit {result.returncode}\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}"
 
 
-_stubbed = None
-
-
-def physics_stubbed():
-    """True while the physics is the contracts' stub: its record_json is an empty object."""
-    global _stubbed
-    if _stubbed is None:
-        with tempfile.TemporaryDirectory() as tmp:
-            record = pathlib.Path(tmp) / "record.json"
-            result = run("simulate", STRAIGHT, "--out", record)
-            if result.returncode != 0:
-                raise AssertionError("simulate failed on straight_1m:\n" + shown(result))
-            _stubbed = json.loads(record.read_text(encoding="utf-8")) == {}
-    return _stubbed
+def table_hash():
+    """The content hash of core/data/table_shape.json, as simulate prints it."""
+    result = run("simulate", STRAIGHT, "--no-strike")
+    match = re.search(r"^params\s+\S+, table (\S+)$", result.stdout, re.MULTILINE)
+    if result.returncode != 0 or not match:
+        raise AssertionError("simulate printed no table hash:\n" + shown(result))
+    return match.group(1)
 
 
 class CliTestCase(unittest.TestCase):
@@ -84,10 +74,6 @@ class CliTestCase(unittest.TestCase):
         result = run("simulate", STRAIGHT, "--seed", 7, "--log", log, *extra)
         self.assert_exit(result, 0)
         return log, [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
-
-    def require_real_physics(self):
-        if physics_stubbed():
-            self.skipTest("the physics is still the M1 contracts' stub")
 
 
 class ArgumentTest(CliTestCase):
@@ -196,11 +182,39 @@ class SimulateTest(CliTestCase):
         self.assertEqual(checked.returncode, 0, checked.stdout + checked.stderr)
         events = [json.loads(line)["event"] for line in log.read_text(encoding="utf-8").splitlines()]
         self.assertEqual(events[0], "params.loaded")
-        if not physics_stubbed():
-            self.assertEqual(events.count("shot.simulated"), 1, events)
-            shot = next(json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()
-                        if json.loads(line)["event"] == "shot.simulated")
-            self.assertEqual(shot["data"]["bundle"]["seed"], "7")
+        self.assertEqual(events.count("shot.simulated"), 1, events)
+        shot = next(json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()
+                    if json.loads(line)["event"] == "shot.simulated")
+        self.assertEqual(shot["data"]["bundle"]["seed"], "7")
+
+    def test_params_source_never_names_a_folder_outside_the_repo(self):
+        params = self.tmp / "my_params.json"
+        params.write_text((ROOT / "core" / "data" / "table_params.json").read_text(encoding="utf-8"),
+                          encoding="utf-8")
+        for given, source in ((None, "core/data/table_params.json"),
+                              (ROOT / "core" / "data" / "table_params.json", "core/data/table_params.json"),
+                              (params, "my_params.json")):
+            with self.subTest(params=given):
+                _, lines = self.simulate_with_log(*(("--params", given) if given else ()))
+                loaded = next(line for line in lines if line["event"] == "params.loaded")
+                self.assertEqual(loaded["data"]["source"], source)
+                text = json.dumps(lines)
+                for private in (str(self.tmp), pathlib.Path.home().name):
+                    self.assertNotIn(private, text)
+
+    def test_log_lines_name_the_core_version(self):
+        version = re.search(r'core_version\(\) \{ return "([^"]+)"; \}',
+                            (ROOT / "core" / "src" / "version.cpp").read_text(encoding="utf-8")).group(1)
+        _, lines = self.simulate_with_log()
+        for line in lines:
+            self.assertRegex(line["build"], rf"^sim_cli-{re.escape(version)}(\+[0-9a-f]{{7,40}})?$")
+
+    def test_the_bundle_names_the_table_it_ran_on(self):
+        _, lines = self.simulate_with_log()
+        bundle = next(line for line in lines if line["event"] == "shot.simulated")["data"]["bundle"]
+        if "table_hash" not in bundle:
+            self.skipTest("the repro bundle doesn't carry table_hash yet (core/src/physics/repro.cpp)")
+        self.assertEqual(bundle["table_hash"], table_hash())
 
     def test_strike_overrides_one_key(self):
         result = run("simulate", STRAIGHT, "--strike", '{"speed_m_s": 0.5}')
@@ -231,16 +245,63 @@ class ReplayTest(CliTestCase):
     def test_replays_its_own_log(self):
         log, lines = self.simulate_with_log()
         result = run("replay", log)
-        if physics_stubbed():
-            self.assert_exit(result, 2)
-            self.assertIn("no shot.simulated or physics.anomaly lines", result.stderr)
-            self.skipTest("the stubbed physics logs no shot.simulated")
         self.assert_exit(result, 0)
         self.assertIn("shot.simulated   OK", result.stdout)
         self.assertNotIn("DIVERGED", result.stdout)
 
+    def bundle_file(self, table_hash_value):
+        """The straight_1m shot's {bundle, result} with its table_hash set, or removed for None."""
+        _, lines = self.simulate_with_log()
+        data = self.shot_line(lines)["data"]
+        data["bundle"].pop("table_hash", None)
+        if table_hash_value is not None:
+            data["bundle"]["table_hash"] = table_hash_value
+        path = self.tmp / "shot.json"
+        path.write_text(json.dumps(data), encoding="utf-8")
+        return path
+
+    def test_a_bundle_from_another_table_is_refused(self):
+        path = self.bundle_file("0123456789abcdef")
+        result = run("replay", path)
+        self.assert_exit(result, 1)
+        self.assertIn("ERROR        table mismatch: the bundle ran on table 0123456789abcdef, but "
+                      f"core/data/table_shape.json is {table_hash()}", result.stdout)
+        self.assertIn("--force-table", result.stdout)
+        self.assertIn("1 errors", result.stdout)
+
+        forced = run("replay", path, "--force-table")
+        self.assert_exit(forced, 0)
+        self.assertIn("warning: the bundle ran on table 0123456789abcdef", forced.stdout)
+        self.assertIn("file     bundle           OK", forced.stdout)
+
+    def test_a_bundle_from_this_table_replays_without_a_warning(self):
+        result = run("replay", self.bundle_file(table_hash()))
+        self.assert_exit(result, 0)
+        self.assertIn("OK", result.stdout)
+        self.assertNotIn("warning", result.stdout)
+
+    def test_another_table_file_is_checked_against_the_bundle(self):
+        table = json.loads((ROOT / "core" / "data" / "table_shape.json").read_text(encoding="utf-8"))
+        table["_note"] += " A different file, so a different hash."
+        other = self.tmp / "other_table.json"
+        other.write_text(json.dumps(table), encoding="utf-8")
+        result = run("replay", self.bundle_file(table_hash()), "--table", other)
+        self.assert_exit(result, 1)
+        self.assertIn("but other_table.json is", result.stdout)
+
+    def test_a_bundle_without_a_table_hash_replays_with_a_warning(self):
+        result = run("replay", self.bundle_file(None))
+        self.assert_exit(result, 0)
+        self.assertIn("warning: the bundle has no table_hash, so its table can't be checked; replaying on "
+                      f"core/data/table_shape.json ({table_hash()})", result.stdout)
+        self.assertIn("OK", result.stdout)
+
+    def test_a_table_hash_that_is_not_a_string_is_an_error(self):
+        result = run("replay", self.bundle_file(12))
+        self.assert_exit(result, 1)
+        self.assertIn("table_hash: want a string", result.stdout)
+
     def test_tampered_result_diverges_and_every_line_is_reported(self):
-        self.require_real_physics()
         _, lines = self.simulate_with_log()
         shot = self.shot_line(lines)
         tampered = json.loads(json.dumps(shot))
@@ -272,7 +333,6 @@ class ReplayTest(CliTestCase):
         self.assertIn("line 1 is not a shot.simulated", result.stderr)
 
     def test_bare_bundle(self):
-        self.require_real_physics()
         _, lines = self.simulate_with_log()
         path = self.tmp / "bundle.json"
         path.write_text(json.dumps(self.shot_line(lines)["data"]["bundle"]), encoding="utf-8")
@@ -288,7 +348,6 @@ class ReplayTest(CliTestCase):
         self.assertIn("ERROR        bundle unreadable", result.stdout)
 
     def test_anomaly_that_does_not_reproduce(self):
-        self.require_real_physics()
         _, lines = self.simulate_with_log()
         shot = self.shot_line(lines)
         anomaly = dict(shot, subsystem="physics", level="warn", event="physics.anomaly",
@@ -325,37 +384,131 @@ class FuzzTest(CliTestCase):
         self.assertNotEqual(self.line(one, "inputs digest:"), self.line(other, "inputs digest:"))
 
 
+SHOTS = 17
+BIG_SHOT = "break_7.0ms_rack2"
+
+
 class BenchTest(CliTestCase):
-    def test_lists_every_shot(self):
-        result = run("bench", "--runs", 2, "--baseline", self.tmp / "none.json", timeout=120)
-        self.assert_exit(result, 0)
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        # One measured baseline for every test to edit: a bench run is the slow part.
+        cls._baseline_dir = tempfile.TemporaryDirectory()
+        cls.measured = pathlib.Path(cls._baseline_dir.name) / "baseline.json"
+        cls.written = run("bench", "--runs", 2, "--write-baseline", "--baseline", cls.measured, timeout=300)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._baseline_dir.cleanup()
+        super().tearDownClass()
+
+    def baseline(self, edit):
+        data = json.loads(self.measured.read_text(encoding="utf-8"))
+        edit(data)
+        path = self.tmp / "baseline.json"
+        path.write_text(json.dumps(data), encoding="utf-8")
+        return path
+
+    def check(self, baseline, *extra):
+        return run("bench", "--runs", 2, "--check", "--budget-us", 1e12, "--baseline", baseline, *extra, timeout=300)
+
+    def regressed(self, result):
+        return [line.split()[0] for line in result.stdout.splitlines() if "REGRESSED" in line]
+
+    def test_lists_every_shot_and_writes_a_baseline(self):
+        self.assert_exit(self.written, 0)
         for name in ("break_4.5ms_rack1", "break_10.0ms_rack3", "long_multi_cushion", "cluster_split",
-                     "pot_black_corner", "slow_roll_nap"):
-            self.assertIn(name, result.stdout)
-        self.assertNotIn("check:", result.stdout)
+                     "pot_black_corner", "slow_roll_nap", "pack_break_off", "pack_slow_roll"):
+            self.assertIn(name, self.written.stdout)
+        self.assertNotIn("check:", self.written.stdout)
+        data = json.loads(self.measured.read_text(encoding="utf-8"))
+        self.assertEqual(len(data["shots"]), SHOTS)
+        self.assertEqual(data["version"], 2)
+        self.assertEqual(data["build"], "debug")
+        self.assertRegex(data["machine"], r", \d+ logical cores$")
+        self.assertGreater(data["probe_us"], 0)
+        for shot in data["shots"].values():
+            self.assertGreater(shot["probe_units"], 0)
+        # The recorded pack shots keep their event counts: they are the shots that were recorded.
+        self.assertEqual(data["shots"]["pack_break_off"]["events"], 792)
+        self.assertEqual(data["shots"]["pack_slow_roll"]["events"], 2947)
 
     def test_check_reports_a_regression_against_the_baseline(self):
-        baseline = self.tmp / "baseline.json"
-        written = run("bench", "--runs", 2, "--write-baseline", "--baseline", baseline, timeout=120)
-        self.assert_exit(written, 0)
-        data = json.loads(baseline.read_text(encoding="utf-8"))
-        self.assertEqual(len(data["shots"]), 15)
-        for shot in data["shots"].values():
-            shot["median_us"] = 1e12
-        data["shots"]["cluster_split"]["median_us"] = 1e-6
-        baseline.write_text(json.dumps(data), encoding="utf-8")
-        result = run("bench", "--runs", 2, "--check", "--budget-us", 1e12, "--baseline", baseline, timeout=120)
+        def edit(data):
+            for shot in data["shots"].values():
+                shot["probe_units"] = 1e12
+            data["shots"][BIG_SHOT]["probe_units"] = 1e-9
+        result = self.check(self.baseline(edit))
         self.assert_exit(result, 1)
-        regressed = [line for line in result.stdout.splitlines() if "REGRESSED" in line]
-        self.assertEqual(len(regressed), 1, result.stdout)
-        self.assertTrue(regressed[0].startswith("cluster_split"))
-        self.assertIn("check: 0 over the", result.stdout)
+        self.assertEqual(self.regressed(result), [BIG_SHOT], result.stdout)
+        self.assertIn("check: 0 over the 1000000000000 us budget, 1 regressed more than 25% + 50 us", result.stdout)
+
+    def test_the_absolute_slack_absorbs_differences_of_a_few_microseconds(self):
+        # Every shot ten times its baseline: the slack is 50 us at the baseline machine's speed, so with
+        # that machine's probe a million times faster every difference is far below it.
+        def edit(data, probe_scale):
+            data["probe_us"] *= probe_scale
+            for shot in data["shots"].values():
+                shot["probe_units"] /= 10.0
+        absorbed = self.check(self.baseline(lambda data: edit(data, 1e-6)))
+        self.assert_exit(absorbed, 0)
+        self.assertEqual(self.regressed(absorbed), [])
+        caught = self.check(self.baseline(lambda data: edit(data, 1.0)))
+        self.assert_exit(caught, 1)
+        self.assertIn(BIG_SHOT, self.regressed(caught))
+
+    def test_a_shot_missing_from_the_baseline_is_new(self):
+        def edit(data):
+            del data["shots"]["pack_slow_roll"]
+            for shot in data["shots"].values():
+                shot["probe_units"] = 1e12
+        result = self.check(self.baseline(edit))
+        self.assert_exit(result, 0)
+        line = next(line for line in result.stdout.splitlines() if line.startswith("pack_slow_roll"))
+        self.assertIn("(new)", line)
+        self.assertNotIn("REGRESSED", line)
+
+    def test_a_baseline_from_another_machine_or_build_is_only_reported(self):
+        def regressing(data):
+            for shot in data["shots"].values():
+                shot["probe_units"] = 1e-9
+        cases = (({"machine": "Another CPU, 4 logical cores"}, "the baseline was recorded on Another CPU, 4 logical "
+                  "cores, not this machine"),
+                 ({"build": "release"}, "the baseline was recorded with a release build, this is a debug build"),
+                 ({"version": 1, "machine": None}, "the baseline names no machine or speed probe (written before "
+                  "baseline version 2)"))
+        for change, why in cases:
+            with self.subTest(change=change):
+                def edit(data):
+                    regressing(data)
+                    for key, value in change.items():
+                        if value is None:
+                            del data[key]
+                        else:
+                            data[key] = value
+                result = self.check(self.baseline(edit))
+                self.assert_exit(result, 0)
+                self.assertEqual(self.regressed(result), [])
+                self.assertIn("note: no regression check: " + why, result.stdout)
+                self.assertIn("regressions not checked: " + why, result.stdout)
+
+    def test_the_committed_baseline_reads(self):
+        result = run("bench", "--runs", 1, timeout=300)
+        self.assert_exit(result, 0)
+        self.assertIn("bench_baseline.json", result.stdout)
 
     def test_check_reports_the_budget(self):
         result = run("bench", "--runs", 2, "--check", "--budget-us", 1e-3, "--baseline", self.tmp / "none.json",
-                     timeout=120)
+                     timeout=300)
         self.assert_exit(result, 1)
-        self.assertEqual(result.stdout.count("OVER BUDGET"), 15)
+        self.assertEqual(result.stdout.count("OVER BUDGET"), SHOTS)
+
+    def test_the_recorded_shots_replay(self):
+        for name in ("pack_break_off", "pack_slow_roll"):
+            with self.subTest(shot=name):
+                result = run("replay", ROOT / "tools" / "sim_cli" / "bench_shots" / f"{name}.json", timeout=300)
+                self.assert_exit(result, 0)
+                self.assertIn("OK", result.stdout)
 
 
 class CalibrateTest(CliTestCase):
@@ -373,6 +526,37 @@ class CalibrateTest(CliTestCase):
         report = calibration_report.assemble_report(series, {}, problems)
         for s in series.values():
             self.assertIn(s.title, report)
+
+    def test_each_series_records_its_setup(self):
+        out = self.tmp / "calibration"
+        self.assert_exit(run("calibrate", "--out", out, "--breaks", 1, timeout=120), 0)
+        summary = {path.stem: json.loads(path.read_text(encoding="utf-8"))["summary"] for path in out.glob("*.json")}
+        self.assertEqual(summary["squirt"]["cue_speed_m_s"], 3.0)
+        self.assertEqual(summary["swerve"]["cue_speed_m_s"], 1.5)
+        self.assertEqual(summary["deflection"]["cue_ball_speed_m_s"], 1.0)
+        self.assertEqual(summary["cushion_side"]["cue_ball_speed_m_s"], 1.5)
+        self.assertEqual(summary["cushion_side"]["speed_m_s"], 1.5)
+        self.assertEqual(summary["throw"]["cue_ball_speeds_m_s"], [0.5, 1.5, 4.0])
+        self.assertEqual(summary["cushion_rebound"]["cue_ball_speeds_m_s"], [0.5, 1.0, 2.0, 4.0])
+        self.assertEqual(summary["screw_follow"]["cue_speeds_m_s"], [1.0, 2.0, 3.0])
+        for name in ("squirt", "swerve", "lag", "screw_follow"):
+            self.assertIn("start_x_m", summary[name], name)
+            self.assertIn("start_y_m", summary[name], name)
+
+    def test_the_level_swerve_shot_is_level(self):
+        out = self.tmp / "calibration"
+        self.assert_exit(run("calibrate", "--out", out, "--breaks", 1, timeout=120), 0)
+        used = json.loads((out / "swerve.json").read_text(encoding="utf-8"))["summary"]["elevation_used_deg"]
+        self.assertEqual(used["0 deg, tip +0.40"], 0.0)
+
+    def test_screw_and_follow_play_on_an_open_table(self):
+        out = self.tmp / "calibration"
+        self.assert_exit(run("calibrate", "--out", out, "--breaks", 1, timeout=120), 0)
+        data = json.loads((out / "screw_follow.json").read_text(encoding="utf-8"))
+        self.assertEqual(data["summary"]["table_scale"], 20.0)
+        # On the real table the top cushion is 1.3 m past the red, so no follow could run half its length.
+        follow = max(row[2] for row in data["rows"] if row[2] is not None)
+        self.assertGreater(follow, data["summary"]["playing_length_m"] / 2.0)
 
 
 if __name__ == "__main__":
