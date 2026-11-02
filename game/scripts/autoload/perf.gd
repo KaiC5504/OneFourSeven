@@ -3,18 +3,24 @@ extends Node
 ## rendering (spec 13.4).
 ##
 ## With application/run/low_processor_mode on, Godot draws only when something changed. Idle
-## keeps it on; input or anything registered through set_active turns it off so motion runs
-## at the display rate rather than at low-processor mode's capped loop.
+## keeps it on; input, a touch or mouse button held down, or anything registered through
+## set_active turns it off so motion runs at the display rate rather than at low-processor
+## mode's capped loop. A finger resting on the screen sends no events, so held touches are
+## tracked rather than inferred from the last event's time.
 ##
 ## Low-processor mode stops drawing but not the loop: on iOS the display link still ticks it at
 ## 120 Hz. Idle also caps Engine.max_fps at IDLE_MAX_FPS, so the first input waits at most one
-## idle frame, and activity restores the cap the game had.
+## idle frame, and activity restores the cap the game had. Set that cap with set_max_fps:
+## Engine.max_fps belongs to Perf while idle.
 
 const HITCH_MS := 50.0
 const STARTUP_SECONDS := 3.0
 const DROPPED_FACTOR := 1.5
 const INPUT_QUIET_SECONDS := 2.0
 const IDLE_MAX_FPS := 30
+# Godot sends each wheel step as a press and a release; neither is a button held down.
+const WHEEL_BUTTONS: Array[MouseButton] = [MOUSE_BUTTON_WHEEL_UP, MOUSE_BUTTON_WHEEL_DOWN,
+		MOUSE_BUTTON_WHEEL_LEFT, MOUSE_BUTTON_WHEEL_RIGHT]
 # Preallocated so a frame never allocates; a second at 240 Hz fits with room to spare.
 const BUFFER_SIZE := 512
 
@@ -68,6 +74,8 @@ var _window_start_drawn := 0
 var _last_usec := 0
 var _start_usec := 0
 var _last_input_usec := -1
+# "touch <index>" and "mouse <button>" for each one down now.
+var _held := {}
 var _active := {}
 var _idle := true
 var _last_frame_idle := true
@@ -84,10 +92,10 @@ static func fps_for(frames_drawn: int, elapsed_usec: int) -> float:
 	return frames_drawn * 1e6 / elapsed_usec if elapsed_usec > 0 else 0.0
 
 
-## Idle unless there was input in the last INPUT_QUIET_SECONDS or something is active.
-## last_input_usec < 0 means no input yet.
-static func idle_at(now_usec: int, last_input_usec: int, active_count: int) -> bool:
-	if active_count > 0:
+## Idle unless a touch or button is held, there was input in the last INPUT_QUIET_SECONDS, or
+## something is active. last_input_usec < 0 means no input yet.
+static func idle_at(now_usec: int, last_input_usec: int, active_count: int, held_count: int) -> bool:
+	if active_count > 0 or held_count > 0:
 		return false
 	return last_input_usec < 0 or now_usec - last_input_usec >= INPUT_QUIET_SECONDS * 1e6
 
@@ -95,6 +103,16 @@ static func idle_at(now_usec: int, last_input_usec: int, active_count: int) -> b
 ## Engine.max_fps while idle, given the cap while active (0 is none). A lower cap stays.
 static func idle_max_fps_for(active_max_fps: int) -> int:
 	return IDLE_MAX_FPS if active_max_fps <= 0 else mini(active_max_fps, IDLE_MAX_FPS)
+
+
+# The root's window_input rather than _input, which reaches autoloads last, after any node in
+# the scene that could mark the event handled.
+func _enter_tree() -> void:
+	get_tree().root.window_input.connect(_on_window_input)
+
+
+func _exit_tree() -> void:
+	get_tree().root.window_input.disconnect(_on_window_input)
 
 
 func _ready() -> void:
@@ -114,9 +132,21 @@ func _notification(what: int) -> void:
 	if what == NOTIFICATION_APPLICATION_RESUMED or what == NOTIFICATION_APPLICATION_FOCUS_IN:
 		if _window != null:
 			_start_window(Time.get_ticks_usec())
+	# A release that happens while the app is away may never arrive, and a touch left held would
+	# keep the game drawing at full rate for good.
+	if what == NOTIFICATION_APPLICATION_FOCUS_OUT:
+		_drop_held("focus lost")
+	elif what == NOTIFICATION_APPLICATION_PAUSED:
+		_drop_held("paused")
 
 
-func _input(_event: InputEvent) -> void:
+func _on_window_input(event: InputEvent) -> void:
+	var touch := event as InputEventScreenTouch
+	var button := event as InputEventMouseButton
+	if touch != null:
+		_set_held("touch %d" % touch.index, touch.pressed)
+	elif button != null and button.button_index not in WHEEL_BUTTONS:
+		_set_held("mouse %d" % button.button_index, button.pressed)
 	_last_input_usec = Time.get_ticks_usec()
 	_update_idle(_last_input_usec)
 
@@ -149,8 +179,21 @@ func set_active(reason: StringName, active: bool) -> void:
 	_update_idle(Time.get_ticks_usec())
 
 
+## The frame cap for active play (0 is none); the idle cap stays at or below it.
+func set_max_fps(fps: int) -> void:
+	_active_max_fps = maxi(fps, 0)
+	if _cap_idle_fps and _idle:
+		Engine.max_fps = idle_max_fps_for(_active_max_fps)
+	else:
+		Engine.max_fps = _active_max_fps
+
+
 func is_idle() -> bool:
 	return _idle
+
+
+func held_count() -> int:
+	return _held.size()
 
 
 func second_data(now: int) -> Dictionary:
@@ -177,11 +220,28 @@ func _start_window(now: int) -> void:
 
 
 func _update_idle(now: int) -> void:
-	var idle := idle_at(now, _last_input_usec, _active.size())
+	var idle := idle_at(now, _last_input_usec, _active.size(), _held.size())
 	if idle == _idle:
 		return
 	_idle = idle
 	_apply_idle()
+
+
+func _set_held(key: String, pressed: bool) -> void:
+	if pressed:
+		_held[key] = true
+	else:
+		_held.erase(key)
+
+
+func _drop_held(reason: String) -> void:
+	if _held.is_empty():
+		return
+	Log.warn("app", "app.error", {"kind": "message",
+			"message": "perf: %s with %s still held; dropped so a lost release can't keep the game from idling"
+					% [reason, ", ".join(PackedStringArray(_held.keys()))]})
+	_held.clear()
+	_update_idle(Time.get_ticks_usec())
 
 
 func _apply_idle() -> void:
