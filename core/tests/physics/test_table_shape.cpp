@@ -5,9 +5,13 @@
 #include <cmath>
 #include <fstream>
 #include <limits>
+#include <memory>
 #include <string>
 #include <vector>
 
+#include "ofs/log.hpp"
+#include "ofs/log_schema.hpp"
+#include "ofs/params.hpp"
 #include "ofs/physics/table_shape.hpp"
 #include "ofs/rng.hpp"
 
@@ -418,4 +422,60 @@ TEST_CASE("table shape: malformed files are refused with every problem listed") 
         CHECK_FALSE(load_table_shape(nlohmann::json::array(), out, problems));
         CHECK(problems.size() == 1);
     }
+}
+
+namespace {
+
+struct Capture : log::Sink {
+    std::vector<log::Event> events;
+    void write(const log::Event& event, const std::string&) override { events.push_back(event); }
+};
+
+std::vector<log::Event> load_capturing(const nlohmann::json& file, std::vector<std::string>& problems, bool& ok) {
+    auto capture = std::make_shared<Capture>();
+    log::Logger::instance().clear_sinks();
+    log::Logger::instance().add_sink(capture);
+    TableShape out;
+    ok = load_table_shape(file, out, problems);
+    log::Logger::instance().clear_sinks();
+    return capture->events;
+}
+
+}  // namespace
+
+TEST_CASE("table shape: a refused file is logged once as table.invalid with its hash and every problem") {
+    // Spec 16.10: a refused table file must be diagnosable from the log alone.
+    const nlohmann::json schema = log::load_schema(std::string(OFS_CORE_DATA_DIR) + "/log_schema.json");
+    nlohmann::json bad = shape_file();
+    bad["rail_width_m"] = -1.0;
+    bad.at("lines")[3]["kind"] = "rail";
+    std::vector<std::string> problems{"left by an earlier load"};
+    bool ok = true;
+    auto events = load_capturing(bad, problems, ok);
+    CHECK_FALSE(ok);
+    REQUIRE(problems.size() >= 3);
+    REQUIRE(events.size() == 1);
+    const log::Event e = events[0];
+    CHECK(e.event == "table.invalid");
+    CHECK(e.subsystem == "table");
+    CHECK(e.level == log::Level::error);
+    const auto problem = log::check(e, schema);
+    CHECK_MESSAGE(!problem.has_value(), problem.value_or(""));
+    CHECK(e.data["hash"] == params::content_hash(bad));
+    CHECK(e.data["hash"] != params::content_hash(shape_file()));
+    const std::vector<std::string> found(problems.begin() + 1, problems.end());
+    CHECK(e.data["problems"] == nlohmann::json(found));
+
+    problems.clear();
+    events = load_capturing(nlohmann::json::array(), problems, ok);
+    CHECK_FALSE(ok);
+    REQUIRE(events.size() == 1);
+    CHECK(events[0].event == "table.invalid");
+    CHECK(events[0].data["hash"] == params::content_hash(nlohmann::json::array()));
+    CHECK(events[0].data["problems"] == nlohmann::json(problems));
+
+    problems.clear();
+    events = load_capturing(shape_file(), problems, ok);
+    CHECK(ok);
+    CHECK(events.empty());
 }
