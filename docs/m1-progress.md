@@ -149,3 +149,8 @@ Bench note: another project's tests were loading the CPU at 909c010, so bench --
 ## Seam round (after 34419a8)
 
 Seam review: no contract break. My fixes in f2148b1 (comments, NaN elevation, C7/C8 and C14 strictness, schema doc) and the spec's section 7 brought in line with the model (7.2, 7.5 wedging, 7.7 pushes and held contacts, C10). C14 counting solver_fallback exposed that long straight ball chains leave the contact-force solve unconverged (1e-8 to 1e-7 m/s^2): a simulator agent is on it. A tools agent is on fuzz failing on solver_fallback, a bench budget on probe-scaled time, the bench table check, `replay --update` writing v2 bundles, calibrate anomalies, and report setups read from calibrate summaries.
+
+## Shipped (2026-11-02)
+
+4174a72 pushed; iOS compile check 41428382387 and Windows CI 41428382404 green. Full gate green locally (2 x 100k fuzz, 0 failures; C1-C14; bench under 2 ms on scaled time). No TestFlight build in M1. Report page for KaiC: https://claude.ai/artifact/GjXfAvuLYLsoPt62o8zHH9.
+Known limit: a ball rolling at 1 cm/s or more into a wedge of two still balls within about 1e-6 rad of in line still takes a solver fallback (never seen in C14 or the fuzz).
