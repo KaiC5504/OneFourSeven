@@ -118,3 +118,24 @@ findings by file into fix agents (one message), then re-run fuzz on several seed
 bench, regenerate the report with corrected plain words, seam review, ship. Decided: swerve
 curves while sliding (parabola, bends most late) - the model is right, the spec's C10 wording
 is loose; cloth pace roll 0.010 stays for KaiC's M2 feel check.
+
+## Fix round (launched 2026-11-02 from contracts 909c010)
+
+All eight checkers reported; findings in the session scratchpad's m1-findings.md. Contracts 909c010:
+cushion responses return false on solver fallback, `kOverlapTolerance_m = 1e-9` shared by simulator and
+fuzz, `SimInput::table_hash`, `table.invalid` log event, `test_simulator_regress.cpp`.
+
+| Agent | Files | Items |
+| --- | --- | --- |
+| simulator core | simulator.cpp/.hpp, test_simulator_regress.cpp | overlaps, 2 ms tail and pack chatter, solver_fallback recording, comments |
+| jaws + sim tests | test_simulator.cpp, table_shape.cpp/.hpp/.json, test_table_shape.cpp | slow ball staying out of a jaw, jaw/energy/push tests, table.invalid |
+| cushion | collide_cushion.cpp, collide.hpp, collide_ball.cpp, their tests | grazing energy gain (snap), solver limit, C7 literals |
+| params/cue/nap/rack | physics_params.cpp, params.hpp, table_params.json, cue, nap, motion.hpp, shot_record.hpp, rack, tests | degenerate ranges, nap energy cap, notes, comments, obstruction/rack/miscue tests |
+| repro | repro.cpp/.hpp, serialize.cpp/.hpp, tests | digest divergence, table_hash, NaN encoding, values hash |
+| sim_cli + gate | tools/sim_cli/**, test_sim_cli.py, gate.py | replay table check, paths, build id, bench slack + pack shots, segment tunnel check, second fuzz seed |
+| report | calibration_report.py, docs/calibration/** | script writes every section, plain-words corrections, charts |
+| idle + CI | perf.gd, test_perf.gd, godot_tools.py, build_macos_ext.sh, test_ci, ios-compile.yml | held touch keeps the game active, set_max_fps, extension load errors, incremental macOS build cache |
+
+Then: merge each (remove its worktree once the quick gate is green), refresh bench baseline on an idle PC,
+fuzz on seeds 1/4242/987654/1234/99, calibration, regenerate report, seam review, push once, ship.
+Bench note: another project's tests were loading the CPU at 909c010, so bench --check read ~2x slow.
