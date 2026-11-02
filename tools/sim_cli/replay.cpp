@@ -25,6 +25,13 @@ struct Table {
     bool force = false;
 };
 
+// --update: a single-object file whose stored result is out of date (a recorded bench shot after a
+// deliberate physics change) gets the replayed result and this table's hash written back.
+struct Update {
+    bool enabled = false;
+    std::string path;
+};
+
 struct Tally {
     int ok = 0;
     int diverged = 0;
@@ -93,7 +100,21 @@ bool replay_bundle(const Item& item, const nlohmann::json& bundle, const Table& 
     return true;
 }
 
-void replay_shot(const Item& item, const Table& table, double tolerance, Tally& tally) {
+bool write_update(const Update& update, const Item& item, const Table& table, const nlohmann::json& replayed) {
+    nlohmann::json file = item.data;
+    file["bundle"]["table_hash"] = table.hash;
+    file["result"] = replayed;
+    std::string error;
+    if (!write_text_file(update.path, file.dump(1) + "\n", error)) {
+        std::printf("%-8s %-16s ERROR        not updated: %s\n", where(item).c_str(), item.kind.c_str(),
+                    error.c_str());
+        return false;
+    }
+    std::printf("%-8s %-16s UPDATED      %s\n", where(item).c_str(), item.kind.c_str(), update.path.c_str());
+    return true;
+}
+
+void replay_shot(const Item& item, const Table& table, double tolerance, const Update& update, Tally& tally) {
     const auto bundle = item.data.find("bundle");
     const auto logged = item.data.find("result");
     if (bundle == item.data.end()) {
@@ -110,6 +131,14 @@ void replay_shot(const Item& item, const Table& table, double tolerance, Tally& 
         return;
     }
     const nlohmann::json replayed = phys::make_result(r);
+    if (update.enabled) {
+        if (write_update(update, item, table, replayed)) {
+            ++tally.ok;
+        } else {
+            ++tally.errors;
+        }
+        return;
+    }
     const phys::Divergence d = phys::compare_results(*logged, replayed, tolerance);
     if (!d.diverged) {
         std::printf("%-8s %-16s OK           %s\n", where(item).c_str(), item.kind.c_str(),
@@ -236,7 +265,7 @@ bool collect_items(const std::string& path, const std::string& text, long long o
 }  // namespace
 
 int cmd_replay(const std::vector<std::string>& argv) {
-    const ArgSpec spec{{"line", "tolerance", "table"}, {"force-table"}, 1, 1};
+    const ArgSpec spec{{"line", "tolerance", "table"}, {"force-table", "update"}, 1, 1};
     Args args;
     std::string error;
     if (!parse_args(argv, spec, args, error)) return usage_error("replay", error);
@@ -258,13 +287,17 @@ int cmd_replay(const std::vector<std::string>& argv) {
     if (!read_text_file(path, text, error)) return usage_error("replay", error);
     std::vector<Item> items;
     if (!collect_items(path, text, only_line, items, error)) return usage_error("replay", error);
+    const Update update{args.flag("update"), path};
+    if (update.enabled && (items.size() != 1 || items[0].line != 0 || items[0].kind != "bundle")) {
+        return usage_error("replay", "--update rewrites a single {bundle, result} file, not a log");
+    }
 
     Tally tally;
     for (const Item& item : items) {
         if (item.kind == "physics.anomaly") {
             replay_anomaly(item, table, tally);
         } else {
-            replay_shot(item, table, tolerance, tally);
+            replay_shot(item, table, tolerance, update, tally);
         }
     }
     std::printf("replayed %zu: %d ok, %d diverged, %d anomalies reproduced, %d not reproduced, "

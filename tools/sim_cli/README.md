@@ -59,6 +59,8 @@ ofs_sim_cli replay build/fuzz-failures/fuzz-1-000123.json
   and one without a `table_hash` is replayed with a warning that its table can't be checked.
 - Exit 1 if any shot diverged, any anomaly didn't reproduce, any bundle couldn't be read or any was
   refused for its table.
+- `--update` rewrites a single `{bundle, result}` file with the replayed result and the table's
+  hash, for a recorded shot (`bench_shots/`) after a deliberate physics change.
 
 ## fuzz
 

@@ -134,6 +134,25 @@ class Lanes(unittest.TestCase):
         ok, output = gate.python_tests("no_such_folder")()
         self.assertEqual((False, "no_such_folder/ is missing"), (ok, output))
 
+    def physics_commands(self, quick: bool, ci: bool) -> list[list[str]]:
+        env = {"CI": "true"} if ci else {}
+        with mock.patch.dict(gate.os.environ, env, clear=True),                 mock.patch.object(gate, "configure_and_build", return_value=[]),                 mock.patch.object(gate, "sim_cli", return_value=Path("sim")),                 mock.patch.object(gate, "run", return_value=(True, "")) as run:
+            for physics_step in gate.physics_steps(quick):
+                physics_step()
+        return [[str(part) for part in call.args[0]] for call in run.call_args_list]
+
+    def test_the_full_gate_fuzzes_two_seeds_and_quick_one(self):
+        def seeds(commands):
+            return [c[c.index("--seed") + 1] for c in commands if c[1:2] == ["fuzz"]]
+        self.assertEqual(["1", "4242"], seeds(self.physics_commands(quick=False, ci=False)))
+        self.assertEqual(["1"], seeds(self.physics_commands(quick=True, ci=False)))
+
+    def test_ci_reports_the_bench_without_checking_it(self):
+        def bench(commands):
+            return next(c[1:] for c in commands if c[1:2] == ["bench"])
+        self.assertEqual(["bench", "--check"], bench(self.physics_commands(quick=True, ci=False)))
+        self.assertEqual(["bench"], bench(self.physics_commands(quick=True, ci=True)))
+
     def test_quick_leaves_out_only_the_export(self):
         full = [lane.name for lane in gate.lanes(quick=False)]
         quick = [lane.name for lane in gate.lanes(quick=True)]

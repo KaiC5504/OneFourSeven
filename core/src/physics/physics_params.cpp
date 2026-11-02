@@ -49,8 +49,12 @@ const std::vector<Field>& fields() {
         // guard).
         {"ball_rest_speed_m_s", &PhysicsParams::ball_rest_speed_m_s, nullptr, 1e-4, 0.05},
         {"cushion_restitution", &PhysicsParams::cushion_restitution, nullptr, 0.0, 1.0},
-        {"cushion_friction", &PhysicsParams::cushion_friction, nullptr, 0.0, 2.0},
-        {"cushion_table_friction", &PhysicsParams::cushion_table_friction, nullptr, 0.0, 2.0},
+        // Both cushion contacts can stick and wedge the ball once the contact height reaches
+        // 2R / (1 + mu^2), mu the lower of the two frictions; with every mu <= 0.25 that stays above
+        // 0.0494 m, clear of the 0.045 cap below (0 fallbacks in 140k impacts per friction pair). At
+        // 0.3 fallbacks appear, and at mu >= 1 every height wedges.
+        {"cushion_friction", &PhysicsParams::cushion_friction, nullptr, 0.0, 0.25},
+        {"cushion_table_friction", &PhysicsParams::cushion_table_friction, nullptr, 0.0, 0.25},
         // The impact solver starts giving up as the contact nears the top of the ball (2R): on 1
         // of 20,000 random impacts at 0.049, on 8% at 0.052. 0.045 is sin(theta) 0.71.
         {"cushion_contact_height_m", &PhysicsParams::cushion_contact_height_m, nullptr, 0.02625, 0.045},
@@ -58,7 +62,8 @@ const std::vector<Field>& fields() {
         {"cushion_restitution_slope_per_m_s", &PhysicsParams::cushion_restitution_slope_per_m_s, nullptr, 0.0, 1.0},
         {"cushion_restitution_min", &PhysicsParams::cushion_restitution_min, nullptr, 0.0, 1.0},
         {"jaw_restitution", &PhysicsParams::jaw_restitution, nullptr, 0.0, 1.0},
-        {"jaw_friction", &PhysicsParams::jaw_friction, nullptr, 0.0, 2.0},
+        // The jaw uses the same cushion solve, so the same wedging bound.
+        {"jaw_friction", &PhysicsParams::jaw_friction, nullptr, 0.0, 0.25},
         {"cue_mass_kg", &PhysicsParams::cue_mass_kg, nullptr, 0.05, 2.0},
         {"cue_tip_restitution", &PhysicsParams::cue_tip_restitution, nullptr, 0.0, 1.0},
         // A tip and ferrule weigh grams; at 0.1 g full side squirts 0.05 degrees.

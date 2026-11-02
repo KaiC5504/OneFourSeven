@@ -212,8 +212,6 @@ class SimulateTest(CliTestCase):
     def test_the_bundle_names_the_table_it_ran_on(self):
         _, lines = self.simulate_with_log()
         bundle = next(line for line in lines if line["event"] == "shot.simulated")["data"]["bundle"]
-        if "table_hash" not in bundle:
-            self.skipTest("the repro bundle doesn't carry table_hash yet (core/src/physics/repro.cpp)")
         self.assertEqual(bundle["table_hash"], table_hash())
 
     def test_strike_overrides_one_key(self):
@@ -259,6 +257,25 @@ class ReplayTest(CliTestCase):
         path = self.tmp / "shot.json"
         path.write_text(json.dumps(data), encoding="utf-8")
         return path
+
+    def test_update_rewrites_a_stale_result(self):
+        path = self.bundle_file(None)
+        stale = json.loads(path.read_text(encoding="utf-8"))
+        stale["result"]["event_list"][0][0] += 1e-6
+        path.write_text(json.dumps(stale), encoding="utf-8")
+        self.assert_exit(run("replay", path), 1)
+        result = run("replay", path, "--update")
+        self.assert_exit(result, 0)
+        self.assertIn("UPDATED", result.stdout)
+        updated = json.loads(path.read_text(encoding="utf-8"))
+        self.assertEqual(table_hash(), updated["bundle"]["table_hash"])
+        result = run("replay", path)
+        self.assert_exit(result, 0)
+        self.assertIn("OK", result.stdout)
+
+    def test_update_refuses_a_log(self):
+        log, _ = self.simulate_with_log()
+        self.assert_exit(run("replay", log, "--update"), 2)
 
     def test_a_bundle_from_another_table_is_refused(self):
         path = self.bundle_file("0123456789abcdef")
@@ -429,9 +446,10 @@ class BenchTest(CliTestCase):
         self.assertGreater(data["probe_us"], 0)
         for shot in data["shots"].values():
             self.assertGreater(shot["probe_units"], 0)
-        # The recorded pack shots keep their event counts: they are the shots that were recorded.
-        self.assertEqual(data["shots"]["pack_break_off"]["events"], 792)
-        self.assertEqual(data["shots"]["pack_slow_roll"]["events"], 2947)
+        # The bench runs the recorded pack shots themselves: same events as their stored result.
+        for name in ("pack_break_off", "pack_slow_roll"):
+            recorded = json.loads((ROOT / "tools" / "sim_cli" / "bench_shots" / f"{name}.json").read_text(encoding="utf-8"))
+            self.assertEqual(data["shots"][name]["events"], recorded["result"]["events"])
 
     def test_check_reports_a_regression_against_the_baseline(self):
         def edit(data):
