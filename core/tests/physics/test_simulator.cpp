@@ -116,7 +116,7 @@ void check_no_overlaps(const TableState& s) {
         for (std::size_t j = i + 1; j < s.balls.size(); ++j) {
             if (s.balls[i].motion == Motion::pocketed || s.balls[j].motion == Motion::pocketed) continue;
             const double d = std::hypot(s.balls[i].r.x - s.balls[j].r.x, s.balls[i].r.y - s.balls[j].r.y);
-            if (d < 2.0 * kR - 1e-7) FAIL_CHECK("balls " << i << " and " << j << " overlap by " << 2.0 * kR - d);
+            if (d < 2.0 * kR - kOverlapTolerance_m) FAIL_CHECK("balls " << i << " and " << j << " overlap by " << 2.0 * kR - d);
         }
     }
 }

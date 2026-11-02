@@ -401,7 +401,7 @@ class FuzzTest(CliTestCase):
         self.assertNotEqual(self.line(one, "inputs digest:"), self.line(other, "inputs digest:"))
 
 
-SHOTS = 17
+SHOTS = 20
 BIG_SHOT = "break_7.0ms_rack2"
 
 

@@ -255,7 +255,7 @@
     "zero_time_s": {
       "unit": "s",
       "source": "starting guess",
-      "note": "Events closer than this are simultaneous."
+      "note": "Events closer than this count toward max_zero_time_chain; they still resolve in time order."
     },
     "max_zero_time_chain": {
       "unit": "",

@@ -74,7 +74,7 @@ struct PhysicsParams {
     double rack_gap_max_m = 1.0e-4;
     double time_cap_s = 120.0;
     int max_events = 50000;
-    double zero_time_s = 1.0e-9;    // events closer than this count as simultaneous
+    double zero_time_s = 1.0e-9;    // events closer than this count toward max_zero_time_chain; they still resolve in time order
     int max_zero_time_chain = 1000;  // simultaneous events in a row before the guard trips
 };
 

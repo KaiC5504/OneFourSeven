@@ -124,12 +124,6 @@ void replay_shot(const Item& item, const Table& table, double tolerance, const U
     }
     phys::ShotRecord r;
     if (!replay_bundle(item, *bundle, table, r, tally)) return;
-    if (logged == item.data.end() || !logged->is_object()) {
-        std::printf("%-8s %-16s REPLAYED     %s (no logged result to compare)\n", where(item).c_str(),
-                    item.kind.c_str(), record_summary(r).c_str());
-        ++tally.replayed;
-        return;
-    }
     const nlohmann::json replayed = phys::make_result(r);
     if (update.enabled) {
         if (write_update(update, item, table, replayed)) {
@@ -137,6 +131,12 @@ void replay_shot(const Item& item, const Table& table, double tolerance, const U
         } else {
             ++tally.errors;
         }
+        return;
+    }
+    if (logged == item.data.end() || !logged->is_object()) {
+        std::printf("%-8s %-16s REPLAYED     %s (no logged result to compare)\n", where(item).c_str(),
+                    item.kind.c_str(), record_summary(r).c_str());
+        ++tally.replayed;
         return;
     }
     const phys::Divergence d = phys::compare_results(*logged, replayed, tolerance);
