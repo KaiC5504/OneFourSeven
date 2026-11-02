@@ -34,7 +34,9 @@ nlohmann::json make_bundle(const SimInput& in, const PhysicsParams& p);
 
 // {"events", "t_end", "potted": [{"ball", "pocket", "t"}], "final", "miscue",
 //  "elevation_used_rad", "elevation_raised", "anomalies", "sim_us", "event_list": [[t, kind, a,
-//  b, body], ...] (first kResultEventCap), "event_digest"}.
+//  b, body], ...] (first kResultEventCap), "event_digest"}. event_digest is ofs::params::content_hash
+// of [[kind, a, b, body], ...] over every event in order, without the times, which differ across
+// platforms by libm rounding.
 nlohmann::json make_result(const ShotRecord& r);
 
 // False with a reason when the bundle is malformed, from a newer version, its params invalid, or
@@ -55,8 +57,8 @@ struct Divergence {
 
 // Logged result against a replayed one: event list (kinds and bodies exactly, times within
 // 1e-9 s), potted balls exactly, final positions within tolerance_m. Events past kResultEventCap
-// are checked only by event_digest, which is bit for bit, so a longer shot whose digests differ
-// has diverged even when its listed events agree.
+// are checked only by event_digest, so there a different sequence of events diverges and a
+// different time doesn't.
 Divergence compare_results(const nlohmann::json& logged, const nlohmann::json& replayed, double tolerance_m);
 
 // Emits shot.simulated (info) with {bundle, result}.

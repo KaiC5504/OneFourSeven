@@ -120,13 +120,14 @@ nlohmann::json make_bundle(const SimInput& in, const PhysicsParams& p) {
 }
 
 nlohmann::json make_result(const ShotRecord& r) {
-    nlohmann::json all = nlohmann::json::array();
+    // The digest leaves the times out: they differ across platforms by libm rounding, and a
+    // bit-level digest would call every long phone shot replayed on the PC diverged.
+    nlohmann::json sequence = nlohmann::json::array();
     nlohmann::json listed = nlohmann::json::array();
     nlohmann::json potted = nlohmann::json::array();
     for (const ShotEvent& e : r.events) {
-        nlohmann::json entry = event_entry(e);
-        if (listed.size() < static_cast<std::size_t>(kResultEventCap)) listed.push_back(entry);
-        all.push_back(std::move(entry));
+        if (listed.size() < static_cast<std::size_t>(kResultEventCap)) listed.push_back(event_entry(e));
+        sequence.push_back(nlohmann::json::array({event_kind_name(e.kind), e.a, e.b, e.body}));
         if (e.kind == EventKind::pocket) potted.push_back({{"ball", e.a}, {"pocket", e.body}, {"t", e.t}});
     }
     return {{"events", r.events.size()},
@@ -139,7 +140,7 @@ nlohmann::json make_result(const ShotRecord& r) {
             {"anomalies", r.anomalies.size()},
             {"sim_us", r.sim_us},
             {"event_list", std::move(listed)},
-            {"event_digest", params::content_hash(all)}};
+            {"event_digest", params::content_hash(sequence)}};
 }
 
 bool parse_bundle(const nlohmann::json& bundle, SimInput& in, PhysicsParams& p, std::string& error) {
@@ -289,16 +290,10 @@ Divergence compare_results(const nlohmann::json& logged, const nlohmann::json& r
             notes.push_back(past_cap + " can't be checked: the " + (ld == nullptr ? "logged" : "replayed") +
                             " result has no event_digest");
         } else if (*ld != *rd) {
+            // The listed events already agree on everything the digest covers, so the difference
+            // is past the cap.
             d.diverged = true;
-            // The digest covers the listed events too, and bit for bit, so it can only place the
-            // difference past the cap when the listed ones agree exactly.
-            if (le->dump() == re->dump()) {
-                notes.push_back(past_cap + " differ (digest)");
-            } else {
-                notes.push_back("event_digest over all " + std::to_string(nl) + " events differs and the listed " +
-                                "events agree only within " + fmt(kEventTimeTolerance) + " s, not bit for bit, so " +
-                                past_cap + " can't be checked (rounding, as across platforms, does this)");
-            }
+            notes.push_back(past_cap + " differ (digest)");
         }
     }
 

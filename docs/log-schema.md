@@ -74,4 +74,5 @@ every number is finite. `tools/sim_cli replay` re-runs a bundle.
 
 **Result:** `events`, `t_end`, `potted` (`ball`, `pocket`, `t`), `final` (as `start`), `miscue`,
 `elevation_used_rad`, `elevation_raised`, `anomalies`, `sim_us`, `event_list` (the first 400 events as
-`[t, kind, a, b, body]`), `event_digest` (FNV-1a 64 over all of them).
+`[t, kind, a, b, body]`), `event_digest` (content hash of every event's `[kind, a, b, body]` in
+order, without the times, so libm rounding across platforms doesn't change it).

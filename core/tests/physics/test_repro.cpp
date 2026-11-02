@@ -315,11 +315,13 @@ TEST_CASE("bundle result lists the first 400 events and digests all of them") {
     CHECK(result["events"] == 1000);
     REQUIRE(result["event_list"].size() == static_cast<std::size_t>(kResultEventCap));
     const nlohmann::json all = full_event_list(r);
+    nlohmann::json sequence = nlohmann::json::array();
+    for (std::size_t i = 0; i < all.size(); ++i) sequence.push_back({all[i][1], all[i][2], all[i][3], all[i][4]});
     for (std::size_t i = 0; i < result["event_list"].size(); ++i) {
         CAPTURE(i);
         CHECK(result["event_list"][i] == all[i]);
     }
-    CHECK(result["event_digest"] == ofs::params::fnv1a64_hex(ofs::params::canonical(all)));
+    CHECK(result["event_digest"] == ofs::params::fnv1a64_hex(ofs::params::canonical(sequence)));
 
     ShotRecord later = r;
     later.events[900].body = 6;
@@ -327,6 +329,11 @@ TEST_CASE("bundle result lists the first 400 events and digests all of them") {
     const nlohmann::json changed = make_result(later);
     CHECK(changed["event_list"] == result["event_list"]);
     CHECK(changed["event_digest"] != result["event_digest"]);
+
+    ShotRecord retimed = r;
+    retimed.events[900].t += 1e-12;
+    retimed.events[5].t += 1e-12;
+    CHECK(make_result(retimed)["event_digest"] == result["event_digest"]);
 }
 
 TEST_CASE("bundle result reports potted balls, the final state, the strike and the anomalies") {
@@ -348,13 +355,14 @@ TEST_CASE("bundle result reports potted balls, the final state, the strike and t
 }
 
 TEST_CASE("bundle result digest is stable") {
-    // FNV-1a 64 of [[0.0,"strike",0,-1,-1],[0.25,"ball_ball",0,3,-1],[1.5,"pocket",3,-1,2]],
-    // computed independently of this code. A change here changes every logged digest.
+    // FNV-1a 64 of [["strike",0,-1,-1],["ball_ball",0,3,-1],["pocket",3,-1,2]], computed
+    // independently of this code. A change here changes every logged digest. It changed on purpose
+    // in bundle version 2 (was 1634e816ad969315, with the times in), so cross-platform replays agree.
     ShotRecord r;
     r.events = {{0.0, EventKind::strike, 0, -1, -1, Motion::stationary, Motion::sliding},
                 {0.25, EventKind::ball_ball, 0, 3, -1, Motion::rolling, Motion::sliding},
                 {1.5, EventKind::pocket, 3, -1, 2, Motion::rolling, Motion::pocketed}};
-    CHECK(make_result(r)["event_digest"] == "1634e816ad969315");
+    CHECK(make_result(r)["event_digest"] == "44a362fda96c9c8e");
 }
 
 TEST_CASE("bundle compare_results: identical results agree") {
@@ -423,15 +431,6 @@ TEST_CASE("bundle compare_results calls a digest difference past the cap a diver
     CHECK(d.first_event == -1);
     CHECK_MESSAGE(d.summary.rfind("events past the first 400 differ (digest)", 0) == 0, d.summary);
 
-    // The listed events agree within the time tolerance but not bit for bit, so the digest can't say
-    // where the difference is.
-    ShotRecord drifted = r;
-    drifted.events[50].t += 5e-10;
-    d = compare_results(logged, make_result(drifted), 1e-9);
-    CHECK(d.diverged);
-    CHECK(d.first_event == -1);
-    CHECK_MESSAGE(d.summary.find("not bit for bit") != std::string::npos, d.summary);
-
     nlohmann::json undigested = logged;
     undigested.erase("event_digest");
     d = compare_results(undigested, logged, 1e-9);
@@ -443,6 +442,21 @@ TEST_CASE("bundle compare_results calls a digest difference past the cap a diver
     nlohmann::json short_replayed = short_logged;
     short_replayed["event_digest"] = "0000000000000000";
     CHECK_FALSE(compare_results(short_logged, short_replayed, 1e-9).diverged);
+}
+
+TEST_CASE("bundle compare_results lets event times drift by rounding past the cap, as across platforms") {
+    const ShotRecord r = sample_record(1000);
+    const nlohmann::json logged = nlohmann::json::parse(make_result(r).dump());
+    ShotRecord drifted = r;
+    for (std::size_t i = 0; i < drifted.events.size(); i += 7) drifted.events[i].t += 3e-13;
+    drifted.events[50].t += 5e-10;
+    drifted.events[900].t += 5e-10;
+    const nlohmann::json replayed = make_result(drifted);
+    REQUIRE(replayed["event_list"] != logged["event_list"]);
+    const Divergence d = compare_results(logged, replayed, 1e-9);
+    CHECK_MESSAGE(!d.diverged, d.summary);
+    CHECK(d.first_event == -1);
+    CHECK_MESSAGE(d.summary.rfind("no divergence: 1000 events agree", 0) == 0, d.summary);
 }
 
 TEST_CASE("bundle compare_results names a final position it can't read") {
