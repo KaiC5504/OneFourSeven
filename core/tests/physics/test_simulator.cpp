@@ -315,9 +315,6 @@ TEST_CASE("simulate leaves pocketed balls pocketed") {
     for (const ShotEvent& e : r.events) CHECK((e.a != 1 && e.b != 1));
 }
 
-// The tests below need the merged physics (motion, detect, collide, cue, the table outline); the
-// stubs produce no events. The lead enables them after the merge.
-
 TEST_CASE("simulate classifies the start state, pocketed balls excepted") {
     SimInput in;
     BallState moving = ball(ofs::table::Ball::red, 0, 0.0, 0.0);
@@ -734,4 +731,239 @@ TEST_CASE("simulate a ball rolling between two resting balls almost in line with
     const ShotRecord r = simulate(in, table(), file_params());
     check_clean(r);
     CHECK(r.events.size() < 30);
+}
+
+namespace {
+
+using ofs::table::Vec2;
+
+double dot2(Vec2 a, Vec2 b) { return a.x * b.x + a.y * b.y; }
+
+// A pocket's axis into it and the middle of its fall, the line through the points where its jaws
+// meet their facings (table_shape.json "construction"). The facings are half_gap either side of
+// the axis, so a ball whose centre stays within half_gap - R of it touches neither.
+struct Mouth {
+    int pocket = -1;
+    Vec2 axis;
+    Vec2 across;  // the axis turned anticlockwise
+    Vec2 fall;
+    double half_gap = 0.0;
+};
+
+Mouth mouth(const std::string& name) {
+    Mouth m;
+    for (std::size_t k = 0; k < table().pockets.size(); ++k) {
+        if (table().pockets[k].name == name) m.pocket = static_cast<int>(k);
+    }
+    REQUIRE(m.pocket >= 0);
+    const Pocket& pk = table().pockets[static_cast<std::size_t>(m.pocket)];
+    const double sy = std::copysign(1.0, pk.drop_centre.y);
+    m.axis = pk.corner ? Vec2{std::copysign(std::sqrt(0.5), pk.drop_centre.x), sy * std::sqrt(0.5)} : Vec2{0.0, sy};
+    m.across = {-m.axis.y, m.axis.x};
+    std::vector<Vec2> joints;
+    for (const ArcCushion& a : table().arcs) {
+        if (a.pocket != m.pocket) continue;
+        const Vec2 s{a.centre.x + a.radius * std::cos(a.angle_start), a.centre.y + a.radius * std::sin(a.angle_start)};
+        const Vec2 e{a.centre.x + a.radius * std::cos(a.angle_end), a.centre.y + a.radius * std::sin(a.angle_end)};
+        // The end further into the pocket meets the facing; the other meets the cushion nose.
+        joints.push_back(dot2(s, m.axis) > dot2(e, m.axis) ? s : e);
+    }
+    REQUIRE(joints.size() == 2);
+    m.fall = {0.5 * (joints[0].x + joints[1].x), 0.5 * (joints[0].y + joints[1].y)};
+    m.half_gap = 0.5 * std::abs(dot2({joints[1].x - joints[0].x, joints[1].y - joints[0].y}, m.across));
+    return m;
+}
+
+// A ball that rattles out may go on round the table, so only this pocket's jaws are counted.
+struct Entry {
+    bool potted = false;  // in this pocket
+    int jaw_hits = 0;     // on this pocket's jaws
+    int line_hits = 0;
+};
+
+// A red rolling on a heading turned heading_rad from the axis, whose path crosses the fall
+// `offset` across the axis. It starts 0.12 m back, fast enough to cross the fall at `speed` under
+// rolling resistance had nothing been in its way.
+Entry roll_into(const Mouth& m, double heading_rad, double offset, double speed) {
+    const PhysicsParams& p = file_params();
+    const double c = std::cos(heading_rad);
+    const double s = std::sin(heading_rad);
+    const Vec2 h{c * m.axis.x - s * m.axis.y, s * m.axis.x + c * m.axis.y};
+    const double back = 0.12;
+    const double v0 = std::sqrt(speed * speed + 2.0 * p.roll_friction * p.gravity_m_s2 * back);
+    BallState red = ball(ofs::table::Ball::red, 0, m.fall.x + offset * m.across.x - back * h.x,
+                         m.fall.y + offset * m.across.y - back * h.y);
+    red.v = {v0 * h.x, v0 * h.y, 0.0};
+    red.w = {-red.v.y / kR, red.v.x / kR, 0.0};
+    red.motion = Motion::rolling;
+    SimInput in;
+    in.start.balls = {red};
+    in.has_strike = false;
+    const ShotRecord r = simulate(in, table(), p);
+    for (const Anomaly& a : r.anomalies) FAIL_CHECK(a.kind << ": " << a.detail);
+    Entry out;
+    out.potted = r.final_state.balls[0].motion == Motion::pocketed && r.final_state.balls[0].pocket == m.pocket;
+    for (const ShotEvent& e : r.events) {
+        if (e.kind == EventKind::ball_arc && table().arcs[static_cast<std::size_t>(e.body)].pocket == m.pocket) {
+            ++out.jaw_hits;
+        }
+        out.line_hits += e.kind == EventKind::ball_line ? 1 : 0;
+    }
+    return out;
+}
+
+// The fastest ball a centre-ball strike gives (cue.cpp's impulse at max_cue_speed_m_s).
+double fastest_ball(const PhysicsParams& p) {
+    return (1.0 + p.cue_tip_restitution) * p.max_cue_speed_m_s / (1.0 + p.ball_mass_kg / p.cue_mass_kg);
+}
+
+}  // namespace
+
+TEST_CASE("simulate pockets: a ball between the facings drops at every speed without touching anything") {
+    // Spec 7.6: potted when the centre passes the drop boundary behind the jaws. A path parallel
+    // to the axis within half_gap - R of it (15.75 mm corner, 17.75 mm middle) meets no cushion,
+    // so the pot must not depend on pace: from 0.05 m/s at the fall (enough to roll the 2 mm set
+    // back plus the drop circle's curve, under 5 mm) up to the fastest ball the cue can give
+    // (13.9 m/s). The outer offsets keep 2 mm for the nap's sideways drift.
+    const double top = fastest_ball(file_params());
+    for (const char* name : {"top_left", "middle_left"}) {
+        const Mouth m = mouth(name);
+        const double limit = m.half_gap - kR;
+        for (const double offset : {0.0, limit - 0.002, -(limit - 0.002)}) {
+            for (const double speed : {0.05, 0.1, 0.3, 1.0, 3.0, 6.0, 10.0, top}) {
+                CAPTURE(name);
+                CAPTURE(offset);
+                CAPTURE(speed);
+                const Entry e = roll_into(m, 0.0, offset, speed);
+                CHECK(e.potted);
+                CHECK(e.jaw_hits == 0);
+                CHECK(e.line_hits == 0);
+            }
+        }
+    }
+}
+
+TEST_CASE("simulate pockets: a slow ball that clips a jaw still drops") {
+    // Spec 6.3 owner check: a slow, accurate ball drops even when it touches a jaw; spec 7.6:
+    // the outcome comes from the jaw collision itself. Each path overlaps a jaw's reach by
+    // 1-9 mm, a sixth of the ball at most. Slower than about 0.1 m/s at the fall a clipped ball can
+    // die in the jaws (hanging on the lip), so the sweep starts above that.
+    for (const char* name : {"top_left", "middle_left"}) {
+        const Mouth m = mouth(name);
+        const double limit = m.half_gap - kR;
+        for (const double past : {0.00125, 0.004, 0.00925}) {
+            for (const double side : {1.0, -1.0}) {
+                for (const double speed : {0.12, 0.2, 0.3, 0.5}) {
+                    CAPTURE(name);
+                    CAPTURE(side * (limit + past));
+                    CAPTURE(speed);
+                    const Entry e = roll_into(m, 0.0, side * (limit + past), speed);
+                    CHECK(e.potted);
+                    CHECK(e.jaw_hits >= 1);
+                }
+            }
+        }
+    }
+    // A ball running along the side cushion, touching it or 2 mm off it, meets the far jaw nearly
+    // square (35 degrees off its normal) while 22 mm short of the fall; paced to cross the fall at
+    // 0.2 m/s or more it still drops. towards_top_left_jaw.json struck at 0.3 m/s reaches the jaw
+    // at only 0.12 m/s, rolls 23.5 mm after it and stops 10 mm short: it hangs.
+    const Mouth corner = mouth("top_left");
+    for (const double gap : {0.0, 0.002}) {
+        const double y = ofs::table::kPlayingWidth / 2.0 - kR - gap;
+        const double offset = (y - corner.fall.y) / corner.across.y;
+        for (const double speed : {0.2, 0.3, 0.5}) {
+            CAPTURE(gap);
+            CAPTURE(speed);
+            const Entry e = roll_into(corner, -std::atan2(1.0, 1.0), offset, speed);
+            CHECK(e.potted);
+            CHECK(e.jaw_hits >= 1);
+        }
+    }
+}
+
+TEST_CASE("simulate pockets: a firm ball into a jaw face rattles and stays out") {
+    // Spec 6.3 owner check: a ball hit firmly into the jaws rattles and stays out; spec 7.6:
+    // rattles emerge from jaw collisions, not from scripted outcomes. These paths overlap a jaw's
+    // reach by 24-32 mm, about half the ball.
+    for (const char* name : {"top_left", "middle_left"}) {
+        const Mouth m = mouth(name);
+        const double limit = m.half_gap - kR;
+        for (const double past : {0.024, 0.03225}) {
+            for (const double side : {1.0, -1.0}) {
+                for (const double speed : {2.0, 3.0, 4.0, 6.0, 8.0}) {
+                    CAPTURE(name);
+                    CAPTURE(side * (limit + past));
+                    CAPTURE(speed);
+                    const Entry e = roll_into(m, 0.0, side * (limit + past), speed);
+                    CHECK_FALSE(e.potted);
+                    CHECK(e.jaw_hits >= 1);
+                }
+            }
+        }
+    }
+}
+
+TEST_CASE("simulate a ball rolled square into a jaw: the jaw is its first event and it rebounds") {
+    // Spec 7.5: jaws are curved cushions with the cushion impact model. Without this a jaw hit
+    // turned into a push (no rebound) or a jaw dropped from detection passed every test but C14.
+    const ArcCushion& jaw = table().arcs[0];
+    const double mid = 0.5 * (jaw.angle_start + jaw.angle_end);
+    const ofs::Vec3 out{std::cos(mid), std::sin(mid), 0.0};
+    const double d = jaw.radius + kR + 0.02;
+    BallState red = ball(ofs::table::Ball::red, 0, jaw.centre.x + out.x * d, jaw.centre.y + out.y * d);
+    red.v = out * -1.0;
+    red.w = {-red.v.y / kR, red.v.x / kR, 0.0};
+    red.motion = Motion::rolling;
+    SimInput in;
+    in.start.balls = {red};
+    in.has_strike = false;
+    const ShotRecord r = simulate(in, table(), file_params());
+    CHECK(r.anomalies.empty());
+    REQUIRE_FALSE(r.events.empty());
+    REQUIRE(r.events[0].kind == EventKind::ball_arc);
+    CHECK(r.events[0].body == 0);
+    REQUIRE(r.segments[0].size() >= 2);
+    REQUIRE(r.segments[0][1].t0 == r.events[0].t);
+    CHECK(ofs::dot(r.segments[0][1].start.v, out) > 0.5);
+}
+
+TEST_CASE("simulate flags a collision that adds kinetic energy as energy_gain") {
+    // Spec 7.11 C12 and 16.10: an energy gain is a physics anomaly. The loader refuses a
+    // restitution above 1, so the parameters are set directly.
+    PhysicsParams p = file_params();
+    p.ball_restitution = 1.5;
+    SimInput in;
+    in.start.balls = {ball(ofs::table::Ball::cue, 0, -0.5, 0.0), ball(ofs::table::Ball::red, 0, 0.5, 0.0)};
+    in.cue_ball = 0;
+    in.strike.speed_m_s = 2.0;
+    ShotRecord r;
+    const auto logged = simulate_capturing(in, p, r);
+    bool recorded = false;
+    for (const Anomaly& a : r.anomalies) recorded = recorded || a.kind == "energy_gain";
+    CHECK(recorded);
+    bool logged_gain = false;
+    for (const ofs::log::Event& e : logged) logged_gain = logged_gain || e.data.value("kind", "") == "energy_gain";
+    CHECK(logged_gain);
+}
+
+TEST_CASE("simulate a push slower than the start speed leaves the touching ball where it is") {
+    // Spec 7.7's guard against near-zero-time loops: a ball at rest joins a push only when it
+    // closes at kStartSpeed (1e-6 m/s) or more. Below that it stands like a cushion; set rolling,
+    // it would stop at once while its neighbour re-closed the contact.
+    SimInput in;
+    BallState cue = ball(ofs::table::Ball::cue, 0, 0.0, 0.0);
+    cue.v = {5e-7, 0.0, 0.0};
+    cue.w = {0.0, 5e-7 / kR, 0.0};
+    cue.motion = Motion::rolling;
+    const BallState red = ball(ofs::table::Ball::red, 0, 2.0 * kR, 0.0);
+    in.start.balls = {cue, red};
+    in.has_strike = false;
+    const ShotRecord r = simulate(in, table(), file_params());
+    CHECK(r.anomalies.empty());
+    bool touched = false;
+    for (const ShotEvent& e : r.events) touched = touched || e.kind == EventKind::ball_ball;
+    REQUIRE(touched);
+    CHECK(r.segments[1].size() == 1);
+    CHECK(r.final_state.balls[1].r == red.r);
 }

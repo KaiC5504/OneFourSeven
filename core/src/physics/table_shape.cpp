@@ -6,6 +6,9 @@
 #include <string>
 #include <utility>
 
+#include "ofs/log.hpp"
+#include "ofs/params.hpp"
+
 namespace ofs::phys {
 
 namespace {
@@ -148,6 +151,12 @@ void check_joints(const TableShape& s, const std::vector<std::string>& line_name
     }
 }
 
+bool refuse(const json& file, const std::vector<std::string>& problems, std::size_t first) {
+    const std::vector<std::string> found(problems.begin() + static_cast<std::ptrdiff_t>(first), problems.end());
+    log::error("table", "table.invalid", {{"hash", params::content_hash(file)}, {"problems", found}});
+    return false;
+}
+
 }  // namespace
 
 // `out` is only written when the file has no problems.
@@ -156,7 +165,7 @@ bool load_table_shape(const json& file, TableShape& out, std::vector<std::string
     Reader r(problems);
     if (!file.is_object()) {
         r.problem("table_shape", "not a JSON object");
-        return false;
+        return refuse(file, problems, problems_before);
     }
     TableShape s;
     double version = 0.0;
@@ -298,7 +307,7 @@ bool load_table_shape(const json& file, TableShape& out, std::vector<std::string
     }
 
     if (problems.size() == problems_before) check_joints(s, line_names, kinds, arc_names, r);
-    if (problems.size() != problems_before) return false;
+    if (problems.size() != problems_before) return refuse(file, problems, problems_before);
     out = std::move(s);
     return true;
 }

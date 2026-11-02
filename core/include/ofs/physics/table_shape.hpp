@@ -51,7 +51,8 @@ struct TableShape {
 };
 
 // Parses table_shape.json. False with every problem appended when the file is malformed or the
-// outline is inconsistent (a non-unit normal, an arc with no pocket, a pocket without jaws).
+// outline is inconsistent (a non-unit normal, an arc with no pocket, a pocket without jaws); the
+// refusal is logged once as table.invalid with the file's content hash and those problems.
 bool load_table_shape(const nlohmann::json& file, TableShape& out, std::vector<std::string>& problems);
 
 }  // namespace ofs::phys
