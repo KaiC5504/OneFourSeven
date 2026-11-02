@@ -18,13 +18,6 @@
 
 namespace ofs::math {
 
-// Used by detect.cpp as well; roots.hpp doesn't declare them yet. Coefficients lowest degree
-// first, always five of them, zero above the degree.
-namespace detail {
-int critical_points(const double* p, int n, double lo, double hi, double* out);
-double bracketed_root(const double* p, double x1, double f1, double x2, double guess);
-}  // namespace detail
-
 namespace {
 
 constexpr double kEps = std::numeric_limits<double>::epsilon();

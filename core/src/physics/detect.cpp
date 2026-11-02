@@ -13,14 +13,6 @@
 // stretches and only falling ones are searched, so a touching pair that separates, a ball leaving
 // a cushion, or a graze that only touches (a double root) gives no event.
 
-// Defined in roots.cpp, which roots.hpp doesn't declare yet: the critical points of a polynomial in
-// a window and the root in a bracket, so the scan below finds each only once. Coefficients lowest
-// degree first, five of them, zero above the degree.
-namespace ofs::math::detail {
-int critical_points(const double* p, int n, double lo, double hi, double* out);
-double bracketed_root(const double* p, double x1, double f1, double x2, double guess);
-}  // namespace ofs::math::detail
-
 namespace ofs::phys {
 
 namespace {

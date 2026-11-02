@@ -67,15 +67,14 @@ if(OFS_BUILD_TESTS)
     add_test(NAME ofs_core_tests COMMAND ofs_core_tests)
 
     # The independent calibration suite (spec 7.11, C1-C14). Its owner adds files freely, hence the
-    # glob. Disabled in ctest until the physics it checks has merged (M1 wave 1); run the
-    # executable directly before then.
+    # glob. The gate runs it in the Release physics lane (label calibration).
     file(GLOB OFS_CALIBRATION_SOURCES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tests/calibration/*.cpp)
     add_executable(ofs_calibration_tests ${OFS_CALIBRATION_SOURCES})
     target_link_libraries(ofs_calibration_tests PRIVATE ofs_core)
     target_compile_definitions(ofs_calibration_tests PRIVATE
         OFS_TEST_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures")
     add_test(NAME ofs_calibration_tests COMMAND ofs_calibration_tests)
-    set_tests_properties(ofs_calibration_tests PROPERTIES LABELS calibration DISABLED TRUE)
+    set_tests_properties(ofs_calibration_tests PROPERTIES LABELS calibration)
 
     # Prints content_hash for each JSONL line on stdin; tools/test_devlink.py compares it
     # with devlink.py's hash over thousands of values.

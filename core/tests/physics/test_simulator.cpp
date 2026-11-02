@@ -318,7 +318,7 @@ TEST_CASE("simulate leaves pocketed balls pocketed") {
 // The tests below need the merged physics (motion, detect, collide, cue, the table outline); the
 // stubs produce no events. The lead enables them after the merge.
 
-TEST_CASE("simulate classifies the start state, pocketed balls excepted" * doctest::skip()) {
+TEST_CASE("simulate classifies the start state, pocketed balls excepted") {
     SimInput in;
     BallState moving = ball(ofs::table::Ball::red, 0, 0.0, 0.0);
     moving.v = {0.5, 0.0, 0.0};
@@ -329,7 +329,7 @@ TEST_CASE("simulate classifies the start state, pocketed balls excepted" * docte
     CHECK(r.segments[0][0].start.motion == Motion::sliding);
 }
 
-TEST_CASE("simulate a straight pot: the red ends in the pocket" * doctest::skip()) {
+TEST_CASE("simulate a straight pot: the red ends in the pocket") {
     // The red and cue ball on the 45 degree line into the top-left corner (+x, +y).
     const double cx = ofs::table::kPlayingLength / 2.0;
     const double cy = ofs::table::kPlayingWidth / 2.0;
@@ -356,7 +356,7 @@ TEST_CASE("simulate a straight pot: the red ends in the pocket" * doctest::skip(
     for (const BallState& b : r.final_state.balls) CHECK(at_rest(b));
 }
 
-TEST_CASE("simulate a break-off: it ends with every ball at rest, nothing overlapping" * doctest::skip()) {
+TEST_CASE("simulate a break-off: it ends with every ball at rest, nothing overlapping") {
     const SimInput in = break_off(147);
     const PhysicsParams& p = file_params();
     const ShotRecord r = simulate(in, table(), p);
@@ -375,7 +375,7 @@ TEST_CASE("simulate a break-off: it ends with every ball at rest, nothing overla
     }
 }
 
-TEST_CASE("simulate C13: a break-off gives a bit-identical record on every run" * doctest::skip()) {
+TEST_CASE("simulate C13: a break-off gives a bit-identical record on every run") {
     const SimInput in = break_off(31337);
     const ShotRecord a = simulate(in, table(), file_params());
     const ShotRecord b = simulate(in, table(), file_params());
@@ -386,7 +386,7 @@ TEST_CASE("simulate C13: a break-off gives a bit-identical record on every run" 
     CHECK(record_json(other).dump() != record_json(a).dump());
 }
 
-TEST_CASE("simulate a frozen line resolves as pairwise collisions at one instant, in index order" * doctest::skip()) {
+TEST_CASE("simulate a frozen line resolves as pairwise collisions at one instant, in index order") {
     SimInput in;
     in.start.balls = {ball(ofs::table::Ball::cue, 0, -0.5, 0.0), ball(ofs::table::Ball::red, 0, 0.3, 0.0),
                       ball(ofs::table::Ball::red, 1, 0.3525, 0.0),
@@ -448,7 +448,7 @@ double pair_energy(const BallState& a, const BallState& b, const PhysicsParams& 
 
 }  // namespace
 
-TEST_CASE("simulate a slow contact as a push: both leave rolling at one speed along n" * doctest::skip()) {
+TEST_CASE("simulate a slow contact as a push: both leave rolling at one speed along n") {
     // The cue ball rolls into a resting red at 0.5 mm/s, under ball_rest_speed_m_s.
     SimInput in;
     BallState cue = ball(ofs::table::Ball::cue, 0, 0.0, 0.0);
@@ -472,7 +472,7 @@ TEST_CASE("simulate a slow contact as a push: both leave rolling at one speed al
     for (const BallState& b : r.final_state.balls) CHECK(at_rest(b));
 }
 
-TEST_CASE("simulate a push between two moving balls keeps energy falling and ends the chase" * doctest::skip()) {
+TEST_CASE("simulate a push between two moving balls keeps energy falling and ends the chase") {
     // A sliding cue ball with topspin catching a red that rolls slower along a slightly
     // different heading: the case that collapsed into endless re-collisions before pushes.
     SimInput in;
@@ -493,7 +493,7 @@ TEST_CASE("simulate a push between two moving balls keeps energy falling and end
     for (const BallState& b : r.final_state.balls) CHECK(at_rest(b));
 }
 
-TEST_CASE("simulate a contact above ball_rest_speed_m_s goes through collide_balls unchanged" * doctest::skip()) {
+TEST_CASE("simulate a contact above ball_rest_speed_m_s goes through collide_balls unchanged") {
     // straight_1m.json struck centre-ball: the stun of C2 when the cue ball still slides.
     SimInput in;
     in.start.balls = {ball(ofs::table::Ball::cue, 0, -0.5, 0.0), ball(ofs::table::Ball::red, 0, 0.5, 0.0)};
@@ -512,7 +512,7 @@ TEST_CASE("simulate a contact above ball_rest_speed_m_s goes through collide_bal
     CHECK(c.b_after.w == b.w);
 }
 
-TEST_CASE("simulate 500 varied break-offs: no guard trips, no overlaps, energy never rises" * doctest::skip()) {
+TEST_CASE("simulate 500 varied break-offs: no guard trips, no overlaps, energy never rises") {
     const PhysicsParams& p = file_params();
     std::size_t with_anomalies = 0;
     for (std::uint64_t seed = 0; seed < 500; ++seed) {
@@ -537,7 +537,7 @@ TEST_CASE("simulate 500 varied break-offs: no guard trips, no overlaps, energy n
     CHECK(with_anomalies == 0);
 }
 
-TEST_CASE("simulate max_events guard: the shot ends at the limit with every ball at rest" * doctest::skip()) {
+TEST_CASE("simulate max_events guard: the shot ends at the limit with every ball at rest") {
     const SimInput in = break_off(5);
     PhysicsParams p = file_params();
     p.max_events = 100;  // the lowest the parameter file allows, so the logged bundle replays
@@ -552,7 +552,7 @@ TEST_CASE("simulate max_events guard: the shot ends at the limit with every ball
     check_anomaly_line(logged[0], in, p, "event_guard");
 }
 
-TEST_CASE("simulate zero-time chain guard: too many simultaneous events end the shot" * doctest::skip()) {
+TEST_CASE("simulate zero-time chain guard: too many simultaneous events end the shot") {
     SimInput in;
     in.start.balls = {ball(ofs::table::Ball::cue, 0, -0.5, 0.0), ball(ofs::table::Ball::red, 0, 0.3, 0.0),
                       ball(ofs::table::Ball::red, 1, 0.3525, 0.0),

@@ -17,4 +17,13 @@ int solve_quartic(double a, double b, double c, double d, double e, double roots
 // only ever needs the earliest time in a window.
 double first_quartic_root_in(double a, double b, double c, double d, double e, double lo, double hi);
 
+// The pieces detect.cpp scans with, so each critical point and root is found once. Coefficients
+// lowest degree first, always five of them, zero above the degree n.
+namespace detail {
+// Where p' changes sign in the open interval (lo, hi), ascending.
+int critical_points(const double* p, int n, double lo, double hi, double* out);
+// The root of p between x1 (where p is f1) and x2, which bracket a sign change.
+double bracketed_root(const double* p, double x1, double f1, double x2, double guess);
+}  // namespace detail
+
 }  // namespace ofs::math
