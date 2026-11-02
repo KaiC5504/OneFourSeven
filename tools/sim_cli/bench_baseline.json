@@ -1,0 +1,82 @@
+{
+  "note": "Written by ofs_sim_cli bench --write-baseline; microseconds.",
+  "params_hash": "ab06a56d6608ce71",
+  "shots": {
+    "break_10.0ms_rack1": {
+      "events": 175,
+      "median_us": 295.0,
+      "p99_us": 502.10599999999977
+    },
+    "break_10.0ms_rack2": {
+      "events": 263,
+      "median_us": 447.2,
+      "p99_us": 696.4340000000001
+    },
+    "break_10.0ms_rack3": {
+      "events": 32,
+      "median_us": 68.2,
+      "p99_us": 114.42099999999999
+    },
+    "break_4.5ms_rack1": {
+      "events": 124,
+      "median_us": 203.6,
+      "p99_us": 347.024
+    },
+    "break_4.5ms_rack2": {
+      "events": 139,
+      "median_us": 215.3,
+      "p99_us": 374.5300000000001
+    },
+    "break_4.5ms_rack3": {
+      "events": 128,
+      "median_us": 204.1,
+      "p99_us": 314.2559999999999
+    },
+    "break_7.0ms_rack1": {
+      "events": 168,
+      "median_us": 276.7,
+      "p99_us": 449.07299999999987
+    },
+    "break_7.0ms_rack2": {
+      "events": 269,
+      "median_us": 423.75,
+      "p99_us": 687.994
+    },
+    "break_7.0ms_rack3": {
+      "events": 250,
+      "median_us": 381.7,
+      "p99_us": 589.9709999999999
+    },
+    "cluster_split": {
+      "events": 80,
+      "median_us": 80.7,
+      "p99_us": 153.75999999999993
+    },
+    "long_multi_cushion": {
+      "events": 20,
+      "median_us": 26.5,
+      "p99_us": 53.118999999999986
+    },
+    "pot_black_corner": {
+      "events": 13,
+      "median_us": 14.6,
+      "p99_us": 22.601
+    },
+    "pot_long_red_screw": {
+      "events": 10,
+      "median_us": 8.6,
+      "p99_us": 16.6
+    },
+    "pot_red_middle": {
+      "events": 23,
+      "median_us": 29.6,
+      "p99_us": 42.701
+    },
+    "slow_roll_nap": {
+      "events": 10,
+      "median_us": 8.5,
+      "p99_us": 14.301
+    }
+  },
+  "version": 1
+}
