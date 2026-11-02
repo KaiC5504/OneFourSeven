@@ -4,6 +4,7 @@
 #include <cmath>
 #include <vector>
 
+#include "ofs/physics/cue.hpp"
 #include "ofs/physics/motion.hpp"
 #include "ofs/physics/nap.hpp"
 #include "ofs/rng.hpp"
@@ -153,6 +154,24 @@ TEST_CASE("motion: a spinning ball stops after |w.z| / (5/2 spin_friction_per_r 
         CHECK(rest.motion == Motion::stationary);
         CHECK(rest.w == Vec3{});
     }
+}
+
+TEST_CASE("motion: at the lowest spin friction the loader accepts, the hardest side stops within time_cap_s") {
+    // physics_params.cpp keeps spin_friction_per_r at 0.2 or more: at 0 the spinning state never
+    // ends.
+    PhysicsParams p;
+    p.spin_friction_per_r = 0.2;
+    TableState s;
+    s.balls.push_back(BallState{});
+    ofs::Rng rng(1);
+    const CueStrike hardest{0.0, p.miscue_limit, 0.0, 0.0, p.max_cue_speed_m_s};
+    const double wz = strike(s, 0, hardest, TableShape{}, p, rng).w.z;
+    const BallState spinning = make_ball({}, {0.0, 0.0, wz}, Motion::spinning);
+    const double t = transition_time(spinning, p, {});
+    MESSAGE("w.z " << wz << " rad/s spins for " << t << " s at spin_friction_per_r 0.2");
+    CHECK(t < p.time_cap_s);
+    p.spin_friction_per_r = 0.0;
+    CHECK(transition_time(spinning, p, {}) == kNever);
 }
 
 // pooltool _evolve_perpendicular_spin_component: "You can't decay past 0 angular velocity".

@@ -163,7 +163,7 @@ bool first_rail_crossing(const CueLine& cue, const TableShape& t, RailCrossing& 
     return found;
 }
 
-// min_cue_elevation for any tip offset; the header's version is the centre-ball one.
+// Both min_cue_elevation overloads; the aim-only one passes a centre-ball hit.
 double min_elevation(const TableState& s, int cue_ball, double cos_aim, double sin_aim, double tip_x,
                      double tip_y, const TableShape& t, const PhysicsParams& p) {
     const BallState& cb = s.balls[static_cast<std::size_t>(cue_ball)];
@@ -260,11 +260,12 @@ StrikeOutcome strike(const TableState& s, int cue_ball, const CueStrike& c, cons
 
     // Squirt from pooltool (Apache-2.0) physics/resolve/stick_ball/squirt.py get_squirt_angle
     // (Alciatore TP A-31), whose a is our -tip_x: the tip's end mass is knocked aside and the ball
-    // goes the other way, left for right-hand side.
+    // goes the other way, left for right-hand side. Both terms are multiplied through by the end
+    // mass, so a vanishing end mass gives no squirt rather than ball_mass / 0.
     const double a = c.tip_x;
     const double rest = 1.0 - a * a;
-    const double squirt_sin = 2.5 * a * std::sqrt(rest);
-    const double squirt_cos = 1.0 + p.ball_mass_kg / p.cue_end_mass_kg + 2.5 * rest;
+    const double squirt_sin = 2.5 * a * std::sqrt(rest) * p.cue_end_mass_kg;
+    const double squirt_cos = p.cue_end_mass_kg * (1.0 + 2.5 * rest) + p.ball_mass_kg;
     out.squirt_rad = std::atan2(squirt_sin, squirt_cos);
 
     // The impulse's vertical part goes into the cloth (spec 7.9).

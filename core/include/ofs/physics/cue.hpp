@@ -22,13 +22,14 @@ struct StrikeOutcome {
 };
 
 // The lowest elevation at which the cue, a tapered cylinder (tip and butt diameters, length,
-// clearance) along aim_rad behind the cue ball, clears the cushion rail and every other ball.
-// 0 when nothing is in the way. Never above max_elevation_rad.
+// clearance) along aim_rad behind the cue ball, clears the cushion rail and every other ball,
+// for a hit at the centre of the cue ball (tip_x = tip_y = 0). 0 when nothing is in the way.
+// Never above max_elevation_rad.
 double min_cue_elevation(const TableState& s, int cue_ball, double aim_rad, const TableShape& t,
                          const PhysicsParams& p);
-// The same for the actual tip offsets: the minimum depends strongly on them (a cue ball against
-// the cushion needs about 41 degrees struck at centre, about 20 with tip_y 0.4). strike() uses
-// this one; the elevation control should too.
+// The same for the strike's own tip offsets: the minimum depends strongly on them (a cue ball
+// touching the baulk cushion needs about 41 degrees with tip_y 0, about 20 with tip_y 0.4).
+// strike() uses this one; the elevation control should too.
 double min_cue_elevation(const TableState& s, int cue_ball, const CueStrike& c, const TableShape& t,
                          const PhysicsParams& p);
 

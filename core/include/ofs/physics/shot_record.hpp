@@ -44,7 +44,8 @@ struct ShotEvent {
 struct Segment {
     double t0 = 0.0;
     BallState start;
-    Vec3 nap;
+    Vec3 nap;  // the nap acceleration plus, for a rolling ball held against another ball or a
+               // cushion, its contact acceleration (simulator.cpp)
 };
 
 // kind: "event_guard" (max_events), "zero_time_chain", "time_cap", "solver_fallback",

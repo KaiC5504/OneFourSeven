@@ -21,23 +21,39 @@ struct Field {
 };
 
 // Bounds reject values that would break the model (a negative friction, a restitution above
-// one), not values that merely feel wrong: those are the tuner's call.
+// one) or, with the other values at their defaults, keep ordinary shots from coming to rest (the
+// shot counts below are ofs_sim_cli fuzz runs with that one value changed), not values that
+// merely feel wrong: those are the tuner's call. The guards' lower bounds stay low enough to cut
+// ordinary shots short (under about 45 s, 3,000 events or a chain of 130): tests trip them on
+// purpose, and a tripped guard is logged.
 const std::vector<Field>& fields() {
     static const std::vector<Field> all = {
         {"ball_mass_kg", &PhysicsParams::ball_mass_kg, nullptr, 0.05, 0.5},
         {"gravity_m_s2", &PhysicsParams::gravity_m_s2, nullptr, 9.0, 10.0},
-        {"slide_friction", &PhysicsParams::slide_friction, nullptr, 1e-4, 2.0},
-        {"roll_friction", &PhysicsParams::roll_friction, nullptr, 1e-5, 0.1},
-        {"spin_friction_per_r", &PhysicsParams::spin_friction_per_r, nullptr, 0.0, 10.0},
-        {"ball_restitution", &PhysicsParams::ball_restitution, nullptr, 0.0, 1.0},
+        // A slide lasts 2 |u| / (7 mu_s g): at 1e-3 a hard screw slides for ten minutes, and 87 of
+        // 5,000 shots ran into time_cap_s. 0.05 is a quarter of the lowest measured (0.178).
+        {"slide_friction", &PhysicsParams::slide_friction, nullptr, 0.05, 2.0},
+        // At 1e-4, 220 of 5,000 shots were still rolling at time_cap_s. A fifth of the fastest
+        // published cloth (0.005).
+        {"roll_friction", &PhysicsParams::roll_friction, nullptr, 1e-3, 0.1},
+        // At 0 side spin never stops and every side-spin shot runs into time_cap_s; 0.2 is
+        // Alciatore's slowest spin decay (5 rad/s^2), at which the hardest side dies in 93 s.
+        {"spin_friction_per_r", &PhysicsParams::spin_friction_per_r, nullptr, 0.2, 10.0},
+        // Packs and clusters collapse inelastically below about 0.75 (a zero-time chain or the
+        // event guard in 1 of 5,000 shots at 0.7, 7 of 2,000 at 0); published balls are 0.92-0.98.
+        {"ball_restitution", &PhysicsParams::ball_restitution, nullptr, 0.8, 1.0},
         {"ball_friction_a", &PhysicsParams::ball_friction_a, nullptr, 0.0, 1.0},
         {"ball_friction_b", &PhysicsParams::ball_friction_b, nullptr, 0.0, 1.0},
         {"ball_friction_c", &PhysicsParams::ball_friction_c, nullptr, 0.0, 100.0},
-        {"ball_rest_speed_m_s", &PhysicsParams::ball_rest_speed_m_s, nullptr, 0.0, 0.05},
+        // 0 turns the push off and inelastic collapse comes back (52 of 2,000 shots tripped a
+        // guard).
+        {"ball_rest_speed_m_s", &PhysicsParams::ball_rest_speed_m_s, nullptr, 1e-4, 0.05},
         {"cushion_restitution", &PhysicsParams::cushion_restitution, nullptr, 0.0, 1.0},
         {"cushion_friction", &PhysicsParams::cushion_friction, nullptr, 0.0, 2.0},
         {"cushion_table_friction", &PhysicsParams::cushion_table_friction, nullptr, 0.0, 2.0},
-        {"cushion_contact_height_m", &PhysicsParams::cushion_contact_height_m, nullptr, 0.02625, 0.0525},
+        // The impact solver starts giving up as the contact nears the top of the ball (2R): on 1
+        // of 20,000 random impacts at 0.049, on 8% at 0.052. 0.045 is sin(theta) 0.71.
+        {"cushion_contact_height_m", &PhysicsParams::cushion_contact_height_m, nullptr, 0.02625, 0.045},
         {"cushion_rigid_limit_m_s", &PhysicsParams::cushion_rigid_limit_m_s, nullptr, 0.1, 20.0},
         {"cushion_restitution_slope_per_m_s", &PhysicsParams::cushion_restitution_slope_per_m_s, nullptr, 0.0, 1.0},
         {"cushion_restitution_min", &PhysicsParams::cushion_restitution_min, nullptr, 0.0, 1.0},
@@ -45,7 +61,8 @@ const std::vector<Field>& fields() {
         {"jaw_friction", &PhysicsParams::jaw_friction, nullptr, 0.0, 2.0},
         {"cue_mass_kg", &PhysicsParams::cue_mass_kg, nullptr, 0.05, 2.0},
         {"cue_tip_restitution", &PhysicsParams::cue_tip_restitution, nullptr, 0.0, 1.0},
-        {"cue_end_mass_kg", &PhysicsParams::cue_end_mass_kg, nullptr, 0.0, 0.5},
+        // A tip and ferrule weigh grams; at 0.1 g full side squirts 0.05 degrees.
+        {"cue_end_mass_kg", &PhysicsParams::cue_end_mass_kg, nullptr, 1e-4, 0.5},
         {"miscue_limit", &PhysicsParams::miscue_limit, nullptr, 0.0, 1.0},
         {"miscue_speed_factor", &PhysicsParams::miscue_speed_factor, nullptr, 0.0, 1.0},
         {"miscue_max_angle_rad", &PhysicsParams::miscue_max_angle_rad, nullptr, 0.0, 0.5},
@@ -64,8 +81,14 @@ const std::vector<Field>& fields() {
         {"rack_gap_min_m", &PhysicsParams::rack_gap_min_m, nullptr, 0.0, 1e-3},
         {"rack_gap_max_m", &PhysicsParams::rack_gap_max_m, nullptr, 0.0, 1e-3},
         {"time_cap_s", &PhysicsParams::time_cap_s, nullptr, 1.0, 3600.0},
-        {"max_events", nullptr, &PhysicsParams::max_events, 100.0, 1e7},
-        {"zero_time_s", &PhysicsParams::zero_time_s, nullptr, 0.0, 1e-3},
+        // An event costs a few microseconds and a few hundred bytes of record: 1e6 holds a
+        // runaway shot to seconds and some hundreds of megabytes, where 1e7 could run a phone out
+        // of memory.
+        {"max_events", nullptr, &PhysicsParams::max_events, 100.0, 1e6},
+        // Events this close are resolved in kind order, so a later one can go first and leave its
+        // closing speed times zero_time_s of overlap, which must stay under the simulator's 1e-7 m:
+        // 2e-9 overlapped in 1 of 40,000 shots at max_cue_speed_m_s 20, 5e-9 in 3 at the default.
+        {"zero_time_s", &PhysicsParams::zero_time_s, nullptr, 0.0, 1e-9},
         {"max_zero_time_chain", nullptr, &PhysicsParams::max_zero_time_chain, 2.0, 1e6},
     };
     return all;
@@ -127,6 +150,10 @@ bool read_values(const nlohmann::json& values, PhysicsParams& out, std::vector<s
     }
     if (out.rack_gap_min_m > out.rack_gap_max_m) {
         report("rack_gap_min_m", out.rack_gap_min_m, "greater than rack_gap_max_m");
+    }
+    // The obstruction takes the butt as the cue's widest point.
+    if (out.cue_tip_diameter_m > out.cue_butt_diameter_m) {
+        report("cue_tip_diameter_m", out.cue_tip_diameter_m, "greater than cue_butt_diameter_m");
     }
     return problems.size() == before;
 }

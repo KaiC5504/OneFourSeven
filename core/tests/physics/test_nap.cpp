@@ -198,6 +198,61 @@ TEST_CASE("nap: it never adds energy") {
     }
 }
 
+TEST_CASE("nap: at the loader's extreme magnitudes kinetic energy never rises within a segment") {
+    // Held through a segment, a sideways push k raises the speed before the next re-evaluation
+    // when (k / a)^2 > r / (1 - r), a = roll_friction g, r the ratio the segment spans (nap.cpp).
+    // Without the cap, nap_lateral_coeff 0.01 with nap_speed_ref_m_s 5 takes a ball rolling across
+    // the nap from its lowest point in a segment back up by 20-55% in energy by the segment's end.
+    PhysicsParams p;
+    p.nap_lateral_coeff = 0.01;
+    p.nap_spin_coeff = 0.01;
+    p.nap_speed_ref_m_s = 5.0;
+    p.nap_speed_max_m_s = 20.0;
+    p.nap_speed_min_m_s = 1e-4;
+    int capped = 0;
+    for (double ratio : {0.05, 0.5, 0.95}) {
+        p.nap_tick_ratio = ratio;
+        for (double roll : {1e-3, 0.01, 0.1}) {
+            p.roll_friction = roll;
+            // nap.cpp's slack lets a segment span ratio / 1.01.
+            const double r = ratio / 1.01;
+            const double bound = roll * p.gravity_m_s2 * std::sqrt(r / (1.0 - r));
+            // Speeds just inside and just outside the slack above a threshold span the most.
+            std::vector<double> speeds{0.3, 2.0, 15.0};
+            for (int k : {1, 2, 5, 12, 30, 80}) {
+                const double threshold = p.nap_speed_max_m_s * std::pow(ratio, k);
+                if (threshold < 1e-3) break;
+                speeds.push_back(threshold * 1.0099);
+                speeds.push_back(threshold * 1.0101);
+            }
+            for (double heading : {0.3, kPi / 2.0, 2.0, -1.0}) {
+                for (double wz : {-80.0, 0.0, 40.0}) {
+                    for (double speed : speeds) {
+                        CAPTURE(ratio);
+                        CAPTURE(roll);
+                        CAPTURE(heading);
+                        CAPTURE(wz);
+                        CAPTURE(speed);
+                        const std::vector<Step> steps = roll_out(rolling(heading, speed, wz), p);
+                        for (const Step& s : steps) {
+                            const double k = norm(s.nap);
+                            REQUIRE(k <= bound * (1.0 + 1e-12));
+                            if (k > 0.999 * bound) ++capped;
+                            double previous = kinetic_energy(s.start, p);
+                            for (int i = 1; i <= 50; ++i) {
+                                const double e = kinetic_energy(evolve(s.start, s.duration * i / 50.0, p, s.nap), p);
+                                REQUIRE(e <= previous * (1.0 + 1e-12));
+                                previous = e;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    CHECK(capped > 1000);
+}
+
 TEST_CASE("nap: re-evaluation thresholds run nap_speed_max * nap_tick_ratio^k down to nap_speed_min") {
     const PhysicsParams p;  // 1.5, 0.75, 0.375, 0.1875, 0.09375, 0.046875, 0.0234375
     const double d = 0.08;

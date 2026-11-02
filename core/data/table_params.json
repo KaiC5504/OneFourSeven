@@ -55,7 +55,7 @@
     "gravity_m_s2": {
       "unit": "m/s^2",
       "source": "standard gravity",
-      "note": ""
+      "note": "Standard gravity is 9.80665; local g differs from it by under 0.3% anywhere on the Earth's surface, below anything that shows."
     },
     "slide_friction": {
       "unit": "",
@@ -140,7 +140,7 @@
     "jaw_friction": {
       "unit": "",
       "source": "same as cushion_friction to start",
-      "note": ""
+      "note": "The jaws are faced with the same rubber and cloth as the cushions, so they start with Mathavan's mu_w; starting guess; KaiC tunes by feel in M2."
     },
     "cue_mass_kg": {
       "unit": "kg",
@@ -165,27 +165,27 @@
     "miscue_speed_factor": {
       "unit": "",
       "source": "starting guess",
-      "note": "A miscued ball keeps at most this fraction of the full-hit speed."
+      "note": "A miscued ball keeps at most this fraction of the full-hit speed. Starting guess; KaiC tunes by feel in M2."
     },
     "miscue_max_angle_rad": {
       "unit": "rad",
       "source": "starting guess",
-      "note": "A miscue sends the ball within this angle of the aim."
+      "note": "A miscue sends the ball within this angle of the aim. Starting guess; KaiC tunes by feel in M2."
     },
     "cue_tip_diameter_m": {
       "unit": "m",
       "source": "spec 7.3",
-      "note": ""
+      "note": "A usual snooker tip (9-10 mm); only the cue obstruction uses it, as the cue's radius at the tip end."
     },
     "cue_butt_diameter_m": {
       "unit": "m",
       "source": "spec 7.3",
-      "note": ""
+      "note": "Only the cue obstruction uses it: the cue's widest point, with a straight taper from the tip."
     },
     "cue_length_m": {
       "unit": "m",
       "source": "spec 7.3",
-      "note": ""
+      "note": "57 in, the usual one-piece snooker cue; a ball or rail further back than this doesn't obstruct the cue."
     },
     "cue_clearance_m": {
       "unit": "m",
@@ -195,12 +195,12 @@
     "max_elevation_rad": {
       "unit": "rad",
       "source": "80 degrees, a near-vertical masse",
-      "note": ""
+      "note": "Top of the elevation control and the most the obstruction raises the cue; a cue blocked beyond it plays at 80 degrees."
     },
     "max_cue_speed_m_s": {
       "unit": "m/s",
       "source": "starting guess: above the hardest snooker shots",
-      "note": ""
+      "note": "Caps the stroke: a centre-ball hit at 10 m/s sends the cue ball off at 13.9 m/s; starting guess; KaiC tunes by feel in M2."
     },
     "nap_tick_ratio": {
       "unit": "",
@@ -210,37 +210,37 @@
     "nap_lateral_coeff": {
       "unit": "times g",
       "source": "starting guess: about 1-2 cm of drift over a slow 1 m roll",
-      "note": "Spec 7.8: the owner's feel decides it."
+      "note": "Spec 7.8; starting guess; KaiC tunes by feel in M2."
     },
     "nap_spin_coeff": {
       "unit": "times g",
       "source": "starting guess",
-      "note": "Side spin holding with the nap; spec 7.8."
+      "note": "Side spin holding with the nap; spec 7.8. Starting guess; KaiC tunes by feel in M2."
     },
     "nap_speed_ref_m_s": {
       "unit": "m/s",
       "source": "starting guess",
-      "note": "Speed at which the lateral term equals nap_lateral_coeff * g."
+      "note": "Speed at which the lateral term equals nap_lateral_coeff * g. Starting guess; KaiC tunes by feel in M2."
     },
     "nap_speed_max_m_s": {
       "unit": "m/s",
       "source": "starting guess",
-      "note": "Firm shots are barely affected (spec 7.8)."
+      "note": "Firm shots are barely affected (spec 7.8). Starting guess; KaiC tunes by feel in M2."
     },
     "nap_speed_min_m_s": {
       "unit": "m/s",
       "source": "starting guess",
-      "note": "No re-evaluation below this speed."
+      "note": "No re-evaluation below this speed. Starting guess; KaiC tunes by feel in M2."
     },
     "rack_gap_min_m": {
       "unit": "m",
       "source": "spec 7.7 (0.01-0.1 mm)",
-      "note": ""
+      "note": "Smallest seeded gap between neighbouring reds (rack.cpp), so pack collisions come one at a time in a defined order, as pooltool does; the break-off spread is the owner's check (spec 7.7)."
     },
     "rack_gap_max_m": {
       "unit": "m",
       "source": "spec 7.7 (0.01-0.1 mm)",
-      "note": ""
+      "note": "Largest seeded gap between neighbouring reds (rack.cpp); see rack_gap_min_m."
     },
     "time_cap_s": {
       "unit": "s",

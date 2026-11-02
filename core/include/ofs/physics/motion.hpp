@@ -22,9 +22,11 @@ Motion classify(const BallState& b, const PhysicsParams& p);
 
 // Seconds until the ball's state changes by itself: sliding to rolling at 2|u0| / (7 mu_s g),
 // rolling to spinning or stationary when v reaches zero, spinning to stationary when w.z does.
-// kNever for stationary and pocketed. `nap` is the constant nap acceleration of this segment
-// (nap.hpp); a rolling ball stops when its velocity along its heading at the segment start
-// reaches zero, since the nap's sideways part never brings the speed exactly to zero.
+// kNever for stationary and pocketed. `nap` is the constant extra acceleration of this segment:
+// the nap (nap.hpp) plus, for a rolling ball held against another ball or a cushion, its contact
+// acceleration (simulator.cpp). Only rolling balls use it. A rolling ball stops when its velocity
+// along its heading at the segment start reaches zero, since a sideways part never brings the
+// speed exactly to zero.
 double transition_time(const BallState& b, const PhysicsParams& p, Vec3 nap);
 
 // The ball dt seconds into its current segment, 0 <= dt <= transition_time(b, p, nap). The
