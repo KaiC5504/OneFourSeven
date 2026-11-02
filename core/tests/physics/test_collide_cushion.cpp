@@ -5,10 +5,17 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <fstream>
+#include <string>
+#include <utility>
 #include <vector>
 
 #include "ofs/physics/collide.hpp"
+#include "ofs/physics/cue.hpp"
+#include "ofs/physics/detect.hpp"
+#include "ofs/physics/motion.hpp"
 #include "ofs/physics/params.hpp"
+#include "ofs/physics/serialize.hpp"
 #include "ofs/rng.hpp"
 
 using namespace ofs;
@@ -85,12 +92,21 @@ Local mathavan_reference(Local y, double sin_theta, double mu_w, double mu_s, do
 
 double sin_theta(const PhysicsParams& p) { return (p.cushion_contact_height_m - R) / R; }
 
-// The restitution collide_line uses for this incoming normal speed (params.hpp).
-double cushion_e(double vy, const PhysicsParams& p) {
-    const double over = std::max(0.0, vy - p.cushion_rigid_limit_m_s);
-    return std::min(p.cushion_restitution, std::max(p.cushion_restitution_min,
-                                                    p.cushion_restitution - p.cushion_restitution_slope_per_m_s * over));
-}
+// The C7 grid's speeds and the restitution each of its impacts must see, worked by hand from the
+// sources in table_params.json: e = 0.98 (Mathavan et al. 2010 sec. 3.5) up to 2.5 m/s of normal
+// speed v0 sin(alpha) (their Fig. 7), 0.98 - 0.16 (v0 sin(alpha) - 2.5) above it (the fit to
+// Fig. 7(b)), and never below 0.70 (TP B.6). Columns are alpha = 5, 15, ..., 85 degrees.
+constexpr double kGridSpeeds[5] = {0.2, 1.0, 3.0, 6.0, 12.0};
+constexpr double kGridRestitution[5][9] = {
+    {0.98, 0.98, 0.98, 0.98, 0.98, 0.98, 0.98, 0.98, 0.98},
+    {0.98, 0.98, 0.98, 0.98, 0.98, 0.98, 0.98, 0.98, 0.98},
+    // 3 sin(65 deg) = 2.71892 m/s, 3 sin(75) = 2.89778, 3 sin(85) = 2.98858.
+    {0.98, 0.98, 0.98, 0.98, 0.98, 0.98, 0.9449723, 0.9163556, 0.9018265},
+    // 6 sin(25) = 2.53571, 6 sin(35) = 3.44146, 6 sin(45) = 4.24264; from 55 the floor.
+    {0.98, 0.98, 0.9742865, 0.8293666, 0.7011775, 0.70, 0.70, 0.70, 0.70},
+    // 12 sin(5) = 1.04587, 12 sin(15) = 3.10583; from 25 the floor.
+    {0.98, 0.8830674, 0.70, 0.70, 0.70, 0.70, 0.70, 0.70, 0.70},
+};
 
 BallState ball_from_local(const Local& y) {
     BallState b;
@@ -104,9 +120,10 @@ BallState ball_from_local(const Local& y) {
 
 Local local_from_ball(const BallState& b) { return {b.v.x, b.v.y, R * b.w.x, R * b.w.y, R * b.w.z}; }
 
-Local hit_line(const Local& y, const PhysicsParams& p) {
+Local hit_line(const Local& y, const PhysicsParams& p, bool* solved = nullptr) {
     BallState b = ball_from_local(y);
-    collide_line(b, kCushion, p);
+    const bool ok = collide_line(b, kCushion, p);
+    if (solved != nullptr) *solved = ok;
     return local_from_ball(b);
 }
 
@@ -128,23 +145,80 @@ double energy(const Local& y) {
     return 0.5 * (y[0] * y[0] + y[1] * y[1]) + 0.2 * (y[2] * y[2] + y[3] * y[3] + y[4] * y[4]);
 }
 
+nlohmann::json read_json(const std::string& path) {
+    std::ifstream in(path);
+    REQUIRE(in.good());
+    return nlohmann::json::parse(in);
+}
+
+struct Arrival {
+    BallState ball;
+    LineCushion cushion;
+};
+
+// The cue ball of positions/near_left_cushion.json, struck as the fixture says, as it reaches a
+// cushion of the real outline (sliding, then rolling, without the nap).
+Arrival near_left_cushion_arrival(const PhysicsParams& p) {
+    const nlohmann::json fixture = read_json(std::string(OFS_TEST_FIXTURES_DIR) + "/positions/near_left_cushion.json");
+    TableState start;
+    CueStrike cue;
+    std::string error;
+    REQUIRE_MESSAGE(from_json(fixture["start"], start, error), error);
+    REQUIRE_MESSAGE(from_json(fixture["strike"], cue, error), error);
+    TableShape table;
+    std::vector<std::string> problems;
+    REQUIRE(load_table_shape(read_json(std::string(OFS_CORE_DATA_DIR) + "/table_shape.json"), table, problems));
+    const int index = fixture["cue_ball"].get<int>();
+    Rng rng(147);
+    const StrikeOutcome struck = strike(start, index, cue, table, p, rng);
+    BallState b = start.balls[index];
+    b.v = struck.v;
+    b.w = struck.w;
+    b.motion = classify(b, p);
+    const Vec3 no_nap{};
+    for (int segment = 0; segment < 3; ++segment) {
+        const double end = transition_time(b, p, no_nap);
+        const Trajectory path = trajectory(b, p, no_nap);
+        double first = kNever;
+        const LineCushion* hit = nullptr;
+        for (const LineCushion& line : table.lines) {
+            const double t = ball_line_time(path, line, R, end);
+            if (t < first) {
+                first = t;
+                hit = &line;
+            }
+        }
+        if (hit != nullptr) return {evolve(b, first, p, no_nap), *hit};
+        b = complete_transition(evolve(b, end, p, no_nap), p);
+    }
+    FAIL("the struck ball never reached a cushion");
+    return {};
+}
+
 }  // namespace
 
 TEST_CASE("cushion: fast Mathavan model matches the 5000-step reference over the C7 grid") {
     // Spec 7.11 C7; Mathavan et al. (2010). Incidence 5-85 degrees, 0.2-6 m/s, plain, top, stun,
     // screw and running or check side.
     const PhysicsParams p;
+    // kGridRestitution was worked out for these.
+    REQUIRE(p.cushion_restitution == 0.98);
+    REQUIRE(p.cushion_rigid_limit_m_s == 2.5);
+    REQUIRE(p.cushion_restitution_slope_per_m_s == 0.16);
+    REQUIRE(p.cushion_restitution_min == 0.70);
     double worst_speed = 0.0;
     double worst_angle = 0.0;
     int cases = 0;
-    for (int alpha_deg = 5; alpha_deg <= 85; alpha_deg += 10) {
+    for (int col = 0; col < 9; ++col) {
+        const int alpha_deg = 5 + 10 * col;
         // 12 m/s takes the sloped restitution to its floor at steep incidence.
-        for (double v0 : {0.2, 1.0, 3.0, 6.0, 12.0}) {
+        for (int row = 0; row < 5; ++row) {
+            const double v0 = kGridSpeeds[row];
             for (double top : {-1.0, 0.0, 0.5, 1.0, 2.0}) {
                 for (double side : {-2.0, -1.0, 0.0, 1.0, 2.0}) {
                     const Local y0 = paper_state(v0, alpha_deg * kPi / 180.0, top, side);
                     const Local ref = mathavan_reference(y0, sin_theta(p), p.cushion_friction,
-                                                         p.cushion_table_friction, cushion_e(y0[1], p));
+                                                         p.cushion_table_friction, kGridRestitution[row][col]);
                     const Local got = hit_line(y0, p);
                     const double ds = std::abs(speed(got) - speed(ref)) / speed(ref);
                     const double da = std::abs(rebound_deg(got) - rebound_deg(ref));
@@ -258,6 +332,45 @@ TEST_CASE("cushion: kinetic energy never increases and the ball always leaves") 
     MESSAGE("largest relative energy change over 10,000 impacts: " << worst_gain);
 }
 
+TEST_CASE("cushion: a grazing hit with side never gains energy") {
+    // Spec 7.11 C12. Running side of (1 + top sin(theta)) cos(alpha) / cos(theta) stops the
+    // cushion contact's slip along the cushion, so at a grazing angle that slip sits near zero
+    // through an impact whose normal impulse is tiny next to the speed. A rolling ball at 3.7 m/s,
+    // 0.115 degrees, side 1.53 gained 2e-7 of its energy when a zero tolerance scaled by the whole
+    // speed let that slip stick. Around that side finely, coarsely elsewhere, and with restitution
+    // 1, where only friction loses.
+    double worst = -1.0;
+    int cases = 0;
+    for (double e : {0.98, 1.0}) {
+        PhysicsParams p;
+        p.cushion_restitution = e;
+        const double st = sin_theta(p);
+        const double ct = std::sqrt(1.0 - st * st);
+        for (double v0 : {0.1, 0.5, 1.0, 2.0, 3.7, 6.0}) {
+            for (double alpha_deg : {0.001, 0.01, 0.05, 0.115, 0.3, 1.0, 3.0}) {
+                const double alpha = alpha_deg * kPi / 180.0;
+                for (double top : {0.0, 0.5, 1.0, 1.5}) {
+                    std::vector<double> sides;
+                    for (int i = -8; i <= 8; ++i) sides.push_back(0.25 * i);
+                    const double stopping = (1.0 + top * st) * std::cos(alpha) / ct;
+                    for (double d : {-3e-3, -1e-3, -3e-4, -1e-4, -1e-5, 0.0, 1e-5, 1e-4, 3e-4, 1e-3, 3e-3}) {
+                        sides.push_back(stopping + d);
+                    }
+                    for (double side : sides) {
+                        const Local y0 = paper_state(v0, alpha, top, side);
+                        const double gain = (energy(hit_line(y0, p)) - energy(y0)) / energy(y0);
+                        worst = std::max(worst, gain);
+                        CHECK_MESSAGE(gain <= 1e-12, "e " << e << " v0 " << v0 << " alpha " << alpha_deg << " deg top "
+                                                          << top << " side " << side << ": gain " << gain);
+                        ++cases;
+                    }
+                }
+            }
+        }
+    }
+    MESSAGE("largest relative energy change over " << cases << " grazing impacts: " << worst);
+}
+
 TEST_CASE("cushion: every parameter value the loader accepts gives a finite, valid rebound") {
     // physics_params.cpp ranges: frictions up to 2, contact height from R to 2R, any restitution.
     Rng rng(9);
@@ -279,6 +392,85 @@ TEST_CASE("cushion: every parameter value the loader accepts gives a finite, val
         CHECK(got[1] <= 0.0);
         CHECK(energy(got) <= energy(y0) * (1.0 + 1e-9));
     }
+}
+
+TEST_CASE("cushion: a straight rolling hit falls back exactly where both contacts can hold the ball") {
+    // With both contacts stuck, the cushion's friction is cos(theta) / (1 + sin(theta)) of its
+    // normal impulse, the cloth's is the same (its normal impulse then equals the cushion's), and
+    // every velocity stays put: a ball not yet leaving is wedged for good. Both hold once that
+    // ratio is within both frictions, at h >= 2R / (1 + mu^2) with mu the smaller (0.05149 m for
+    // the defaults). A rolling ball straight in is the first to wedge: its cushion slip reaches
+    // zero just as compression ends. (Exactly straight: just under the wedging height the
+    // rebound is so slow that rounding off the line, as paper_state's cos(pi / 2) gives, grows
+    // into a slip that crawls past the step limit.)
+    for (const auto& [mu_w, mu_s] : {std::pair{0.14, 0.212}, std::pair{0.3, 0.25}, std::pair{0.5, 0.6}}) {
+        PhysicsParams p;
+        p.cushion_friction = mu_w;
+        p.cushion_table_friction = mu_s;
+        const double mu = std::min(mu_w, mu_s);
+        const double wedge = 2.0 * R / (1.0 + mu * mu);
+        for (double v0 : {0.3, 1.0, 3.0}) {
+            INFO("mu_w " << mu_w << " mu_s " << mu_s << " v0 " << v0);
+            const Local straight{0.0, v0, -v0, 0.0, 0.0};
+            bool solved = false;
+            p.cushion_contact_height_m = wedge * (1.0 - 1e-4);
+            hit_line(straight, p, &solved);
+            CHECK(solved);
+            p.cushion_contact_height_m = wedge * (1.0 + 1e-4);
+            const Local got = hit_line(straight, p, &solved);
+            CHECK_FALSE(solved);
+            CHECK(got[1] < 0.0);
+        }
+    }
+}
+
+TEST_CASE("cushion: the impact solver finishes at every contact height up to 0.045 m") {
+    // The upper bound for cushion_contact_height_m, with cushion and cloth frictions up to 0.25.
+    // The wedging height above is then 0.0494 m or more, and short of it the slips crawl near
+    // zero and take hundreds of steps: with the defaults the first fallbacks come at 0.050 m
+    // (wedging at 0.0515 m), with both frictions at 0.4 already at 0.040 m (wedging at 0.0453 m).
+    int cases = 0;
+    for (double h : {R, 0.03675, 0.042, 0.045}) {
+        for (const auto& [mu_w, mu_s] : {std::pair{0.14, 0.212}, std::pair{0.25, 0.25}, std::pair{0.25, 0.0},
+                                         std::pair{0.0, 0.25}}) {
+            PhysicsParams p;
+            p.cushion_contact_height_m = h;
+            p.cushion_friction = mu_w;
+            p.cushion_table_friction = mu_s;
+            for (double v0 : {0.01, 0.2, 1.0, 3.0, 6.0, 10.0}) {
+                for (double alpha_deg : {0.01, 1.0, 5.0, 15.0, 30.0, 45.0, 60.0, 75.0, 85.0, 89.9, 90.0, 120.0, 170.0}) {
+                    for (double top : {-1.0, 0.0, 0.5, 1.0, 2.0}) {
+                        for (double side : {-2.0, -1.0, -0.5, 0.0, 0.5, 1.0, 2.0}) {
+                            bool solved = false;
+                            hit_line(paper_state(v0, alpha_deg * kPi / 180.0, top, side), p, &solved);
+                            CHECK_MESSAGE(solved, "h " << h << " mu_w " << mu_w << " mu_s " << mu_s << " v0 " << v0
+                                                       << " alpha " << alpha_deg << " top " << top << " side " << side);
+                            ++cases;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    MESSAGE(cases << " impacts solved");
+}
+
+TEST_CASE("cushion: with the contact at 2R the near_left_cushion strike falls back to a bounce that leaves") {
+    // The loader's current top value: a contact on top of the ball (cos(theta) = 0) wedges a ball
+    // at any friction.
+    PhysicsParams p;
+    p.cushion_contact_height_m = 2.0 * R;
+    const Arrival in = near_left_cushion_arrival(p);
+    REQUIRE(in.cushion.normal.y == -1.0);  // the left cushion
+    BallState b = in.ball;
+    CHECK_FALSE(collide_line(b, in.cushion, p));
+    for (double x : {b.v.x, b.v.y, b.v.z, b.w.x, b.w.y, b.w.z}) CHECK(std::isfinite(x));
+    CHECK(b.v.x * in.cushion.normal.x + b.v.y * in.cushion.normal.y > 0.0);
+    CHECK(kinetic_energy(b, p) <= kinetic_energy(in.ball, p));
+    // The same strike at the top of the safe range is solved.
+    p.cushion_contact_height_m = 0.045;
+    BallState safe = near_left_cushion_arrival(p).ball;
+    CHECK(collide_line(safe, in.cushion, p));
 }
 
 TEST_CASE("cushion: the fraction of speed lost does not depend on speed, the amount lost does") {

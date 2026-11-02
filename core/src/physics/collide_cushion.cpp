@@ -32,8 +32,10 @@ constexpr double kA = 1.0 + kQ;
 // Integration tolerance relative to the impact's speed scale. 1e-4 keeps every case of the C7
 // grid within 0.06% speed and 0.05 degrees of the 5000-step reference at about 30 evaluations.
 constexpr double kRelTol = 1e-4;
-// A slip closing on zero counts as zero once below this fraction of the speed scale; the error it
-// leaves is of the same order.
+// A slip closing on zero counts as zero once below this fraction of the incoming normal speed, so
+// the impulse that clears the rest (project) is small next to the impact's own. A fraction of the
+// whole speed scale, spin included, let a grazing hit with running side snap a slip larger than
+// its normal speed.
 constexpr double kSnap = 1e-3;
 // Steps towards a predicted zero slip cover this fraction of the remaining distance, so they never
 // land on the point where the slip's direction is undefined.
@@ -72,7 +74,8 @@ public:
         : st_(sin_theta), ct_(std::sqrt(1.0 - sin_theta * sin_theta)), mu_w_(mu_w), mu_s_(mu_s), e_(e),
           b_(1.0 - kQ * sin_theta), c_(sin_theta * sin_theta + kQ), d_(kQ - sin_theta) {}
 
-    // y0's work entry is ignored. False when the step limit ran out (the result is then unusable).
+    // y0's work entry is ignored. False when the ball wedges between the contacts or the step
+    // limit runs out (the result is then unusable).
     bool solve(const State& y0, State& out);
 
 private:
@@ -82,13 +85,8 @@ private:
     };
 
     // Mathavan (12a), (12b), (13a), (13b).
-    Slips raw_slips(const State& y) const {
-        return {{y[0] + y[3] * st_ - y[4] * ct_, -y[1] * st_ + y[2]}, {y[0] - y[3], y[1] + y[2]}};
-    }
-
     Slips slips(const State& y) const {
-        const Slips s = raw_slips(y);
-        return {{s.i.x - off_[0].x, s.i.y - off_[0].y}, {s.c.x - off_[1].x, s.c.y - off_[1].y}};
+        return {{y[0] + y[3] * st_ - y[4] * ct_, -y[1] * st_ + y[2]}, {y[0] - y[3], y[1] + y[2]}};
     }
 
     Slips slip_rates(const Friction& f) const {
@@ -108,16 +106,15 @@ private:
     double time_to_zero_slip(const State& y, const State& k, int& which) const;
     double time_to_end(const State& y, const State& k, bool restitution, double target) const;
     double stick_margin(const State& y) const;
-    void resolve(const State& y, bool no_stick_i, bool no_stick_c);
+    void project(State& y, const bool zero[2]) const;
+    void resolve(State& y, bool no_stick_i, bool no_stick_c);
 
     double st_, ct_, mu_w_, mu_s_, e_;
     double b_, c_, d_;  // cross and self terms of the contacts' mobility
     double zero_ = 0.0;
     double snap_ = 0.0;
     Mode mode_[2] = {Mode::slip, Mode::slip};
-    // A contact that restarts from zero slip measures its slip from the residual left at that
-    // moment and starts in the direction its slip will grow.
-    Dir off_[2];
+    // A contact that restarts from zero slip starts in the direction its slip will grow.
     Dir restart_[2];
 };
 
@@ -232,7 +229,8 @@ double Impact::step(const State& y, double h, const State& k1, State& yn, State&
 }
 
 // The p until a slipping contact's slip, extrapolated linearly, is closest to zero, for the one
-// that gets there first; infinity when neither is closing.
+// that gets there first; infinity when neither is closing. A slip within zero_ has just restarted
+// from zero (project leaves only rounding) and grows along restart_, whatever its rounding says.
 double Impact::time_to_zero_slip(const State& y, const State& k, int& which) const {
     const Slips s = slips(y);
     const Slips ds{{k[0] + k[3] * st_ - k[4] * ct_, -k[1] * st_ + k[2]}, {k[0] - k[3], k[1] + k[2]}};
@@ -244,7 +242,7 @@ double Impact::time_to_zero_slip(const State& y, const State& k, int& which) con
         if (mode_[i] != Mode::slip) continue;
         const double n2 = sv[i]->x * sv[i]->x + sv[i]->y * sv[i]->y;
         const double closing = sv[i]->x * dv[i]->x + sv[i]->y * dv[i]->y;
-        if (closing < 0.0 && n2 > 0.0 && -n2 / closing < best) {
+        if (closing < 0.0 && n2 > zero_ * zero_ && -n2 / closing < best) {
             best = -n2 / closing;
             which = i;
         }
@@ -275,15 +273,51 @@ double Impact::stick_margin(const State& y) const {
     return g;
 }
 
+// Clears the slip left at the contacts counted as zero with the tangential impulse that stops
+// exactly that, solving the mobility M (slip_rates without the normal terms) restricted to them. A
+// contact that sticks on a leftover slip would let friction work on it, which can add energy; an
+// impulse that stops a slip s only takes energy out, s M^-1 s / 2 per unit mass.
+void Impact::project(State& y, const bool zero[2]) const {
+    const Slips s = slips(y);
+    Friction j;
+    if (zero[0] && zero[1]) {
+        const double det_x = kA * kA - b_ * b_;
+        const double det_y = c_ * kA - d_ * d_;
+        j.ix = -(kA * s.i.x - b_ * s.c.x) / det_x;
+        j.cx = -(kA * s.c.x - b_ * s.i.x) / det_x;
+        j.iy = -(kA * s.i.y - d_ * s.c.y) / det_y;
+        j.cy = -(c_ * s.c.y - d_ * s.i.y) / det_y;
+    } else if (zero[0]) {
+        j.ix = -s.i.x / kA;
+        j.iy = -s.i.y / c_;
+    } else if (zero[1]) {
+        j.cx = -s.c.x / kA;
+        j.cy = -s.c.y / kA;
+    } else {
+        return;
+    }
+    // rhs() without the normal impulse.
+    y[0] += j.ix + j.cx;
+    y[1] += -j.iy * st_ + j.cy;
+    y[2] += kQ * (j.iy + j.cy);
+    y[3] += kQ * (j.ix * st_ - j.cx);
+    y[4] += -kQ * j.ix * ct_;
+}
+
 // At a zero slip (or a broken stick) choose each contact's mode: stick when friction can hold it,
 // otherwise slip in the direction that is a fixed point of "slip grows along its own rate", the
 // direction a fine Euler scheme settles into after the crossing.
-void Impact::resolve(const State& y, bool no_stick_i, bool no_stick_c) {
+void Impact::resolve(State& y, bool no_stick_i, bool no_stick_c) {
+    bool zero[2];
+    {
+        const Slips s = slips(y);
+        zero[0] = mode_[0] == Mode::stick || length(s.i) <= snap_;
+        zero[1] = mode_[1] == Mode::stick || length(s.c) <= snap_;
+    }
+    project(y, zero);
     const Slips s = slips(y);
     const Dir sv[2] = {s.i, s.c};
     const bool no_stick[2] = {no_stick_i, no_stick_c};
-    bool zero[2];
-    for (int i = 0; i < 2; ++i) zero[i] = mode_[i] == Mode::stick || length(sv[i]) <= snap_;
 
     Dir guess[2];
     if (mode_[0] == Mode::stick || mode_[1] == Mode::stick) {
@@ -349,14 +383,9 @@ void Impact::resolve(const State& y, bool no_stick_i, bool no_stick_c) {
         dirs[0] = fallback[0];
         dirs[1] = fallback[1];
     }
-    const Slips raw = raw_slips(y);
-    const Dir rawv[2] = {raw.i, raw.c};
     for (int i = 0; i < 2; ++i) {
         mode_[i] = chosen[i];
-        if (zero[i]) {
-            off_[i] = rawv[i];
-            restart_[i] = dirs[i];
-        }
+        if (zero[i]) restart_[i] = dirs[i];
     }
 }
 
@@ -364,7 +393,7 @@ bool Impact::solve(const State& y0, State& out) {
     constexpr double inf = std::numeric_limits<double>::infinity();
     const double scale = std::hypot(y0[0], y0[1]) + std::sqrt(y0[2] * y0[2] + y0[3] * y0[3] + y0[4] * y0[4]);
     zero_ = 1e-13 * scale;
-    snap_ = kSnap * scale;
+    snap_ = kSnap * y0[1];
     const double tol = kRelTol * scale;
     const double p_total = (1.0 + e_) * y0[1];
 
@@ -381,6 +410,13 @@ bool Impact::solve(const State& y0, State& out) {
     State yn;
     State kn;
     for (int steps = 0; steps < kMaxSteps; ++steps) {
+        if (mode_[0] == Mode::stick && mode_[1] == Mode::stick) {
+            // Both contacts holding wedge the ball: their slips up the contacts are both zero only
+            // with no normal speed, and every rate is zero, so it never leaves. Both can hold only
+            // once cos(theta) / (1 + sin(theta)) is within both frictions, a contact at or above
+            // 2R / (1 + mu^2) (collide.hpp).
+            return false;
+        }
         const double te = time_to_end(y, k, restitution, target);
         int which = -1;
         const double ts = time_to_zero_slip(y, k, which);
