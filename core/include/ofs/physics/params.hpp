@@ -74,7 +74,7 @@ struct PhysicsParams {
     double time_cap_s = 120.0;
     int max_events = 50000;
     double zero_time_s = 1.0e-9;    // events closer than this count as simultaneous
-    int max_zero_time_chain = 100;  // simultaneous events in a row before the guard trips
+    int max_zero_time_chain = 1000;  // simultaneous events in a row before the guard trips
 };
 
 // Every field of PhysicsParams by name, in declaration order. Loading, serialising and the

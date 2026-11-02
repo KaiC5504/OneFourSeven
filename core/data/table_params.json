@@ -44,7 +44,7 @@
     "time_cap_s": 120.0,
     "max_events": 50000,
     "zero_time_s": 1e-09,
-    "max_zero_time_chain": 100
+    "max_zero_time_chain": 1000
   },
   "docs": {
     "ball_mass_kg": {
@@ -259,8 +259,8 @@
     },
     "max_zero_time_chain": {
       "unit": "",
-      "source": "starting guess",
-      "note": "Simultaneous events in a row before the guard trips (spec 7.7)."
+      "source": "M1 fix round: a hit on a frozen line of 15-20 balls sends 111-131 real collisions along it in one instant",
+      "note": "Simultaneous events in a row before the guard trips (spec 7.7); about 1 us each, so the worst case costs ~1 ms."
     }
   }
 }
