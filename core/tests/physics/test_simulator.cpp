@@ -9,7 +9,9 @@
 
 #include "ofs/log.hpp"
 #include "ofs/log_schema.hpp"
+#include "ofs/physics/collide.hpp"
 #include "ofs/physics/cue.hpp"
+#include "ofs/physics/motion.hpp"
 #include "ofs/physics/rack.hpp"
 #include "ofs/physics/repro.hpp"
 #include "ofs/physics/simulator.hpp"
@@ -332,7 +334,8 @@ TEST_CASE("simulate a straight pot: the red ends in the pocket" * doctest::skip(
     const double cx = ofs::table::kPlayingLength / 2.0;
     const double cy = ofs::table::kPlayingWidth / 2.0;
     SimInput in;
-    in.start.balls = {ball(ofs::table::Ball::cue, 0, cx - 0.8, cy - 0.8), ball(ofs::table::Ball::red, 0, cx - 0.4, cy - 0.4)};
+    in.start.balls = {ball(ofs::table::Ball::cue, 0, cx - 0.8, cy - 0.8),
+                      ball(ofs::table::Ball::red, 0, cx - 0.4, cy - 0.4)};
     in.cue_ball = 0;
     in.strike.aim_rad = std::atan2(1.0, 1.0);
     in.strike.speed_m_s = 2.0;
@@ -345,7 +348,9 @@ TEST_CASE("simulate a straight pot: the red ends in the pocket" * doctest::skip(
     CHECK(r.final_state.balls[1].motion == Motion::pocketed);
     CHECK(r.final_state.balls[1].pocket == top_left);
     bool pot_event = false;
-    for (const ShotEvent& e : r.events) pot_event = pot_event || (e.kind == EventKind::pocket && e.a == 1 && e.body == top_left);
+    for (const ShotEvent& e : r.events) {
+        pot_event = pot_event || (e.kind == EventKind::pocket && e.a == 1 && e.body == top_left);
+    }
     CHECK(pot_event);
     CHECK(r.anomalies.empty());
     for (const BallState& b : r.final_state.balls) CHECK(at_rest(b));
@@ -405,6 +410,131 @@ TEST_CASE("simulate a frozen line resolves as pairwise collisions at one instant
         end_pair = end_pair || (r.events[n].a == 2 && r.events[n].b == 3);
     }
     CHECK(end_pair);
+}
+
+namespace {
+
+// The first ball_ball event of a two-ball shot, with both balls just before and just after it.
+struct Contact {
+    const ShotEvent* event = nullptr;
+    BallState a_before, b_before, a_after, b_after;
+};
+
+Contact first_contact(const ShotRecord& r) {
+    Contact c;
+    for (const ShotEvent& e : r.events) {
+        if (e.kind != EventKind::ball_ball) continue;
+        c.event = &e;
+        // The segments that end at the contact, evolved to it, and the ones it starts.
+        for (int ball : {e.a, e.b}) {
+            const std::vector<Segment>& segs = r.segments[static_cast<std::size_t>(ball)];
+            std::size_t k = 0;
+            while (k + 1 < segs.size() && segs[k + 1].t0 < e.t) ++k;
+            BallState before =
+                evolve(segs[k].start, std::min(e.t - segs[k].t0, transition_time(segs[k].start, r.params, segs[k].nap)),
+                       r.params, segs[k].nap);
+            BallState after = segs[k + 1 < segs.size() ? k + 1 : k].start;
+            (ball == e.a ? c.a_before : c.b_before) = before;
+            (ball == e.a ? c.a_after : c.b_after) = after;
+        }
+        break;
+    }
+    return c;
+}
+
+double pair_energy(const BallState& a, const BallState& b, const PhysicsParams& p) {
+    return kinetic_energy(a, p) + kinetic_energy(b, p);
+}
+
+}  // namespace
+
+TEST_CASE("simulate a slow contact as a push: both leave rolling at one speed along n" * doctest::skip()) {
+    // The cue ball rolls into a resting red at 0.5 mm/s, under ball_rest_speed_m_s.
+    SimInput in;
+    BallState cue = ball(ofs::table::Ball::cue, 0, 0.0, 0.0);
+    cue.v = {5e-4, 0.0, 0.0};
+    cue.w = {0.0, 5e-4 / kR, 0.0};
+    in.start.balls = {cue, ball(ofs::table::Ball::red, 0, 2.0 * kR + 1e-6, 0.0)};
+    in.has_strike = false;
+    const PhysicsParams& p = file_params();
+    REQUIRE(5e-4 < p.ball_rest_speed_m_s);
+    const ShotRecord r = simulate(in, table(), p);
+    CHECK(r.anomalies.empty());
+    const Contact c = first_contact(r);
+    REQUIRE(c.event != nullptr);
+    const ofs::Vec3 n = ofs::unit_or_zero(c.b_before.r - c.a_before.r);
+    CHECK(c.a_after.motion == Motion::rolling);
+    CHECK(c.b_after.motion == Motion::rolling);
+    CHECK(ofs::dot(c.a_after.v, n) == doctest::Approx(ofs::dot(c.b_after.v, n)).epsilon(1e-12));
+    // A ball rolling at v into a resting one: both roll on at v / 2.
+    CHECK(ofs::dot(c.a_after.v, n) == doctest::Approx(0.5 * ofs::dot(c.a_before.v, n)).epsilon(1e-9));
+    CHECK(pair_energy(c.a_after, c.b_after, p) < pair_energy(c.a_before, c.b_before, p));
+    for (const BallState& b : r.final_state.balls) CHECK(at_rest(b));
+}
+
+TEST_CASE("simulate a push between two moving balls keeps energy falling and ends the chase" * doctest::skip()) {
+    // A sliding cue ball with topspin catching a red that rolls slower along a slightly
+    // different heading: the case that collapsed into endless re-collisions before pushes.
+    SimInput in;
+    BallState cue = ball(ofs::table::Ball::cue, 0, 0.0, 0.0);
+    cue.v = {0.3, 0.0, 0.0};
+    cue.w = {0.0, 0.6 / kR, 0.0};
+    BallState red = ball(ofs::table::Ball::red, 0, 2.0 * kR + 1e-6, 0.002);
+    red.v = {0.3, 0.02, 0.0};
+    red.w = {-0.02 / kR, 0.3 / kR, 0.0};
+    in.start.balls = {cue, red};
+    in.has_strike = false;
+    const ShotRecord r = simulate(in, table(), file_params());
+    CHECK(r.anomalies.empty());
+    std::size_t contacts = 0;
+    for (const ShotEvent& e : r.events) contacts += e.kind == EventKind::ball_ball ? 1 : 0;
+    MESSAGE(contacts << " contacts, " << r.events.size() << " events");
+    CHECK(contacts < 200);
+    for (const BallState& b : r.final_state.balls) CHECK(at_rest(b));
+}
+
+TEST_CASE("simulate a contact above ball_rest_speed_m_s goes through collide_balls unchanged" * doctest::skip()) {
+    // straight_1m.json struck centre-ball: the stun of C2 when the cue ball still slides.
+    SimInput in;
+    in.start.balls = {ball(ofs::table::Ball::cue, 0, -0.5, 0.0), ball(ofs::table::Ball::red, 0, 0.5, 0.0)};
+    in.cue_ball = 0;
+    in.strike.speed_m_s = 4.0;
+    const PhysicsParams& p = file_params();
+    const ShotRecord r = simulate(in, table(), p);
+    const Contact c = first_contact(r);
+    REQUIRE(c.event != nullptr);
+    BallState a = c.a_before;
+    BallState b = c.b_before;
+    collide_balls(a, b, p);
+    CHECK(c.a_after.v == a.v);
+    CHECK(c.a_after.w == a.w);
+    CHECK(c.b_after.v == b.v);
+    CHECK(c.b_after.w == b.w);
+}
+
+TEST_CASE("simulate 500 varied break-offs: no guard trips, no overlaps, energy never rises" * doctest::skip()) {
+    const PhysicsParams& p = file_params();
+    std::size_t with_anomalies = 0;
+    for (std::uint64_t seed = 0; seed < 500; ++seed) {
+        CAPTURE(seed);
+        SimInput in = break_off(seed);
+        in.strike.speed_m_s = 3.0 + static_cast<double>(seed % 8);
+        in.strike.aim_rad += 0.002 * static_cast<double>(static_cast<int>(seed % 11) - 5);
+        const ShotRecord r = simulate(in, table(), p);
+        with_anomalies += r.anomalies.empty() ? 0 : 1;
+        for (const Anomaly& a : r.anomalies) MESSAGE("seed " << seed << ": " << a.kind << " " << a.detail);
+        check_no_overlaps(r.final_state);
+        for (const BallState& b : r.final_state.balls) CHECK(at_rest(b));
+        double last = std::numeric_limits<double>::infinity();
+        for (const ShotEvent& e : r.events) {
+            if (e.kind == EventKind::strike) continue;
+            double ke = 0.0;
+            for (const BallState& b : r.state_at(e.t).balls) ke += kinetic_energy(b, p);
+            CHECK(ke <= last * (1.0 + 1e-9) + 1e-12);
+            last = ke;
+        }
+    }
+    CHECK(with_anomalies == 0);
 }
 
 TEST_CASE("simulate max_events guard: the shot ends at the limit with every ball at rest" * doctest::skip()) {
