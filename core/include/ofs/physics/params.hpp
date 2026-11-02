@@ -39,7 +39,7 @@ struct PhysicsParams {
     // cushion stops acting rigid and measured rebounds fall below it (Mathavan 2010, Fig. 7), so
     // cushion and jaw restitution drop by the slope per m/s of normal speed beyond it.
     double cushion_rigid_limit_m_s = 2.5;
-    double cushion_restitution_slope_per_m_s = 0.0;
+    double cushion_restitution_slope_per_m_s = 0.16;
     double jaw_restitution = 0.8;
     double jaw_friction = 0.14;
 
