@@ -83,3 +83,4 @@ fixes, ship (no TestFlight in M1; the next signed build needs a dry run first).
   rolling with the pair's angular momentum about their cloth contacts conserved.
 - Events: touching pairs with ~zero normal velocity and inward acceleration must be contact
   at t = 0 (42 overlaps otherwise); the simulator agent told m1-events directly.
+- fix-calib merged (9866672): C4 setup and generator legality fixed; now 22/26 calibration pass. Open: C6 (tuner), C12 139/2000 + C14 638/5000 (fix-sim), cushion fast-vs-reference 0.16 deg after slope 0.16 (sent to fix-sim).
