@@ -35,6 +35,10 @@ A sanity test checks the shot generator's own starts (no overlaps, nothing insid
 that `opening_rack()` leaves every ball clear of every other, so a C12-C14 failure is the
 simulator's, not a bad start.
 
+The calibration report (`docs/calibration/report/`, written by `tools/calibration_report.py`)
+measures C1-C11 again through `ofs_sim_cli` with the same targets and bands, for the record and
+for the owner.
+
 ## Fixtures
 
 - `core/tests/fixtures/reference/cushion_mathavan.json`: generated, do not edit. `uv run
@@ -51,10 +55,10 @@ simulator's, not a bad start.
 
 ## Findings while building the suite
 
-- **C6 fast (open):** the friction fit in `table_params.json` (TP A.14's a, b, c from Marlow's
-  data) predicts 1.70 deg of throw at a half-ball hit at 7 mph, against 3.45 deg measured by both
-  Alciatore and Jewett. Slow (4.86 deg) and medium are within the measurements. The tuner can
-  refit the friction to the measured throw (spec 7.4 allows a re-fit).
+- **C6 fast (resolved):** the first friction fit (TP A.14's a, b, c from Marlow's data) predicted
+  1.70 deg of throw at a half-ball hit at 7 mph, against 3.45 deg measured by both Alciatore and
+  Jewett. The tuner refitted the friction to the measured throw (spec 7.4): 4.86 / 4.16 / 3.39 deg
+  at 1 / 3 / 7 mph.
 - **C7 data:** Mathavan et al. report that a rolling snooker ball hitting a cushion straight on
   rebounds at 0.818 of its speed on average, and that e = 0.98, mu_w = 0.14 reproduce it. Their
   own equations, solved here and by pooltool, give 0.911 for a rolling ball (0.837 for a stunned

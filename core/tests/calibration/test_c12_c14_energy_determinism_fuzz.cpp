@@ -7,8 +7,8 @@ using namespace calib;
 
 namespace {
 
-// C12 and C13 hold on any closed table; until the cushions agent's outline lands (the contracts
-// placeholder has none) they run on the bare WPBSA box.
+// C12 and C13 hold on any closed table, so when table_shape.json can't be used they run on the
+// bare WPBSA box.
 const TableShape& fuzz_table() {
     static const TableShape box = box_table();
     return loaded_table().ok ? loaded_table().t : box;
@@ -238,7 +238,7 @@ TEST_CASE("C12-C14 shot generator: every start is a legal table state") {
 
 TEST_CASE("C12 energy never rises across events, and every shot ends within the time cap (2,000 shots)") {
     const TableShape& t = fuzz_table();
-    if (!loaded_table().ok) WARN_MESSAGE(false, "table_shape.json not usable yet, C12 runs on the WPBSA box:\n" << join(loaded_table().problems));
+    if (!loaded_table().ok) WARN_MESSAGE(false, "table_shape.json not usable, C12 runs on the WPBSA box:\n" << join(loaded_table().problems));
     Rng rng(0x5eed0c12);
     Failures f;
     for (int i = 0; i < 2000; ++i) {
