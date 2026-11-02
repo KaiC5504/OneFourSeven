@@ -131,6 +131,6 @@ Setup: Full-ball hit on a red 1 m away (centre to centre), simulated by this rep
 
 ![Simulation time of break-offs](break_sim_time.png)
 
-How long the simulation of each break-off took on this PC. Over 200 break-offs the simulation took a median of 260 us and at most 479 us, within the 2000 us budget (spec 7.13).
+How long the simulation of each break-off took on this PC. Over 200 break-offs the simulation took a median of 254 us and at most 483 us, within the 2000 us budget (spec 7.13).
 
 Setup: Wall-clock time of simulate() per break-off, measured in a release build; only release timings count against the budget.
