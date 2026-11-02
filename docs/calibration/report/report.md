@@ -1,6 +1,6 @@
 # Calibration report
 
-Physics parameters `ab06a56d6608ce71`, table outline `cf92efd6db3fff39`, core 0.1.0, release build, from `calibration`.
+Physics parameters `588862c086c7b2c1`, table outline `cf92efd6db3fff39`, core 0.1.0, release build, from `calibration`.
 
 ## In plain words
 
@@ -13,7 +13,7 @@ Speeds are the cue ball's speed as it leaves the tip unless a figure says cue sp
 - **Cut angles.** A rolling cue ball arriving at 1 m/s and cut between a quarter and three-quarter ball comes off 29-34 degrees from the aim line (the 30-degree rule). Stunned, the two balls part at 80-84 degrees, a little under 90 because the balls are not perfectly elastic and the friction between them drags the object ball along.
 - **Throw.** On a half-ball cut, friction between the balls drags the object ball a little the way the cue ball is going, so it goes fuller than the line through the two centres: 4.9 degrees with a stunned cue ball arriving at 0.45 m/s, 4.2 at 1.34 m/s and 3.4 at 3.13 m/s. Over 1 m that is 8.5 cm on the slow cut and 5.9 cm on the firm one, so aim that much thinner. A rolling cue ball throws less: 1.7 degrees at 1.34 m/s.
 - **Side and squirt.** Side pushes the cue ball off the aim line, away from the side used: with the most side before a miscue (tip 0.55 off centre) it leaves 2.0 degrees off, 3.5 cm over 1 m.
-- **Swerve.** With the cue raised and side, the cue ball first squirts away from the side, then curves back towards it from the moment it is struck while it slides, bending most just before it grips the cloth; once it rolls it runs straight. Raised 30 degrees with the tip 0.4 right of centre, at a cue speed of 1.5 m/s, it squirts 1.4 degrees left, turns 12.9 degrees right over the first 26 cm and then holds its line: 0.1 degrees more over the next 2.9 m, the nap's drift on a slowing ball.
+- **Swerve.** With the cue raised and side, the cue ball first squirts away from the side, then curves back towards it from the moment it is struck while it slides, bending most just before it grips the cloth; once it rolls it runs straight. Raised 30 degrees with the tip 0.4 right of centre, at a cue speed of 1.5 m/s, it squirts 1.4 degrees left, turns 12.9 degrees right over the first 26 cm and then holds its line: 0.1 degrees more over the next 1.7 m, the nap's drift on a slowing ball.
 - **Cushions.** A rolling ball arriving straight into a cushion at 1 m/s comes off with 91% of its speed; firm hits lose more, 70% at 4 m/s. (The one set of measurements on a snooker table, by Mathavan and colleagues, averaged 82% below 1.5 m/s, where their own cushion model, which the game uses, gives 91%.) Rolling into a side cushion at 45 degrees with no side, the ball leaves at 37.3 degrees just after the impact, then bends out to 50.1 as it grips the cloth again: that is the line you see. Running side widens both (46.6 and 58.8 degrees, with as much side as a tip 0.4 off centre gives) and check side narrows them (35.7 and 49.5).
 - **Cloth speed.** A lag (from the baulk line up to the top cushion and back down to the baulk cushion) needs the cue ball to leave at 2.14 m/s, a cue speed of 1.54 m/s; coming back down from the top cushion to the baulk cushion takes 8.4 seconds.
 - **Still starting guesses, for you to judge by feel in M2:** how lively the pocket jaws are (firm balls rattling, slow ones dropping), the nap drift on slow balls with and against the nap, what a miscue does, how much a very hard ball dies on a cushion, and the cloth's overall pace (the one snooker measurement found a slower cloth; tournament tables are heated and faster, so this sits between the two).
@@ -30,10 +30,10 @@ What this report measured itself, from `ofs_sim_cli calibrate` and its own shots
 | C4 | Rolling cut, 1/4 to 3/4 ball, cue ball at 1 m/s | 29.1-34.2 deg off the aim line | 30-degree rule, inside 24-36 | met |
 | C5 | Stun cut, 1/4 to 3/4 ball, cue ball at 1 m/s | 80.3-84.1 deg between the balls | 90-degree rule less restitution and throw: 80-92 | met |
 | C6 | Half-ball stun throw at 0.447 / 1.341 / 3.129 m/s | 4.86 / 4.16 / 3.39 deg | Alciatore 4.5 / 4.1 / 3.45, Jewett 6 / 4.1 / 3.45 (+- 0.75); slow above fast by 0.25 | met |
-| C7 | Cushion rebound, rolling, no side, 0.5-4 m/s, 0-80 deg | worst 0.05 deg and 0.07% of the speed off the fine-step Mathavan solution over 36 cases | 1 deg, 2% (the suite also checks side, stun and screw) | met |
+| C7 | Cushion rebound, rolling, no side, 0.5-4 m/s, 0-80 deg | worst 0.05 deg and 0.08% of the speed off the fine-step Mathavan solution over 36 cases | 1 deg, 2% (the suite also checks side, stun and screw) | met |
 | C8 | Running and check side, into the cushion at 45 deg at 1.5 m/s | check 35.7 < none 37.3 < running 46.6 deg | angles ordered check < plain < running (Mathavan Fig. 8) | met |
 | C9 | Squirt at maximum side (tip 0.55) | 2.01 deg | 1-3 deg | met |
-| C10 | Swerve, cue raised 15-45 deg with side | while sliding pulled at 2.080 m/s^2 in a direction fixed to 0.00 deg, turning towards the side; once rolling at most 0.11 deg more | TP A.4 parabola: mu_s g = 2.080 m/s^2 in one direction (0.5%, 0.2 deg); straight once rolling apart from the nap | met |
+| C10 | Swerve, cue raised 15-45 deg with side | while sliding pulled at 2.080 m/s^2 in a direction fixed to 0.00 deg, turning towards the side; once rolling at most 0.07 deg more | TP A.4 parabola: mu_s g = 2.080 m/s^2 in one direction (0.5%, 0.2 deg); straight once rolling apart from the nap | met |
 | C11 | Lag: baulk line to the top cushion and back to baulk | cue ball 2.14 m/s; back down from the top cushion in 8.4 s, effective slope 0.0101 | 1.55-2.32 m/s (TP B.6 for slopes 0.0055-0.0105, +-5%); slope 0.0055-0.0105 | met |
 | C12-C14 | Energy, determinism, robustness | not measured by this report | ofs_calibration_tests and `ofs_sim_cli fuzz` in the gate | - |
 
@@ -83,7 +83,7 @@ Setup: Stun shots (no spin at contact): throw is the angle between the object ba
 
 ![Cushion rebound angle and speed against incidence](cushion_rebound.png)
 
-The angle a plain rolling cue ball comes off the side cushion at, against the angle it goes in at, for four speeds, and how much of its speed it keeps. Rebound angles run 0.0 to 79.7 degrees and the ball keeps 70.2 to 94.3% of its speed. Up to 2 m/s the speeds give the same angles to within 0.05 degrees, so their lines lie on top of each other; only the firm hit's restitution falls. Against the target (C7): worst 0.05 deg and 0.07% of the speed off the fine-step Mathavan solution over 36 cases; the target is 1 deg, 2% (the suite also checks side, stun and screw).
+The angle a plain rolling cue ball comes off the side cushion at, against the angle it goes in at, for four speeds, and how much of its speed it keeps. Rebound angles run 0.0 to 79.7 degrees and the ball keeps 70.2 to 94.3% of its speed. Up to 2 m/s the speeds give the same angles to within 0.05 degrees, so their lines lie on top of each other; only the firm hit's restitution falls. Against the target (C7): worst 0.05 deg and 0.08% of the speed off the fine-step Mathavan solution over 36 cases; the target is 1 deg, 2% (the suite also checks side, stun and screw).
 
 Setup: A rolling ball without side into the left side cushion. Angles from the cushion normal; rebound_deg just after the impact, rebound_rolling_deg once the ball rolls again.
 
@@ -107,9 +107,9 @@ Setup: A level cue at 3 m/s. squirt_deg is signed from the aim line.
 
 ![Swerve paths with an elevated cue and side](swerve.png)
 
-The cue ball's path seen from above with the cue raised and side applied, aiming up the table at a cue speed of 1.5 m/s; the right-hand panel is the first 40 cm, with a dot where each starts to roll. With a raised cue, 15 deg, tip +0.40 turns 6.0 degrees right over its first 29 cm and 0.1 more in the 2.8 m after it grips; 30 deg, tip +0.40 turns 12.9 degrees right over its first 26 cm and 0.1 more in the 2.9 m after it grips; 30 deg, tip -0.40 turns 12.9 degrees left over its first 26 cm and 0.1 more in the 2.9 m after it grips; 45 deg, tip +0.40 turns 21.6 degrees right over its first 22 cm and 0.1 more in the 2.4 m after it grips. Each curves towards its side while it slides, on a parabola (a fixed pull of 2.08 m/s^2, the cloth's sliding friction), bending most just before it grips, and runs straight once it rolls apart from the nap's slight drift. The 0 deg, tip +0.40 shot's cue has to rise to 2.8 degrees to clear the cushion rail behind the cue ball, so it too curves, 1.2 degrees. (C10)
+The cue ball's path seen from above with the cue raised and side applied, aiming up the table at a cue speed of 1.5 m/s; the right-hand panel is the first 40 cm, with a dot where each starts to roll. With a raised cue, 15 deg, tip +0.40 turns 6.0 degrees right over its first 29 cm and 0.0 more in the 1.7 m after it grips; 30 deg, tip +0.40 turns 12.9 degrees right over its first 26 cm and 0.1 more in the 1.7 m after it grips; 30 deg, tip -0.40 turns 12.9 degrees left over its first 26 cm and 0.1 more in the 1.7 m after it grips; 45 deg, tip +0.40 turns 21.6 degrees right over its first 22 cm and 0.1 more in the 1.9 m after it grips. Each curves towards its side while it slides, on a parabola (a fixed pull of 2.08 m/s^2, the cloth's sliding friction), bending most just before it grips, and runs straight once it rolls apart from the nap's slight drift. (C10)
 
-Setup: Aiming along +x at 1.5 m/s; positive tip_x is right of centre as the player sees it, which is towards -y. Each path stops at the cue ball's first contact.
+Setup: Aiming along +x at 1.5 m/s from (-0.20, 0.00); positive tip_x is right of centre as the player sees it, which is towards -y. Each path stops at the cue ball's first contact.
 
 ### C11: The lag: cue speed to reach the top cushion and back to baulk
 
@@ -131,6 +131,6 @@ Setup: Full-ball hit on a red 1 m away (centre to centre), simulated by this rep
 
 ![Simulation time of break-offs](break_sim_time.png)
 
-How long the simulation of each break-off took on this PC. Over 200 break-offs the simulation took a median of 391 us and at most 815 us, within the 2000 us budget (spec 7.13).
+How long the simulation of each break-off took on this PC. Over 200 break-offs the simulation took a median of 268 us and at most 589 us, within the 2000 us budget (spec 7.13).
 
 Setup: Wall-clock time of simulate() per break-off, measured in a release build; only release timings count against the budget.
