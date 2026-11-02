@@ -1701,7 +1701,7 @@ def main(argv=None) -> int:
     charts, chart_problems = render_charts(series, args.out, context)
     report = assemble_report(series, charts, problems + chart_problems, source=args.data.name, shots=shots,
                              params=params, fixtures=fixtures, changes=changes)
-    (args.out / "report.md").write_text(report, encoding="utf-8")
+    (args.out / "report.md").write_text(report, encoding="utf-8", newline="\n")
     for row in context["results"].values():
         print(f"{row[4]:<10}  {row[0]:<8}  {row[1]}")
     for s in ordered(series):
