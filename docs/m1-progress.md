@@ -28,7 +28,11 @@ off below the lowest re-tick threshold; right-hand side is w.z > 0, cue agent to
 pooltool cue_strike with restitution, v = (1+e)V/(1 + m/M + 5/2(a^2+b^2)) (TP A-30); miscue draws
 the Rng exactly twice; obstruction closed form + fixed point, 41 deg on the baulk cushion, 34 deg
 over a red 7.5 mm behind; ~0.5 us per call). Lead: tip-aware min_cue_elevation overload,
-cue_end_mass_kg 0.0047 (squirt 3.05 -> 2.0 deg at max side).
+cue_end_mass_kg 0.0047 (squirt 3.05 -> 2.0 deg at max side). tools (424050a: sim_cli
+simulate/replay/fuzz/bench/calibrate, calibration_report.py; fuzz checks anomalies, NaN,
+overlaps, tunnelling, energy, C13 every 100th; bench 15 shots). To do after the merge: write
+the bench baseline in Release; give the 25% regression check some absolute slack (us-scale
+shots are noisy while the gate runs lanes in parallel).
 
 ## After wave 1
 Enable ofs_calibration_tests in ctest and the simulator's skipped integration tests; apply
