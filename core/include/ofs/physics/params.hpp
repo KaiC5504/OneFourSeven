@@ -40,6 +40,8 @@ struct PhysicsParams {
     // cushion and jaw restitution drop by the slope per m/s of normal speed beyond it.
     double cushion_rigid_limit_m_s = 2.5;
     double cushion_restitution_slope_per_m_s = 0.16;
+    // The slope is fitted to data that stop at 3.5 m/s: restitution never falls below this.
+    double cushion_restitution_min = 0.70;
     double jaw_restitution = 0.8;
     double jaw_friction = 0.14;
 

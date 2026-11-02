@@ -40,6 +40,7 @@ const std::vector<Field>& fields() {
         {"cushion_contact_height_m", &PhysicsParams::cushion_contact_height_m, nullptr, 0.02625, 0.0525},
         {"cushion_rigid_limit_m_s", &PhysicsParams::cushion_rigid_limit_m_s, nullptr, 0.1, 20.0},
         {"cushion_restitution_slope_per_m_s", &PhysicsParams::cushion_restitution_slope_per_m_s, nullptr, 0.0, 1.0},
+        {"cushion_restitution_min", &PhysicsParams::cushion_restitution_min, nullptr, 0.0, 1.0},
         {"jaw_restitution", &PhysicsParams::jaw_restitution, nullptr, 0.0, 1.0},
         {"jaw_friction", &PhysicsParams::jaw_friction, nullptr, 0.0, 2.0},
         {"cue_mass_kg", &PhysicsParams::cue_mass_kg, nullptr, 0.05, 2.0},

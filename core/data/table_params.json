@@ -18,6 +18,7 @@
     "cushion_contact_height_m": 0.03675,
     "cushion_rigid_limit_m_s": 2.5,
     "cushion_restitution_slope_per_m_s": 0.16,
+    "cushion_restitution_min": 0.7,
     "jaw_restitution": 0.8,
     "jaw_friction": 0.14,
     "cue_mass_kg": 0.54,
@@ -125,6 +126,11 @@
       "unit": "per m/s",
       "source": "Mathavan, Jackson & Parkin (2010), Proc. IMechE C 224(9):1863-1873, Fig. 7(b): least-squares fit to the measured rebounds above 2.5 m/s (RMS error 0.219 -> 0.068 m/s)",
       "note": "Firm cushion and jaw hits lose more than the rigid model says."
+    },
+    "cushion_restitution_min": {
+      "unit": "",
+      "source": "Alciatore TP B.6 typical rail restitution 0.7 (range 0.6-0.9); Mathavan et al. 2009 (Am. J. Phys. 77:788) measured rebound curve carried to 5 m/s (0.673)",
+      "note": "Floor for cushion and jaw restitution on hard hits, reached at 4.25 m/s normal speed; no measurements exist beyond ~3.5 m/s."
     },
     "jaw_restitution": {
       "unit": "",
