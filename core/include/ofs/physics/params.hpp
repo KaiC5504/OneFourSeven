@@ -30,7 +30,12 @@ struct PhysicsParams {
     double cushion_restitution = 0.98;
     double cushion_friction = 0.14;        // mu_w, ball-cushion
     double cushion_table_friction = 0.212;  // mu_s, ball-cloth during the impact
-    double cushion_contact_height_m = 0.0333;  // height of the cushion nose's contact above the cloth
+    double cushion_contact_height_m = 0.03675;  // height of the cushion nose's contact above the cloth
+    // Mathavan's model loses the same fraction of speed at any speed; above this normal speed the
+    // cushion stops acting rigid and measured rebounds fall below it (Mathavan 2010, Fig. 7), so
+    // cushion and jaw restitution drop by the slope per m/s of normal speed beyond it.
+    double cushion_rigid_limit_m_s = 2.5;
+    double cushion_restitution_slope_per_m_s = 0.0;
     double jaw_restitution = 0.8;
     double jaw_friction = 0.14;
 
