@@ -9,7 +9,8 @@
 // acceleration is held constant until the ball's speed falls to the next threshold of the series
 // nap_speed_max_m_s * nap_tick_ratio^k, down to nap_speed_min_m_s: a handful of re-evaluations per
 // ball rather than a fixed tick, which keeps every segment quadratic and the event count low.
-// It never adds energy: its component along the velocity is never positive.
+// It never adds energy: its component along the velocity is never positive, and its size is
+// capped so that, held through a segment, it can't turn the velocity enough to raise the speed.
 
 #include "ofs/physics/params.hpp"
 #include "ofs/physics/types.hpp"
@@ -17,7 +18,8 @@
 namespace ofs::phys {
 
 // The nap acceleration until the next re-evaluation (z = 0). Zero unless the ball is rolling
-// at a speed in [nap_speed_min_m_s, nap_speed_max_m_s].
+// at a speed in [nap_speed_min_m_s, nap_speed_max_m_s], and zero below the lowest threshold of
+// the series too: that last stretch rolls out without nap.
 Vec3 nap_acceleration(const BallState& b, const PhysicsParams& p);
 
 // Seconds until the rolling ball, decelerating at `along_decel` m/s^2 along its velocity

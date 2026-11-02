@@ -300,6 +300,37 @@ TEST_CASE("squirt: maximum side gives 1-3 degrees with a snooker cue's end mass 
     CHECK(defaults > snooker);
 }
 
+TEST_CASE("squirt: a vanishing end mass gives a finite strike and next to no squirt") {
+    // cue.cpp multiplies the squirt terms through by the end mass, so there is no ball_mass / 0;
+    // tan(squirt) = 5/2 a sqrt(1 - a^2) m_e / (m_e (1 + 5/2 (1 - a^2)) + m), at most 5/4 m_e / m.
+    PhysicsParams p;
+    for (double end_mass : {1e-4, 1e-12, 0.0}) {
+        p.cue_end_mass_kg = end_mass;
+        for (double tip_x : {-0.54, -0.2, 0.3, 0.54}) {
+            CAPTURE(end_mass);
+            CAPTURE(tip_x);
+            const StrikeOutcome o = hit({0.7, tip_x, 0.1, 0.2, 3.0}, p);
+            const double speed = (1.0 + p.cue_tip_restitution) * 3.0 * std::cos(0.2) /
+                                 (1.0 + p.ball_mass_kg / p.cue_mass_kg + 2.5 * (tip_x * tip_x + 0.01));
+            CHECK(std::isfinite(o.v.x));
+            CHECK(std::isfinite(o.v.y));
+            CHECK(ofs::norm_xy(o.v) == doctest::Approx(speed).epsilon(1e-12));
+            CHECK(std::abs(o.squirt_rad) <= 1.25 * end_mass / p.ball_mass_kg);
+            CHECK(std::atan2(o.v.y, o.v.x) - 0.7 == doctest::Approx(o.squirt_rad).epsilon(1e-12));
+        }
+    }
+
+    // At the default end mass the multiplied-through form is the divided one to rounding.
+    const PhysicsParams defaults;
+    for (double tip_x = -0.55; tip_x <= 0.55; tip_x += 0.05) {
+        CAPTURE(tip_x);
+        const double rest = 1.0 - tip_x * tip_x;
+        const double divided = std::atan2(2.5 * tip_x * std::sqrt(rest),
+                                          1.0 + defaults.ball_mass_kg / defaults.cue_end_mass_kg + 2.5 * rest);
+        CHECK(hit({0.0, tip_x, 0.0, 0.0, 2.0}).squirt_rad == doctest::Approx(divided).epsilon(1e-12));
+    }
+}
+
 TEST_CASE("cue: elevation tilts the side-spin axis forward and leaves top and back spin level") {
     // pooltool cue_strike: w = v / (2/5 R^2) (b cos - c sin, a sin, -a cos) in its ball frame, so side
     // spin's axis leans from vertical towards the shot by the elevation.
@@ -410,6 +441,41 @@ TEST_CASE("miscue: weak, within the angle bound, with no spin") {
     }
     CHECK(widest > 0.95 * p.miscue_max_angle_rad);
     CHECK(fastest > 0.95 * p.miscue_speed_factor * full_hit);
+}
+
+TEST_CASE("miscue: the pace is uniform up to miscue_speed_factor of the full hit") {
+    // cue.cpp: speed = full hit * miscue_speed_factor * u, u the strike's first uniform draw, and
+    // the angle its second, uniform within miscue_max_angle_rad.
+    const PhysicsParams p;
+    const double V = 4.0;
+    const double theta = 0.3;
+    const double full_hit =
+        (1.0 + p.cue_tip_restitution) * V / (1.0 + p.ball_mass_kg / p.cue_mass_kg) * std::cos(theta);
+    const double bound = p.miscue_speed_factor * full_hit;
+    constexpr int kSeeds = 20000;
+    double sum = 0.0;
+    double sum2 = 0.0;
+    int bins[10] = {};
+    for (std::uint64_t seed = 0; seed < kSeeds; ++seed) {
+        const StrikeOutcome o = hit({-0.6, 0.5, -0.4, theta, V}, p, seed);
+        REQUIRE(o.miscue);
+        ofs::Rng draws(seed);
+        const double pace = draws.uniform();
+        const double angle = draws.uniform(-p.miscue_max_angle_rad, p.miscue_max_angle_rad);
+        const double fraction = ofs::norm_xy(o.v) / bound;
+        CHECK(fraction == doctest::Approx(pace).epsilon(1e-12));
+        CHECK(o.squirt_rad == angle);
+        sum += fraction;
+        sum2 += fraction * fraction;
+        ++bins[std::min(9, static_cast<int>(fraction * 10.0))];
+    }
+    // Uniform on [0, 1): mean 1/2, standard deviation 1/sqrt(12) (standard errors 0.0020 and
+    // 0.0009 over 20000 draws) and a tenth in each tenth; five standard errors of slack each.
+    const double mean = sum / kSeeds;
+    const double spread = std::sqrt(sum2 / kSeeds - mean * mean);
+    CHECK(std::abs(mean - 0.5) < 0.010);
+    CHECK(std::abs(spread - 1.0 / std::sqrt(12.0)) < 0.0046);
+    for (int b : bins) CHECK(std::abs(b - kSeeds / 10) < 5.0 * std::sqrt(kSeeds * 0.09));
 }
 
 TEST_CASE("miscue: every strike draws from the rng exactly twice") {
@@ -580,6 +646,36 @@ TEST_CASE("obstruction: nothing in the way gives 0") {
     s.balls.push_back(ball_at(ofs::table::Ball::red, -0.1, 0.1));
     s.balls.push_back(ball_at(ofs::table::Ball::black, 0.1, 0.0));
     CHECK(min_cue_elevation(s, 0, 0.0, t, p) == 0.0);
+}
+
+TEST_CASE("obstruction: a ball on the cue's line beyond its butt is not in the way") {
+    const PhysicsParams p;
+    const TableShape t = rectangle();
+    TableState s = cue_ball_at(1.2, 0.0);
+    s.balls.push_back(ball_at(ofs::table::Ball::red, 1.2 - kR - p.cue_length_m - 0.05, 0.0));
+    CHECK(min_cue_elevation(s, 0, 0.0, t, p) == 0.0);
+    // 10 cm closer it lies under the butt end, and the cue has to go over.
+    s.balls[1].r.x += 0.1;
+    CHECK(min_cue_elevation(s, 0, 0.0, t, p) > 0.0);
+}
+
+TEST_CASE("obstruction: the rail's far edge can set the elevation alone") {
+    // The cue thickens towards the butt, so held level it can clear the near edge of the rail top
+    // and still clip the far one. With the 40 mm rail that takes a tip high on the ball: tip_y 0.8
+    // miscues, but the miscue's speed still follows the elevation. 6.5 cm from the cushion the
+    // level cue clears the near edge by 0.2 mm.
+    const PhysicsParams p;
+    const TableShape t = rectangle();
+    const TableState s = cue_ball_at(-ofs::table::kPlayingLength / 2.0 + 0.065, 0.0);
+    const CueStrike c{0.0, 0.0, 0.8, 0.0, 2.0};
+    TableShape near_edge_only = t;
+    near_edge_only.rail_width_m = 0.0;
+    CHECK(brute_force_elevation(s.balls[0], 0.0, 0.0, 0.8, 0.3, baulk_rail(near_edge_only), p) == 0.0);
+    const double got = min_cue_elevation(s, 0, c, t, p);
+    const double brute = brute_force_elevation(s.balls[0], 0.0, 0.0, 0.8, 0.3, baulk_rail(t), p);
+    MESSAGE("far edge alone: " << got / kDeg << " degrees, brute force " << brute / kDeg);
+    CHECK(got > 0.0);
+    CHECK(std::abs(got - brute) < 1e-6);
 }
 
 TEST_CASE("obstruction: across the table the cue rises a little over the far rail") {

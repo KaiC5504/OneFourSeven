@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "ofs/physics/rack.hpp"
+#include "ofs/rng.hpp"
 
 using namespace ofs::phys;
 
@@ -111,6 +112,21 @@ TEST_CASE("rack is deterministic per seed and differs between seeds") {
         any_differs = any_differs || a.balls[i].r != c.balls[i].r;
     }
     CHECK(any_differs);
+}
+
+TEST_CASE("rack draws from its own stream, not the one a strike with the same seed gets") {
+    // rack.cpp seeds its Rng with seed ^ kRackStream, so a rack and a shot sharing a seed don't
+    // share numbers.
+    const PhysicsParams p;
+    const double base = 0.5 * (p.rack_gap_min_m + p.rack_gap_max_m);
+    const double half = 0.249 * (p.rack_gap_max_m - p.rack_gap_min_m) / std::sqrt(2.0);
+    const TableState s = opening_rack(42, p);
+    const double offset = s.balls[kFirstRed].r.x - ofs::table::opening_layout(base)[kFirstRed].position.x;
+    ofs::Rng shot(42);
+    const double shot_draw = shot.uniform(-half, half);
+    CHECK(std::abs(offset) <= half);
+    // The subtraction rounds at about 1e-16 m, far under the draws' 3e-5 m spread.
+    CHECK(std::abs(offset - shot_draw) > 1e-12);
 }
 
 TEST_CASE("rack follows the gap parameters") {

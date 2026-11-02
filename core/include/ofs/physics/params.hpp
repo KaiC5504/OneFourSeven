@@ -25,9 +25,9 @@ struct PhysicsParams {
     double ball_friction_a = 0.058;
     double ball_friction_b = 0.092;
     double ball_friction_c = 2.73;
-    // Below this approach speed two balls are being pushed together (a sliding ball's friction
-    // re-closing a contact), not bouncing: they leave rolling together instead of re-colliding
-    // without end (inelastic collapse; simulator.hpp).
+    // Below this approach speed a ball meeting another ball, a cushion or a jaw is being pushed
+    // into it (a sliding ball's friction re-closing a contact), not bouncing: the contact is held
+    // instead of re-colliding without end (inelastic collapse; simulator.cpp explains the push).
     double ball_rest_speed_m_s = 1.0e-3;
 
     // Cushions and jaws (spec 7.5, Mathavan et al. 2010).
@@ -60,13 +60,14 @@ struct PhysicsParams {
     double max_cue_speed_m_s = 10.0;
 
     // Nap (spec 7.8). A rolling ball's nap acceleration is held constant until its speed falls
-    // by nap_tick_ratio, then re-evaluated (nap.hpp).
+    // to the next threshold of the series nap_speed_max_m_s * nap_tick_ratio^k, then re-evaluated
+    // (nap.hpp).
     double nap_tick_ratio = 0.5;
     double nap_lateral_coeff = 1.2e-4;  // times g, sideways drift at nap_speed_ref_m_s
     double nap_spin_coeff = 2.0e-4;     // times g, side-spin interaction
     double nap_speed_ref_m_s = 0.3;
     double nap_speed_max_m_s = 1.5;     // no nap effect above this speed
-    double nap_speed_min_m_s = 0.02;    // no further re-evaluation below this speed
+    double nap_speed_min_m_s = 0.02;    // the series stops here; no nap below its last threshold
 
     // Break-off and the simulator (spec 7.7).
     double rack_gap_min_m = 1.0e-5;
