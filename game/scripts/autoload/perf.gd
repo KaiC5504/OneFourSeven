@@ -5,11 +5,16 @@ extends Node
 ## With application/run/low_processor_mode on, Godot draws only when something changed. Idle
 ## keeps it on; input or anything registered through set_active turns it off so motion runs
 ## at the display rate rather than at low-processor mode's capped loop.
+##
+## Low-processor mode stops drawing but not the loop: on iOS the display link still ticks it at
+## 120 Hz. Idle also caps Engine.max_fps at IDLE_MAX_FPS, so the first input waits at most one
+## idle frame, and activity restores the cap the game had.
 
 const HITCH_MS := 50.0
 const STARTUP_SECONDS := 3.0
 const DROPPED_FACTOR := 1.5
 const INPUT_QUIET_SECONDS := 2.0
+const IDLE_MAX_FPS := 30
 # Preallocated so a frame never allocates; a second at 240 Hz fits with room to spare.
 const BUFFER_SIZE := 512
 
@@ -65,7 +70,10 @@ var _start_usec := 0
 var _last_input_usec := -1
 var _active := {}
 var _idle := true
+var _last_frame_idle := true
 var _throttle := false
+var _cap_idle_fps := false
+var _active_max_fps := 0
 
 
 static func target_ms_for(refresh_rate: float) -> float:
@@ -84,12 +92,21 @@ static func idle_at(now_usec: int, last_input_usec: int, active_count: int) -> b
 	return last_input_usec < 0 or now_usec - last_input_usec >= INPUT_QUIET_SECONDS * 1e6
 
 
+## Engine.max_fps while idle, given the cap while active (0 is none). A lower cap stays.
+static func idle_max_fps_for(active_max_fps: int) -> int:
+	return IDLE_MAX_FPS if active_max_fps <= 0 else mini(active_max_fps, IDLE_MAX_FPS)
+
+
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	_throttle = OS.low_processor_usage_mode
+	# Headless runs are tests and tools: they draw nothing, and their timing checks expect the
+	# uncapped loop.
+	_cap_idle_fps = _throttle and DisplayServer.get_name() != "headless"
 	_window = FrameWindow.new(target_ms_for(DisplayServer.screen_get_refresh_rate()))
 	_start_usec = Time.get_ticks_usec()
 	_start_window(_start_usec)
+	_apply_idle()
 
 
 func _notification(what: int) -> void:
@@ -110,15 +127,17 @@ func _process(_delta: float) -> void:
 	var now := Time.get_ticks_usec()
 	var ms := (now - _last_usec) / 1000.0
 	_last_usec = now
-	# A throttled idle loop is paced by low-processor mode's sleep, not the display, and
-	# draws nothing that could be dropped.
-	_window.add(ms, not (_throttle and _idle))
+	# A throttled idle loop is paced by low-processor mode's sleep and the idle cap, not the
+	# display, and draws nothing that could be dropped. That includes the frame the first input
+	# ends, which waited out the idle state it started in.
+	_window.add(ms, not (_throttle and (_idle or _last_frame_idle)))
 	if ms > HITCH_MS:
 		_log_hitch(ms, now)
 	if now - _window_start_usec >= 1_000_000:
 		Log.info("perf", "perf.second", second_data(now))
 		_start_window(now)
 	_update_idle(now)
+	_last_frame_idle = _idle
 
 
 ## Something other than input that needs every frame drawn (an animation, a capture).
@@ -162,8 +181,19 @@ func _update_idle(now: int) -> void:
 	if idle == _idle:
 		return
 	_idle = idle
+	_apply_idle()
+
+
+func _apply_idle() -> void:
 	if _throttle:
-		OS.low_processor_usage_mode = idle
+		OS.low_processor_usage_mode = _idle
+	if not _cap_idle_fps:
+		return
+	if _idle:
+		_active_max_fps = Engine.max_fps
+		Engine.max_fps = idle_max_fps_for(_active_max_fps)
+	else:
+		Engine.max_fps = _active_max_fps
 
 
 func _log_hitch(ms: float, now: int) -> void:

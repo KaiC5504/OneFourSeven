@@ -101,6 +101,83 @@ func test_set_active_turns_idle_off_and_back() -> void:
 		check(OS.low_processor_usage_mode, "throttled again")
 
 
+func test_idle_cap_keeps_a_lower_one() -> void:
+	check_eq(PerfScript.IDLE_MAX_FPS, 30, "30 fps: the first input waits at most 33 ms")
+	check_eq(PerfScript.idle_max_fps_for(0), 30, "no cap while active")
+	check_eq(PerfScript.idle_max_fps_for(144), 30, "a higher cap")
+	check_eq(PerfScript.idle_max_fps_for(20), 20, "a lower cap stays")
+
+
+func test_headless_runs_are_not_capped() -> void:
+	if DisplayServer.get_name() == "headless":
+		check(not Perf.get("_cap_idle_fps"), "no idle cap headless")
+		check_eq(Engine.max_fps, 0, "the test run's loop is uncapped")
+
+
+func _engine_state() -> Array:
+	return [Engine.max_fps, OS.low_processor_usage_mode]
+
+
+func _restore(state: Array) -> void:
+	Engine.max_fps = state[0]
+	OS.low_processor_usage_mode = state[1]
+
+
+# A Perf outside the tree that throttles and caps as on the phone, started idle while the game's
+# own cap is active_max_fps. It changes the engine's real settings: callers restore them.
+func _phone_perf(active_max_fps: int) -> PerfScript:
+	Engine.max_fps = active_max_fps
+	var perf := PerfScript.new()
+	perf._ready()
+	perf._throttle = true
+	perf._cap_idle_fps = true
+	perf._apply_idle()
+	return perf
+
+
+func test_idle_caps_the_loop_and_the_first_input_lifts_it_at_once() -> void:
+	var saved := _engine_state()
+	var perf := _phone_perf(0)
+	check(perf.is_idle(), "idle at start")
+	check_eq(Engine.max_fps, PerfScript.IDLE_MAX_FPS, "capped while idle")
+	check(OS.low_processor_usage_mode, "throttled while idle")
+	perf._input(InputEventScreenTouch.new())
+	# Lifted inside the input's own frame, so that frame ends without waiting out the cap.
+	check(not perf.is_idle(), "active after input")
+	check_eq(Engine.max_fps, 0, "uncapped as soon as the input arrives")
+	check(not OS.low_processor_usage_mode, "full-rate rendering after input")
+	perf.free()
+	_restore(saved)
+
+
+func test_activity_restores_the_games_own_cap() -> void:
+	var saved := _engine_state()
+	for own: int in [144, 20]:
+		var perf := _phone_perf(own)
+		check_eq(Engine.max_fps, PerfScript.idle_max_fps_for(own), "idle cap over %d" % own)
+		perf.set_active(&"test", true)
+		check_eq(Engine.max_fps, own, "the game's own cap while active")
+		perf.set_active(&"test", false)
+		check_eq(Engine.max_fps, PerfScript.idle_max_fps_for(own), "capped again over %d" % own)
+		perf.free()
+	_restore(saved)
+
+
+func test_the_idle_frame_the_first_input_ends_is_not_dropped() -> void:
+	var saved := _engine_state()
+	var perf := _phone_perf(0)
+	var idle_frame_usec := int(1e6 / PerfScript.IDLE_MAX_FPS)
+	perf._last_usec = Time.get_ticks_usec() - idle_frame_usec
+	perf._input(InputEventScreenTouch.new())
+	perf._process(0.0)
+	check_eq(perf._window.summary()["dropped_frames"], 0, "the idle frame the touch ended")
+	perf._last_usec = Time.get_ticks_usec() - idle_frame_usec
+	perf._process(0.0)
+	check_eq(perf._window.summary()["dropped_frames"], 1, "a slow active frame still counts")
+	perf.free()
+	_restore(saved)
+
+
 func test_perf_second_has_every_schema_field() -> void:
 	var schema: Variant = JSON.parse_string(FileAccess.get_file_as_string(SCHEMA_PATH))
 	check(schema is Dictionary, "schema readable from %s (run scripts/sync_data.py)" % SCHEMA_PATH)
