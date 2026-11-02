@@ -9,6 +9,7 @@ game/bin/*.exp
 game/bin/*.lib
 game/bin/*.xcframework/
 game/bin/*.framework/
+game/bin/*.dylib
 __pycache__/
 *.pyc
 .venv/

@@ -13,18 +13,18 @@ namespace ofs::phys {
 
 struct PhysicsParams {
     // Ball and cloth.
-    double ball_mass_kg = 0.141;
+    double ball_mass_kg = 0.1406;
     double gravity_m_s2 = 9.81;
-    double slide_friction = 0.2;        // mu_s, ball-cloth while the contact point slips
-    double roll_friction = 0.008;       // mu_r, rolling resistance
+    double slide_friction = 0.212;      // mu_s, ball-cloth while the contact point slips
+    double roll_friction = 0.01;        // mu_r, rolling resistance
     double spin_friction_per_r = 0.4444444444444444;  // mu_sp / R (pooltool u_sp_proportionality)
 
     // Ball-ball (spec 7.4): normal restitution, and contact friction
     // mu = a + b * exp(-c * v_rel) with v_rel the sliding speed at the contact in m/s.
     double ball_restitution = 0.94;
-    double ball_friction_a = 9.951e-3;
-    double ball_friction_b = 0.108;
-    double ball_friction_c = 1.088;
+    double ball_friction_a = 0.058;
+    double ball_friction_b = 0.092;
+    double ball_friction_c = 2.73;
     // Below this approach speed two balls are being pushed together (a sliding ball's friction
     // re-closing a contact), not bouncing: they leave rolling together instead of re-colliding
     // without end (inelastic collapse; simulator.hpp).
@@ -40,6 +40,8 @@ struct PhysicsParams {
     // cushion and jaw restitution drop by the slope per m/s of normal speed beyond it.
     double cushion_rigid_limit_m_s = 2.5;
     double cushion_restitution_slope_per_m_s = 0.16;
+    // The slope is fitted to data that stop at 3.5 m/s: restitution never falls below this.
+    double cushion_restitution_min = 0.70;
     double jaw_restitution = 0.8;
     double jaw_friction = 0.14;
 

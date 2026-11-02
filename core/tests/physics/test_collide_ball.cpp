@@ -200,7 +200,8 @@ TEST_CASE("ball-ball: a rolling half-ball hit throws the object ball forward, sl
     CHECK(deg(slow_throw) > 1.5);
     CHECK(deg(slow_throw) < 3.0);
     CHECK(deg(fast_throw) > 0.2);
-    CHECK(deg(fast_throw) < 1.0);
+    // Follow reduces throw below the published fast stun value (3.45 deg, BD Sept 2006; TP A.14).
+    CHECK(deg(fast_throw) < 2.5);
     CHECK(slow_throw > fast_throw);
 
     // Stun (TP A.14 stun curves; BD Sep 2006 Diagram 1, about 5-6 degrees at its slowest near a
