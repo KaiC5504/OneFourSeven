@@ -22,7 +22,7 @@ about 2 m/s, a firm shot 3-4 m/s, a power shot 5 m/s and up.
   the aim line (the 30-degree rule). Stunned, the two balls part at 80-84 degrees, a little under
   90 because snooker balls are not perfectly elastic.
 - **Throw.** On a half-ball cut the friction between the balls drags the object ball off the line
-  by 4.9 degrees at a gentle pace, 4.2 at medium and 3.4 when firm: a slow cut pot over 1 m lands
+  by 4.9 degrees at 0.45 m/s, 4.2 at 1.3 m/s and 3.4 at 3.1 m/s: a slow cut pot over 1 m lands
   about 8 cm thinner than the contact line says, a firm one about 6 cm. Follow or screw roughly
   halves it.
 - **Side and squirt.** Maximum side (just short of a miscue) pushes the cue ball 2.0 degrees off
