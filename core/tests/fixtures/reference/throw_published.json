@@ -1,0 +1,36 @@
+{
+  "_note": "Published cut-induced throw for a half-ball (30 degree cut) stun shot, for C6 (docs/calibration/targets.md). Values read from the published charts (pixel positions, about +-0.1 degree); pool balls (phenolic, as snooker balls).",
+  "sources": [
+    "Alciatore, 'Throw - Part II: results', Billiards Digest, Sept 2006, Diagram 4 (experimental CIT data): https://billiards.colostate.edu/bd_articles/2006/sept06.pdf",
+    "Jewett, throw experiment (Billiards Digest, June 1995), plot at http://www.sfbilliards.com/Misc/throw.gif",
+    "Speeds: Alciatore TP A.14, slow 1 mph, medium 3 mph, fast 7 mph: https://billiards.colostate.edu/technical_proofs/new/TP_A-14.pdf"
+  ],
+  "cut_deg": 30.0,
+  "speeds_m_s": {
+    "slow": 0.447,
+    "medium": 1.341,
+    "fast": 3.129
+  },
+  "half_ball_stun_throw_deg": {
+    "alciatore_2006": {
+      "slow": 4.5,
+      "medium": 4.1,
+      "fast": 3.45
+    },
+    "jewett_1995": {
+      "slow": 6.0,
+      "medium": 4.1,
+      "fast": 3.45
+    }
+  },
+  "neighbouring_points_deg": {
+    "alciatore_2006": {
+      "slow": {"25": 4.35, "35": 6.0},
+      "medium": {"25": 4.2, "35": 3.95},
+      "fast": {"25": 3.65, "35": 3.3}
+    },
+    "jewett_1995_note": "soft 6.0 at 27 and 5.9 at 36; medium 4.77 at 27 and 4.07 at 30; hard 3.67 at 27 and 2.98 at 36 (Jewett's soft/medium/hard taken as slow/medium/fast)"
+  },
+  "tolerance_deg": 0.75,
+  "tolerance_why": "the scatter between neighbouring cut angles (25-35 degrees) in both data sets, and human-judged shot speeds in the experiments"
+}
