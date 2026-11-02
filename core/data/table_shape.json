@@ -1,7 +1,545 @@
 {
   "schema_version": 1,
-  "_note": "Placeholder from the M1 contracts commit: the cushions agent replaces it with the full outline, every dimension with its source (spec 6.3).",
-  "lines": [],
-  "arcs": [],
-  "pockets": []
+  "_note": "The cushion and pocket outline (spec 6.3, 7.5, 7.6; physics/table_shape.hpp). Metres, core frame (origin at the table centre, +x to the top cushion, +y to the left seen from baulk); angles in radians from +x towards +y, an arc covering [angle_start, angle_end] anticlockwise (angle_start in [-pi, pi), angle_end may pass pi). 'dimensions' are the design numbers, each with its source in 'docs'; 'lines', 'arcs' and 'pockets' are built from them as 'construction' says, and the table shape tests check that they still match. Change a dimension only with its source.",
+  "construction": "Cushion noses ('kind': 'nose') run along the playing area's edges. At each pocket each nose ends in a jaw: a circular arc of the pocket's jaw radius, tangent to the nose and to a straight facing ('kind': 'facing') that runs into the pocket to rail_width_m behind the nose. Corner facings run parallel to the pocket's diagonal axis, middle facings square to the cushion; the facings of a pocket are its gap apart. Each pocket's drop circle has half the gap as radius and sits on the pocket's axis with its near edge drop_set_back_m behind the line through the points where the jaws meet their facings (the fall).",
+  "dimensions": {
+    "playing_length_m": 3.569,
+    "playing_width_m": 1.778,
+    "corner_gap_m": 0.084,
+    "corner_jaw_radius_m": 0.1016,
+    "middle_gap_m": 0.088,
+    "middle_jaw_radius_m": 0.0635,
+    "drop_set_back_m": 0.002,
+    "rail_width_m": 0.14,
+    "rail_height_m": 0.04
+  },
+  "docs": {
+    "playing_length_m": {
+      "unit": "m",
+      "source": "WPBSA Official Rules (2022) section 1: 3569 mm between the cushion faces; table_geometry.hpp",
+      "note": "The top and baulk cushion noses lie at x = +-length/2."
+    },
+    "playing_width_m": {
+      "unit": "m",
+      "source": "WPBSA Official Rules (2022) section 1: 1778 mm between the cushion faces; table_geometry.hpp",
+      "note": "The side cushion noses lie at y = +-width/2."
+    },
+    "corner_gap_m": {
+      "unit": "m",
+      "source": "Approximation; the WPBSA templates are not public (spec 6.3). An unofficial template drawing gives 3.313 in (84.2 mm) for the corner opening at the fall of the slate (forums.azbilliards.com, '6X12 Snooker pocket dimension Euro', 2013); pooltool (Apache-2.0) SnookerTableSpecs.corner_pocket_width = 83 mm; Wikipedia 'Billiard table' gives about 86 mm with tournament pockets slightly smaller; billiardguides.com gives 3.25-3.5 in.",
+      "note": "Narrowest distance between the two jaws, perpendicular to the pocket's axis (pooltool's definition: between the facings). 84 mm leaves a 52.5 mm ball 31.5 mm to spare: tournament tight."
+    },
+    "corner_jaw_radius_m": {
+      "unit": "m",
+      "source": "pooltool (Apache-2.0) objects/table/specs.py SnookerTableSpecs.corner_jaw_radius = 4 in",
+      "note": "Each corner jaw is this circular arc, tangent to its cushion nose and to its facing; the facings run parallel to the pocket's axis (pooltool corner_pocket_angle = 0). The owner's tight-pocket check (spec 6.3) may tune it."
+    },
+    "middle_gap_m": {
+      "unit": "m",
+      "source": "Approximation (templates not public). pooltool SnookerTableSpecs.side_pocket_width = 87 mm, 4 mm wider than its corner; 'corner pockets about 3.5 in, middle pockets slightly wider' (cueballchronicles.com, snooker table dimensions guide).",
+      "note": "Corner gap + 4 mm, as in pooltool. Narrowest distance between the facings, which run square to the cushion (pooltool side_pocket_angle = 0)."
+    },
+    "middle_jaw_radius_m": {
+      "unit": "m",
+      "source": "pooltool (Apache-2.0) SnookerTableSpecs.side_jaw_radius = 2.5 in",
+      "note": "A quarter circle from the cushion nose round to the facing, so the middle pocket's narrowest point sits this far behind the nose line: the middle pockets are set back (spec 6.3)."
+    },
+    "drop_set_back_m": {
+      "unit": "m",
+      "source": "Modelling choice (spec 7.6): a ball drops once its centre passes the fall, taken as the line through the jaws' narrowest points.",
+      "note": "Each drop circle's near edge sits this far behind that line, on the pocket's axis, so a ball whose centre is exactly on the fall stays up. The circle's radius is half the pocket's gap. Tunable with the owner's pocket check."
+    },
+    "rail_width_m": {
+      "unit": "m",
+      "source": "Overall size of full-size tournament tables minus the WPBSA playing area: Xingpai S106 3850 x 2060 mm (listing, mudah.my), Predator 12 ft table 151.6 x 81.1 in (predatorcues.com room-size guide); (3850 - 3569) / 2 = 140.5 mm, (2060 - 1778) / 2 = 141 mm.",
+      "note": "Cushion nose to the rail's outer edge, for the cue obstruction (spec 7.3). The facings end here."
+    },
+    "rail_height_m": {
+      "unit": "m",
+      "source": "Estimate: the cushion's contact line is at 7R/5 = 36.75 mm (Mathavan et al. 2010) and the cushion top with the wooden rail sits a few mm above it.",
+      "note": "Rail top above the cloth, for the cue obstruction (spec 7.3). The cue agent and the tuner confirm it against forced-elevation shots near a cushion."
+    }
+  },
+  "rail_height_m": 0.04,
+  "rail_width_m": 0.14,
+  "pockets": [
+    {
+      "name": "top_left",
+      "corner": true,
+      "drop_centre": [
+        1.8156721645938199,
+        0.9201721645938199
+      ],
+      "drop_radius": 0.042
+    },
+    {
+      "name": "top_right",
+      "corner": true,
+      "drop_centre": [
+        1.8156721645938199,
+        -0.9201721645938199
+      ],
+      "drop_radius": 0.042
+    },
+    {
+      "name": "middle_left",
+      "corner": false,
+      "drop_centre": [
+        0.0,
+        0.9985
+      ],
+      "drop_radius": 0.044
+    },
+    {
+      "name": "middle_right",
+      "corner": false,
+      "drop_centre": [
+        0.0,
+        -0.9985
+      ],
+      "drop_radius": 0.044
+    },
+    {
+      "name": "bottom_left",
+      "corner": true,
+      "drop_centre": [
+        -1.8156721645938199,
+        0.9201721645938199
+      ],
+      "drop_radius": 0.042
+    },
+    {
+      "name": "bottom_right",
+      "corner": true,
+      "drop_centre": [
+        -1.8156721645938199,
+        -0.9201721645938199
+      ],
+      "drop_radius": 0.042
+    }
+  ],
+  "lines": [
+    {
+      "name": "top",
+      "kind": "nose",
+      "p1": [
+        1.7845,
+        -0.7875189324432236
+      ],
+      "p2": [
+        1.7845,
+        0.7875189324432236
+      ],
+      "normal": [
+        -1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "baulk",
+      "kind": "nose",
+      "p1": [
+        -1.7845,
+        0.7875189324432236
+      ],
+      "p2": [
+        -1.7845,
+        -0.7875189324432236
+      ],
+      "normal": [
+        1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "left_top",
+      "kind": "nose",
+      "p1": [
+        0.1075,
+        0.889
+      ],
+      "p2": [
+        1.6830189324432234,
+        0.889
+      ],
+      "normal": [
+        0.0,
+        -1.0
+      ]
+    },
+    {
+      "name": "left_baulk",
+      "kind": "nose",
+      "p1": [
+        -1.6830189324432234,
+        0.889
+      ],
+      "p2": [
+        -0.1075,
+        0.889
+      ],
+      "normal": [
+        0.0,
+        -1.0
+      ]
+    },
+    {
+      "name": "right_top",
+      "kind": "nose",
+      "p1": [
+        1.6830189324432234,
+        -0.889
+      ],
+      "p2": [
+        0.1075,
+        -0.889
+      ],
+      "normal": [
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "name": "right_baulk",
+      "kind": "nose",
+      "p1": [
+        -0.1075,
+        -0.889
+      ],
+      "p2": [
+        -1.6830189324432234,
+        -0.889
+      ],
+      "normal": [
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "name": "top_left_facing_left",
+      "kind": "facing",
+      "p1": [
+        1.7548609814117768,
+        0.9187579510314468
+      ],
+      "p2": [
+        1.86510303038033,
+        1.029
+      ],
+      "normal": [
+        0.7071067811865475,
+        -0.7071067811865475
+      ]
+    },
+    {
+      "name": "top_left_facing_top",
+      "kind": "facing",
+      "p1": [
+        1.8142579510314467,
+        0.8593609814117767
+      ],
+      "p2": [
+        1.9245,
+        0.96960303038033
+      ],
+      "normal": [
+        -0.7071067811865475,
+        0.7071067811865475
+      ]
+    },
+    {
+      "name": "top_right_facing_right",
+      "kind": "facing",
+      "p1": [
+        1.7548609814117768,
+        -0.9187579510314468
+      ],
+      "p2": [
+        1.86510303038033,
+        -1.029
+      ],
+      "normal": [
+        0.7071067811865475,
+        0.7071067811865475
+      ]
+    },
+    {
+      "name": "top_right_facing_top",
+      "kind": "facing",
+      "p1": [
+        1.8142579510314467,
+        -0.8593609814117767
+      ],
+      "p2": [
+        1.9245,
+        -0.96960303038033
+      ],
+      "normal": [
+        -0.7071067811865475,
+        -0.7071067811865475
+      ]
+    },
+    {
+      "name": "middle_left_facing_top",
+      "kind": "facing",
+      "p1": [
+        0.044,
+        0.9525
+      ],
+      "p2": [
+        0.044,
+        1.029
+      ],
+      "normal": [
+        -1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "middle_left_facing_baulk",
+      "kind": "facing",
+      "p1": [
+        -0.044,
+        0.9525
+      ],
+      "p2": [
+        -0.044,
+        1.029
+      ],
+      "normal": [
+        1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "middle_right_facing_top",
+      "kind": "facing",
+      "p1": [
+        0.044,
+        -0.9525
+      ],
+      "p2": [
+        0.044,
+        -1.029
+      ],
+      "normal": [
+        -1.0,
+        -0.0
+      ]
+    },
+    {
+      "name": "middle_right_facing_baulk",
+      "kind": "facing",
+      "p1": [
+        -0.044,
+        -0.9525
+      ],
+      "p2": [
+        -0.044,
+        -1.029
+      ],
+      "normal": [
+        1.0,
+        -0.0
+      ]
+    },
+    {
+      "name": "bottom_left_facing_left",
+      "kind": "facing",
+      "p1": [
+        -1.7548609814117768,
+        0.9187579510314468
+      ],
+      "p2": [
+        -1.86510303038033,
+        1.029
+      ],
+      "normal": [
+        -0.7071067811865475,
+        -0.7071067811865475
+      ]
+    },
+    {
+      "name": "bottom_left_facing_baulk",
+      "kind": "facing",
+      "p1": [
+        -1.8142579510314467,
+        0.8593609814117767
+      ],
+      "p2": [
+        -1.9245,
+        0.96960303038033
+      ],
+      "normal": [
+        0.7071067811865475,
+        0.7071067811865475
+      ]
+    },
+    {
+      "name": "bottom_right_facing_right",
+      "kind": "facing",
+      "p1": [
+        -1.7548609814117768,
+        -0.9187579510314468
+      ],
+      "p2": [
+        -1.86510303038033,
+        -1.029
+      ],
+      "normal": [
+        -0.7071067811865475,
+        0.7071067811865475
+      ]
+    },
+    {
+      "name": "bottom_right_facing_baulk",
+      "kind": "facing",
+      "p1": [
+        -1.8142579510314467,
+        -0.8593609814117767
+      ],
+      "p2": [
+        -1.9245,
+        -0.96960303038033
+      ],
+      "normal": [
+        0.7071067811865475,
+        -0.7071067811865475
+      ]
+    }
+  ],
+  "arcs": [
+    {
+      "name": "top_left_jaw_left",
+      "pocket": "top_left",
+      "centre": [
+        1.6830189324432234,
+        0.9906
+      ],
+      "radius": 0.1016,
+      "angle_start": -1.5707963267948966,
+      "angle_end": -0.7853981633974483
+    },
+    {
+      "name": "top_left_jaw_top",
+      "pocket": "top_left",
+      "centre": [
+        1.8860999999999999,
+        0.7875189324432236
+      ],
+      "radius": 0.1016,
+      "angle_start": 2.356194490192345,
+      "angle_end": 3.141592653589793
+    },
+    {
+      "name": "top_right_jaw_right",
+      "pocket": "top_right",
+      "centre": [
+        1.6830189324432234,
+        -0.9906
+      ],
+      "radius": 0.1016,
+      "angle_start": 0.7853981633974483,
+      "angle_end": 1.5707963267948966
+    },
+    {
+      "name": "top_right_jaw_top",
+      "pocket": "top_right",
+      "centre": [
+        1.8860999999999999,
+        -0.7875189324432236
+      ],
+      "radius": 0.1016,
+      "angle_start": -3.141592653589793,
+      "angle_end": -2.356194490192345
+    },
+    {
+      "name": "middle_left_jaw_top",
+      "pocket": "middle_left",
+      "centre": [
+        0.1075,
+        0.9525
+      ],
+      "radius": 0.0635,
+      "angle_start": -3.141592653589793,
+      "angle_end": -1.5707963267948966
+    },
+    {
+      "name": "middle_left_jaw_baulk",
+      "pocket": "middle_left",
+      "centre": [
+        -0.1075,
+        0.9525
+      ],
+      "radius": 0.0635,
+      "angle_start": -1.5707963267948966,
+      "angle_end": 0.0
+    },
+    {
+      "name": "middle_right_jaw_top",
+      "pocket": "middle_right",
+      "centre": [
+        0.1075,
+        -0.9525
+      ],
+      "radius": 0.0635,
+      "angle_start": 1.5707963267948966,
+      "angle_end": 3.141592653589793
+    },
+    {
+      "name": "middle_right_jaw_baulk",
+      "pocket": "middle_right",
+      "centre": [
+        -0.1075,
+        -0.9525
+      ],
+      "radius": 0.0635,
+      "angle_start": 0.0,
+      "angle_end": 1.5707963267948966
+    },
+    {
+      "name": "bottom_left_jaw_left",
+      "pocket": "bottom_left",
+      "centre": [
+        -1.6830189324432234,
+        0.9906
+      ],
+      "radius": 0.1016,
+      "angle_start": -2.356194490192345,
+      "angle_end": -1.5707963267948966
+    },
+    {
+      "name": "bottom_left_jaw_baulk",
+      "pocket": "bottom_left",
+      "centre": [
+        -1.8860999999999999,
+        0.7875189324432236
+      ],
+      "radius": 0.1016,
+      "angle_start": 1.2246467991473532e-16,
+      "angle_end": 0.7853981633974484
+    },
+    {
+      "name": "bottom_right_jaw_right",
+      "pocket": "bottom_right",
+      "centre": [
+        -1.6830189324432234,
+        -0.9906
+      ],
+      "radius": 0.1016,
+      "angle_start": 1.5707963267948968,
+      "angle_end": 2.356194490192345
+    },
+    {
+      "name": "bottom_right_jaw_baulk",
+      "pocket": "bottom_right",
+      "centre": [
+        -1.8860999999999999,
+        -0.7875189324432236
+      ],
+      "radius": 0.1016,
+      "angle_start": -0.7853981633974484,
+      "angle_end": -1.1102230246251565e-16
+    }
+  ]
 }
