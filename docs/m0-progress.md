@@ -207,3 +207,4 @@ first session (local-network prompt) uploaded as backlog. Idle draws ~1 frame/s,
 main loop still ticks at 120 Hz (frame_ms_avg 8.33): low-processor mode doesn't slow the
 loop on iOS, where the display link drives it. M1 candidate: cap Engine.max_fps while idle.
 First launch hitch 2.8 s (pipeline compile), none on the second.
+Follow-ups done in M1 (m1-infra, run 41396740025): CI builds a macOS editor extension so import/export parse every script, check-godot-log fails the export on any script error (zero now), and idle caps Engine.max_fps at 30 (Windows idle 6.9 -> 33.3 ms).
