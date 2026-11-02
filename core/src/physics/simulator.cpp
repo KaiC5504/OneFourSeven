@@ -182,12 +182,21 @@ void apply(std::vector<Vec3>& y, const Contact& c, double step, const std::vecto
 // contacts it left pushing: two contacts with nearly parallel normals (a ball wedged between two
 // others in a line) shrink Gauss-Seidel's error by only ~angle^2 per sweep. Should the exact solve
 // fail as well, Gauss-Seidel goes on to kMaxSweeps.
+//
+// A rolling ball touching two still balls nearly in line with it (it rolls across their line) has
+// contact normals within about 1e-6 rad of parallel. The exact solve then finds no pivot for the
+// second contact and leaves it angle * |x| of closing: up to 1e-7 m/s^2 against the 0.1 m/s^2 of
+// rolling resistance. Removing it would take a jam of |x| / angle, 1e5 m/s^2 and more, solved from
+// a pivot of angle^2 that the solve takes for rounding below 1e-12, and that no still ball could
+// hold. So the exact solve accepts `slack` (Simulation::slack()) of closing on any contact on top
+// of its rounding tolerance: what the group's motion can't turn into a gap or a normal speed that
+// matters before its next event.
 class ContactSolver {
 public:
     // False when neither converged: x and the lambdas are then Gauss-Seidel's last, and `residual`
     // is the largest normal speed (or acceleration) it left where there should be none.
     bool solve(std::vector<Vec3>& x, const std::vector<unsigned char>& mobile, std::vector<Contact>& cs,
-               double scale);
+               double scale, double slack);
     double residual = 0.0;
 
 private:
@@ -202,14 +211,14 @@ private:
 };
 
 bool ContactSolver::solve(std::vector<Vec3>& x, const std::vector<unsigned char>& mobile, std::vector<Contact>& cs,
-                          double scale) {
+                          double scale, double slack) {
     residual = 0.0;
     if (cs.empty()) return true;
     x0_ = x;
     const double settled = 1e-16 * scale;
     if (sweep(x, mobile, cs, settled, kQuickSweeps)) return true;
     // Its own rounding grows as 1 / angle^2 between nearly parallel normals.
-    if (exact(x, mobile, cs, 1e-12 * scale)) return true;
+    if (exact(x, mobile, cs, 1e-12 * scale + slack)) return true;
     if (sweep(x, mobile, cs, settled, kMaxSweeps - kQuickSweeps)) return true;
     for (const Contact& c : cs) {
         if (!movable(c, mobile)) continue;
@@ -260,7 +269,7 @@ bool ContactSolver::exact(std::vector<Vec3>& x, const std::vector<unsigned char>
         }
         // Gauss-Jordan. A contact the ones before it already fix (a ring of touching balls has one
         // more contact than it needs) has no pivot; its lambda stays zero, and its row must then be
-        // satisfied by the others.
+        // satisfied by the others to within tol.
         pivot_col_.clear();
         std::size_t row = 0;
         for (std::size_t c = 0; c < m && row < m; ++c) {
@@ -379,7 +388,8 @@ private:
     void hold_contacts();
     void restick();
     bool drop_parting();
-    void solve_group(double scale, const char* what, const char* unit);
+    double slack(bool forces) const;
+    void solve_group(double scale, double slack, const char* what, const char* unit);
     void cushion_fallback(const Next& e, const BallState& before);
     void keep_finite(int i, BallState& b, const BallState& fallback, double t, const char* when);
     void separate(int i, BallState& b, double t, int other, const BallState* other_state);
@@ -803,8 +813,29 @@ void Simulation::group_contacts(bool held, bool pushes_one_sided) {
     }
 }
 
-void Simulation::solve_group(double scale, const char* what, const char* unit) {
-    if (solver_.solve(x_, mobile_, contacts_, scale)) return;
+// The closing a group solve may leave on a contact (ContactSolver): m/s for impulses, m/s^2 for
+// contact forces. Held contacts do no work, nor does the nap add any, so |v|, the root sum of
+// squares of the mobile balls' speeds, falls at roll_friction g or faster: the group is at rest, and
+// has had its next event, within T = |v| / (roll_friction g). Until then an impulse's closing moves
+// its contact by at most slack T, and a force's by slack T^2 / 2 while raising its normal speed by
+// slack T. The slack keeps that gap within a tenth of kOverlapTolerance_m, and that normal speed (an
+// impulse's closing is one) within a tenth of kStartSpeed, under which hold_contacts() brings a held
+// contact's speed back to zero.
+double Simulation::slack(bool forces) const {
+    double v2 = 0.0;
+    for (std::size_t g = 0; g < group_.size(); ++g) {
+        if (!mobile_[g]) continue;
+        const Vec3 v = work_[static_cast<std::size_t>(group_[g])].v;
+        v2 += v.x * v.x + v.y * v.y;
+    }
+    const double t = std::sqrt(v2) / (p_.roll_friction * p_.gravity_m_s2);
+    if (!(t > 0.0 && t < kNever)) return 0.0;
+    if (forces) return 0.1 * std::min(kStartSpeed / t, 2.0 * kOverlapTolerance_m / (t * t));
+    return 0.1 * std::min(kStartSpeed, kOverlapTolerance_m / t);
+}
+
+void Simulation::solve_group(double scale, double slack, const char* what, const char* unit) {
+    if (solver_.solve(x_, mobile_, contacts_, scale, slack)) return;
     anomaly(AnomalyKind::solver_fallback, now_, group_,
             std::string(what) + " for " + std::to_string(group_.size()) + " balls over " +
                 std::to_string(contacts_.size()) + " contacts did not converge: " + fmt(solver_.residual) + " " +
@@ -885,7 +916,7 @@ void Simulation::push_group() {
             if (work_[static_cast<std::size_t>(group_[g])].motion != Motion::pocketed) mobile_[g] = 1;
         }
     }
-    solve_group(scale, "push impulses", "m/s");
+    solve_group(scale, slack(false), "push impulses", "m/s");
     for (std::size_t g = 0; g < m; ++g) {
         const auto u = static_cast<std::size_t>(group_[g]);
         BallState& s = work_[u];
@@ -932,10 +963,11 @@ void Simulation::hold_contacts() {
         mobile_[g] = 1;
         scale = std::max(scale, norm_xy(base_[g]));
     }
+    const double forces_slack = slack(true);
     do {
         x_ = base_;
         group_contacts(false, false);
-        solve_group(scale, "contact forces", "m/s^2");
+        solve_group(scale, forces_slack, "contact forces", "m/s^2");
     } while (drop_parting());
     for (std::size_t g = 0; g < m; ++g) {
         const auto u = static_cast<std::size_t>(group_[g]);
@@ -998,7 +1030,8 @@ void Simulation::restick() {
         scale = std::max(scale, norm_xy(x_[g]));
     }
     group_contacts(true, false);
-    solve_group(scale, "held contact impulses", "m/s");
+    const double leeway = slack(false);
+    solve_group(scale, leeway, "held contact impulses", "m/s");
     for (std::size_t g = 0; g < m; ++g) {
         const auto u = static_cast<std::size_t>(group_[g]);
         BallState& s = work_[u];
@@ -1006,11 +1039,12 @@ void Simulation::restick() {
         set_rolling(s, x_[g], p_);
         changed_[u] = 1;
     }
-    // What still moves along a normal had no rolling ball to stop it.
+    // What still moves along a normal had no rolling ball to stop it. The solve's slack stays held:
+    // released, a contact it left closing would re-close at once as a push, and be left the same.
     std::size_t kept = 0;
     for (std::size_t q = 0; q < bonds_.size(); ++q) {
         const Bond k = bonds_[q];
-        if (in_group_[static_cast<std::size_t>(k.a)] && std::abs(bond_closing(k)) > kBondSpeed) {
+        if (in_group_[static_cast<std::size_t>(k.a)] && std::abs(bond_closing(k)) > kBondSpeed + leeway) {
             drop_bond(k);
             continue;
         }
