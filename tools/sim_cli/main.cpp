@@ -18,8 +18,9 @@ const char* const kUsage =
     "  replay <log.jsonl | bundle.json> [--line N] [--tolerance M] [--table T] [--force-table]\n"
     "         [--update]\n"
     "  fuzz [--shots N] [--seed S] [--threads T] [--out DIR] [--hang-seconds S] [--params P] [--table T]\n"
+    "       [--inject-anomaly KIND]\n"
     "  bench [--check] [--baseline FILE] [--write-baseline] [--runs N] [--budget-us U]\n"
-    "        [--params P] [--table T]\n"
+    "        [--params P] [--table T] [--force-table]\n"
     "  calibrate --out DIR [--breaks N] [--params P] [--table T]\n"
     "\n"
     "Exit codes: 0 ok, 1 a check failed, 2 bad arguments or input.\n";

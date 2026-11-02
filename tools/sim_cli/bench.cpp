@@ -17,6 +17,19 @@
 #include "ofs/physics/repro.hpp"
 #include "sim_cli.hpp"
 
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef NOGDI
+#define NOGDI
+#endif
+#include <windows.h>
+#endif
+
 namespace sim_cli {
 
 namespace {
@@ -31,7 +44,9 @@ constexpr double kBudgetUs = 2000.0;
 // failing the check; a shot that takes twice as long still fails once it is over 200 us.
 constexpr double kRegression = 1.25;
 constexpr double kRegressionSlackUs = 50.0;
-constexpr int kBaselineVersion = 2;
+// Version 3 times every shot on the fastest kind of core (keep_on_fastest_cores); a version 2
+// baseline timed the later shots on whichever kind Windows had moved the thread to.
+constexpr int kBaselineVersion = 3;
 
 struct BenchShot {
     std::string name;
@@ -77,6 +92,63 @@ std::string cpu_name() {
 // Timings only compare on the PC that made them: a baseline from another machine is only shown.
 std::string machine_name() {
     return cpu_name() + format(", %u logical cores", std::max(1u, std::thread::hardware_concurrency()));
+}
+
+// On a hybrid CPU (this PC's i7-13650HX) Windows moves a long run's thread from a performance core
+// to an efficiency core after a few seconds, and there the probe slows about 2x but a pack shot
+// only 1.5x, so probe-scaled times from two kinds of core don't compare. Pinning the thread to
+// the fastest kind keeps every run on one. Returns a line for the header.
+std::string keep_on_fastest_cores() {
+#ifdef _WIN32
+    GROUP_AFFINITY current{};
+    if (!GetThreadGroupAffinity(GetCurrentThread(), &current)) {
+        return format("not pinned: GetThreadGroupAffinity failed (error %lu)", GetLastError());
+    }
+    ULONG length = 0;
+    GetSystemCpuSetInformation(nullptr, 0, &length, GetCurrentProcess(), 0);
+    std::vector<unsigned char> buffer(length);
+    if (length == 0 || !GetSystemCpuSetInformation(reinterpret_cast<PSYSTEM_CPU_SET_INFORMATION>(buffer.data()),
+                                                   length, &length, GetCurrentProcess(), 0)) {
+        return format("not pinned: GetSystemCpuSetInformation failed (error %lu)", GetLastError());
+    }
+    struct Core {
+        int index;
+        int efficiency;
+    };
+    std::vector<Core> cores;
+    for (ULONG at = 0; at + sizeof(SYSTEM_CPU_SET_INFORMATION) <= length;) {
+        const auto* info = reinterpret_cast<const SYSTEM_CPU_SET_INFORMATION*>(buffer.data() + at);
+        if (info->Size == 0) break;
+        at += info->Size;
+        if (info->Type != CpuSetInformation || info->CpuSet.Group != current.Group) continue;
+        const int index = info->CpuSet.LogicalProcessorIndex;
+        if (index >= 64 || ((current.Mask >> index) & 1u) == 0) continue;
+        cores.push_back({index, info->CpuSet.EfficiencyClass});
+    }
+    if (cores.empty()) return "not pinned: no logical core of this thread's group listed";
+    int fastest = 0;
+    for (const Core& c : cores) fastest = std::max(fastest, c.efficiency);
+    KAFFINITY mask = 0;
+    int pinned = 0;
+    for (const Core& c : cores) {
+        if (c.efficiency != fastest) continue;
+        mask |= KAFFINITY{1} << c.index;
+        ++pinned;
+    }
+    if (pinned == static_cast<int>(cores.size())) {
+        return format("all %d logical cores are one kind", pinned);
+    }
+    GROUP_AFFINITY wanted{};
+    wanted.Group = current.Group;
+    wanted.Mask = mask;
+    if (!SetThreadGroupAffinity(GetCurrentThread(), &wanted, nullptr)) {
+        return format("not pinned: SetThreadGroupAffinity failed (error %lu)", GetLastError());
+    }
+    return format("pinned to the %d of %zu logical cores of the fastest kind (efficiency class %d)", pinned,
+                  cores.size(), fastest);
+#else
+    return "not pinned (only the Windows build pins the bench to one kind of core)";
+#endif
 }
 
 volatile double g_probe_seed = 1.0;
@@ -252,8 +324,12 @@ std::vector<BenchShot> bench_shots(const Setup& setup) {
 
 // The pack-heavy shots the generated ones miss: recorded bundles (a fuzz failure file's
 // {bundle, result} or a bare bundle) in tools/sim_cli/bench_shots, each named after its file and
-// run with the parameters it carries, so it stays the shot that was recorded.
-bool recorded_shots(std::vector<BenchShot>& shots, std::string& error) {
+// run with the parameters it carries, so it stays the shot that was recorded. A bundle recorded on
+// another cushion outline is refused, as replay refuses it: there it is another shot, often not the
+// pack-heavy one it was chosen for, and its baseline times a different event list. --force-table
+// times it anyway; `warnings` gets that and any bundle without a table_hash.
+bool recorded_shots(const Setup& setup, bool force_table, std::vector<BenchShot>& shots,
+                    std::vector<std::string>& warnings, std::string& error) {
     const std::string dir = repo_path("tools/sim_cli/bench_shots");
     std::vector<fs::path> files;
     std::error_code ec;
@@ -265,6 +341,8 @@ bool recorded_shots(std::vector<BenchShot>& shots, std::string& error) {
         return false;
     }
     std::sort(files.begin(), files.end());
+    const std::string table = shareable_path(setup.table_file) + " (" + setup.table_hash + ")";
+    std::string refused;
     for (const fs::path& file : files) {
         nlohmann::json j;
         if (!read_json_file(file.u8string(), j, error)) return false;
@@ -275,7 +353,24 @@ bool recorded_shots(std::vector<BenchShot>& shots, std::string& error) {
             error = file.u8string() + ": " + error;
             return false;
         }
+        const std::string name = shareable_path(file.u8string());
+        if (shot.in.table_hash.empty()) {
+            warnings.push_back(name + " has no table_hash, so its table can't be checked; timing it on " + table);
+        } else if (shot.in.table_hash != setup.table_hash) {
+            if (force_table) {
+                warnings.push_back(name + " was recorded on table " + shot.in.table_hash + "; timing it on " + table +
+                                   " as --force-table asks");
+            } else {
+                refused += "\n  " + name + " was recorded on table " + shot.in.table_hash;
+            }
+        }
         shots.push_back(std::move(shot));
+    }
+    if (!refused.empty()) {
+        error = "recorded shots from another cushion outline than " + table + ":" + refused +
+                "\nre-record each on this table with `ofs_sim_cli replay FILE --update` (then bench "
+                "--write-baseline), or pass --force-table to time them anyway";
+        return false;
     }
     return true;
 }
@@ -342,10 +437,14 @@ Baseline read_baseline(const nlohmann::json& file, const std::string& machine) {
     const nlohmann::json probe = file.value("probe_us", nlohmann::json());
     const std::string recorded = file.value("machine", std::string());
     const std::string build = file.value("build", std::string());
-    if (!version.is_number_integer() || version.get<int>() < kBaselineVersion || recorded.empty() ||
-        !probe.is_number() || !(probe.get<double>() > 0.0)) {
-        b.why_not = "the baseline names no machine or speed probe (written before baseline version 2); "
-                    "write it again with --write-baseline";
+    if (!version.is_number_integer() || version.get<int>() < kBaselineVersion) {
+        b.why_not = format("the baseline is %s, from before version %d timed every shot on the fastest kind of "
+                           "core; write it again with --write-baseline",
+                           version.is_number_integer() ? ("version " + std::to_string(version.get<int>())).c_str()
+                                                       : "unversioned",
+                           kBaselineVersion);
+    } else if (recorded.empty() || !probe.is_number() || !(probe.get<double>() > 0.0)) {
+        b.why_not = "the baseline names no machine or speed probe; write it again with --write-baseline";
     } else if (recorded != machine) {
         b.why_not = "the baseline was recorded on " + recorded + ", not this machine (" + machine + ")";
     } else if (build != kBuild) {
@@ -361,7 +460,8 @@ Baseline read_baseline(const nlohmann::json& file, const std::string& machine) {
 }  // namespace
 
 int cmd_bench(const std::vector<std::string>& argv) {
-    const ArgSpec spec{{"baseline", "runs", "budget-us", "params", "table"}, {"check", "write-baseline"}, 0, 0};
+    const ArgSpec spec{
+        {"baseline", "runs", "budget-us", "params", "table"}, {"check", "write-baseline", "force-table"}, 0, 0};
     Args args;
     std::string error;
     if (!parse_args(argv, spec, args, error)) return usage_error("bench", error);
@@ -374,7 +474,8 @@ int cmd_bench(const std::vector<std::string>& argv) {
     Setup setup;
     if (!load_setup(args, setup)) return kExitUsage;
     std::vector<BenchShot> shots = bench_shots(setup);
-    if (!recorded_shots(shots, error)) return usage_error("bench", error);
+    std::vector<std::string> warnings;
+    if (!recorded_shots(setup, args.flag("force-table"), shots, warnings, error)) return usage_error("bench", error);
     const std::string baseline_path =
         args.value("baseline") ? *args.value("baseline") : repo_path("tools/sim_cli/bench_baseline.json");
     const std::string machine = machine_name();
@@ -394,13 +495,24 @@ int cmd_bench(const std::vector<std::string>& argv) {
         baseline = read_baseline(file, machine);
     }
 
+    const std::string cores = keep_on_fastest_cores();
     std::printf("bench: %s build, params %s, budget %.0f us per shot, baseline %s\n", kBuild,
                 setup.params_hash.c_str(), budget_us, have_baseline ? baseline_path.c_str() : "(none)");
     std::printf("machine: %s\n", machine.c_str());
-    if (have_baseline && !baseline.comparable) {
-        std::printf("note: no regression check: %s; the times below are only reported\n", baseline.why_not.c_str());
+    std::printf("cores: %s\n", cores.c_str());
+    for (const std::string& warning : warnings) std::printf("warning: %s\n", warning.c_str());
+    // scaled_us is this run's time at the speed the baseline's machine had when it was written: load
+    // on this PC slows the shot and its paired probe alike, so it doesn't move scaled_us, and the
+    // budget is checked on it. Without a baseline from this machine only the raw median is left.
+    const char* budget_on = baseline.comparable ? "scaled_us" : "the raw median";
+    if (baseline.comparable) {
+        std::printf("note: the budget and the regression check apply to scaled_us\n");
+    } else if (have_baseline) {
+        std::printf("note: no regression check, and the budget applies to the raw median: %s\n",
+                    baseline.why_not.c_str());
+    } else {
+        std::printf("note: no baseline file, so the budget applies to the raw median\n");
     }
-    // scaled_us is this run's time at the speed the baseline's machine had when it was written.
     std::printf("%-24s %7s %6s %11s %11s %11s %12s  %s\n", "shot", "events", "runs", "median_us", "p99_us",
                 "scaled_us", "baseline_us", "status");
 
@@ -415,7 +527,12 @@ int cmd_bench(const std::vector<std::string>& argv) {
         std::string status = "ok";
         std::string scaled = "-";
         std::string base = "-";
-        if (m.median_us > budget_us) {
+        double timed_us = m.median_us;
+        if (baseline.comparable) {
+            timed_us = m.probe_units * baseline.probe_us;
+            scaled = format("%.1f", timed_us);
+        }
+        if (timed_us > budget_us) {
             status = format("OVER BUDGET (%.0f us)", budget_us);
             ++over_budget;
         }
@@ -425,12 +542,10 @@ int cmd_bench(const std::vector<std::string>& argv) {
                                                            : nlohmann::json();
             if (units.is_number()) {
                 const double before_us = units.get<double>() * baseline.probe_us;
-                const double now_us = m.probe_units * baseline.probe_us;
-                scaled = format("%.1f", now_us);
                 base = format("%.1f", before_us);
-                if (now_us > before_us * kRegression + kRegressionSlackUs) {
+                if (timed_us > before_us * kRegression + kRegressionSlackUs) {
                     status = (status == "ok" ? std::string() : status + ", ") +
-                             format("REGRESSED (+%.0f%%)", (now_us / before_us - 1.0) * 100.0);
+                             format("REGRESSED (+%.0f%%)", (timed_us / before_us - 1.0) * 100.0);
                     ++regressed;
                 }
             } else {
@@ -471,7 +586,7 @@ int cmd_bench(const std::vector<std::string>& argv) {
         }
     }
     if (check) {
-        std::printf("check: %d over the %.0f us budget, ", over_budget, budget_us);
+        std::printf("check: %d over the %.0f us budget on %s, ", over_budget, budget_us, budget_on);
         if (baseline.comparable) {
             std::printf("%d regressed more than %.0f%% + %.0f us against the baseline\n", regressed,
                         (kRegression - 1.0) * 100.0, kRegressionSlackUs);

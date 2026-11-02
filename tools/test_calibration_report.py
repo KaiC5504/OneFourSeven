@@ -48,7 +48,7 @@ def make(name, columns, rows, **extra):
     return report.Series(name=data["series"], title=data["title"], target=data["target"],
                          params_hash=data["params_hash"], table_hash=data["table_hash"],
                          core_version=data["core_version"], build=data["build"], columns=columns, rows=rows,
-                         summary=data["summary"], notes=data["notes"])
+                         summary=data["summary"], notes=data["notes"], anomalies=data.get("anomalies", []))
 
 
 def deflection(rolling_deg, stun_deg):
@@ -119,6 +119,19 @@ class LoadTest(unittest.TestCase):
         _, problems = report.load_series(self.dir)
         self.assertEqual(problems, ["the series were made with different parameter sets: "
                                     "1111111111111111, 2222222222222222"])
+
+    def test_anomalies_load_and_a_malformed_list_is_a_problem(self):
+        anomaly = {"shot": "stun at 0.5 m/s, cut 30 deg", "kind": "solver_fallback", "t": 0.012, "balls": [0, 1],
+                   "detail": "contact solve for 2 balls did not converge"}
+        self.write("throw.json", series_file("throw", ["a"], [[1]], anomalies=[anomaly]))
+        self.write("lag.json", series_file("lag", ["a"], [[1]], anomalies="none"))
+        self.write("swerve.json", series_file("swerve", ["a"], [[1]]))
+        series, problems = report.load_series(self.dir)
+        self.assertEqual(series["throw"].anomalies, [anomaly])
+        self.assertEqual(series["lag"].anomalies, [])
+        self.assertEqual(series["swerve"].anomalies, [])
+        self.assertEqual(problems, ["lag.json: anomalies must be a list of objects; its shots' anomalies can't be "
+                                    "listed"])
 
     def test_missing_folder(self):
         series, problems = report.load_series(self.dir / "nowhere")
@@ -262,6 +275,32 @@ class AssembleTest(unittest.TestCase):
         self.assertIn("## Data problems\n\n- odd.json: not readable JSON", text)
         self.assertTrue(text.endswith("\n"))
 
+    def test_every_anomaly_of_a_series_is_a_data_problem(self):
+        s = throw(4.0, 2.0)
+        s.summary = {"cue_ball_speeds_m_s": [0.5, 4.0]}
+        s.anomalies = [{"shot": "stun at 0.5 m/s, cut 30 deg", "kind": "solver_fallback", "t": 0.0123456789,
+                        "balls": [0, 1], "detail": "contact solve for 2 balls did not converge"},
+                       {"shot": "stun at 4 m/s, cut 80 deg", "kind": "time_cap", "t": None, "balls": [],
+                        "detail": "still moving"}]
+        text = report.assemble_report({"throw": s}, {}, [])
+        self.assertIn("## Data problems\n\n"
+                      "- throw: a solver_fallback anomaly in the shot 'stun at 0.5 m/s, cut 30 deg' at t = 0.0123457 s "
+                      "(balls 0, 1): contact solve for 2 balls did not converge\n"
+                      "- throw: a time_cap anomaly in the shot 'stun at 4 m/s, cut 80 deg' at t = ? s: still moving\n",
+                      text)
+        # The verdict is still given: the problem sits beside the chart, not in place of it.
+        self.assertIn("| C0 | [Throw](#c0-throw) | met |", text)
+
+    def test_the_report_screw_chart_keeps_calibrates_anomalies(self):
+        calibrated = make("screw_follow", ["speed_m_s", "tip_y", "distance_m"], [[1.0, 0.0, 0.3]],
+                          anomalies=[{"shot": "cue speed 1 m/s, tip_y -0.5", "kind": "time_cap", "t": 120.0,
+                                      "balls": [0], "detail": "still moving"}])
+        replaced = report.screw_follow_series([[1.0, 0.0, 1.39, 0.3, None]], calibrated, 3.569)
+        self.assertEqual(replaced.anomalies, calibrated.anomalies)
+        self.assertEqual(report.series_problems({"screw_follow": replaced}),
+                         ["screw_follow: a time_cap anomaly in the shot 'cue speed 1 m/s, tip_y -0.5' at t = 120 s "
+                          "(balls 0): still moving"])
+
     def test_empty_report(self):
         text = report.assemble_report({}, {}, ["nothing.json: not readable JSON"])
         self.assertIn("There is no calibration data to report.", text)
@@ -293,25 +332,32 @@ def swerve_rows(name, elevation, tip, grip_s=0.205, end_s=3.0):
     return rows
 
 
-def full_series():
-    """Calibrate-like series with the values the plain-words tests quote."""
+def full_series(setups=None):
+    """Calibrate-like series with the values the plain-words tests quote; `setups` replaces summaries by name."""
+    setups = {"squirt": {"miscue_limit": 0.55, "cue_speed_m_s": 3.0},
+              "cushion_rebound": {"cue_ball_speeds_m_s": [1.0, 4.0]},
+              "cushion_side": {"incidence_deg": 45.0, "cue_ball_speed_m_s": 1.5},
+              "swerve": {"cue_speed_m_s": 1.5},
+              "deflection": {"cue_ball_speed_m_s": 1.0}, **(setups or {})}
     squirt = make("squirt", ["tip_x", "squirt_deg", "ball_speed_m_s", "miscue"],
                   [[0.0, 0.0, 4.2, False], [0.55, 2.01, 2.6, False], [0.6, 1.5, 0.6, True]],
-                  summary={"miscue_limit": 0.55}, target="C9")
+                  summary=setups["squirt"], target="C9")
     rebound = make("cushion_rebound", ["speed_m_s", "incidence_deg", "incidence_measured_deg", "rebound_deg",
                                        "speed_ratio", "rebound_rolling_deg"],
                    [[1.0, 0, 0, 0.0, 0.911, 0.0], [4.0, 0, 0, 0.0, 0.702, 0.0], [1.0, 50, 50, 43.46, 0.847, 56.3]],
-                   target="C7")
+                   summary=setups["cushion_rebound"], target="C7")
     side = make("cushion_side", ["side", "rebound_deg", "speed_ratio", "rebound_rolling_deg"],
-                [[-1.0, 35.67, 0.84, 49.51], [0.0, 37.32, 0.85, 50.13], [1.0, 46.59, 0.94, 58.81]], target="C8")
+                [[-1.0, 35.67, 0.84, 49.51], [0.0, 37.32, 0.85, 50.13], [1.0, 46.59, 0.94, 58.81]],
+                summary=setups["cushion_side"], target="C8")
     swerve = make("swerve", ["variant", "elevation_deg", "tip_x", "t_s", "x_m", "y_m"],
                   swerve_rows("30 deg, tip +0.40", 30.0, 0.4) + swerve_rows("30 deg, tip -0.40", 30.0, -0.4),
-                  target="C10")
+                  summary=setups["swerve"], target="C10")
     lag = make("lag", ["cue_speed_m_s", "ball_speed_m_s", "cushion_contacts", "final_x_m"], [[1.5, 2.08, 2, -1.7]],
                summary={"lag_cue_speed_m_s": 1.5448, "lag_ball_speed_m_s": 2.1437, "start_x_m": -1.0475},
                target="C11")
     defl = deflection(31.0, 82.0)
     defl.target = "C4, C5"
+    defl.summary = setups["deflection"]
     return {"deflection": defl, "squirt": squirt, "cushion_rebound": rebound, "cushion_side": side,
             "swerve": swerve, "lag": lag}
 
@@ -502,6 +548,92 @@ class ResultsTest(unittest.TestCase):
         self.assertIn("on a parabola", swerve.sentence)
 
 
+class SetupTextTest(unittest.TestCase):
+    """The setups the texts and chart labels state come from the series' summaries, never assumed."""
+
+    def series(self, setups, throw_setup):
+        series = full_series(setups)
+        series["throw"] = throw(4.0, 2.0)
+        series["throw"].summary = throw_setup
+        return series
+
+    def texts(self, series):
+        rows = {row[0]: row for row in report.results_rows(fake_shots(), series, PARAMS, report.load_fixtures())}
+        return ({name: report.describe(s) for name, s in series.items()},
+                {name: report.chart_titles(s) for name, s in series.items()}, rows, plain_text(series=series))
+
+    def test_texts_and_labels_quote_the_summary(self):
+        series = self.series({"deflection": {"cue_ball_speed_m_s": 2.5},
+                              "squirt": {"miscue_limit": 0.55, "cue_speed_m_s": 4.5},
+                              "cushion_rebound": {"cue_ball_speeds_m_s": [1.0, 4.0]},
+                              "cushion_side": {"incidence_deg": 30.0, "cue_ball_speed_m_s": 2.25},
+                              "swerve": {"cue_speed_m_s": 1.75}}, {"cue_ball_speeds_m_s": [0.7, 2.0]})
+        self.assertEqual(report.series_problems(series), [])
+        described, titles, rows, plain = self.texts(series)
+        self.assertIn("for a rolling cue ball and a stunned one, the cue ball at 2.5 m/s.", described["deflection"])
+        self.assertIn("for a stunned cue ball arriving at 0.7 and 2 m/s.", described["throw"])
+        self.assertIn("the angle it goes in at, at 1 and 4 m/s, and how much", described["cushion_rebound"])
+        self.assertIn("rolling into the cushion at 30 degrees at 2.25 m/s with check side", described["cushion_side"])
+        self.assertIn("(a level cue at a cue speed of 4.5 m/s)", described["squirt"])
+        self.assertIn("aiming up the table at a cue speed of 1.75 m/s;", described["swerve"])
+        self.assertEqual(titles["deflection"], ["Rolling, cue ball at 2.5 m/s (C4); shaded: 24-36",
+                                                "Stun, cue ball at 2.5 m/s (C5); shaded: 80-92"])
+        self.assertEqual(titles["cushion_side"], ["Check (left) and running (right) side, into the cushion at 30 deg, "
+                                                  "cue ball 2.25 m/s (C8)"])
+        self.assertEqual(titles["squirt"], ["Squirt, level cue, cue speed 4.5 m/s (C9); shaded: 1-3 deg at maximum "
+                                            "side"])
+        self.assertEqual(titles["swerve"], ["Swerve from above, cue speed 1.75 m/s (C10)"])
+        self.assertEqual(rows["C4"][1], "Rolling cut, 1/4 to 3/4 ball, cue ball at 2.5 m/s")
+        self.assertEqual(rows["C5"][1], "Stun cut, 1/4 to 3/4 ball, cue ball at 2.5 m/s")
+        self.assertEqual(rows["C8"][1], "Running and check side, into the cushion at 30 deg at 2.25 m/s")
+        self.assertIn("A rolling cue ball arriving at 2.5 m/s and cut between", plain)
+        self.assertIn("right of centre, at a cue speed of 1.75 m/s, it squirts", plain)
+        self.assertIn("Rolling into a side cushion at 30 degrees with no side", plain)
+        self.assertTrue(report.evaluate(series["cushion_side"]).sentence.startswith(
+            "Into the cushion at 30 degrees, running side sends"))
+
+    def test_a_missing_setup_value_is_a_data_problem_not_a_guess(self):
+        series = self.series({"deflection": {"cue_ball_speed_m_s": "fast"}, "squirt": {"miscue_limit": 0.55},
+                              "cushion_rebound": {"cue_ball_speeds_m_s": [1.0, None]}, "cushion_side": {},
+                              "swerve": {}}, {})
+        self.assertEqual(report.series_problems(series), [
+            f"{name}: the summary has no {key}, so the texts leave it out" for name, key in (
+                ("deflection", "cue_ball_speed_m_s"), ("throw", "cue_ball_speeds_m_s"),
+                ("cushion_rebound", "cue_ball_speeds_m_s"), ("cushion_side", "incidence_deg"),
+                ("cushion_side", "cue_ball_speed_m_s"), ("squirt", "cue_speed_m_s"), ("swerve", "cue_speed_m_s"))])
+        described, titles, rows, plain = self.texts(series)
+        for name in ("deflection", "throw", "cushion_rebound", "cushion_side", "squirt", "swerve"):
+            self.assertNotIn("m/s", described[name], name)
+            self.assertNotIn(" deg", described[name], name)
+        self.assertTrue(described["deflection"].endswith("for a rolling cue ball and a stunned one."))
+        self.assertEqual(titles["deflection"], ["Rolling (C4); shaded: 24-36", "Stun (C5); shaded: 80-92"])
+        self.assertEqual(titles["cushion_side"], ["Check (left) and running (right) side (C8)"])
+        self.assertEqual(titles["squirt"], ["Squirt, level cue (C9); shaded: 1-3 deg at maximum side"])
+        self.assertEqual(titles["swerve"], ["Swerve from above (C10)"])
+        self.assertEqual(rows["C4"][1], "Rolling cut, 1/4 to 3/4 ball")
+        self.assertEqual(rows["C8"][1], "Running and check side")
+        self.assertIn("A rolling cue ball cut between", plain)
+        self.assertIn("right of centre, it squirts", plain)
+        self.assertIn("Rolling into a side cushion with no side", plain)
+        self.assertTrue(report.evaluate(series["cushion_side"]).sentence.startswith("Running side sends"))
+        text = report.assemble_report(series, {}, [])
+        self.assertIn("- cushion_side: the summary has no incidence_deg, so the texts leave it out", text)
+
+    def test_the_c7_row_names_the_cases_it_compared(self):
+        fixtures = report.load_fixtures()
+        cases = [c for c in fixtures["cushion"]["cases"] if c["group"] == "rolling" and c["speed_m_s"] <= 2.0
+                 and c["incidence_deg"] <= 40]
+        columns = ["speed_m_s", "incidence_deg", "incidence_measured_deg", "rebound_deg", "speed_ratio",
+                   "rebound_rolling_deg"]
+        rows = [[c["speed_m_s"], c["incidence_deg"], c["incidence_deg"], c["rebound_angle_deg"],
+                 c["rebound_speed_m_s"] / c["speed_m_s"], None] for c in cases]
+        row = report.cushion_reference_row(make("cushion_rebound", columns, rows), fixtures["cushion"], PARAMS)
+        speeds = [c["speed_m_s"] for c in cases]
+        angles = [c["incidence_deg"] for c in cases]
+        self.assertEqual(row[1], f"Cushion rebound, rolling, no side, {min(speeds):g}-{max(speeds):g} m/s, "
+                                 f"{min(angles):g}-{max(angles):g} deg")
+
+
 class WhatChangedTest(unittest.TestCase):
     changes = {"heading": "What changed", "changes": [
         {"what": "Rolling resistance", "params": {"roll_friction": [0.008, 0.01]}, "why": "the lag."},
@@ -604,6 +736,7 @@ class FullReportTest(unittest.TestCase):
     def test_every_section_in_order(self):
         series = full_series()
         series["throw"] = throw(4.86, 3.39)
+        series["throw"].summary = {"cue_ball_speeds_m_s": [0.5, 4.0]}
         text = report.assemble_report(series, {}, [], source="calib", shots=fake_shots(), params=PARAMS,
                                       fixtures=report.load_fixtures(),
                                       changes=report.read_json(report.DEFAULT_CHANGES))

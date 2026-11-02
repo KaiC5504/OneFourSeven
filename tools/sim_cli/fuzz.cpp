@@ -48,6 +48,7 @@ struct Run {
     std::uint64_t seed = 1;
     std::uint64_t shots = 0;
     std::string out_dir;
+    std::string inject_anomaly;  // --inject-anomaly: proves the failure path without a physics fault
     const Setup* setup = nullptr;
     const PlayArea* area = nullptr;
     std::vector<Outcome> outcomes;
@@ -109,8 +110,7 @@ void run_shot(Run& run, std::uint64_t index) {
     o.sim_us = microseconds_since(start);
     o.events = r.events.size();
     o.miscue = r.strike.miscue;
-    for (const phys::Anomaly& a : r.anomalies) o.fallbacks += a.kind == "solver_fallback" ? 1 : 0;
-    o.failures = check_record(shot.in, r, *run.area);
+    std::vector<ShotFailure> nondeterminism;
     if (index % kDeterminismEvery == 0) {
         o.determinism_checked = true;
         const std::string first = phys::record_json(r).dump();
@@ -119,11 +119,17 @@ void run_shot(Run& run, std::uint64_t index) {
         if (first != second) {
             const auto diff = std::mismatch(first.begin(), first.end(), second.begin(), second.end());
             const std::size_t at = static_cast<std::size_t>(diff.first - first.begin());
-            o.failures.push_back(
+            nondeterminism.push_back(
                 {"nondeterministic", format("a second run's record differs from byte %zu: ...%s... vs ...%s...",
                                             at, first.substr(at, 40).c_str(), second.substr(at, 40).c_str())});
         }
     }
+    if (!run.inject_anomaly.empty()) {
+        r.anomalies.push_back({run.inject_anomaly, 0.0, {shot.in.cue_ball}, "injected by --inject-anomaly"});
+    }
+    for (const phys::Anomaly& a : r.anomalies) o.fallbacks += a.kind == "solver_fallback" ? 1 : 0;
+    o.failures = check_record(shot.in, r, *run.area);
+    o.failures.insert(o.failures.end(), nondeterminism.begin(), nondeterminism.end());
     if (!o.failures.empty()) o.bundle_path = write_bundle(run, index, shot, &r, o.failures);
 }
 
@@ -156,7 +162,8 @@ void clear_old_bundles(const std::string& dir) {
 }  // namespace
 
 int cmd_fuzz(const std::vector<std::string>& argv) {
-    const ArgSpec spec{{"shots", "seed", "threads", "out", "hang-seconds", "params", "table"}, {}, 0, 0};
+    const ArgSpec spec{
+        {"shots", "seed", "threads", "out", "hang-seconds", "params", "table", "inject-anomaly"}, {}, 0, 0};
     Args args;
     std::string error;
     if (!parse_args(argv, spec, args, error)) return usage_error("fuzz", error);
@@ -178,6 +185,10 @@ int cmd_fuzz(const std::vector<std::string>& argv) {
     run.seed = seed;
     run.shots = static_cast<std::uint64_t>(shots);
     run.out_dir = args.value("out") ? *args.value("out") : repo_path("build/fuzz-failures");
+    if (const std::string* kind = args.value("inject-anomaly")) {
+        if (kind->empty()) return usage_error("fuzz", "--inject-anomaly needs an anomaly kind");
+        run.inject_anomaly = *kind;
+    }
     run.setup = &setup;
     run.area = &area;
     run.outcomes.resize(run.shots);

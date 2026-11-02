@@ -73,6 +73,7 @@ class Series:
     rows: list[list]
     summary: dict = field(default_factory=dict)
     notes: list[str] = field(default_factory=list)
+    anomalies: list[dict] = field(default_factory=list)
 
     def records(self) -> list[dict]:
         return [dict(zip(self.columns, row)) for row in self.rows]
@@ -120,12 +121,17 @@ def load_series(data_dir) -> tuple[dict[str, Series], list[str]]:
         if name in found:
             problems.append(f"{path.name}: a second '{name}' series, ignored")
             continue
+        anomalies = data.get("anomalies", [])
+        if not isinstance(anomalies, list) or not all(isinstance(a, dict) for a in anomalies):
+            problems.append(f"{path.name}: anomalies must be a list of objects; its shots' anomalies can't be listed")
+            anomalies = []
         found[name] = Series(name=name, title=str(data["title"]), target=str(data.get("target", "")),
                              params_hash=str(data["params_hash"]), table_hash=str(data.get("table_hash", "")),
                              core_version=str(data.get("core_version", "")), build=str(data.get("build", "")),
                              columns=[str(c) for c in columns], rows=rows,
                              summary=data.get("summary") if isinstance(data.get("summary"), dict) else {},
-                             notes=[str(n) for n in data.get("notes", []) if isinstance(n, str)])
+                             notes=[str(n) for n in data.get("notes", []) if isinstance(n, str)],
+                             anomalies=anomalies)
     hashes = sorted({s.params_hash for s in found.values()})
     if len(hashes) > 1:
         problems.append(f"the series were made with different parameter sets: {', '.join(hashes)}")
@@ -182,6 +188,47 @@ def load_params(path) -> tuple[dict, list[str]]:
     if data is None or not isinstance(data.get("values"), dict):
         return {}, [f"{path}: no parameter values"]
     return data["values"], []
+
+
+# The setup values each series' texts and chart labels quote from its summary, as calibrate writes
+# them. A missing one is left out of the text and listed under Data problems.
+SETUP = {
+    "deflection": ("cue_ball_speed_m_s",),
+    "throw": ("cue_ball_speeds_m_s",),
+    "cushion_rebound": ("cue_ball_speeds_m_s",),
+    "cushion_side": ("incidence_deg", "cue_ball_speed_m_s"),
+    "squirt": ("cue_speed_m_s",),
+    "swerve": ("cue_speed_m_s",),
+}
+
+
+def setup(s: Series | None, key: str):
+    """A summary value: a number, or for a list a list of numbers; None when missing or not numbers."""
+    value = s.summary.get(key) if s is not None else None
+    if isinstance(value, list):
+        found = [number(v) for v in value]
+        return found if found and None not in found else None
+    return number(value)
+
+
+def speeds(values: list[float]) -> str:
+    return listing([f"{v:g}" for v in values])
+
+
+def series_problems(series: dict[str, Series]) -> list[str]:
+    """Every anomaly calibrate recorded in a series' shots, and every setup value its texts lack."""
+    problems = []
+    for s in ordered(series):
+        for a in s.anomalies:
+            balls = a.get("balls")
+            on = f" (balls {', '.join(str(b) for b in balls)})" if isinstance(balls, list) and balls else ""
+            t = number(a.get("t"))
+            problems.append(f"{s.name}: a {a.get('kind', 'unnamed')} anomaly in the shot '{a.get('shot', '?')}' at "
+                            f"t = {'?' if t is None else f'{t:.6g}'} s{on}: {a.get('detail', '')}")
+        for key in SETUP.get(s.name, ()):
+            if setup(s, key) is None:
+                problems.append(f"{s.name}: the summary has no {key}, so the texts leave it out")
+    return problems
 
 
 # Measured shapes.
@@ -288,8 +335,10 @@ def evaluate_cushion_side(s: Series) -> Verdict:
     if None not in rolled:
         tail = (f" Once the ball grips the cloth again its path opens out to {rolled[0]:.1f}, {rolled[1]:.1f} "
                 f"and {rolled[2]:.1f} degrees.")
+    incidence = setup(s, "incidence_deg")
+    into = f"Into the cushion at {incidence:g} degrees, running" if incidence is not None else "Running"
     return Verdict(MET if ok else NOT_MET,
-                   f"Into the cushion at 45 degrees, running side sends the ball off at {deg(running)} just "
+                   f"{into} side sends the ball off at {deg(running)} just "
                    f"after the impact, no side at {deg(middle)} and check side at {deg(check)}.{tail} Running "
                    f"side should widen the angle and check side narrow it "
                    f"({'it does' if ok else 'it does not'}) (C8).")
@@ -515,28 +564,48 @@ EVALUATORS = {
     "break_sim_time": evaluate_break_sim_time,
 }
 
+
+def _at(value, template) -> str:
+    """template (a format string or a function) filled with a setup value; "" without one."""
+    if value is None:
+        return ""
+    return template(value) if callable(template) else template.format(value)
+
+
 DESCRIPTIONS = {
-    "deflection": "How far the cue ball turns from its aim line after hitting a red, against how full the hit "
-                  "is (1 is full-ball, 0 the thinnest), for a rolling cue ball and a stunned one, the cue ball "
-                  "at 1 m/s.",
-    "throw": "How far friction between the balls pushes the object ball off the line of centres, against how "
-             "full the hit is, for a stunned cue ball arriving at 0.5, 1.5 and 4 m/s.",
-    "cushion_rebound": "The angle a plain rolling cue ball comes off the side cushion at, against the angle it "
-                       "goes in at, for four speeds, and how much of its speed it keeps.",
-    "cushion_side": "The rebound angle of a ball rolling into the cushion at 45 degrees at 1.5 m/s with check "
-                    "side (left), none and running side (right). Side 1 is as much as a tip 0.4 R off centre "
-                    "gives.",
-    "squirt": "How far side pushes the cue ball off the aim line, against how far from centre the tip strikes "
-              "(a level cue at a cue speed of 3 m/s); past the miscue limit the strike miscues.",
-    "swerve": "The cue ball's path seen from above with the cue raised and side applied, aiming up the table at "
-              "a cue speed of 1.5 m/s; the right-hand panel is the first 40 cm, with a dot where each starts "
-              "to roll.",
-    "lag": "Where a centre-ball cue ball stops for each cue speed, played from the baulk line to the top cushion "
-           "and back.",
-    "screw_follow": "How far the cue ball screws back or follows through after a full-ball hit on a red 1 m "
-                    "away, against how high or low the tip strikes, at three cue speeds.",
-    "break_sim_time": "How long the simulation of each break-off took on this PC.",
+    "deflection": lambda s: "How far the cue ball turns from its aim line after hitting a red, against how full the "
+                            "hit is (1 is full-ball, 0 the thinnest), for a rolling cue ball and a stunned one"
+                            + _at(setup(s, "cue_ball_speed_m_s"), ", the cue ball at {:g} m/s") + ".",
+    "throw": lambda s: "How far friction between the balls pushes the object ball off the line of centres, against "
+                       "how full the hit is, for a stunned cue ball"
+                       + _at(setup(s, "cue_ball_speeds_m_s"), lambda v: f" arriving at {speeds(v)} m/s") + ".",
+    "cushion_rebound": lambda s: "The angle a plain rolling cue ball comes off the side cushion at, against the angle "
+                                 "it goes in at"
+                                 + _at(setup(s, "cue_ball_speeds_m_s"), lambda v: f", at {speeds(v)} m/s")
+                                 + ", and how much of its speed it keeps.",
+    "cushion_side": lambda s: "The rebound angle of a ball rolling into the cushion"
+                              + _at(setup(s, "incidence_deg"), " at {:g} degrees")
+                              + _at(setup(s, "cue_ball_speed_m_s"), " at {:g} m/s")
+                              + " with check side (left), none and running side (right). Side 1 is as much as a "
+                                "tip 0.4 R off centre gives.",
+    "squirt": lambda s: "How far side pushes the cue ball off the aim line, against how far from centre the tip "
+                        "strikes (a level cue" + _at(setup(s, "cue_speed_m_s"), " at a cue speed of {:g} m/s")
+                        + "); past the miscue limit the strike miscues.",
+    "swerve": lambda s: "The cue ball's path seen from above with the cue raised and side applied, aiming up the "
+                        "table" + _at(setup(s, "cue_speed_m_s"), " at a cue speed of {:g} m/s")
+                        + "; the right-hand panel is the first 40 cm, with a dot where each starts to roll.",
+    "lag": lambda s: "Where a centre-ball cue ball stops for each cue speed, played from the baulk line to the top "
+                     "cushion and back.",
+    "screw_follow": lambda s: "How far the cue ball screws back or follows through after a full-ball hit on a red "
+                              "1 m away, against how high or low the tip strikes, at three cue speeds.",
+    "break_sim_time": lambda s: "How long the simulation of each break-off took on this PC.",
 }
+
+
+def describe(s: Series) -> str:
+    """What the chart shows, with the setup its series' summary records."""
+    text = DESCRIPTIONS.get(s.name)
+    return text(s) if text else s.title + "."
 
 
 def evaluate(s: Series, context: dict | None = None) -> Verdict:
@@ -978,7 +1047,8 @@ def plain_words(m: dict, series: dict[str, Series], params: dict, fixtures: dict
     if deflection:
         band = cut_band(deflection)
         if band["rolling"] and band["stun"]:
-            bullets.append(f"**Cut angles.** A rolling cue ball arriving at 1 m/s and cut between a quarter and "
+            arriving = _at(setup(deflection, "cue_ball_speed_m_s"), " arriving at {:g} m/s and")
+            bullets.append(f"**Cut angles.** A rolling cue ball{arriving} cut between a quarter and "
                            f"three-quarter ball comes off {min(band['rolling']):.0f}-{max(band['rolling']):.0f} "
                            f"degrees from the "
                            f"aim line (the 30-degree rule). Stunned, the two balls part at "
@@ -1018,11 +1088,12 @@ def plain_words(m: dict, series: dict[str, Series], params: dict, fixtures: dict
             side = "right" if path["tip_x"] > 0 else "left"
             other = "left" if side == "right" else "right"
             late = "bending most just before it grips the cloth" if p["bends_late"] else "bending evenly"
+            cue_speed = _at(setup(swerve, "cue_speed_m_s"), ", at a cue speed of {:g} m/s")
             bullets.append(
                 f"**Swerve.** With the cue raised and side, the cue ball first squirts away from the side, then "
                 f"curves back towards it from the moment it is struck while it slides, {late}; once it rolls it "
                 f"runs straight. Raised {path['elevation_deg']:g} degrees with the tip {abs(path['tip_x']):.1f} "
-                f"{side} of centre, at a cue speed of 1.5 m/s, it squirts {abs(p['squirt_deg']):.1f} degrees "
+                f"{side} of centre{cue_speed}, it squirts {abs(p['squirt_deg']):.1f} degrees "
                 f"{other}, turns {abs(p['turn_slide_deg']):.1f} degrees {side} over the first "
                 f"{short_distance(p['slide_m'])} and then holds its line: {abs(p['turn_roll_deg']):.1f} degrees "
                 f"more over the next {p['roll_m']:.1f} m, the nap's drift on a slowing ball.")
@@ -1045,7 +1116,8 @@ def plain_words(m: dict, series: dict[str, Series], params: dict, fixtures: dict
                          f"{percent(published)}" + (f" below {below:g} m/s" if below else "") + ", where their "
                          f"own cushion model, which the game uses, gives {percent(straight[1.0])}.)")
             p, r, c = angles["plain"], angles["running"], angles["check"]
-            text += (f" Rolling into a side cushion at 45 degrees with no side, the ball leaves at "
+            into = _at(setup(side, "incidence_deg"), " at {:g} degrees")
+            text += (f" Rolling into a side cushion{into} with no side, the ball leaves at "
                      f"{p['rebound_deg']:.1f} degrees just after the impact, then bends out to "
                      f"{p['rebound_rolling_deg']:.1f} as it grips the cloth again: that is the line you see. "
                      f"Running side widens both ({r['rebound_deg']:.1f} and {r['rebound_rolling_deg']:.1f} "
@@ -1128,15 +1200,16 @@ def results_rows(m: dict, series: dict[str, Series], params: dict, fixtures: dic
 
     deflection = series.get("deflection")
     band = cut_band(deflection) if deflection else {"rolling": [], "stun": []}
+    at_speed = _at(setup(deflection, "cue_ball_speed_m_s"), ", cue ball at {:g} m/s")
     if band["rolling"]:
-        rows.append(["C4", "Rolling cut, 1/4 to 3/4 ball, cue ball at 1 m/s",
+        rows.append(["C4", f"Rolling cut, 1/4 to 3/4 ball{at_speed}",
                      f"{min(band['rolling']):.1f}-{max(band['rolling']):.1f} deg off the aim line",
                      f"30-degree rule, inside {ROLLING_DEFLECTION_DEG[0]:.0f}-{ROLLING_DEFLECTION_DEG[1]:.0f}",
                      mark(all(within(v, ROLLING_DEFLECTION_DEG) for v in band["rolling"]))])
     else:
         rows.append(["C4", "Rolling cut, 1/4 to 3/4 ball", missing, "", NO_DATA])
     if band["stun"]:
-        rows.append(["C5", "Stun cut, 1/4 to 3/4 ball, cue ball at 1 m/s",
+        rows.append(["C5", f"Stun cut, 1/4 to 3/4 ball{at_speed}",
                      f"{min(band['stun']):.1f}-{max(band['stun']):.1f} deg between the balls",
                      f"90-degree rule less restitution and throw: {STUN_SEPARATION_DEG[0]:.0f}-"
                      f"{STUN_SEPARATION_DEG[1]:.0f}", mark(all(within(v, STUN_SEPARATION_DEG) for v in band["stun"]))])
@@ -1166,7 +1239,9 @@ def results_rows(m: dict, series: dict[str, Series], params: dict, fixtures: dic
     side = series.get("cushion_side")
     angles = cushion_side_angles(side) if side else None
     if angles:
-        rows.append(["C8", "Running and check side, into the cushion at 45 deg at 1.5 m/s",
+        into = (_at(setup(side, "incidence_deg"), ", into the cushion at {:g} deg")
+                + _at(setup(side, "cue_ball_speed_m_s"), " at {:g} m/s"))
+        rows.append(["C8", f"Running and check side{into}",
                      f"check {angles['check']['rebound_deg']:.1f} < none {angles['plain']['rebound_deg']:.1f} < "
                      f"running {angles['running']['rebound_deg']:.1f} deg",
                      "angles ordered check < plain < running (Mathavan Fig. 8)", mark(angles["ordered"])])
@@ -1216,22 +1291,24 @@ def cushion_reference_row(rebound: Series | None, reference: dict | None, params
         return ["C7", what, f"not compared: the Mathavan reference was made with other values of "
                             f"{', '.join(stale)}; regenerate it with tools/gen_reference.py", "1 deg, 2%", NO_DATA]
     rows = {(r["speed_m_s"], r["incidence_deg"]): r for r in rebound.records()}
-    worst_angle, worst_speed, compared = 0.0, 0.0, 0
+    worst_angle, worst_speed, compared = 0.0, 0.0, []
     for case in reference.get("cases", []):
         if case.get("group") != "rolling":
             continue
         row = rows.get((case["speed_m_s"], case["incidence_deg"]))
         if row is None or number(row.get("rebound_deg")) is None or number(row.get("speed_ratio")) is None:
             continue
-        compared += 1
+        compared.append(case)
         worst_angle = max(worst_angle, abs(row["rebound_deg"] - case["rebound_angle_deg"]))
         worst_speed = max(worst_speed, abs(row["speed_ratio"] - case["rebound_speed_m_s"] / case["speed_m_s"]))
     if not compared:
         return ["C7", what, "no case in common with the Mathavan reference", "1 deg, 2%", NO_DATA]
     ok = worst_angle <= CUSHION_TOLERANCE[0] and worst_speed <= CUSHION_TOLERANCE[1]
-    return ["C7", what + ", 0.5-4 m/s, 0-80 deg",
+    case_speeds = [c["speed_m_s"] for c in compared]
+    angles = [c["incidence_deg"] for c in compared]
+    return ["C7", what + f", {min(case_speeds):g}-{max(case_speeds):g} m/s, {min(angles):g}-{max(angles):g} deg",
             f"worst {worst_angle:.2f} deg and {worst_speed * 100:.2f}% of the speed off the fine-step Mathavan "
-            f"solution over {compared} cases", "1 deg, 2% (the suite also checks side, stun and screw)", mark(ok)]
+            f"solution over {len(compared)} cases", "1 deg, 2% (the suite also checks side, stun and screw)", mark(ok)]
 
 
 def lag_row(lag_series: Series | None, lag: dict | None, published: dict | None, params: dict) -> list[str]:
@@ -1294,7 +1371,7 @@ def assemble_report(series: dict[str, Series], charts: dict[str, str], problems:
                     fixtures: dict | None = None, changes: dict | None = None) -> str:
     """report.md: plain words, results and what changed, then a section per chart (`charts`: name to PNG)."""
     params, fixtures, shots = params or {}, fixtures or {}, shots or {}
-    problems = list(problems)
+    problems = list(problems) + series_problems(series)
     lines = ["# Calibration report", ""]
     every = ordered(series)
     if not every:
@@ -1335,8 +1412,7 @@ def assemble_report(series: dict[str, Series], charts: dict[str, str], problems:
                 lines += [f"![{s.title}]({charts[s.name]})", ""]
             else:
                 lines += ["No chart: the data has no values to plot.", ""]
-            description = DESCRIPTIONS.get(s.name, s.title + ".")
-            lines.append(f"{description} {verdicts[s.name].sentence}")
+            lines.append(f"{describe(s)} {verdicts[s.name].sentence}")
             for note in s.notes:
                 lines += ["", f"Setup: {note}"]
     if problems:
@@ -1355,13 +1431,14 @@ def anchor(s: Series) -> str:
 
 
 def screw_follow_series(rows: list[list], like: Series | None, length: float) -> Series:
-    """The report's own screw and follow shots as a chart series, in place of calibrate's."""
+    """The report's own screw and follow shots as a chart series, in place of calibrate's (whose anomalies it
+    keeps, so they are still listed)."""
     base = like or Series("screw_follow", "", "7.12", "", "", "", "", [], [])
     return Series(name="screw_follow", title="Screw-back and follow distance against tip height", target="7.12",
                   params_hash=base.params_hash, table_hash=base.table_hash, core_version=base.core_version,
                   build=base.build,
                   columns=["cue_speed_m_s", "tip_y", "ball_speed_m_s", "distance_m", "stopped_short_m"], rows=rows,
-                  summary={"playing_length_m": length},
+                  summary={"playing_length_m": length}, anomalies=base.anomalies,
                   notes=["Full-ball hit on a red 1 m away (centre to centre), simulated by this report on an endless "
                          "table (the real outline scaled up 20 times), so no cushion is in reach. Distance from the "
                          "contact to where the cue ball stops, along the aim: negative is screw back. The speeds "
@@ -1425,20 +1502,38 @@ def _by(s: Series, key: str) -> dict:
     return groups
 
 
+def chart_titles(s: Series) -> list[str]:
+    """The panel titles of the charts whose titles quote the series' setup, from its summary."""
+    if s.name == "deflection":
+        at = _at(setup(s, "cue_ball_speed_m_s"), ", cue ball at {:g} m/s")
+        return [f"Rolling{at} (C4); shaded: {ROLLING_DEFLECTION_DEG[0]:.0f}-{ROLLING_DEFLECTION_DEG[1]:.0f}",
+                f"Stun{at} (C5); shaded: {STUN_SEPARATION_DEG[0]:.0f}-{STUN_SEPARATION_DEG[1]:.0f}"]
+    if s.name == "cushion_side":
+        into = (_at(setup(s, "incidence_deg"), ", into the cushion at {:g} deg")
+                + _at(setup(s, "cue_ball_speed_m_s"), ", cue ball {:g} m/s"))
+        return [f"Check (left) and running (right) side{into} (C8)"]
+    if s.name == "squirt":
+        at = _at(setup(s, "cue_speed_m_s"), ", cue speed {:g} m/s")
+        return [f"Squirt, level cue{at} (C9); shaded: {MAX_SIDE_SQUIRT_DEG[0]:.0f}-{MAX_SIDE_SQUIRT_DEG[1]:.0f} deg "
+                f"at maximum side"]
+    if s.name == "swerve":
+        return [f"Swerve from above{_at(setup(s, 'cue_speed_m_s'), ', cue speed {:g} m/s')} (C10)"]
+    return []
+
+
 def _chart_deflection(plt, s: Series, _context):
     figure, (left, right) = _axes(plt, 2)
     rolling = sorted(s.where(mode="rolling"), key=lambda r: r["fraction"])
     stun = sorted(s.where(mode="stun"), key=lambda r: r["fraction"])
+    titles = chart_titles(s)
     # The targets hold between a quarter and three-quarter ball only.
     left.fill_between([0.25, 0.75], *ROLLING_DEFLECTION_DEG, color=BAND, zorder=0)
     any_data = _line(left, [r["fraction"] for r in rolling], [r["cue_deflection_deg"] for r in rolling], 0,
                      "rolling")
-    _label(left, f"Rolling, cue ball at 1 m/s (C4); shaded: {ROLLING_DEFLECTION_DEG[0]:.0f}-"
-                 f"{ROLLING_DEFLECTION_DEG[1]:.0f}", "fraction of ball hit", "degrees from the aim line")
+    _label(left, titles[0], "fraction of ball hit", "degrees from the aim line")
     right.fill_between([0.25, 0.75], *STUN_SEPARATION_DEG, color=BAND, zorder=0)
     any_data |= _line(right, [r["fraction"] for r in stun], [r["separation_deg"] for r in stun], 1, "stun")
-    _label(right, f"Stun, cue ball at 1 m/s (C5); shaded: {STUN_SEPARATION_DEG[0]:.0f}-"
-                  f"{STUN_SEPARATION_DEG[1]:.0f}", "fraction of ball hit", "degrees between the two balls")
+    _label(right, titles[1], "fraction of ball hit", "degrees between the two balls")
     return figure, any_data
 
 
@@ -1478,8 +1573,7 @@ def _chart_cushion_side(plt, s: Series, _context):
     any_data = _line(ax, [r["side"] for r in rows], [r["rebound_deg"] for r in rows], 0, "just after impact")
     _line(ax, [r["side"] for r in rows], [r.get("rebound_rolling_deg") for r in rows], 1, "once rolling again")
     ax.axvline(0.0, color=INK_2, linewidth=0.8, linestyle=":")
-    _label(ax, "Check (left) and running (right) side, into the cushion at 45 deg, cue ball 1.5 m/s (C8)",
-           "side, w_z R / v (1: as much as a tip 0.4 R off centre)", "rebound, degrees")
+    _label(ax, chart_titles(s)[0], "side, w_z R / v (1: as much as a tip 0.4 R off centre)", "rebound, degrees")
     _legend(ax)
     return figure, any_data
 
@@ -1494,8 +1588,7 @@ def _chart_squirt(plt, s: Series, _context):
     if limit is not None:
         ax.axvline(limit, color=INK_2, linewidth=0.8, linestyle=":")
         ax.text(limit, MAX_SIDE_SQUIRT_DEG[1], " miscue limit", fontsize=8, color=INK_2, ha="right", va="bottom")
-    _label(ax, "Squirt, level cue, cue speed 3 m/s (C9); shaded: 1-3 deg at maximum side",
-           "tip offset, fraction of R", "degrees off the aim line")
+    _label(ax, chart_titles(s)[0], "tip offset, fraction of R", "degrees off the aim line")
     return figure, any_data
 
 
@@ -1516,8 +1609,7 @@ def _chart_swerve(plt, s: Series, context):
         for line in ax.get_lines():
             if line.get_markersize() < 5:
                 line.set_marker("")
-    _label(whole, "Swerve from above, cue speed 1.5 m/s (C10)", "x, m (aiming along +x)",
-           "y, m (right of the aim is down)")
+    _label(whole, chart_titles(s)[0], "x, m (aiming along +x)", "y, m (right of the aim is down)")
     _label(start, "The first 40 cm; dot: starts to roll", "x, m", "y, m")
     _legend(whole)
     return figure, any_data
@@ -1706,7 +1798,7 @@ def main(argv=None) -> int:
         print(f"{row[4]:<10}  {row[0]:<8}  {row[1]}")
     for s in ordered(series):
         print(f"{evaluate(s, context).status:<10}  {s.target or '-':<8}  chart: {s.title}")
-    for problem in problems + chart_problems + what_changed(changes, params)[1]:
+    for problem in problems + series_problems(series) + chart_problems + what_changed(changes, params)[1]:
         print(f"problem: {problem}")
     print(f"wrote {args.out / 'report.md'} and {len(charts)} charts from {sim.runs} shots")
     return 0

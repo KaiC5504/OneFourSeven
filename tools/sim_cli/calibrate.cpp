@@ -34,6 +34,9 @@ struct Series {
     nlohmann::json rows = nlohmann::json::array();
     nlohmann::json summary = nlohmann::json::object();
     std::vector<std::string> notes;
+    // Every anomaly of every shot behind the rows, so a shot that hit a fallback or the time cap
+    // can't pass as an ordinary point on a chart.
+    nlohmann::json anomalies = nlohmann::json::array();
 };
 
 phys::BallState ball(Ball kind, int index, Vec3 r) {
@@ -53,19 +56,25 @@ phys::BallState moving_cue_ball(Vec3 r, Vec3 v, double wz, bool rolling) {
     return b;
 }
 
-phys::ShotRecord run_on(const Setup& s, const phys::TableShape& table, std::vector<phys::BallState> balls,
-                        const phys::CueStrike* strike) {
+phys::ShotRecord run_on(Series& out, const std::string& shot, const Setup& s, const phys::TableShape& table,
+                        std::vector<phys::BallState> balls, const phys::CueStrike* strike) {
     phys::SimInput in;
     in.start.balls = std::move(balls);
     in.cue_ball = 0;
     in.has_strike = strike != nullptr;
     if (strike != nullptr) in.strike = *strike;
     in.params_hash = s.params_hash;
-    return phys::simulate(in, table, s.params);
+    phys::ShotRecord r = phys::simulate(in, table, s.params);
+    for (const phys::Anomaly& a : r.anomalies) {
+        out.anomalies.push_back(
+            {{"shot", shot}, {"kind", a.kind}, {"t", number(a.t)}, {"balls", a.balls}, {"detail", a.detail}});
+    }
+    return r;
 }
 
-phys::ShotRecord run(const Setup& s, std::vector<phys::BallState> balls, const phys::CueStrike* strike) {
-    return run_on(s, s.table, std::move(balls), strike);
+phys::ShotRecord run(Series& out, const std::string& shot, const Setup& s, std::vector<phys::BallState> balls,
+                     const phys::CueStrike* strike) {
+    return run_on(out, shot, s, s.table, std::move(balls), strike);
 }
 
 // The real outline scaled up about the table's centre, as tools/calibration_report.py's own shots
@@ -176,7 +185,8 @@ nlohmann::json cushion_setup(const Cushion& c) {
 }
 
 // A rolling ball sent into the side cushion at `incidence_deg` from its normal, kCushionRunUp out.
-Rebound cushion_shot(const Setup& s, const Cushion& c, double speed, double incidence_deg, double side) {
+Rebound cushion_shot(Series& series, const Setup& s, const Cushion& c, double speed, double incidence_deg,
+                     double side) {
     const double a = radians(incidence_deg);
     const Vec3 dir = -c.normal * std::cos(a) + c.tangent * std::sin(a);
     const Vec3 contact = c.nose + c.normal * kR;
@@ -184,7 +194,8 @@ Rebound cushion_shot(const Setup& s, const Cushion& c, double speed, double inci
     const double running = (-c.normal.y * c.tangent.x + c.normal.x * c.tangent.y) >= 0.0 ? 1.0 : -1.0;
     const double wz = side * running * speed / kR;
     const phys::ShotRecord r =
-        run(s, {moving_cue_ball(contact - dir * kCushionRunUp, dir * speed, wz, true)}, nullptr);
+        run(series, format("%g m/s at %g deg, side %+.2f", speed, incidence_deg, side), s,
+            {moving_cue_ball(contact - dir * kCushionRunUp, dir * speed, wz, true)}, nullptr);
     Rebound out;
     const phys::ShotEvent* hit = first_of(r, phys::EventKind::ball_line, 0);
     if (hit == nullptr) return out;
@@ -216,7 +227,7 @@ Series cushion_rebound(const Setup& s) {
     for (double speed : speeds) {
         for (int i = 0; i <= 16; ++i) {
             const double incidence = 5.0 * i;
-            const Rebound r = cushion_shot(s, c, speed, incidence, 0.0);
+            const Rebound r = cushion_shot(out, s, c, speed, incidence, 0.0);
             out.rows.push_back({speed, incidence, number(r.incidence), number(r.rebound), number(r.speed_ratio),
                                 number(r.rolling)});
         }
@@ -238,12 +249,10 @@ Series cushion_side(const Setup& s) {
     const double incidence = 45.0;
     for (int i = -4; i <= 4; ++i) {
         const double side = 0.25 * i;
-        const Rebound r = cushion_shot(s, c, speed, incidence, side);
+        const Rebound r = cushion_shot(out, s, c, speed, incidence, side);
         out.rows.push_back({side, number(r.rebound), number(r.speed_ratio), number(r.rolling)});
     }
     out.summary = cushion_setup(c);
-    // speed_m_s is the name the 909c010 report reads; cue_ball_speed_m_s matches the other series.
-    out.summary["speed_m_s"] = speed;
     out.summary["cue_ball_speed_m_s"] = speed;
     out.summary["incidence_deg"] = incidence;
     out.notes.push_back("side is w_z R / v at the start, positive for running side, negative for check side.");
@@ -264,15 +273,15 @@ nlohmann::json cut_setup() {
 }
 
 // The cue ball kCutGap short of contact with a red at a cut of `cut_deg`, travelling along +x.
-Cut cut_shot(const Setup& s, double cut_deg, double speed, bool rolling) {
+Cut cut_shot(Series& series, const Setup& s, double cut_deg, double speed, bool rolling) {
     const Vec3 object = kCutObject;
     const double a = radians(cut_deg);
     const Vec3 centres{std::cos(a), std::sin(a), 0.0};
     const Vec3 dir{1.0, 0.0, 0.0};
     const Vec3 start = object - centres * (2.0 * kR) - dir * kCutGap;
     Cut out;
-    out.record =
-        run(s, {moving_cue_ball(start, dir * speed, 0.0, rolling), ball(Ball::red, 0, object)}, nullptr);
+    out.record = run(series, format("%s at %g m/s, cut %g deg", rolling ? "rolling" : "stun", speed, cut_deg), s,
+                     {moving_cue_ball(start, dir * speed, 0.0, rolling), ball(Ball::red, 0, object)}, nullptr);
     out.hit = first_of(out.record, phys::EventKind::ball_ball, 0);
     return out;
 }
@@ -287,7 +296,7 @@ Series throw_series(const Setup& s) {
     for (double speed : speeds) {
         for (int i = 0; i <= 16; ++i) {
             const double cut = 5.0 * i;
-            const Cut c = cut_shot(s, cut, speed, false);
+            const Cut c = cut_shot(out, s, cut, speed, false);
             double thrown = kNaN;
             if (c.hit != nullptr) {
                 const Vec3 cue = state_before(c.record, 0, c.hit->t).r;
@@ -314,7 +323,7 @@ Series deflection_series(const Setup& s) {
     for (bool rolling : {true, false}) {
         for (int i = 0; i <= 17; ++i) {
             const double cut = 5.0 * i;
-            const Cut c = cut_shot(s, cut, speed, rolling);
+            const Cut c = cut_shot(out, s, cut, speed, rolling);
             double separation = kNaN;
             double deflection = kNaN;
             if (c.hit != nullptr) {
@@ -331,9 +340,10 @@ Series deflection_series(const Setup& s) {
                 {rolling ? "rolling" : "stun", cut, fraction, number(separation), number(deflection)});
         }
     }
-    out.notes.push_back("At 1 m/s. separation_deg is between the two balls' directions just after impact; "
-                        "cue_deflection_deg is the cue ball's direction from the aim line once it rolls "
-                        "again.");
+    out.notes.push_back(format("At %g m/s. separation_deg is between the two balls' directions just after impact; "
+                               "cue_deflection_deg is the cue ball's direction from the aim line once it rolls "
+                               "again.",
+                               speed));
     return out;
 }
 
@@ -349,7 +359,8 @@ Series screw_follow(const Setup& s) {
             phys::CueStrike c;
             c.speed_m_s = speed;
             c.tip_y = 0.1 * i;
-            const phys::ShotRecord r = run_on(s, endless, {ball(Ball::cue, 0, cue), ball(Ball::red, 0, red)}, &c);
+            const phys::ShotRecord r = run_on(out, format("cue speed %g m/s, tip_y %+.1f", speed, c.tip_y), s,
+                                              endless, {ball(Ball::cue, 0, cue), ball(Ball::red, 0, red)}, &c);
             double distance = kNaN;
             if (const phys::ShotEvent* hit = first_of(r, phys::EventKind::ball_ball, 0)) {
                 distance = r.final_state.balls[0].r.x - state_after(r, 0, hit->t).r.x;
@@ -388,7 +399,7 @@ Series squirt_series(const Setup& s) {
                    {"aim_deg", 0.0},
                    {"tip_y", 0.0},
                    {"elevation_deg", 0.0}};
-    out.notes.push_back("A level cue at 3 m/s. squirt_deg is signed from the aim line.");
+    out.notes.push_back(format("A level cue at %g m/s. squirt_deg is signed from the aim line.", speed));
     return out;
 }
 
@@ -406,10 +417,10 @@ Series swerve_series(const Setup& s) {
         c.speed_m_s = speed;
         c.elevation_rad = radians(variant[0]);
         c.tip_x = variant[1];
-        const phys::ShotRecord r = run(s, {ball(Ball::cue, 0, start)}, &c);
+        const std::string label = format("%.0f deg, tip %+.2f", variant[0], variant[1]);
+        const phys::ShotRecord r = run(out, label, s, {ball(Ball::cue, 0, start)}, &c);
         const phys::ShotEvent* stop = first_contact(r, 0, -1.0);
         const double end = std::fmin(stop != nullptr ? stop->t : r.t_end, 5.0);
-        const std::string label = format("%.0f deg, tip %+.2f", variant[0], variant[1]);
         used[label] = degrees(r.strike.elevation_used_rad);
         for (int k = 0;; ++k) {
             const double t = std::fmin(0.01 * k, end);
@@ -431,10 +442,10 @@ Series lag_series(const Setup& s) {
     Series out{"lag", "The lag: cue speed to reach the top cushion and back to baulk", "C11",
                {"cue_speed_m_s", "ball_speed_m_s", "cushion_contacts", "final_x_m"}};
     const Vec3 start{ofs::table::baulk_line_x(), 0.0, 0.0};
-    const auto lag = [&s, &start](double speed, double& ball_speed, int& contacts, double& final_x) {
+    const auto lag = [&out, &s, &start](double speed, double& ball_speed, int& contacts, double& final_x) {
         phys::CueStrike c;
         c.speed_m_s = speed;
-        const phys::ShotRecord r = run(s, {ball(Ball::cue, 0, start)}, &c);
+        const phys::ShotRecord r = run(out, format("cue speed %.9g m/s", speed), s, {ball(Ball::cue, 0, start)}, &c);
         ball_speed = norm_xy(r.strike.v);
         contacts = 0;
         for (const phys::ShotEvent& e : r.events) {
@@ -494,7 +505,7 @@ Series break_times(const Setup& s, long long breaks) {
         const phys::TableState rack = phys::opening_rack(seed, s.params);
         const phys::CueStrike c = break_off_strike(rack, rng.uniform(5.0, 10.0));
         const auto start = Clock::now();
-        const phys::ShotRecord r = run(s, rack.balls, &c);
+        const phys::ShotRecord r = run(out, format("rack %lld at %.4g m/s", i, c.speed_m_s), s, rack.balls, &c);
         const double us = microseconds_since(start);
         times.push_back(us);
         int potted = 0;
@@ -542,7 +553,8 @@ int cmd_calibrate(const std::vector<std::string>& argv) {
                                      {"columns", series.columns},
                                      {"rows", series.rows},
                                      {"summary", series.summary},
-                                     {"notes", series.notes}};
+                                     {"notes", series.notes},
+                                     {"anomalies", series.anomalies}};
         const auto folder = std::filesystem::u8path(*args.value("out"));
         const std::string path = (folder / std::filesystem::u8path(series.name + ".json")).u8string();
         if (!write_text_file(path, file.dump(1) + "\n", error)) {
@@ -550,7 +562,8 @@ int cmd_calibrate(const std::vector<std::string>& argv) {
             code = kExitUsage;
             continue;
         }
-        std::printf("%-16s %4zu rows  %s\n", series.name.c_str(), series.rows.size(), path.c_str());
+        std::printf("%-16s %4zu rows, %zu anomalies  %s\n", series.name.c_str(), series.rows.size(),
+                    series.anomalies.size(), path.c_str());
     }
     std::printf("params %s, table %s, %s build\n", setup.params_hash.c_str(), setup.table_hash.c_str(), build);
     return code;

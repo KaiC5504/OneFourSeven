@@ -26,7 +26,7 @@ struct Table {
 };
 
 // --update: a single-object file whose stored result is out of date (a recorded bench shot after a
-// deliberate physics change) gets the replayed result and this table's hash written back.
+// deliberate physics change) gets the replayed result and its bundle written back.
 struct Update {
     bool enabled = false;
     std::string path;
@@ -84,10 +84,8 @@ bool table_matches(const Item& item, const nlohmann::json& bundle, const Table& 
     return false;
 }
 
-bool replay_bundle(const Item& item, const nlohmann::json& bundle, const Table& table, phys::ShotRecord& r,
-                   Tally& tally) {
-    phys::SimInput in;
-    phys::PhysicsParams p;
+bool replay_bundle(const Item& item, const nlohmann::json& bundle, const Table& table, phys::SimInput& in,
+                   phys::PhysicsParams& p, phys::ShotRecord& r, Tally& tally) {
     std::string error;
     if (!bundle.is_object() || !phys::parse_bundle(bundle, in, p, error)) {
         std::printf("%-8s %-16s ERROR        bundle unreadable: %s\n", where(item).c_str(), item.kind.c_str(),
@@ -100,9 +98,13 @@ bool replay_bundle(const Item& item, const nlohmann::json& bundle, const Table& 
     return true;
 }
 
-bool write_update(const Update& update, const Item& item, const Table& table, const nlohmann::json& replayed) {
+// The bundle is written again from what was parsed, so an old one comes out at the current version
+// with params_values_hash, naming the table it was just replayed on.
+bool write_update(const Update& update, const Item& item, const Table& table, phys::SimInput in,
+                  const phys::PhysicsParams& p, const nlohmann::json& replayed) {
     nlohmann::json file = item.data;
-    file["bundle"]["table_hash"] = table.hash;
+    in.table_hash = table.hash;
+    file["bundle"] = phys::make_bundle(in, p);
     file["result"] = replayed;
     std::string error;
     if (!write_text_file(update.path, file.dump(1) + "\n", error)) {
@@ -122,11 +124,13 @@ void replay_shot(const Item& item, const Table& table, double tolerance, const U
         ++tally.errors;
         return;
     }
+    phys::SimInput in;
+    phys::PhysicsParams p;
     phys::ShotRecord r;
-    if (!replay_bundle(item, *bundle, table, r, tally)) return;
+    if (!replay_bundle(item, *bundle, table, in, p, r, tally)) return;
     const nlohmann::json replayed = phys::make_result(r);
     if (update.enabled) {
-        if (write_update(update, item, table, replayed)) {
+        if (write_update(update, item, table, in, p, replayed)) {
             ++tally.ok;
         } else {
             ++tally.errors;
@@ -174,8 +178,10 @@ void replay_anomaly(const Item& item, const Table& table, Tally& tally) {
         }
     }
     logged.detail = item.data.value("detail", std::string());
+    phys::SimInput in;
+    phys::PhysicsParams p;
     phys::ShotRecord r;
-    if (!replay_bundle(item, *bundle, table, r, tally)) return;
+    if (!replay_bundle(item, *bundle, table, in, p, r, tally)) return;
     const phys::Anomaly* same_kind = nullptr;
     for (const phys::Anomaly& a : r.anomalies) {
         if (a.kind != logged.kind) continue;
