@@ -106,8 +106,8 @@ Local hit_line(const Local& y, const PhysicsParams& p) {
 // Mathavan section 3.1: speed v0 at alpha from the cushion line, topspin k_top v0 / R and
 // sidespin k_side v0 / R (positive side is running for a ball moving along +x).
 Local paper_state(double v0, double alpha, double k_top, double k_side) {
-    return {v0 * std::cos(alpha), v0 * std::sin(alpha), -k_top * v0 * std::sin(alpha), k_top * v0 * std::cos(alpha),
-            k_side * v0};
+    return {v0 * std::cos(alpha), v0 * std::sin(alpha), -k_top * v0 * std::sin(alpha),
+            k_top * v0 * std::cos(alpha), k_side * v0};
 }
 
 double speed(const Local& y) { return std::hypot(y[0], y[1]); }
@@ -183,7 +183,8 @@ TEST_CASE("cushion: mirrored incidence gives the mirrored rebound") {
     Rng rng(147);
     for (int i = 0; i < 200; ++i) {
         const double v0 = rng.uniform(0.1, 5.0);
-        const Local y0 = paper_state(v0, rng.uniform(0.05, kPi - 0.05), rng.uniform(-1.0, 2.0), rng.uniform(-2.0, 2.0));
+        const double alpha = rng.uniform(0.05, kPi - 0.05);
+        const Local y0 = paper_state(v0, alpha, rng.uniform(-1.0, 2.0), rng.uniform(-2.0, 2.0));
         const Local mirrored_in{-y0[0], y0[1], y0[2], -y0[3], -y0[4]};
         const Local a = hit_line(y0, p);
         const Local b = hit_line(mirrored_in, p);
@@ -235,8 +236,8 @@ TEST_CASE("cushion: kinetic energy never increases and the ball always leaves") 
         p.cushion_restitution_slope_per_m_s = rng.uniform() < 0.5 ? 0.0 : rng.uniform(0.0, 0.5);
         const double v0 = rng.uniform(0.01, 8.0);
         const double a = rng.uniform(0.01, kPi - 0.01);
-        const Local y0{v0 * std::cos(a), v0 * std::sin(a), rng.uniform(-3.0, 3.0) * v0, rng.uniform(-3.0, 3.0) * v0,
-                       rng.uniform(-3.0, 3.0) * v0};
+        const Local y0{v0 * std::cos(a), v0 * std::sin(a), rng.uniform(-3.0, 3.0) * v0,
+                       rng.uniform(-3.0, 3.0) * v0, rng.uniform(-3.0, 3.0) * v0};
         const Local got = hit_line(y0, p);
         bool finite = true;
         for (double x : got) finite = finite && std::isfinite(x);
@@ -364,7 +365,8 @@ TEST_CASE("cushion: micro-benchmark" * doctest::skip()) {
     for (int r = 0; r < rounds; ++r) {
         for (const Local& y : inputs) sink += hit_line(y, p)[0];
     }
-    const double us = std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - start).count();
-    std::printf("cushion collision: %.3f us each (%d impacts, checksum %.6f)\n",
-                us / (rounds * static_cast<double>(inputs.size())), rounds * static_cast<int>(inputs.size()), sink);
+    const auto elapsed = std::chrono::steady_clock::now() - start;
+    const double us = std::chrono::duration<double, std::micro>(elapsed).count();
+    const int impacts = rounds * static_cast<int>(inputs.size());
+    std::printf("cushion collision: %.3f us each (%d impacts, checksum %.6f)\n", us / impacts, impacts, sink);
 }

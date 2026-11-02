@@ -284,7 +284,8 @@ void Impact::resolve(const State& y, bool no_stick_i, bool no_stick_c) {
     }
 
     const Mode order[4][2] = {
-        {Mode::stick, Mode::stick}, {Mode::stick, Mode::slip}, {Mode::slip, Mode::stick}, {Mode::slip, Mode::slip}};
+        {Mode::stick, Mode::stick}, {Mode::stick, Mode::slip}, {Mode::slip, Mode::stick},
+        {Mode::slip, Mode::slip}};
     Mode chosen[2] = {Mode::slip, Mode::slip};
     Dir dirs[2] = {unit(sv[0]), unit(sv[1])};
     Dir fallback[2] = {dirs[0], dirs[1]};
@@ -461,7 +462,8 @@ void collide(BallState& b, const Surface& s, const PhysicsParams& p) {
     const double vy = -(b.v.x * nx + b.v.y * ny);
     if (vy > 0.0) {
         const double over = std::max(0.0, vy - p.cushion_rigid_limit_m_s);
-        const double e = std::clamp(s.restitution - p.cushion_restitution_slope_per_m_s * over, 0.0, s.restitution);
+        const double e =
+            std::clamp(s.restitution - p.cushion_restitution_slope_per_m_s * over, 0.0, s.restitution);
         const double sin_theta = std::clamp((p.cushion_contact_height_m - R) / R, 0.0, 1.0);
         const State y0{vx, vy, R * (-b.w.x * ny + b.w.y * nx), -R * (b.w.x * nx + b.w.y * ny), R * b.w.z, 0.0};
         State y;
