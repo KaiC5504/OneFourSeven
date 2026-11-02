@@ -1,6 +1,8 @@
 #include <doctest/doctest.h>
 
+#include <cmath>
 #include <functional>
+#include <limits>
 #include <memory>
 #include <set>
 #include <string>
@@ -41,6 +43,7 @@ SimInput sample_input() {
     in.strike = {0.7853981633974483, 0.12345678901234568, -0.3, 0.05, 4.2};
     in.seed = 18446744073709551615ULL;
     in.params_hash = "8efc364b3052045e";
+    in.table_hash = "0f1e2d3c4b5a6978";
     return in;
 }
 
@@ -93,12 +96,15 @@ TEST_CASE("bundle carries every field, the seed as a decimal string") {
     const nlohmann::json b = make_bundle(in, p);
     std::set<std::string> keys;
     for (const auto& [key, value] : b.items()) keys.insert(key);
-    CHECK(keys == std::set<std::string>{"v", "seed", "params_hash", "params", "cue_ball", "has_strike", "strike",
-                                        "start"});
-    CHECK(b["v"] == kBundleVersion);
+    CHECK(keys == std::set<std::string>{"v", "seed", "params_hash", "params", "params_values_hash", "table_hash",
+                                        "cue_ball", "has_strike", "strike", "start"});
+    CHECK(b["v"] == 2);
     CHECK(b["seed"] == "18446744073709551615");
     CHECK(b["params_hash"] == "8efc364b3052045e");
     CHECK(b["params"] == physics_params_values(p));
+    CHECK(b["params_values_hash"] == ofs::params::content_hash(physics_params_values(p)));
+    CHECK(b["params_values_hash"].get<std::string>().size() == 16);
+    CHECK(b["table_hash"] == "0f1e2d3c4b5a6978");
     CHECK(b["cue_ball"] == 0);
     CHECK(b["has_strike"] == true);
     CHECK(b["strike"] == to_json(in.strike));
@@ -118,6 +124,7 @@ TEST_CASE("bundle round-trips to the same input and params, bit for bit") {
     CHECK(back.cue_ball == in.cue_ball);
     CHECK(back.has_strike == in.has_strike);
     CHECK(back.params_hash == in.params_hash);
+    CHECK(back.table_hash == in.table_hash);
     CHECK(back.strike.tip_x == in.strike.tip_x);
     REQUIRE(back.start.balls.size() == in.start.balls.size());
     for (std::size_t i = 0; i < in.start.balls.size(); ++i) {
@@ -161,6 +168,11 @@ TEST_CASE("malformed bundles are refused with a reason and leave the outputs alo
         {"a param out of range", [](nlohmann::json& b) { b["params"]["slide_friction"] = -1.0; }, "slide_friction"},
         {"a param missing", [](nlohmann::json& b) { b["params"].erase("roll_friction"); }, "roll_friction"},
         {"an unknown param", [](nlohmann::json& b) { b["params"]["surprise"] = 1; }, "surprise"},
+        {"a param changed after logging", [](nlohmann::json& b) { b["params"]["roll_friction"] = 0.0075; },
+         "params_values_hash"},
+        {"params_values_hash as a number", [](nlohmann::json& b) { b["params_values_hash"] = 1; },
+         "params_values_hash"},
+        {"table_hash as a number", [](nlohmann::json& b) { b["table_hash"] = 5; }, "table_hash"},
         {"no has_strike", [](nlohmann::json& b) { b.erase("has_strike"); }, "has_strike"},
         {"has_strike as a number", [](nlohmann::json& b) { b["has_strike"] = 1; }, "has_strike"},
         {"no strike", [](nlohmann::json& b) { b.erase("strike"); }, "strike"},
@@ -187,6 +199,114 @@ TEST_CASE("malformed bundles are refused with a reason and leave the outputs alo
         CHECK(in.params_hash == "untouched");
         CHECK(p.max_events == 4242);
     }
+}
+
+TEST_CASE("bundle params_values_hash refuses an edited value, naming both hashes") {
+    const nlohmann::json good = make_bundle(sample_input(), sample_params());
+    SimInput in;
+    PhysicsParams p;
+    std::string error;
+    CHECK_MESSAGE(parse_bundle(nlohmann::json::parse(good.dump()), in, p, error), error);
+
+    for (const char* name : {"slide_friction", "max_events"}) {
+        CAPTURE(name);
+        nlohmann::json tampered = good;
+        tampered["params"][name] = name == std::string("max_events") ? nlohmann::json(778) : nlohmann::json(0.21);
+        const std::string edited_hash = ofs::params::content_hash(tampered["params"]);
+        CHECK_FALSE(parse_bundle(tampered, in, p, error));
+        CHECK_MESSAGE(error.rfind("params_values_hash:", 0) == 0, error);
+        CHECK_MESSAGE(error.find(good["params_values_hash"].get<std::string>()) != std::string::npos, error);
+        CHECK_MESSAGE(error.find(edited_hash) != std::string::npos, error);
+    }
+
+    // The hash is over the parsed values, so a value written another way but read the same passes.
+    nlohmann::json reworded = good;
+    REQUIRE(reworded["params"]["time_cap_s"] == 120.0);
+    reworded["params"]["time_cap_s"] = 120;
+    CHECK_MESSAGE(parse_bundle(nlohmann::json::parse(reworded.dump()), in, p, error), error);
+    CHECK(p.time_cap_s == 120.0);
+
+    nlohmann::json unhashed = good;
+    unhashed.erase("params_values_hash");
+    unhashed["params"]["slide_friction"] = 0.21;
+    REQUIRE_MESSAGE(parse_bundle(unhashed, in, p, error), error);
+    CHECK(p.slide_friction == 0.21);
+}
+
+TEST_CASE("bundle carries the table hash, and an older bundle without one reads as unknown") {
+    SimInput in = sample_input();
+    const PhysicsParams p = sample_params();
+    SimInput back;
+    PhysicsParams back_p;
+    std::string error;
+    REQUIRE(parse_bundle(make_bundle(in, p), back, back_p, error));
+    CHECK(back.table_hash == "0f1e2d3c4b5a6978");
+
+    in.table_hash.clear();
+    const nlohmann::json unknown = make_bundle(in, p);
+    CHECK(unknown["table_hash"] == "");
+    back.table_hash = "stale";
+    REQUIRE(parse_bundle(unknown, back, back_p, error));
+    CHECK(back.table_hash.empty());
+
+    // A version-1 bundle as logged before either hash existed.
+    nlohmann::json v1 = make_bundle(sample_input(), p);
+    v1["v"] = 1;
+    v1.erase("table_hash");
+    v1.erase("params_values_hash");
+    back.table_hash = "stale";
+    REQUIRE_MESSAGE(parse_bundle(nlohmann::json::parse(v1.dump()), back, back_p, error), error);
+    CHECK(back.table_hash.empty());
+    CHECK(back.seed == 18446744073709551615ULL);
+    CHECK(physics_params_values(back_p) == physics_params_values(p));
+}
+
+TEST_CASE("bundle with a non-finite start state and strike round-trips through text") {
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+    const double inf = std::numeric_limits<double>::infinity();
+    SimInput in = sample_input();
+    in.start.balls[16].r.x = nan;
+    in.start.balls[17].v = {inf, -inf, 0.0};
+    in.start.balls[18].w = {0.0, 0.0, nan};
+    in.strike.aim_rad = nan;
+    in.strike.speed_m_s = inf;
+    const PhysicsParams p = sample_params();
+    const std::string text = make_bundle(in, p).dump();
+    CHECK(text.find("null") == std::string::npos);
+    SimInput back;
+    PhysicsParams back_p;
+    std::string error;
+    REQUIRE_MESSAGE(parse_bundle(nlohmann::json::parse(text), back, back_p, error), error);
+    CHECK(std::isnan(back.start.balls[16].r.x));
+    CHECK(back.start.balls[16].r.y == in.start.balls[16].r.y);
+    CHECK(back.start.balls[17].v.x == inf);
+    CHECK(back.start.balls[17].v.y == -inf);
+    CHECK(std::isnan(back.start.balls[18].w.z));
+    CHECK(std::isnan(back.strike.aim_rad));
+    CHECK(back.strike.speed_m_s == inf);
+    CHECK(make_bundle(back, back_p).dump() == text);
+}
+
+TEST_CASE("bundle of a shot whose start state wasn't finite replays to the same result") {
+    SimInput in = sample_input();
+    in.start.balls[16].r.x = std::numeric_limits<double>::quiet_NaN();
+    in.start.balls[19].v = {std::numeric_limits<double>::infinity(), 0.0, 0.0};
+    const PhysicsParams p = sample_params();
+    const TableShape table;
+    const ShotRecord r = simulate(in, table, p);
+    bool nan_anomaly = false;
+    for (const Anomaly& a : r.anomalies) nan_anomaly = nan_anomaly || a.kind == "nan";
+    CHECK(nan_anomaly);
+    const nlohmann::json logged = nlohmann::json::parse(make_result(r).dump());
+
+    SimInput back;
+    PhysicsParams back_p;
+    std::string error;
+    REQUIRE_MESSAGE(parse_bundle(nlohmann::json::parse(make_bundle(in, p).dump()), back, back_p, error), error);
+    const nlohmann::json replayed = make_result(simulate(back, table, back_p));
+    const Divergence d = compare_results(logged, replayed, 0.0);
+    CHECK_MESSAGE(!d.diverged, d.summary);
+    CHECK(replayed["event_digest"] == logged["event_digest"]);
 }
 
 TEST_CASE("bundle result lists the first 400 events and digests all of them") {
@@ -291,13 +411,48 @@ TEST_CASE("bundle compare_results catches a shorter replay and a different count
     CHECK(d.first_event == kResultEventCap);
 }
 
-TEST_CASE("bundle compare_results notes a digest-only difference without calling it a divergence") {
-    const nlohmann::json logged = make_result(sample_record(1000));
+TEST_CASE("bundle compare_results calls a digest difference past the cap a divergence") {
+    const ShotRecord r = sample_record(1000);
+    const nlohmann::json logged = nlohmann::json::parse(make_result(r).dump());
+    ShotRecord later = r;
+    later.events[900].body = 6;
+    later.events[900].kind = EventKind::ball_arc;
+    const nlohmann::json replayed = make_result(later);
+    Divergence d = compare_results(logged, replayed, 1e-9);
+    CHECK(d.diverged);
+    CHECK(d.first_event == -1);
+    CHECK_MESSAGE(d.summary.rfind("events past the first 400 differ (digest)", 0) == 0, d.summary);
+
+    // The listed events agree within the time tolerance but not bit for bit, so the digest can't say
+    // where the difference is.
+    ShotRecord drifted = r;
+    drifted.events[50].t += 5e-10;
+    d = compare_results(logged, make_result(drifted), 1e-9);
+    CHECK(d.diverged);
+    CHECK(d.first_event == -1);
+    CHECK_MESSAGE(d.summary.find("not bit for bit") != std::string::npos, d.summary);
+
+    nlohmann::json undigested = logged;
+    undigested.erase("event_digest");
+    d = compare_results(undigested, logged, 1e-9);
+    CHECK(d.diverged);
+    CHECK_MESSAGE(d.summary.find("logged result has no event_digest") != std::string::npos, d.summary);
+
+    // Up to the cap every event is listed and compared within the tolerance; the digest isn't used.
+    const nlohmann::json short_logged = make_result(sample_record(300));
+    nlohmann::json short_replayed = short_logged;
+    short_replayed["event_digest"] = "0000000000000000";
+    CHECK_FALSE(compare_results(short_logged, short_replayed, 1e-9).diverged);
+}
+
+TEST_CASE("bundle compare_results names a final position it can't read") {
+    const nlohmann::json logged = make_result(sample_record(20));
     nlohmann::json replayed = logged;
-    replayed["event_digest"] = "0000000000000000";
-    const Divergence d = compare_results(logged, replayed, 1e-9);
-    CHECK_FALSE(d.diverged);
-    CHECK_MESSAGE(d.summary.find("event_digest") != std::string::npos, d.summary);
+    replayed["final"]["balls"][6]["r"][1] = "nan";
+    const Divergence d = compare_results(logged, replayed, 1.0);
+    CHECK(d.diverged);
+    CHECK_MESSAGE(d.summary.find("ball 6") != std::string::npos, d.summary);
+    CHECK_MESSAGE(d.summary.find("\"nan\"") != std::string::npos, d.summary);
 }
 
 TEST_CASE("bundle compare_results compares potted balls exactly") {

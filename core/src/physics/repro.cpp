@@ -97,13 +97,22 @@ bool read_xy(const nlohmann::json& ball, double& x, double& y) {
     return true;
 }
 
+std::string position_text(const nlohmann::json& ball) {
+    const nlohmann::json* r = field(ball, "r");
+    return r == nullptr ? std::string("(none)") : r->dump();
+}
+
 }  // namespace
 
 nlohmann::json make_bundle(const SimInput& in, const PhysicsParams& p) {
+    nlohmann::json values = physics_params_values(p);
+    std::string values_hash = params::content_hash(values);
     return {{"v", kBundleVersion},
             {"seed", std::to_string(in.seed)},
             {"params_hash", in.params_hash},
-            {"params", physics_params_values(p)},
+            {"params", std::move(values)},
+            {"params_values_hash", std::move(values_hash)},
+            {"table_hash", in.table_hash},
             {"cue_ball", in.cue_ball},
             {"has_strike", in.has_strike},
             {"strike", to_json(in.strike)},
@@ -179,6 +188,25 @@ bool parse_bundle(const nlohmann::json& bundle, SimInput& in, PhysicsParams& p, 
         for (std::size_t i = 0; i < problems.size(); ++i) error += (i == 0 ? " " : "; ") + problems[i];
         return false;
     }
+    if (const nlohmann::json* logged_hash = field(bundle, "params_values_hash"); logged_hash != nullptr) {
+        if (!logged_hash->is_string()) {
+            error = "params_values_hash: want a string";
+            return false;
+        }
+        const std::string values_hash = params::content_hash(physics_params_values(parsed_p));
+        if (logged_hash->get<std::string>() != values_hash) {
+            error = "params_values_hash: the bundle records " + logged_hash->get<std::string>() +
+                    " but its params hash to " + values_hash + ", so a value changed after the shot was logged";
+            return false;
+        }
+    }
+    if (const nlohmann::json* table_hash = field(bundle, "table_hash"); table_hash != nullptr) {
+        if (!table_hash->is_string()) {
+            error = "table_hash: want a string";
+            return false;
+        }
+        parsed.table_hash = table_hash->get<std::string>();
+    }
 
     const nlohmann::json* has_strike = field(bundle, "has_strike");
     if (has_strike == nullptr || !has_strike->is_boolean()) {
@@ -253,11 +281,24 @@ Divergence compare_results(const nlohmann::json& logged, const nlohmann::json& r
                         std::to_string(nl) + " events and the replay " + std::to_string(nr));
     }
     if (d.first_event < 0 && nl > static_cast<std::size_t>(kResultEventCap)) {
+        const std::string past_cap = "events past the first " + std::to_string(kResultEventCap);
         const nlohmann::json* ld = field(logged, "event_digest");
         const nlohmann::json* rd = field(replayed, "event_digest");
-        if (ld == nullptr || rd == nullptr || *ld != *rd) {
-            notes.push_back("the listed events agree, but the event_digest over all " + std::to_string(nl) +
-                            " differs (bit-level differences beyond event " + std::to_string(kResultEventCap) + ")");
+        if (ld == nullptr || rd == nullptr) {
+            d.diverged = true;
+            notes.push_back(past_cap + " can't be checked: the " + (ld == nullptr ? "logged" : "replayed") +
+                            " result has no event_digest");
+        } else if (*ld != *rd) {
+            d.diverged = true;
+            // The digest covers the listed events too, and bit for bit, so it can only place the
+            // difference past the cap when the listed ones agree exactly.
+            if (le->dump() == re->dump()) {
+                notes.push_back(past_cap + " differ (digest)");
+            } else {
+                notes.push_back("event_digest over all " + std::to_string(nl) + " events differs and the listed " +
+                                "events agree only within " + fmt(kEventTimeTolerance) + " s, not bit for bit, so " +
+                                past_cap + " can't be checked (rounding, as across platforms, does this)");
+            }
         }
     }
 
@@ -278,11 +319,11 @@ Divergence compare_results(const nlohmann::json& logged, const nlohmann::json& r
         notes.push_back("final states can't be compared (missing or different ball counts)");
     } else {
         int worst = -1;
-        bool readable = true;
+        int unreadable = -1;
         for (std::size_t i = 0; i < lf->size(); ++i) {
             double lx = 0.0, ly = 0.0, rx = 0.0, ry = 0.0;
             if (!read_xy((*lf)[i], lx, ly) || !read_xy((*rf)[i], rx, ry)) {
-                readable = false;
+                if (unreadable < 0) unreadable = static_cast<int>(i);
                 continue;
             }
             const double err = std::hypot(lx - rx, ly - ry);
@@ -291,9 +332,13 @@ Divergence compare_results(const nlohmann::json& logged, const nlohmann::json& r
                 worst = static_cast<int>(i);
             }
         }
-        if (!readable) {
+        if (unreadable >= 0) {
             d.diverged = true;
-            notes.push_back("a final position is malformed");
+            // serialize writes a non-finite position as a string, which lands here too.
+            const auto i = static_cast<std::size_t>(unreadable);
+            notes.push_back("final position of ball " + std::to_string(unreadable) +
+                            " is missing or not a finite number: logged " + position_text((*lf)[i]) + ", replayed " +
+                            position_text((*rf)[i]));
         }
         if (d.max_position_error_m > tolerance_m) {
             d.diverged = true;
