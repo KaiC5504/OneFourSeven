@@ -43,7 +43,18 @@ equations in tools/gen_reference.py, agreeing with pooltool's solver to 1.4e-5; 
 numbers: throw 4.5/4.1/3.45 deg at 1/3/7 mph (BD Sept 2006), lag 1.63-2.20 m/s from pool cloth
 data). Findings for the tuner: C6 fast throw 1.70 deg vs 3.45 measured (refit ball_friction_*);
 Mathavan's 0.818 straight-in ratio isn't reproduced by its own model (0.911), so C7 checks the
-model. Regenerate the cushion fixture whenever cushion params change.
+model. Regenerate the cushion fixture whenever cushion params change. cushions (962b8db,
+40eb287, 1b7f27c: Mathavan eqs 12-17 by adaptive Dormand-Prince with stick/slip handling, worst
+0.056% speed / 0.046 deg vs the 5000-step reference, 1.4-1.7 us per impact; outline: corner gap
+84 mm, middle 88 mm, jaw radii 4 in / 2.5 in, rail_width 0.14, rail_height 0.040 (estimate);
+cushion params confirmed from the paper; lead set slope 0.16 from its Fig. 7b fit and
+regenerated the C7 reference; jaw_restitution 0.8 has no source, tuner's call; middle pockets
+may sit too deep, owner judges). infra (f66622b, eee3c8a: macOS editor extension, cached in
+ios-compile, fresh in testflight; check-godot-log fails the export on any script error; run
+41396740025 green with zero errors; idle cap 30 fps, Windows idle 6.9 -> 33.3 ms per frame). Next
+signed build needs `testflight.py start --dry-run` first.
+Waiting on: events (49a05c9 already returns t = 0 for driven-together touching pairs).
+Push held until events merges, so CI runs once on the complete physics.
 
 ## After wave 1
 Enable ofs_calibration_tests in ctest and the simulator's skipped integration tests; apply
