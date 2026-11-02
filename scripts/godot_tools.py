@@ -51,7 +51,8 @@ MACOS_EXTENSION = "onefourseven.macos."
 # and the export still runs, so without this they only show up as noise in the log.
 GODOT_LOG_PROBLEMS = ("SCRIPT ERROR", "Parse Error", "Failed to load script", "Failed to create an autoload",
                       "No GDExtension library found", "GDExtension dynamic library not found",
-                      "Error loading extension", "Can't open dynamic library")
+                      "Error loading extension", "Can't open dynamic library",
+                      "GDExtension entry point '", "GDExtension initialization function '")
 ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 # Godot prints a script error's location on a later "at:" line, with progress output between.
 AT_LINE = re.compile(r"^\s*at: ")

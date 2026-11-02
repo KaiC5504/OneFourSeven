@@ -8,9 +8,12 @@ import json
 import os
 import plistlib
 import re
+import shutil
 import struct
+import subprocess
 import sys
 import tempfile
+import time
 import unittest
 import zlib
 from pathlib import Path
@@ -59,6 +62,14 @@ class FakeResponse(io.BytesIO):
 
     def __exit__(self, *exc):
         self.close()
+
+
+def bash():
+    """Git's bash on Windows (System32's bash.exe starts WSL), the one on PATH elsewhere."""
+    if sys.platform == "win32":
+        git_bash = Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "Git" / "bin" / "bash.exe"
+        return str(git_bash) if git_bash.exists() else None
+    return shutil.which("bash")
 
 
 class Downloads(unittest.TestCase):
@@ -179,6 +190,133 @@ class MacosEditorExtension(unittest.TestCase):
         for filters in re.findall(r'^include_filter="([^"]*)"$', PRESETS, re.MULTILINE):
             for pattern in filter(None, (p.strip() for p in filters.split(","))):
                 self.assertNotRegex(pattern, r"bin|dylib|\*$", pattern)
+
+
+# Stand-ins for the macOS tools build_macos_ext.sh calls. The fake cmake records, for each build,
+# whether godot-cpp's objects, our own objects and the dylib were already there when it started.
+FAKE_MACOS_TOOLS = {
+    "cmake": r"""
+case "$1" in
+  --version) echo "cmake version 4.2.1" ;;
+  --build)
+    work="$2"
+    have() { if [ -e "$1" ]; then echo "$2"; else echo "$3"; fi; }
+    echo "$(have "$work/gdext/godot-cpp/godot-cpp.o" kept rebuilt) $(have "$work/core/core.o" stale fresh)" \
+      "$(have "$FAKE_OUT" stale fresh)" >> "$FAKE_LOG"
+    mkdir -p "$work/gdext/godot-cpp" "$work/core"
+    touch "$work/gdext/godot-cpp/godot-cpp.o"
+    if [ -n "${FAKE_FAIL:-}" ]; then exit 1; fi
+    touch "$work/core/core.o"
+    echo dylib > "$FAKE_OUT" ;;
+esac
+""",
+    "xcodebuild": 'printf "%s\\n" "$FAKE_XCODE"\n',
+    "sysctl": "echo 4\n",
+    "lipo": 'if [ "$1" = -archs ]; then echo arm64; else echo "Non-fat file: $2 is architecture: arm64"; fi\n',
+    "nm": 'echo "0000000000003f00 T _ofs_library_init"\n',
+    "shasum": 'shift 2\nsha256sum "$@"\n',
+}
+
+
+class MacosExtensionReuse(unittest.TestCase):
+    """build_macos_ext.sh under bash with fake macOS tools: it keeps godot-cpp's objects only for
+    the same godot-cpp commit, toolchain and build files, and always rebuilds the rest."""
+
+    def setUp(self):
+        self.shell = bash()
+        if self.shell is None:
+            self.skipTest("no bash to run the script with")
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        self.root = Path(temp.name) / "repo"
+        (self.root / "scripts").mkdir(parents=True)
+        (self.root / "gdext").mkdir()
+        (self.root / "game" / "bin").mkdir(parents=True)
+        shutil.copy(ROOT / "scripts" / "build_macos_ext.sh", self.root / "scripts")
+        (self.root / "CMakeLists.txt").write_text("project(x)\n", encoding="utf-8")
+        (self.root / "gdext" / "CMakeLists.txt").write_text("add_library(y)\n", encoding="utf-8")
+        tools = Path(temp.name) / "bin"
+        tools.mkdir()
+        for name, body in FAKE_MACOS_TOOLS.items():
+            (tools / name).write_text("#!/usr/bin/env bash\n" + body, encoding="utf-8", newline="\n")
+            (tools / name).chmod(0o755)
+        self.log = Path(temp.name) / "builds.log"
+        self.out = self.root / "game" / "bin" / "libonefourseven.macos.template_debug.arm64.dylib"
+        # A user's git config (signing, hooks) has no say over this throwaway repository.
+        self.env = {**os.environ, "PATH": f"{tools}{os.pathsep}{os.environ['PATH']}",
+                    "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1",
+                    "FAKE_LOG": self.log.as_posix(), "FAKE_OUT": self.out.as_posix(),
+                    "FAKE_XCODE": "Xcode 26.1\nBuild version 17B55"}
+        self.godot_cpp = self.root / "thirdparty" / "godot-cpp"
+        (self.godot_cpp / "src").mkdir(parents=True)
+        self.source = self.godot_cpp / "src" / "variant.cpp"
+        self.source.write_text("int v;\n", encoding="utf-8")
+        self.git("init", "-q")
+        self.commit()
+
+    def git(self, *args):
+        subprocess.run(["git", "-C", str(self.godot_cpp), *args], env=self.env, check=True,
+                       capture_output=True, text=True)
+
+    def commit(self):
+        self.git("add", "-A")
+        self.git("-c", "user.name=test", "-c", "user.email=test@example.invalid", "commit", "-q", "-m", "c")
+
+    def build(self, **env):
+        result = subprocess.run([self.shell, (self.root / "scripts" / "build_macos_ext.sh").as_posix()],
+                                cwd=self.root, env={**self.env, **env}, capture_output=True, text=True,
+                                timeout=120)
+        builds = self.log.read_text(encoding="utf-8").splitlines() if self.log.exists() else []
+        return result.returncode, builds[-1] if builds else "", result.stdout + result.stderr
+
+    def build_ok(self, **env):
+        code, build, out = self.build(**env)
+        self.assertEqual(0, code, out)
+        return build
+
+    def source_year(self):
+        return time.localtime(self.source.stat().st_mtime).tm_year
+
+    def test_keeps_only_godot_cpps_objects_for_the_same_build(self):
+        self.assertEqual("rebuilt fresh fresh", self.build_ok())
+        self.assertNotEqual(2000, self.source_year())
+        self.assertTrue(self.out.is_file())
+        self.assertEqual("kept fresh fresh", self.build_ok())
+        # make would rebuild every kept object from a freshly checked-out source otherwise.
+        self.assertEqual(2000, self.source_year())
+        self.assertEqual("kept fresh fresh", self.build_ok())
+
+    def test_any_change_to_what_godot_cpp_is_built_from_rebuilds_it(self):
+        def edit(path):
+            return lambda: path.write_text(path.read_text(encoding="utf-8") + "# changed\n", encoding="utf-8")
+
+        def new_commit():
+            self.source.write_text("int v2;\n", encoding="utf-8")
+            self.commit()
+
+        changes = {
+            "CMakeLists.txt": edit(self.root / "CMakeLists.txt"),
+            "gdext/CMakeLists.txt": edit(self.root / "gdext" / "CMakeLists.txt"),
+            "the script": edit(self.root / "scripts" / "build_macos_ext.sh"),
+            "a godot-cpp commit": new_commit,
+            "Xcode": lambda: self.env.update(FAKE_XCODE="Xcode 26.2\nBuild version 17C1"),
+        }
+        self.build_ok()
+        for what, change in changes.items():
+            change()
+            self.assertEqual("rebuilt fresh fresh", self.build_ok(), what)
+            self.assertEqual("kept fresh fresh", self.build_ok(), what)
+
+    def test_a_modified_godot_cpp_is_never_kept(self):
+        self.build_ok()
+        self.source.write_text("int local_edit;\n", encoding="utf-8")
+        self.assertEqual("rebuilt fresh fresh", self.build_ok())
+        self.assertEqual("rebuilt fresh fresh", self.build_ok())
+
+    def test_a_half_built_godot_cpp_is_not_trusted(self):
+        code, build, out = self.build(FAKE_FAIL="1")
+        self.assertNotEqual(0, code, out)
+        self.assertEqual("rebuilt fresh fresh", self.build_ok())
 
 
 def pbxproj(display="147", style="Automatic"):

@@ -93,6 +93,21 @@ class Problems(unittest.TestCase):
             at("ERROR: Error loading extension: 'res://bin/onefourseven.gdextension'."),
         ], problems)
 
+    def test_an_extension_whose_entry_point_is_missing_or_fails(self):
+        # Godot 4.7.1's two other load failures, as it prints them with the values filled in.
+        lines = ["Godot Engine v4.7.1.stable.official.a13da4feb - https://godotengine.org",
+                 "ERROR: GDExtension entry point 'ofs_library_init' not found in library "
+                 "res://bin/libonefourseven.macos.template_debug.arm64.dylib.",
+                 progress("Verifying GDExtensions..."),
+                 "ERROR: GDExtension initialization function 'ofs_library_init' returned an error.",
+                 "ERROR: Error loading extension: 'res://bin/onefourseven.gdextension'."]
+        with tempfile.TemporaryDirectory() as temp:
+            path = self.write(temp, "import.log", lines)
+            problems = godot_tools.godot_log_problems(path)
+        where = path.as_posix()
+        self.assertEqual([f"{where}:2: {lines[1]}", f"{where}:4: {lines[3]}", f"{where}:5: {lines[4]}"],
+                         problems)
+
     def test_a_clean_log_has_none(self):
         with tempfile.TemporaryDirectory() as temp:
             self.assertEqual([], godot_tools.godot_log_problems(self.write(temp, "export.log", CLEAN)))

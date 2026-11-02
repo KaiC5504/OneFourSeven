@@ -25,6 +25,7 @@ NAMES = ("windows-ci.yml", "ios-compile.yml")
 PINNED = re.compile(r"^[\w.-]+/[\w.-]+(?:/[\w.-]+)*@[0-9a-f]{40}$")
 PINNED_LINE = re.compile(r"uses: ([\w.-]+/[\w.-]+(?:/[\w.-]+)*@[0-9a-f]{40}) # v\d+(?:\.\d+)*$", re.MULTILINE)
 MACOS_DYLIB = "game/bin/libonefourseven.macos.template_debug.arm64.dylib"
+GODOT_CPP_OBJECTS = "build/macos-ext/gdext/godot-cpp"
 TRACING = re.compile(r"set -\w*x|-o xtrace|\bbash -\w*x|Set-PSDebug")
 DOWNLOADERS = re.compile(r"\b(curl|wget|Invoke-WebRequest|iwr|Invoke-RestMethod|brew install|pip install(?![^\n]*--require-hashes))\b")
 
@@ -177,31 +178,38 @@ class IosCompile(unittest.TestCase):
         self.assertIn('*"-sdk iphoneos26."*) ;;', toolchain)
         self.assertIn("exit 1", toolchain.split('*"-sdk iphoneos26."*) ;;', 1)[1].split("esac")[0])
 
-    def test_macos_extension_is_cached_on_what_it_is_built_from(self):
+    def macos_ext_steps(self):
+        """The macOS extension's key, restore, build and save steps, in the order they must run."""
         def step(**match):
-            return next(s for s in self.steps if all(str(s.get(k, "")).startswith(v) for k, v in match.items()))
+            return next(s for s in self.steps if all(s.get(k) == v for k, v in match.items()))
 
-        key_step = step(id="macos-ext-key")
-        restore = step(uses="actions/cache/restore@")
-        build = step(name="Build the macOS extension for the editor")
-        save = step(uses="actions/cache/save@")
-        ios = step(name="Build the iOS extension")
-        positions = [self.steps.index(s) for s in (key_step, restore, build, save, ios)]
-        self.assertEqual(list(range(positions[0], positions[0] + 5)), positions)
+        saves = [s for s in self.steps if s.get("uses", "").startswith("actions/cache/save@")]
+        save_dylib = next(s for s in saves if s["with"]["path"] == MACOS_DYLIB)
+        save_objects = next(s for s in saves if s["with"]["path"] == GODOT_CPP_OBJECTS)
+        found = (step(id="macos-ext-key"), step(id="macos-ext"), step(id="godot-cpp-objects"),
+                 step(name="Build the macOS extension for the editor"), save_dylib, save_objects,
+                 step(name="Build the iOS extension"))
+        positions = [self.steps.index(s) for s in found]
+        self.assertEqual(list(range(positions[0], positions[0] + len(found))), positions)
+        return found[:-1]
 
+    @staticmethod
+    def hashed_by(key):
+        patterns = re.findall(r"'([^']+)'", re.search(r"hashFiles\(([^)]*)\)", key).group(1))
+        return lambda path: any(path == p or (p.endswith("/**") and path.startswith(p[:-2])) for p in patterns)
+
+    def test_macos_extension_is_cached_on_what_it_is_built_from(self):
+        key_step, restore, _, build, save, _ = self.macos_ext_steps()
         self.assertIn('"godot_cpp=$(git rev-parse HEAD:thirdparty/godot-cpp)" >> "$GITHUB_OUTPUT"', key_step["run"])
         self.assertEqual("bash scripts/build_macos_ext.sh", build["run"].strip())
         miss = "steps.macos-ext.outputs.cache-hit != 'true'"
         self.assertEqual((miss, miss), (build["if"], save["if"]))
-        self.assertEqual("macos-ext", restore["id"])
         self.assertEqual((MACOS_DYLIB, MACOS_DYLIB), (restore["with"]["path"], save["with"]["path"]))
         self.assertEqual("${{ steps.macos-ext.outputs.cache-primary-key }}", save["with"]["key"])
         key = restore["with"]["key"]
+        self.assertTrue(key.startswith("macos-ext-"), key)
         self.assertIn("${{ steps.macos-ext-key.outputs.godot_cpp }}", key)
-        patterns = re.findall(r"'([^']+)'", re.search(r"hashFiles\(([^)]*)\)", key).group(1))
-
-        def hashed(path):
-            return any(path == p or (p.endswith("/**") and path.startswith(p[:-2])) for p in patterns)
+        hashed = self.hashed_by(key)
 
         # Everything compiled into the dylib, and how; core's tests, test tools and data are not.
         compiled = [p.relative_to(ROOT).as_posix() for folder in ("core", "gdext", "thirdparty/nlohmann")
@@ -211,6 +219,38 @@ class IosCompile(unittest.TestCase):
         for path in compiled + ["CMakeLists.txt", "scripts/build_macos_ext.sh"]:
             self.assertTrue(hashed(path), path)
         self.assertFalse(hashed("core/data/table_params.json"))
+
+    def test_godot_cpps_objects_are_cached_on_its_commit_toolchain_and_build_files(self):
+        key_step, _, restore, _, _, save = self.macos_ext_steps()
+        dylib_miss = "steps.macos-ext.outputs.cache-hit != 'true'"
+        self.assertEqual(dylib_miss, restore["if"])
+        self.assertEqual(f"{dylib_miss} && steps.godot-cpp-objects.outputs.cache-hit != 'true'", save["if"])
+        self.assertEqual((GODOT_CPP_OBJECTS, GODOT_CPP_OBJECTS), (restore["with"]["path"], save["with"]["path"]))
+        self.assertEqual("${{ steps.godot-cpp-objects.outputs.cache-primary-key }}", save["with"]["key"])
+        self.assertIn('echo "toolchain=$({ xcodebuild -version; cmake --version | head -1; } | shasum -a 256 '
+                      '| cut -c1-16)" >> "$GITHUB_OUTPUT"', key_step["run"])
+        key = restore["with"]["key"]
+        # Its own prefix, so it can never restore the dylib or be restored as it.
+        self.assertTrue(key.startswith("macos-godot-cpp-${{ runner.arch }}-"), key)
+        for output in ("godot_cpp", "toolchain"):
+            self.assertIn(f"${{{{ steps.macos-ext-key.outputs.{output} }}}}", key)
+        hashed = self.hashed_by(key)
+        for path in ("CMakeLists.txt", "gdext/CMakeLists.txt", "scripts/build_macos_ext.sh"):
+            self.assertTrue(hashed(path), path)
+        # Our own sources change on nearly every push; a change to them must not miss this cache.
+        for path in ("core/src/rng.cpp", "core/include/ofs/rng.hpp", "gdext/src/register_types.cpp"):
+            self.assertFalse(hashed(path), path)
+
+    def test_the_cached_objects_are_godot_cpps_build_tree_and_the_script_keeps_that(self):
+        gdext = (ROOT / "gdext" / "CMakeLists.txt").read_text(encoding="utf-8")
+        self.assertIn("add_subdirectory(${PROJECT_SOURCE_DIR}/thirdparty/godot-cpp ${CMAKE_CURRENT_BINARY_DIR}/godot-cpp)",
+                      gdext)
+        script = (ROOT / "scripts" / "build_macos_ext.sh").read_text(encoding="utf-8")
+        self.assertIn('work="$root/build/macos-ext"', script)
+        self.assertIn('godot_cpp_build="$work/gdext/godot-cpp"', script)
+        self.assertEqual("build/macos-ext/gdext/godot-cpp", GODOT_CPP_OBJECTS)
+        # The dylib itself is never kept: removed before every build, then linked afresh.
+        self.assertLess(script.index('rm -f "$out"'), script.index('cmake --build "$work"'))
 
     def session_check(self):
         run = next(s["run"] for s in self.steps if s.get("name") == "Check the session log")
@@ -260,12 +300,7 @@ class IosCompile(unittest.TestCase):
         self.assertEqual("always()", crashes["if"])
 
 
-def bash():
-    """Git's bash on Windows (System32's bash.exe starts WSL), the one on PATH elsewhere."""
-    if sys.platform == "win32":
-        git_bash = Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "Git" / "bin" / "bash.exe"
-        return str(git_bash) if git_bash.exists() else None
-    return shutil.which("bash")
+bash = test_build_scripts.bash
 
 
 # Stands in for python and the Godot editor in an export step. "broken" fails the import and
