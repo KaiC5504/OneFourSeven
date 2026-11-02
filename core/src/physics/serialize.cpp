@@ -2,6 +2,7 @@
 
 #include <array>
 #include <cmath>
+#include <limits>
 
 namespace ofs::phys {
 
@@ -10,28 +11,57 @@ namespace {
 constexpr std::array<std::string_view, 5> kMotionNames = {"stationary", "spinning", "sliding", "rolling",
                                                           "pocketed"};
 
+constexpr const char* kWantNumber = "a finite number or \"nan\", \"inf\", \"-inf\"";
+
+// JSON has no NaN or infinity (nlohmann writes them as null), and a non-finite state is the one a
+// repro bundle most needs to carry.
+nlohmann::json number(double v) {
+    if (std::isfinite(v)) return v;
+    if (std::isnan(v)) return "nan";
+    return v > 0.0 ? "inf" : "-inf";
+}
+
+bool read_double(const nlohmann::json& j, double& out) {
+    if (j.is_number()) {
+        const double v = j.get<double>();
+        if (!std::isfinite(v)) return false;
+        out = v;
+        return true;
+    }
+    if (!j.is_string()) return false;
+    const std::string& text = j.get_ref<const std::string&>();
+    if (text == "nan") {
+        out = std::numeric_limits<double>::quiet_NaN();
+    } else if (text == "inf") {
+        out = std::numeric_limits<double>::infinity();
+    } else if (text == "-inf") {
+        out = -std::numeric_limits<double>::infinity();
+    } else {
+        return false;
+    }
+    return true;
+}
+
 bool read_numbers(const nlohmann::json& j, std::size_t n, double* out, const char* what, std::string& error) {
     if (!j.is_array() || j.size() != n) {
         error = std::string(what) + ": want an array of " + std::to_string(n) + " numbers";
         return false;
     }
     for (std::size_t i = 0; i < n; ++i) {
-        if (!j[i].is_number() || !std::isfinite(j[i].get<double>())) {
-            error = std::string(what) + ": element " + std::to_string(i) + " is not a finite number";
+        if (!read_double(j[i], out[i])) {
+            error = std::string(what) + ": element " + std::to_string(i) + " is not " + kWantNumber;
             return false;
         }
-        out[i] = j[i].get<double>();
     }
     return true;
 }
 
 bool read_number(const nlohmann::json& j, const char* key, double& out, std::string& error) {
     const auto it = j.find(key);
-    if (it == j.end() || !it->is_number() || !std::isfinite(it->get<double>())) {
-        error = std::string(key) + ": want a finite number";
+    if (it == j.end() || !read_double(*it, out)) {
+        error = std::string(key) + ": want " + kWantNumber;
         return false;
     }
-    out = it->get<double>();
     return true;
 }
 
@@ -52,9 +82,9 @@ bool parse_motion(std::string_view name, Motion& out) {
 nlohmann::json to_json(const BallState& b) {
     return {{"ball", table::ball_name(b.ball)},
             {"index", b.index},
-            {"r", {b.r.x, b.r.y}},
-            {"v", {b.v.x, b.v.y}},
-            {"w", {b.w.x, b.w.y, b.w.z}},
+            {"r", nlohmann::json::array({number(b.r.x), number(b.r.y)})},
+            {"v", nlohmann::json::array({number(b.v.x), number(b.v.y)})},
+            {"w", nlohmann::json::array({number(b.w.x), number(b.w.y), number(b.w.z)})},
             {"motion", motion_name(b.motion)},
             {"pocket", b.pocket}};
 }
@@ -66,11 +96,11 @@ nlohmann::json to_json(const TableState& s) {
 }
 
 nlohmann::json to_json(const CueStrike& c) {
-    return {{"aim_rad", c.aim_rad},
-            {"tip_x", c.tip_x},
-            {"tip_y", c.tip_y},
-            {"elevation_rad", c.elevation_rad},
-            {"speed_m_s", c.speed_m_s}};
+    return {{"aim_rad", number(c.aim_rad)},
+            {"tip_x", number(c.tip_x)},
+            {"tip_y", number(c.tip_y)},
+            {"elevation_rad", number(c.elevation_rad)},
+            {"speed_m_s", number(c.speed_m_s)}};
 }
 
 bool from_json(const nlohmann::json& j, BallState& out, std::string& error) {

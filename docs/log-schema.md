@@ -61,11 +61,18 @@ Every line is one JSON object:
 simultaneous events in a row), `time_cap` (still moving at time_cap_s), `solver_fallback`,
 `energy_gain`, `overlap`, `nan`. The first three end the shot with every ball at rest where it is.
 
-**Repro bundle** (`core/include/ofs/physics/repro.hpp`): `v` (1), `seed` (decimal string),
-`params_hash`, `params` (every physics value by name), `cue_ball`, `has_strike`, `strike`
-(`aim_rad`, `tip_x`, `tip_y`, `elevation_rad`, `speed_m_s`), `start` (every ball: `ball`, `index`,
-`r`, `v`, `w`, `motion`, `pocket`, doubles at full precision). `tools/sim_cli replay` re-runs it.
+**Repro bundle** (`core/include/ofs/physics/repro.hpp`): `v` (2), `seed` (decimal string),
+`params_hash` (the parameter file's hash), `params` (every physics value by name),
+`params_values_hash` (content hash of `params`, integer fields as integers and the rest as doubles,
+in the canonical form of `docs/devlink-protocol.md`), `table_hash` (content hash of the table shape
+file, empty when unknown), `cue_ball`, `has_strike`, `strike` (`aim_rad`, `tip_x`, `tip_y`,
+`elevation_rad`, `speed_m_s`), `start` (every ball: `ball`, `index`, `r`, `v`, `w`, `motion`,
+`pocket`). Doubles are at full precision; NaN and the infinities are the strings `"nan"`, `"inf"`
+and `"-inf"`. Reading recomputes `params_values_hash` from the values and refuses a bundle whose
+values were changed. Version 1 bundles (neither hash, non-finite numbers as `null`) still read when
+every number is finite. `tools/sim_cli replay` re-runs a bundle.
 
 **Result:** `events`, `t_end`, `potted` (`ball`, `pocket`, `t`), `final` (as `start`), `miscue`,
 `elevation_used_rad`, `elevation_raised`, `anomalies`, `sim_us`, `event_list` (the first 400 events as
-`[t, kind, a, b, body]`), `event_digest` (FNV-1a 64 over all of them).
+`[t, kind, a, b, body]`), `event_digest` (content hash of every event's `[kind, a, b, body]` in
+order, without the times, so libm rounding across platforms doesn't change it).
