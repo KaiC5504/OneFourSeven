@@ -1,14 +1,36 @@
-"""Tests of calibration_report.py's loading, verdicts and report text, without matplotlib."""
+"""Tests of calibration_report.py's loading, verdicts, shots and report text, without matplotlib."""
 import contextlib
 import io
 import json
 import math
+import os
 import pathlib
 import sys
 import tempfile
 import unittest
 
 import calibration_report as report
+
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+PARAMS_FILE = ROOT / "core" / "data" / "table_params.json"
+TABLE_FILE = ROOT / "core" / "data" / "table_shape.json"
+PARAMS = json.loads(PARAMS_FILE.read_text(encoding="utf-8"))["values"]
+
+
+def find_cli():
+    """OFS_SIM_CLI, else the Debug build's ofs_sim_cli (as test_sim_cli.py finds it)."""
+    named = os.environ.get("OFS_SIM_CLI")
+    if named:
+        return pathlib.Path(named)
+    name = "ofs_sim_cli.exe" if sys.platform == "win32" else "ofs_sim_cli"
+    build = ROOT / "build" / "windows" / "tools" / "sim_cli"
+    for path in (build / "Debug" / name, build / name):
+        if path.is_file():
+            return path
+    return None
+
+
+CLI = find_cli()
 
 
 def series_file(name, columns, rows, **extra):
@@ -117,6 +139,14 @@ class VerdictTest(unittest.TestCase):
         self.assertIn("outside the 30 degree rule", verdict.sentence)
         self.assertEqual(report.evaluate(deflection(31.0, 70.0)).status, report.NOT_MET)
 
+    def test_thirty_degree_band_is_the_one_in_targets_md(self):
+        targets = (ROOT / "docs" / "calibration" / "targets.md").read_text(encoding="utf-8")
+        low, high = report.ROLLING_DEFLECTION_DEG
+        self.assertIn(f"band {low:.0f}-{high:.0f} deg", targets)
+        self.assertEqual(report.evaluate(deflection(24.5, 88.0)).status, report.MET)
+        self.assertEqual(report.evaluate(deflection(35.5, 88.0)).status, report.MET)
+        self.assertIn("24 to 36", report.evaluate(deflection(31.0, 88.0)).sentence)
+
     def test_deflection_without_numbers_is_no_data(self):
         self.assertEqual(report.evaluate(deflection(None, None)).status, report.NO_DATA)
 
@@ -191,8 +221,17 @@ class VerdictTest(unittest.TestCase):
         columns = ["speed_m_s", "tip_y", "distance_m"]
         s = make("screw_follow", columns, [[1, -0.5, -0.3], [1, 0.5, 0.4], [2, -0.5, -0.8], [2, 0.5, 0.9]])
         sentence = report.evaluate(s).sentence
-        self.assertIn("at 1 m/s from -0.30 m (tip -0.5) to +0.40 m (tip +0.5)", sentence)
-        self.assertIn("at 2 m/s", sentence)
+        self.assertIn("at a cue speed of 1 m/s from -0.30 m (tip -0.5) to +0.40 m (tip +0.5)", sentence)
+        self.assertIn("at a cue speed of 2 m/s", sentence)
+
+    def test_screw_follow_names_a_missing_point_and_why(self):
+        rows = [[1.0, -0.5, 0.93, None, 0.74], [1.0, 0.0, 1.39, 0.3, None], [2.0, 0.0, 2.78, 1.5, None]]
+        s = report.screw_follow_series(rows, None, 3.569)
+        sentence = report.evaluate(s).sentence
+        self.assertIn("At a cue speed of 1 m/s with the tip -0.5 the cue ball never reaches the red, stopping "
+                      "0.74 m from where it started", sentence)
+        self.assertIn("shows that point as missing", sentence)
+        self.assertIn("endless table", " ".join(s.notes))
 
     def test_unknown_series_is_for_review(self):
         self.assertEqual(report.evaluate(make("mystery", ["x"], [[1]])).status, report.REVIEW)
@@ -231,6 +270,386 @@ class AssembleTest(unittest.TestCase):
     def test_anchor_matches_github_headings(self):
         s = make("lag", ["x"], [[1]], target="C11", title="The lag: cue speed to reach the top cushion")
         self.assertEqual(report.anchor(s), "c11-the-lag-cue-speed-to-reach-the-top-cushion")
+
+
+PULL = PARAMS["slide_friction"] * PARAMS["gravity_m_s2"]
+
+
+def swerve_rows(name, elevation, tip, grip_s=0.205, end_s=3.0):
+    """A path that slides on a parabola (pulled at PULL in a fixed direction) until grip_s, then runs straight."""
+    side = -1.0 if tip > 0 else 1.0
+    v0 = (1.4, 0.0)
+    a = (-0.8 * PULL, 0.6 * PULL * side)
+    at_grip = (v0[0] * grip_s + a[0] * grip_s ** 2 / 2, v0[1] * grip_s + a[1] * grip_s ** 2 / 2)
+    v_grip = (v0[0] + a[0] * grip_s, v0[1] + a[1] * grip_s)
+    rows = []
+    for k in range(int(round(end_s / 0.01)) + 1):
+        t = 0.01 * k
+        if t <= grip_s:
+            x, y = v0[0] * t + a[0] * t * t / 2, v0[1] * t + a[1] * t * t / 2
+        else:
+            x, y = at_grip[0] + v_grip[0] * (t - grip_s), at_grip[1] + v_grip[1] * (t - grip_s)
+        rows.append([name, elevation, tip, t, x - 1.3, y])
+    return rows
+
+
+def full_series():
+    """Calibrate-like series with the values the plain-words tests quote."""
+    squirt = make("squirt", ["tip_x", "squirt_deg", "ball_speed_m_s", "miscue"],
+                  [[0.0, 0.0, 4.2, False], [0.55, 2.01, 2.6, False], [0.6, 1.5, 0.6, True]],
+                  summary={"miscue_limit": 0.55}, target="C9")
+    rebound = make("cushion_rebound", ["speed_m_s", "incidence_deg", "incidence_measured_deg", "rebound_deg",
+                                       "speed_ratio", "rebound_rolling_deg"],
+                   [[1.0, 0, 0, 0.0, 0.911, 0.0], [4.0, 0, 0, 0.0, 0.702, 0.0], [1.0, 50, 50, 43.46, 0.847, 56.3]],
+                   target="C7")
+    side = make("cushion_side", ["side", "rebound_deg", "speed_ratio", "rebound_rolling_deg"],
+                [[-1.0, 35.67, 0.84, 49.51], [0.0, 37.32, 0.85, 50.13], [1.0, 46.59, 0.94, 58.81]], target="C8")
+    swerve = make("swerve", ["variant", "elevation_deg", "tip_x", "t_s", "x_m", "y_m"],
+                  swerve_rows("30 deg, tip +0.40", 30.0, 0.4) + swerve_rows("30 deg, tip -0.40", 30.0, -0.4),
+                  target="C10")
+    lag = make("lag", ["cue_speed_m_s", "ball_speed_m_s", "cushion_contacts", "final_x_m"], [[1.5, 2.08, 2, -1.7]],
+               summary={"lag_cue_speed_m_s": 1.5448, "lag_ball_speed_m_s": 2.1437, "start_x_m": -1.0475},
+               target="C11")
+    defl = deflection(31.0, 82.0)
+    defl.target = "C4, C5"
+    return {"deflection": defl, "squirt": squirt, "cushion_rebound": rebound, "cushion_side": side,
+            "swerve": swerve, "lag": lag}
+
+
+def fake_shots():
+    g, mu_s = PARAMS["gravity_m_s2"], PARAMS["slide_friction"]
+    return {
+        "ratios": {"centre": 1.389, "screw": 0.928},
+        "pace": {1.0: 2.72, 2.0: 10.9, 3.0: 24.5},
+        "c1": {"v0": 2.0, "x": 48 / (49 * mu_s * g), "v": 10 / 7},
+        "c2": {"v0": 2.0, "ratio": (1 - PARAMS["ball_restitution"]) / 2, "creep_m": 0.00998},
+        "c3": {"v0": 2.0, "ratio": 0.2667, "creep_m": 1.5},
+        "stun": {0.5: {"speed": 1.8304, "creep_m": 0.0036, "harder_m": -0.0049, "softer_m": 0.0533},
+                 1.0: {"speed": 2.6634, "creep_m": 0.0077, "harder_m": -0.0105, "softer_m": 0.1129}},
+        "screw": {(0.5, 2.0): -0.30, (0.5, 3.0): -2.4, (0.5, 4.0): -5.6, (1.0, 2.0): 0.17, (1.0, 3.0): -0.83,
+                  (1.0, 4.0): -3.7},
+        "follow": {2.0: 1.7, 3.0: 3.9},
+        "run_through": {"gap": 0.5, "speed": 3.0, "distance_m": 0.23, "sliding_at_contact": True},
+        "throw": {"stun": {"slow": (0.447, 4.86), "medium": (1.341, 4.16), "fast": (3.129, 3.39)},
+                  "rolling": {"medium": (1.341, 1.7)}},
+        "lag": {"t_top": 3.0, "t_baulk": 11.4, "back_m": 3.569 - 2 * report.R, "start_x": -1.0475,
+                "playing_length_m": 3.569},
+        "swerve_elevation": {"30 deg, tip +0.40": 30.0, "30 deg, tip -0.40": 30.0},
+    }
+
+
+def plain_text(shots=None, series=None):
+    return "\n".join(report.plain_words(fake_shots() if shots is None else shots,
+                                        full_series() if series is None else series, PARAMS,
+                                        report.load_fixtures()))
+
+
+class PlainWordsTest(unittest.TestCase):
+    def bullet(self, title, text=None):
+        found = [line for line in (text or plain_text()).splitlines() if line.startswith(f"- **{title}")]
+        self.assertEqual(len(found), 1, f"one '{title}' bullet")
+        return found[0]
+
+    def test_throw_makes_the_pot_fuller_so_you_aim_thinner(self):
+        throw = self.bullet("Throw.")
+        self.assertIn("so it goes fuller than the line through the two centres", throw)
+        self.assertIn("4.9 degrees with a stunned cue ball arriving at 0.45 m/s, 4.2 at 1.34 m/s and 3.4 at "
+                      "3.13 m/s", throw)
+        self.assertIn("Over 1 m that is 8.5 cm on the slow cut and 5.9 cm on the firm one, so aim that much "
+                      "thinner", throw)
+        self.assertIn("A rolling cue ball throws less: 1.7 degrees at 1.34 m/s.", throw)
+        self.assertNotIn("thicker", throw)
+
+    def test_distances_longer_than_the_table_say_so(self):
+        pace = self.bullet("Pace.")
+        self.assertIn("at 1 m/s it runs 2.7 m (76% of the table's length)", pace)
+        self.assertIn("at 2 m/s it would run 10.9 m on an endless table (3.1 table lengths)", pace)
+        screw = self.bullet("Screw needs pace.")
+        self.assertIn("from 50 cm at 2 m/s it comes back 30 cm, at 3 m/s it comes back 2.4 m and at 4 m/s it "
+                      "would come back 5.6 m on an endless table", screw)
+        follow = self.bullet("Follow.")
+        self.assertIn("at 3 m/s it would follow through 3.9 m on an endless table", follow)
+
+    def test_stun_speed_and_what_a_tenth_either_way_does(self):
+        stun = self.bullet("Stun.")
+        self.assertIn("keeps 3.0% of its speed and creeps on 1.0 cm", stun)
+        self.assertIn("(tip -0.33), it stuns from 50 cm when it leaves at 1.83 m/s (it then creeps on 0.4 cm) "
+                      "and from 1 m at 2.66 m/s: from further away you hit harder", stun)
+        self.assertIn("hit a tenth harder (2.01 m/s) and it comes back 0.5 cm; a tenth softer (1.65 m/s) and it "
+                      "runs on 5.3 cm", stun)
+        self.assertIn("arrives still sliding and runs on 23 cm", stun)
+
+    def test_screw_that_runs_on_says_the_backspin_is_gone(self):
+        screw = self.bullet("Screw needs pace.")
+        self.assertIn("Striking 0.5 below centre", screw)
+        self.assertIn("from 1 m at 2 m/s it runs on 17 cm", screw)
+        self.assertIn("At 2 m/s from 1 m the backspin is gone before the cue ball arrives", screw)
+
+    def test_follow_gives_one_tip_height(self):
+        follow = self.bullet("Follow.")
+        self.assertIn("Striking 0.5 above centre, from 1 m at 2 m/s it follows through 1.7 m", follow)
+        self.assertIn("keeps 27% of its speed, close to the textbook 2/7 (29%)", follow)
+
+    def test_swerve_curves_from_the_strike_and_runs_straight_once_rolling(self):
+        swerve = self.bullet("Swerve.")
+        self.assertIn("curves back towards it from the moment it is struck while it slides, bending most just "
+                      "before it grips the cloth; once it rolls it runs straight", swerve)
+        self.assertIn("Raised 30 degrees with the tip 0.4 right of centre, at a cue speed of 1.5 m/s", swerve)
+        self.assertIn("degrees right over the first", swerve)
+        self.assertIn("0.0 degrees more over the next", swerve)
+        self.assertNotIn("once it grips", swerve)
+
+    def test_cushions_give_both_angles_and_the_measured_figure(self):
+        cushions = self.bullet("Cushions.")
+        self.assertIn("at 1 m/s comes off with 91% of its speed; firm hits lose more, 70% at 4 m/s", cushions)
+        self.assertIn("averaged 82% below 1.5 m/s, where their own cushion model, which the game uses, gives 91%",
+                      cushions)
+        self.assertIn("leaves at 37.3 degrees just after the impact, then bends out to 50.1 as it grips", cushions)
+        self.assertIn("Running side widens both (46.6 and 58.8 degrees", cushions)
+        self.assertIn("check side narrows them (35.7 and 49.5)", cushions)
+        self.assertNotIn("80%", cushions)
+
+    def test_cloth_speed_without_jargon(self):
+        text = plain_text()
+        self.assertNotIn("last length", text)
+        cloth = self.bullet("Cloth speed.", text)
+        self.assertIn("needs the cue ball to leave at 2.14 m/s, a cue speed of 1.54 m/s; coming back down from the "
+                      "top cushion to the baulk cushion takes 8.4 seconds", cloth)
+
+    def test_speeds_say_whose_they_are(self):
+        intro = plain_text().splitlines()[0]
+        self.assertIn("Speeds are the cue ball's speed as it leaves the tip unless a figure says cue speed", intro)
+        self.assertIn("1.39 times as fast as the cue", intro)
+        self.assertIn("only 67% as fast", intro)
+        self.assertIn("just inside the miscue limit of 0.55", intro)
+
+    def test_missing_shots_drop_their_bullets(self):
+        text = plain_text(shots={})
+        self.assertNotIn("**Stun.**", text)
+        self.assertIn("**Cut angles.**", text)
+        self.assertIn("**Still starting guesses", text)
+
+
+class ResultsTest(unittest.TestCase):
+    def rows(self, shots=None, series=None, params=None, fixtures=None):
+        found = report.results_rows(fake_shots() if shots is None else shots,
+                                    full_series() if series is None else series,
+                                    PARAMS if params is None else params,
+                                    report.load_fixtures() if fixtures is None else fixtures)
+        return {row[0]: row for row in found}
+
+    def test_every_target_has_a_row(self):
+        self.assertEqual(list(self.rows()), ["C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "C9", "C10", "C11",
+                                             "C12-C14"])
+
+    def test_formula_targets(self):
+        rows = self.rows()
+        for target in ("C1", "C2", "C3", "C6", "C9", "C10", "C11"):
+            self.assertEqual(rows[target][4], report.MET, rows[target])
+        self.assertIn("inside 24-36", rows["C4"][3])
+        off = fake_shots()
+        off["c1"]["x"] *= 1.01
+        off["c2"]["ratio"] += 0.01
+        off["throw"]["stun"]["slow"] = (0.447, 2.0)
+        rows = self.rows(shots=off)
+        for target in ("C1", "C2", "C6"):
+            self.assertEqual(rows[target][4], report.NOT_MET, rows[target])
+
+    def test_lag_against_tp_b6(self):
+        row = self.rows()["C11"]
+        self.assertIn("cue ball 2.14 m/s; back down from the top cushion in 8.4 s, effective slope 0.0102", row[2])
+        self.assertIn("1.55-2.32 m/s", row[3])
+        fast_cloth = fake_shots()
+        fast_cloth["lag"]["t_baulk"] = 8.0
+        self.assertEqual(self.rows(shots=fast_cloth)["C11"][4], report.NOT_MET)
+
+    def test_cushions_against_the_mathavan_reference(self):
+        fixtures = report.load_fixtures()
+        cases = [c for c in fixtures["cushion"]["cases"] if c["group"] == "rolling"]
+        columns = ["speed_m_s", "incidence_deg", "incidence_measured_deg", "rebound_deg", "speed_ratio",
+                   "rebound_rolling_deg"]
+
+        def rebound(shift_deg):
+            rows = [[c["speed_m_s"], c["incidence_deg"], c["incidence_deg"], c["rebound_angle_deg"] + shift_deg,
+                     c["rebound_speed_m_s"] / c["speed_m_s"], None] for c in cases]
+            return make("cushion_rebound", columns, rows, target="C7")
+
+        series = full_series()
+        series["cushion_rebound"] = rebound(0.3)
+        row = self.rows(series=series)["C7"]
+        self.assertEqual(row[4], report.MET)
+        self.assertIn(f"worst 0.30 deg and 0.00% of the speed off the fine-step Mathavan solution over "
+                      f"{len(cases)} cases", row[2])
+        series["cushion_rebound"] = rebound(1.5)
+        self.assertEqual(self.rows(series=series)["C7"][4], report.NOT_MET)
+        stale = dict(PARAMS, cushion_friction=0.2)
+        row = self.rows(series=series, params=stale)["C7"]
+        self.assertEqual(row[4], report.NO_DATA)
+        self.assertIn("regenerate it", row[2])
+
+    def test_nothing_measured(self):
+        rows = self.rows(shots={}, series={}, params={}, fixtures={})
+        self.assertEqual({row[4] for target, row in rows.items() if target != "C12-C14"}, {report.NO_DATA})
+
+    def test_chart_verdicts_follow_the_results(self):
+        series = full_series()
+        context = report.report_context(fake_shots(), series, PARAMS, report.load_fixtures())
+        lag = report.evaluate(series["lag"], context)
+        self.assertEqual(lag.status, report.MET)
+        self.assertIn("Against the target (C11): cue ball 2.14 m/s", lag.sentence)
+        swerve = report.evaluate(series["swerve"], context)
+        self.assertEqual(swerve.status, report.MET)
+        self.assertIn("on a parabola", swerve.sentence)
+
+
+class WhatChangedTest(unittest.TestCase):
+    changes = {"heading": "What changed", "changes": [
+        {"what": "Rolling resistance", "params": {"roll_friction": [0.008, 0.01]}, "why": "the lag."},
+        {"what": "Cushion floor", "params": {"cushion_restitution_min": [None, 0.7]}, "why": "TP B.6."}]}
+
+    def test_lines_and_values(self):
+        lines, problems = report.what_changed(self.changes, {"roll_friction": 0.01, "cushion_restitution_min": 0.7})
+        self.assertEqual(lines, ["- Rolling resistance (`roll_friction` 0.008 to 0.01): the lag.",
+                                 "- Cushion floor (`cushion_restitution_min` new, 0.7): TP B.6."])
+        self.assertEqual(problems, [])
+
+    def test_a_value_that_moved_on_is_flagged(self):
+        lines, problems = report.what_changed(self.changes, {"roll_friction": 0.012, "cushion_restitution_min": 0.7})
+        self.assertIn("(`roll_friction` 0.008 to 0.01 (now 0.012))", lines[0])
+        self.assertEqual(problems, ["what_changed.json gives roll_friction as 0.01; table_params.json has 0.012"])
+
+    def test_the_committed_file_reads(self):
+        changes = report.read_json(report.DEFAULT_CHANGES)
+        lines, _ = report.what_changed(changes, PARAMS)
+        self.assertGreater(len(lines), 3)
+        self.assertTrue(all(line.startswith("- ") and "`" in line for line in lines))
+
+    def test_missing_file(self):
+        lines, problems = report.what_changed(None, PARAMS)
+        self.assertEqual(problems, ["what_changed.json is missing or not a JSON object"])
+
+
+class SwerveTest(unittest.TestCase):
+    def test_slide_then_roll(self):
+        s = make("swerve", ["variant", "elevation_deg", "tip_x", "t_s", "x_m", "y_m"],
+                 swerve_rows("raised", 30.0, 0.4))
+        path = report.swerve_paths(s)["raised"]
+        p = report.swerve_phases(path, PULL)
+        self.assertAlmostEqual(p["slide_s"], 0.21, places=9)
+        self.assertAlmostEqual(p["accel_max"], PULL, places=6)
+        self.assertAlmostEqual(p["accel_min"], PULL, places=6)
+        self.assertLess(p["accel_spread_deg"], 1e-6)
+        self.assertLess(p["turn_slide_deg"], -10.0)
+        self.assertAlmostEqual(p["turn_roll_deg"], 0.0, places=6)
+        self.assertTrue(p["bends_late"])
+        self.assertAlmostEqual(p["roll_m"] + p["slide_m"],
+                               sum(math.dist(a, b) for a, b in zip(path["points"], path["points"][1:])))
+
+    def test_a_path_that_never_slides(self):
+        rows = [["rolling", 30.0, 0.4, 0.01 * k, 0.01 * k, 0.0] for k in range(50)]
+        s = make("swerve", ["variant", "elevation_deg", "tip_x", "t_s", "x_m", "y_m"], rows)
+        self.assertIsNone(report.swerve_phases(report.swerve_paths(s)["rolling"], PULL))
+
+    def test_a_wrong_way_swerve_is_not_met(self):
+        rows = swerve_rows("wrong", 30.0, -0.4)
+        s = make("swerve", ["variant", "elevation_deg", "tip_x", "t_s", "x_m", "y_m"],
+                 [[r[0], r[1], 0.4, *r[3:]] for r in rows])
+        verdict = report.evaluate_swerve(s, PULL)
+        self.assertEqual(verdict.status, report.NOT_MET)
+        self.assertIn("Against the side: wrong", verdict.sentence)
+
+
+class RecordTest(unittest.TestCase):
+    record = {
+        "events": [{"t": 0.0, "kind": "strike", "a": 0, "b": -1, "body": -1},
+                   {"t": 0.5, "kind": "ball_ball", "a": 0, "b": 1, "body": -1}],
+        "segments": [[{"t0": 0.0, "start": {"r": [0.0, 0.0], "v": [2.0, 0.0], "w": [0, -10, 0], "motion": "sliding"}},
+                      {"t0": 0.5, "start": {"r": [0.95, 0.0], "v": [0.1, 0.0], "w": [0, -5, 0], "motion": "sliding"}},
+                      {"t0": 0.7, "start": {"r": [0.9, 0.0], "v": [-0.3, 0.0], "w": [0, -11, 0], "motion": "rolling"}}],
+                     [{"t0": 0.0, "start": {"r": [1.0, 0.0], "v": [0, 0], "w": [0, 0, 0], "motion": "stationary"}}]],
+        "final": {"balls": [{"r": [0.45, 0.0]}, {"r": [2.0, 0.0]}]},
+    }
+
+    def test_helpers(self):
+        self.assertEqual(report.first_event(self.record, "ball_ball", 1)["t"], 0.5)
+        self.assertIsNone(report.first_event(self.record, "ball_ball", 0, after=0.5))
+        self.assertEqual(report.state_from(self.record, 0, 0.5)["r"], [0.95, 0.0])
+        self.assertEqual(report.rolling_from(self.record, 0, 0.5)["v"], [-0.3, 0.0])
+        self.assertAlmostEqual(report.run_after_contact(self.record), -0.5)
+        no_contact = dict(self.record, events=self.record["events"][:1])
+        self.assertIsNone(report.run_after_contact(no_contact))
+
+    def test_phrases(self):
+        self.assertEqual(report.after_contact_phrase(-0.3, 3.569), "comes back 30 cm")
+        self.assertEqual(report.after_contact_phrase(0.053, 3.569), "runs on 5.3 cm")
+        self.assertEqual(report.after_contact_phrase(-4.6, 3.569), "would come back 4.6 m on an endless table")
+        self.assertEqual(report.after_contact_phrase(None, 3.569), "never reaches the red")
+        self.assertEqual(report.short_distance(1.234), "1.2 m")
+
+    def test_endless_table_scales_the_outline(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = pathlib.Path(tmp) / "endless.json"
+            report.endless_table(TABLE_FILE, out)
+            big = json.loads(out.read_text(encoding="utf-8"))
+        real = json.loads(TABLE_FILE.read_text(encoding="utf-8"))
+        k = report.ENDLESS_SCALE
+        self.assertEqual(big["lines"][0]["p1"], [c * k for c in real["lines"][0]["p1"]])
+        self.assertEqual(big["lines"][0]["normal"], real["lines"][0]["normal"])
+        self.assertEqual(big["arcs"][0]["radius"], real["arcs"][0]["radius"] * k)
+        self.assertEqual(big["arcs"][0]["angle_start"], real["arcs"][0]["angle_start"])
+        self.assertEqual(big["pockets"][0]["drop_radius"], real["pockets"][0]["drop_radius"] * k)
+
+
+class FullReportTest(unittest.TestCase):
+    def test_every_section_in_order(self):
+        series = full_series()
+        series["throw"] = throw(4.86, 3.39)
+        text = report.assemble_report(series, {}, [], source="calib", shots=fake_shots(), params=PARAMS,
+                                      fixtures=report.load_fixtures(),
+                                      changes=report.read_json(report.DEFAULT_CHANGES))
+        headings = [line for line in text.splitlines() if line.startswith("## ")]
+        self.assertEqual(headings, ["## In plain words", "## Results against the targets", "## What changed",
+                                    "## Charts"])
+        self.assertIn("| C11 | Lag: baulk line to the top cushion and back to baulk |", text)
+        self.assertIn("- Rolling resistance (`roll_friction` 0.008 to 0.01)", text)
+        self.assertIn("### C10: Swerve", text)
+
+    def test_without_shots_the_sections_say_so(self):
+        text = report.assemble_report(full_series(), {}, [])
+        self.assertIn("Not measured: the report's own shots did not run", text)
+        self.assertIn("| C1 | Centre ball, no spin: slides, then rolls | not measured", text)
+        self.assertIn("- what_changed.json is missing or not a JSON object", text)
+
+
+class MainTest(unittest.TestCase):
+    def test_needs_ofs_sim_cli(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data = pathlib.Path(tmp)
+            (data / "lag.json").write_text(json.dumps(series_file("lag", ["a"], [[1]])), encoding="utf-8")
+            with contextlib.redirect_stdout(io.StringIO()) as out:
+                code = report.main([str(data), str(data / "out"), "--sim-cli", str(data / "nowhere.exe")])
+        self.assertEqual(code, 2)
+        self.assertIn("ofs_sim_cli not found", out.getvalue())
+
+
+@unittest.skipIf(CLI is None, "no ofs_sim_cli build; test_sim_cli.py says how to build it")
+class ShotsThroughTheCliTest(unittest.TestCase):
+    def test_the_report_shots_run(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            endless = pathlib.Path(tmp) / "endless.json"
+            report.endless_table(TABLE_FILE, endless)
+            sim = report.Sim(CLI, tmp, PARAMS_FILE)
+            shots = report.Shots(sim, endless, TABLE_FILE, {"lag_cue_speed_m_s": 2.0, "start_x_m": -1.0475})
+            stun = shots.full_ball(False)
+            self.assertAlmostEqual(stun["ratio"], (1 - PARAMS["ball_restitution"]) / 2, delta=2e-3)
+            self.assertGreater(stun["creep_m"], 0.0)
+            self.assertAlmostEqual(report.speed_of(shots.struck(0.0, 2.0)["strike"]["v"]), 2.0, places=9)
+            self.assertLess(report.run_after_contact(shots.struck(report.SCREW_TIP, 4.0, 0.5)), -1.0)
+            self.assertGreater(shots.follow()[2.0], 0.5)
+            lag = shots.lag_return()
+            self.assertGreater(lag["t_baulk"], lag["t_top"])
+            self.assertEqual(sim.anomalies, [])
+            self.assertEqual(len(sim.params_hashes), 1)
 
 
 if __name__ == "__main__":
