@@ -636,8 +636,15 @@ TEST_CASE("simulate a ball spun into the cushion it touches: it settles and roll
     check_clean(r);
     CHECK(r.events.size() < 20);
     const BallState& end = r.final_state.balls[0];
-    CHECK(end.r.x == doctest::Approx(baulk_cushion().p1.x + kR).epsilon(1e-12));
-    CHECK(end.r.y > 0.05);
+    // It leaves the cushion rolling along it; the nap may then carry it a few mm off, never in.
+    REQUIRE(r.events.size() >= 2);
+    CHECK(r.events[0].kind == EventKind::ball_line);
+    CHECK(r.events[0].to == Motion::rolling);
+    const BallState after = r.segments[0][0].start;  // the t = 0 push replaced the start segment
+    CHECK(after.v.x == 0.0);
+    CHECK(after.v.y > 0.3);
+    CHECK(end.r.x >= baulk_cushion().p1.x + kR - 1e-12);
+    CHECK(end.r.y > 0.5);
 }
 
 TEST_CASE("simulate a ball rolling into a cushion slower than ball_rest_speed_m_s: no bounce chain") {
@@ -669,13 +676,14 @@ TEST_CASE("simulate a slow push into a frozen pair resolves the three balls in o
     std::size_t contacts = 0;
     for (const ShotEvent& e : r.events) contacts += e.kind == EventKind::ball_ball ? 1 : 0;
     CHECK(contacts <= 2);
-    // All three leave at a third of the speed, the third ball's contact resolved with the push.
-    CHECK(c.a_after.v.x == doctest::Approx(5e-4 / 3.0).epsilon(1e-9));
+    // All three leave at a third of the speed, the third ball's contact resolved at the same instant.
+    const double third = c.a_before.v.x / 3.0;
+    CHECK(c.a_after.v.x == doctest::Approx(third).epsilon(1e-9));
     bool third_pushed = false;
     for (const Segment& s : r.segments[2]) {
         if (s.t0 != c.event->t) continue;
         third_pushed = true;
-        CHECK(s.start.v.x == doctest::Approx(5e-4 / 3.0).epsilon(1e-9));
+        CHECK(s.start.v.x == doctest::Approx(third).epsilon(1e-9));
     }
     CHECK(third_pushed);
 }
