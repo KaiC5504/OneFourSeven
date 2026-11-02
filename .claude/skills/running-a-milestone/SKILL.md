@@ -119,8 +119,11 @@ Each brief contains, in order:
 ## 4. Merge
 
 Merge each branch as it finishes (`git merge --no-edit <branch>`); don't wait for all of them. Apply the agents'
-needs outside their files, then run `python scripts/gate.py --quick`. Once a wave is fully merged, commit the next
-wave's contracts if it needs any, then launch the next wave.
+needs outside their files, then run `python scripts/gate.py --quick`. Once that is green, remove the merged agent's
+worktree and branch at once: each worktree carries its own godot-cpp and build output (about 1 GB). Check that it is
+merged and clean, then `git worktree remove --force --force <path>`, `git branch -D <branch>`, `git worktree prune`.
+Never remove the worktree of an agent that is still running. Once a wave is fully merged, commit the next wave's
+contracts if it needs any, then launch the next wave.
 
 ## 5. Check round
 
