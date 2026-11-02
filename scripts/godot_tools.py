@@ -4,6 +4,7 @@
     python scripts/godot_tools.py editor      # prints the editor executable (last line)
     python scripts/godot_tools.py templates   # prints the installed templates directory
     python scripts/godot_tools.py ios-plist build/ios   # fixes up and checks an exported Xcode project
+    python scripts/godot_tools.py check-godot-log import.log export.log   # fails on script errors
 
 The hashes come from the 4.7.1-stable release's SHA512-SUMS.txt, read once and committed, so a
 tampered download or sums file fails here instead of reaching a build.
@@ -43,6 +44,18 @@ DISPLAY_NAME = "147"
 LANDSCAPE = ["UIInterfaceOrientationLandscapeLeft", "UIInterfaceOrientationLandscapeRight"]
 ALL_ORIENTATIONS = LANDSCAPE + ["UIInterfaceOrientationPortrait", "UIInterfaceOrientationPortraitUpsideDown"]
 BONJOUR = ["_ofs-devlink._tcp"]
+# Only CI's macOS editor loads this build of the extension; an iOS export must never carry it.
+MACOS_EXTENSION = "onefourseven.macos."
+
+# Lines in editor output that mean a script or the extension failed to load. Godot still exits 0
+# and the export still runs, so without this they only show up as noise in the log.
+GODOT_LOG_PROBLEMS = ("SCRIPT ERROR", "Parse Error", "Failed to load script", "Failed to create an autoload",
+                      "No GDExtension library found", "GDExtension dynamic library not found",
+                      "Error loading extension", "Can't open dynamic library")
+ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+# Godot prints a script error's location on a later "at:" line, with progress output between.
+AT_LINE = re.compile(r"^\s*at: ")
+SCRIPT_LOCATION = re.compile(r"\((res://[^()]*:\d+)\)\s*$")
 
 
 def log(message: str) -> None:
@@ -262,6 +275,34 @@ def fix_ios_export(export_dir: Path) -> list[str]:
                if p.suffix in (".py", ".sh") and p.is_file()]
     if bundled:
         problems.append(f"scripts would ship as resources (ITMS-90035): {bundled}")
+    macos = [str(p.relative_to(export_dir)) for p in export_dir.rglob("*") if MACOS_EXTENSION in p.name]
+    if MACOS_EXTENSION in pbxproj:
+        macos.append(f"{name}.xcodeproj/project.pbxproj")
+    if macos:
+        problems.append(f"the macOS editor's extension is in the iOS export: {sorted(macos)}")
+    return problems
+
+
+def godot_log_problems(path: Path) -> list[str]:
+    """Every line of a Godot editor log that shows a script or the extension failed to load, as
+    file:line, with the res:// location Godot gives a script error. A missing or empty log counts."""
+    if not path.is_file():
+        return [f"{path.as_posix()}: no such log"]
+    text = path.read_text(encoding="utf-8", errors="replace")
+    lines = [ANSI_ESCAPE.sub("", line).rstrip("\r") for line in text.split("\n")]
+    if not any(line.strip() for line in lines):
+        return [f"{path.as_posix()}: empty; Godot printed nothing"]
+    problems = []
+    for number, line in enumerate(lines, 1):
+        if not any(marker in line for marker in GODOT_LOG_PROBLEMS):
+            continue
+        where = ""
+        if "SCRIPT ERROR" in line:
+            at = next((later for later in lines[number:number + 8] if AT_LINE.match(later)), "")
+            location = SCRIPT_LOCATION.search(at)
+            if location:
+                where = f" ({location.group(1)})"
+        problems.append(f"{path.as_posix()}:{number}: {line.strip()}{where}")
     return problems
 
 
@@ -277,6 +318,14 @@ def main(argv: list[str]) -> int:
         if problems:
             return 1
         print(f"{argv[1]}: Info.plist and build settings ok")
+    elif argv[:1] == ["check-godot-log"] and len(argv) >= 2:
+        problems = [problem for log_file in argv[1:] for problem in godot_log_problems(Path(log_file))]
+        for problem in problems:
+            print(f"error: {problem}")
+        if problems:
+            print(f"error: {len(problems)} script or extension problems in {', '.join(argv[1:])}")
+            return 1
+        print(f"{', '.join(argv[1:])}: no script or extension errors")
     else:
         print(__doc__.strip(), file=sys.stderr)
         return 2

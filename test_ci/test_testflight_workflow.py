@@ -258,6 +258,7 @@ class WorkflowTest(unittest.TestCase):
     def test_export_order(self):
         names = self.names()
         order = ["Build only the checked commit", "Toolchain", "Build the iOS extension",
+                 "Build the macOS extension for the editor",
                  "Godot and its export templates", "Pick the build number",
                  "Export the Xcode project", "Make the project ours", "Check the scheme",
                  "Create signing files", "Apply signing settings", "Build IPA",
@@ -267,20 +268,32 @@ class WorkflowTest(unittest.TestCase):
     def test_export_commands(self):
         self.assertEqual("bash scripts/build_ios_ext.sh release",
                          self.step("build", "Build the iOS extension")["run"].strip())
+        # Built here every time: this job restores no cache (test_no_shared_caches).
+        macos = self.step("build", "Build the macOS extension for the editor")
+        self.assertEqual("bash scripts/build_macos_ext.sh", macos["run"].strip())
+        self.assertNotIn("if", macos)
         godot = self.step("build", "Godot and its export templates")["run"]
         self.assertIn("python scripts/godot_tools.py editor", godot)
         self.assertIn("python scripts/godot_tools.py templates", godot)
         self.assertIn('echo "GODOT=$godot" >> "$GITHUB_ENV"', godot)
+        # test_workflows.ExportSteps runs this step with a fake Godot.
         export = live(self.step("build", "Export the Xcode project")["run"]).splitlines()
         expected = [
+            "set -o pipefail",
             "OFS_BUILD_NUMBER=$BUILD_NUMBER python scripts/sync_data.py",
-            "mkdir -p build/ios",
-            '"$GODOT" --headless --path game --import',
-            '"$GODOT" --headless --path game --export-release "iOS" ../build/ios/OneFourSeven.xcodeproj',
-            'test -f "$PROJECT/project.pbxproj"',
-            "python scripts/godot_tools.py ios-plist build/ios",
+            "mkdir -p build/ios build/godot-logs",
+            "status=0",
+            '"$GODOT" --headless --path game --import 2>&1 | tee build/godot-logs/import.log || status=1',
+            '"$GODOT" --headless --path game --export-release "iOS" ../build/ios/OneFourSeven.xcodeproj 2>&1 '
+            "| tee build/godot-logs/export.log || status=1",
+            "python scripts/godot_tools.py check-godot-log build/godot-logs/import.log "
+            "build/godot-logs/export.log || status=1",
+            'test -f "$PROJECT/project.pbxproj" || '
+            '{ echo "error: the export wrote no $PROJECT/project.pbxproj"; status=1; }',
+            "python scripts/godot_tools.py ios-plist build/ios || status=1",
+            "exit $status",
         ]
-        self.assertEqual(expected, [l.strip() for l in export if l.strip()])
+        self.assertEqual(expected, [re.sub(r"\s+", " ", l.strip()) for l in export if l.strip()])
 
     def test_project_is_patched_and_checked(self):
         ours = live(self.step("build", "Make the project ours")["run"])

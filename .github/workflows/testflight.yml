@@ -118,6 +118,11 @@ jobs:
       - name: Build the iOS extension
         run: bash scripts/build_ios_ext.sh release
 
+      # The headless macOS editor that exports below loads this build of the extension; without
+      # it, no script that uses an Ofs* class parses there. Built fresh: this job restores no cache.
+      - name: Build the macOS extension for the editor
+        run: bash scripts/build_macos_ext.sh
+
       - name: Godot and its export templates
         run: |
           out=$(python scripts/godot_tools.py editor)
@@ -168,15 +173,22 @@ jobs:
 
       - name: Export the Xcode project
         run: |
+          set -o pipefail
           OFS_BUILD_NUMBER=$BUILD_NUMBER python scripts/sync_data.py
           # Godot refuses to export into a folder that doesn't exist yet.
-          mkdir -p build/ios
-          "$GODOT" --headless --path game --import
-          "$GODOT" --headless --path game --export-release "iOS" ../build/ios/OneFourSeven.xcodeproj
-          test -f "$PROJECT/project.pbxproj"
+          mkdir -p build/ios build/godot-logs
+          # Godot exits 0 on script errors, so the checker reads both logs for them. Every command
+          # runs even if one before it failed, so one run reports every problem.
+          status=0
+          "$GODOT" --headless --path game --import 2>&1 | tee build/godot-logs/import.log || status=1
+          "$GODOT" --headless --path game --export-release "iOS" ../build/ios/OneFourSeven.xcodeproj 2>&1 \
+            | tee build/godot-logs/export.log || status=1
+          python scripts/godot_tools.py check-godot-log build/godot-logs/import.log build/godot-logs/export.log || status=1
+          test -f "$PROJECT/project.pbxproj" || { echo "error: the export wrote no $PROJECT/project.pbxproj"; status=1; }
           # Adds the iPad orientations Godot leaves out and checks the export against the
-          # pipeline-critical settings (spec 17.3).
-          python scripts/godot_tools.py ios-plist build/ios
+          # pipeline-critical settings (spec 17.3) and for a bundled macOS extension.
+          python scripts/godot_tools.py ios-plist build/ios || status=1
+          exit $status
 
       - name: Make the project ours
         run: |
