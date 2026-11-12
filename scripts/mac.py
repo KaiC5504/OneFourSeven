@@ -47,7 +47,7 @@ export OFS_GODOT="$HOME/.mac-dev/tools/godot-4.7.1/Godot.app/Contents/MacOS/Godo
 # The game's user:// data from importing and exporting stays in ~/.mac-dev, not ~/Library.
 export GODOT_HOME="$APP_DIR/godot-home"
 mkdir -p "$GODOT_HOME"
-godot() { HOME="$GODOT_HOME" nice -n 10 "$OFS_GODOT" "$@"; }
+godot() {{ HOME="$GODOT_HOME" nice -n 10 "$OFS_GODOT" "$@"; }}
 
 nice -n 10 bash scripts/build_macos_ext.sh > "$LOGS/macos-ext.log" 2>&1 || fail macos-ext
 step "macOS extension"
