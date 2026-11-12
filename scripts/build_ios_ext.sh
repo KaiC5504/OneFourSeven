@@ -44,6 +44,9 @@ mkdir -p "$work"
 # build_slice <dir> <ios.toolchain PLATFORM> <arch>: prints the built framework's new path.
 build_slice() {
   local dir="$work/$1" platform=$2 arch=$3
+  # ios.toolchain.cmake appends its flags to the cached ones on every configure, so a kept cache
+  # changes every object's flags and rebuilds everything. A fresh cache keeps them identical.
+  rm -f "$dir/build/CMakeCache.txt"
   cmake -S "$root" -B "$dir/build" -G "Unix Makefiles" \
     -DCMAKE_TOOLCHAIN_FILE="$toolchain" -DPLATFORM="$platform" -DARCHS="$arch" \
     -DDEPLOYMENT_TARGET="$min_ios" -DCMAKE_BUILD_TYPE="$build_type" \
