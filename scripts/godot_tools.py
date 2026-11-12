@@ -141,7 +141,20 @@ def find_godot() -> Path:
     return ensure_editor()
 
 
+def self_contained_data(editor: Path) -> Path | None:
+    """editor_data/ of an editor in self-contained mode (a ._sc_ file beside its executable)."""
+    if not any((editor.parent / marker).exists() for marker in ("._sc_", "_sc_")):
+        return None
+    if editor.parent.name == "MacOS" and editor.parents[1].name == "Contents":
+        return editor.parents[3] / "editor_data"
+    return editor.parent / "editor_data"
+
+
 def templates_dir() -> Path:
+    configured = os.environ.get("OFS_GODOT")
+    data = self_contained_data(Path(configured)) if configured else None
+    if data:
+        return data / "export_templates" / TEMPLATES_VERSION
     if sys.platform == "win32":
         base = Path(os.environ["APPDATA"]) / "Godot"
     elif sys.platform == "darwin":
