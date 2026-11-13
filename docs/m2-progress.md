@@ -25,3 +25,12 @@ H free table + settings, I independent tests.
 ## Wave 2
 J integrator: main.gd / main.tscn / hud.gd, the shot flow, layout, edit-mode interaction, demo
 screens. After G merges: run_debug.py passes --mute unless --sound.
+
+## Merged
+- E cue controls (714678f): stroke speed max·min(push/6000, 1)^1.5 (push = finger travel over the
+  last 80 ms), backswing 0.25 m per 880 units pulled, wander -0.1·sideways/forward clamped ±1.5°,
+  elevation max·t^2 (half travel = 20°), power max·p². For the integrator: anchor SpinWidget to its
+  corner with grow away from it (150×150 collapsed, 420×480 expanded); elevation ~120×420, stroke
+  area ~200 wide full height, power bar ≥140×420; wire backswing_changed → CueView.set_pose,
+  struck / shoot_pressed → the shot; collapse() / cancel_stroke() when a shot starts. KaiC's feel
+  check: 6000 units/s fastest push, exponent 1.5, wander gain 0.1.
