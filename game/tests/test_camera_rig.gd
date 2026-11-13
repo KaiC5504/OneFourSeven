@@ -322,3 +322,85 @@ func test_the_planning_view_frames_the_whole_table() -> void:
 				check(absf(corner.y / -corner.z) < half_fov * 0.97,
 						"rail corner %s inside the view's height for %s" % [Vector2(x, z), entry])
 	rig.free()
+
+
+func test_the_planning_view_takes_in_the_whole_table_at_the_phones_aspect() -> void:
+	# KaiC couldn't see the whole table: the overview frames all of it, rails and six pockets.
+	var rig := _rig()
+	rig.set_pitch_deg(CameraRig.PITCH_MAX_DEG)
+	var tan_v := tan(deg_to_rad(CameraRig.FOV_DEG / 2.0))
+	var tan_h := tan_v * CameraRig.DEFAULT_ASPECT
+	var bounds := Stage.DEFAULT_BOUNDS
+	var entries: Array = []
+	for k in 24:
+		entries.append([Vector2(-1.2 + 0.1 * k, 0.7 - 0.06 * k), TAU * k / 24.0])
+	for entry: Array in entries:
+		rig.follow(entry[0], entry[1])
+		rig._process(1.0)
+		var to_camera := rig.transform.affine_inverse()
+		for x: float in [bounds.position.x, bounds.end.x]:
+			for z: float in [bounds.position.z, bounds.end.z]:
+				var corner := to_camera * Vector3(x, bounds.end.y, z)
+				var depth := -corner.z
+				check(depth > 0.0 and absf(corner.x) < tan_h * depth * 0.97 and absf(corner.y) < tan_v * depth * 0.97,
+						"rail corner %s in view for %s" % [Vector2(x, z), entry])
+	rig.free()
+
+
+func test_overview_goes_to_the_planning_view_and_back() -> void:
+	var rig := _rig()
+	rig.follow(Vector2(-1.0, 0.0), 0.0)
+	rig.set_pitch_deg(30.0)
+	rig.set_zoom_scale(0.6)
+	var changes: Array[bool] = []
+	rig.overview_changed.connect(func(on: bool) -> void: changes.append(on))
+	rig.set_overview(true)
+	check(rig.is_overview() and rig.pitch_deg() == CameraRig.PITCH_MAX_DEG and rig.zoom_scale() == 1.0, "the planning view")
+	check(rig.is_easing() and _camera_active(), "eased into")
+	rig._process(1.0)
+	check(rig.transform.is_equal_approx(rig.pose_for(Vector2(-1.0, 0.0), 0.0)), "there")
+	check(not _camera_active(), "settled")
+	rig.set_overview(false)
+	check_near(rig.pitch_deg(), 30.0, 1e-9, "back to the tilt before")
+	check_near(rig.zoom_scale(), 0.6, 1e-6, "and the zoom")
+	rig._process(1.0)
+	rig.set_overview(true)
+	rig.tilt(-20.0)
+	check(not rig.is_overview(), "a tilt leaves it")
+	check_eq(changes, [true, false, true, false], "overview_changed each time")
+	rig.hold(true)
+	rig.set_overview(true)
+	check(not rig.is_overview(), "not while a shot holds the camera")
+	rig.free()
+
+
+func test_watching_frames_the_points_and_glides() -> void:
+	var rig := _rig()
+	rig.follow(Vector2(-1.0, 0.0), 0.0)
+	var points := PackedVector2Array([Vector2(-0.9, 0.1), Vector2(1.2, 0.6), Vector2(0.4, -0.5)])
+	rig.watch(points)
+	check(not rig.is_watching(), "only while held")
+	rig.hold(true)
+	rig.watch(points)
+	check(rig.is_watching() and _camera_active(), "watching keeps the game drawing")
+	var framing := rig.watch_framing(points, 0.0)
+	check(float(framing["pitch_deg"]) >= CameraRig.WATCH_PITCHES_DEG[0], "from above")
+	var pose := rig.watch_pose(framing["focus"], framing["distance"], framing["pitch_deg"], 0.0)
+	var to_camera := pose.affine_inverse()
+	var tan_v := tan(deg_to_rad(CameraRig.FOV_DEG / 2.0))
+	for p in points:
+		var local := to_camera * TableSpace.core_to_godot(p.x, p.y, 0.02625)
+		check(-local.z > 0.0 and absf(local.y) < tan_v * -local.z and absf(local.x) < tan_v * CameraRig.DEFAULT_ASPECT * -local.z,
+				"%s in the framing" % p)
+	check(pose.origin.distance_to(rig.transform.origin) > 0.5, "the camera starts where it was")
+	for i in 120:
+		rig._process(1.0 / 60.0)
+	check(rig.transform.origin.distance_to(pose.origin) < 0.01, "and glides to the framing")
+	var far := rig.watch_framing(PackedVector2Array([Vector2(-1.7, -0.85), Vector2(1.7, 0.85)]), 0.0)
+	check(float(far["distance"]) <= CameraRig.FAR_DISTANCE_M, "never further out than the planning view")
+	rig.hold(false)
+	check(not rig.is_watching() and rig.is_easing(), "back with an ease")
+	rig._process(CameraRig.RETURN_S)
+	check(rig.transform.is_equal_approx(rig.pose_for(Vector2(-1.0, 0.0), 0.0)), "behind the cue ball")
+	check(not _camera_active(), "and idle")
+	rig.free()

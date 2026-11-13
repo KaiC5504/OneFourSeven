@@ -16,6 +16,13 @@ const PLAYING_ALPHA := 0.35
 const SELECTION_COLOUR := Color(1.0, 0.82, 0.3, 0.9)
 ## Edit mode: where a new ball goes when its own spot is taken, rings of this many ball widths out.
 const FREE_SPOT_RINGS := 40
+## The camera watching a shot: a new framing this often (shot time), of where the moving balls are
+## from now to WATCH_AHEAD_S on, sampled every WATCH_STEP_S. Looking ahead keeps a fast ball in view
+## while the camera glides after it.
+const WATCH_EVERY_S := 0.25
+const WATCH_AHEAD_S := 0.9
+const WATCH_STEP_S := 0.15
+const TILT_HINT := "Two fingers up or down tilt the view"
 
 var setup := ShotSetup.new()
 
@@ -28,6 +35,8 @@ var _skip_requested := false
 var _settling := false
 var _last_shot := {}
 var _refresh_queued := false
+var _next_watch_t := 0.0
+var _tilt_hint_shown := false
 ## Edit mode: list positions of the ball under the finger and of the selected ball, or -1.
 var _dragged := -1
 var _selected := -1
@@ -109,6 +118,8 @@ func _ready() -> void:
 	_bar.edit_toggled.connect(_free.set_edit_mode)
 	_bar.setup_chosen.connect(_choose_setup)
 	_bar.settings_pressed.connect(_settings_panel.open)
+	_bar.overview_toggled.connect(_on_overview_toggled)
+	_rig.overview_changed.connect(_bar.set_overview)
 	_palette.add_pressed.connect(_add_ball)
 	_palette.remove_pressed.connect(_remove_selected)
 	Settings.changed.connect(_on_setting_changed)
@@ -216,6 +227,9 @@ func _strike(strike_mode: String) -> String:
 	_audio.begin_shot(record.strike_outcome())
 	_guides.hide_all()
 	_rig.hold(true)
+	_bar.close_menu()
+	_next_watch_t = 0.0
+	_watch_shot(0.0)
 	_stroke.cancel_stroke("shot started")
 	# Their touches are ignored while it plays, so a thumb still down would never lift.
 	_spin.cancel_press("shot started")
@@ -245,6 +259,26 @@ func _shot_input_fields(shot_id: String, strike_mode: String) -> Dictionary:
 func _on_frame(state: PackedFloat64Array, t: float, dt: float) -> void:
 	_balls.apply_state(state, dt)
 	_audio.on_frame(state, t, dt)
+	if t >= _next_watch_t:
+		_watch_shot(t)
+
+
+## Hands the camera where the rolling and sliding balls are from t to WATCH_AHEAD_S later; once
+## nothing moves it keeps its last framing.
+func _watch_shot(t: float) -> void:
+	_next_watch_t = t + WATCH_EVERY_S
+	if _record == null:
+		return
+	var points := PackedVector2Array()
+	var s := t
+	while s <= t + WATCH_AHEAD_S + 1e-9:
+		var state := _record.state_at(s)
+		for o in range(0, state.size() - ShotPlayback.STRIDE + 1, ShotPlayback.STRIDE):
+			var motion := int(state[o + ShotPlayback.MOTION])
+			if motion == ShotPlayback.SLIDING or motion == ShotPlayback.ROLLING:
+				points.append(Vector2(state[o + ShotPlayback.X], state[o + ShotPlayback.Y]))
+		s += WATCH_STEP_S
+	_rig.watch(points)
 
 
 func _on_event(event: Dictionary, state: PackedFloat64Array) -> void:
@@ -361,6 +395,16 @@ func _cue_xy() -> Vector2:
 
 func _guide_level() -> int:
 	return int(Settings.get_value("guide_level"))
+
+
+func _on_overview_toggled(on: bool) -> void:
+	if _playing:
+		_bar.set_overview(_rig.is_overview())
+		return
+	_rig.set_overview(on)
+	if on and not _tilt_hint_shown:
+		_tilt_hint_shown = true
+		_show_notice(TILT_HINT)
 
 
 func _on_camera_moved() -> void:

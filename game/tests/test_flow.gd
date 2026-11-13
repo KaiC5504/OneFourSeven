@@ -1,7 +1,8 @@
 extends TestCase
 ## The free table end to end on the real scene (spec 16.3): scripted touches and keys pushed into
 ## the viewport, the shot logged, simulated, played and kept in the history; edit mode, live
-## parameters, Push and Pull and release, a refused shot and the harness's hooks.
+## parameters, Push and Pull and release, a refused shot, the camera through a shot and the
+## overview, and the harness's hooks.
 
 const MainScript := preload("res://scripts/main.gd")
 const SCHEMA_PATH := "res://data/log_schema.json"
@@ -633,6 +634,93 @@ func test_guides_key_on_the_table_version() -> void:
 	main.setup.set_aim(0.01)
 	await tree.process_frame
 	check_eq(table.version(), version, "aiming doesn't")
+	_finish(main)
+
+
+func test_the_camera_follows_a_long_pot_down_the_table() -> void:
+	# KaiC: "after a shot my camera is fixed, I can't see where the ball goes" (spec 8.5's auto-rise).
+	var main: MainScript = await _spawn()
+	var rig: CameraRig = main.get_node("CameraRig")
+	var camera := rig.camera()
+	var player: ShotPlayer = main.get_node("ShotPlayer")
+	var dims := OfsTable.dimensions()
+	var r := float(dims["ball_radius"])
+	var top_left: Dictionary = (Physics.table_shape()["pockets"] as Array)[0]
+	var pocket := Vector2(float(top_left["drop_centre"][0]), float(top_left["drop_centre"][1]))
+	var red := Vector2(1.0, 0.45)
+	var cue := Vector2(-1.0, 0.1)
+	check(main.harness_load_position([{"ball": "cue", "index": 0, "x": cue.x, "y": cue.y},
+			{"ball": "red", "index": 0, "x": red.x, "y": red.y}], 0), "the position")
+	await tree.process_frame
+	var ghost := red - (pocket - red).normalized() * 2.0 * r
+	var start_pitch := rig.pitch_deg()
+	main.harness_play_shot({"aim_rad": (ghost - cue).angle(), "tip_x": 0.0, "tip_y": 0.0, "elevation_rad": 0.0,
+			"speed_m_s": 4.0})
+	check(main.is_playing() and rig.is_watching(), "the camera watches the shot")
+	var view := main.get_viewport().get_visible_rect()
+	var dt := 1.0 / 60.0
+	var off_screen: Array[String] = []
+	var largest_step := 0.0
+	var risen_by := -1.0
+	var last_eye := camera.global_position
+	var frames := 0
+	while player.is_playing() and frames < 1200:
+		player.advance(dt)
+		rig._process(dt)
+		frames += 1
+		largest_step = maxf(largest_step, camera.global_position.distance_to(last_eye))
+		last_eye = camera.global_position
+		if frames == 36:
+			risen_by = rad_to_deg(asin(-(-camera.global_basis.z).y))
+		if main._record == null:
+			break
+		var state: PackedFloat64Array = main._record.state_at(player.time())
+		for o in range(0, state.size(), ShotPlayback.STRIDE):
+			var motion := int(state[o + ShotPlayback.MOTION])
+			if motion != ShotPlayback.SLIDING and motion != ShotPlayback.ROLLING:
+				continue
+			var at := TableSpace.core_to_godot(state[o + ShotPlayback.X], state[o + ShotPlayback.Y], r)
+			if camera.is_position_behind(at) or not view.has_point(camera.unproject_position(at)):
+				off_screen.append("ball %d at t %.2f" % [o / ShotPlayback.STRIDE, player.time()])
+	check(frames > 60, "the shot ran: %d frames" % frames)
+	check_eq(off_screen, [] as Array[String], "every moving ball stays on screen")
+	check(risen_by > start_pitch + 20.0, "risen within 0.6 s: %.1f° from %.1f°" % [risen_by, start_pitch])
+	check(largest_step < 0.35, "glides, no jump: %.3f m in one frame" % largest_step)
+	var potted := false
+	for ball: Dictionary in (main._last_shot["potted"] as Array):
+		potted = potted or ball["ball"] == "red"
+	check(potted, "the red went in: %s" % [main._last_shot])
+	await _until_idle(main)
+	check(not rig.is_watching(), "done watching")
+	check(rig.is_easing(), "on its way back behind the cue ball")
+	rig._process(1.0)
+	check(not Perf._active.has(&"camera"), "the camera lets the game idle again")
+	var behind := rig.pose_for(main._cue_xy(), main.setup.aim_rad, main.setup.effective_elevation())
+	check(rig.transform.is_equal_approx(behind), "behind the cue ball for the next shot")
+	_finish(main)
+
+
+func test_the_overview_button_shows_the_whole_table_and_back() -> void:
+	var main: MainScript = await _spawn()
+	var rig: CameraRig = main.get_node("CameraRig")
+	var bar: FreeTableBar = main.get_node("Hud/FreeTableBar")
+	var notice: Label = main.get_node("Hud/Notice")
+	var pitch := rig.pitch_deg()
+	bar.button("overview").button_pressed = true
+	check(rig.is_overview(), "the overview")
+	check_eq(rig.pitch_deg(), CameraRig.PITCH_MAX_DEG, "the planning view's tilt")
+	check(notice.visible and notice.text == MainScript.TILT_HINT, "a one-line hint about the tilt")
+	rig._process(1.0)
+	check(rig.transform.is_equal_approx(rig.pose_for(main._cue_xy(), main.setup.aim_rad, main.setup.effective_elevation())),
+			"eased there")
+	bar.button("overview").button_pressed = false
+	check(not rig.is_overview(), "back")
+	check_eq(rig.pitch_deg(), pitch, "to the tilt before")
+	notice.visible = false
+	bar.button("overview").button_pressed = true
+	check(not notice.visible, "the hint only once")
+	rig.tilt(-50.0)
+	check(not bar.button("overview").button_pressed, "a tilt leaves the overview and the button shows it")
 	_finish(main)
 
 
