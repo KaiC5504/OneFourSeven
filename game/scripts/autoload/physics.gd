@@ -7,6 +7,33 @@ const TABLE_SHAPE_PATH := "res://data/table_shape.json"
 
 var sim := OfsPhysics.new()
 
+var _shots := 0
+var _rng := RandomNumberGenerator.new()
+var _values: Dictionary = {}
+
+
+func _ready() -> void:
+	_rng.randomize()
+	_configure()
+	Params.changed.connect(_on_params_changed)
+
+
+## Configures the binding from Params and the embedded table shape. A refusal keeps the previous
+## configuration (or none) and logs app.error besides the binding's physics.configured.
+func _configure() -> bool:
+	var table_text := FileAccess.get_file_as_string(TABLE_SHAPE_PATH)
+	if table_text.is_empty():
+		_refused("%s is missing or empty (%s); run scripts/sync_data.py" % [TABLE_SHAPE_PATH,
+				error_string(FileAccess.get_open_error())])
+		return false
+	var params_hash: String = Params.current_hash()
+	if not sim.configure(Params.current_text(), params_hash, table_text):
+		_refused("parameters %s or the table shape were refused (see physics.configured); still on %s" % [
+				params_hash, sim.params_hash() if sim.is_ready() else "no configuration"])
+		return false
+	_values = sim.params_values()
+	return true
+
 
 func is_ready() -> bool:
 	return sim.is_ready()
@@ -14,38 +41,53 @@ func is_ready() -> bool:
 
 ## "<session>-<n>", n counting this session's shots from 1.
 func new_shot_id() -> String:
-	return ""
+	_shots += 1
+	return "%s-%d" % [Log.session(), _shots]
 
 
 ## A fresh 63-bit seed for a played shot; logged in its repro bundle.
 func new_seed() -> int:
-	return 0
+	return ((_rng.randi() & 0x7fffffff) << 32) | _rng.randi()
 
 
 ## The shot as played; null when the binding refused it (it logs shot.rejected).
-func simulate(_balls: Array[Dictionary], _cue_ball: int, _strike: Dictionary, _context: Dictionary) -> OfsShotRecord:
-	return null
+func simulate(balls: Array[Dictionary], cue_ball: int, strike: Dictionary, context: Dictionary) -> OfsShotRecord:
+	return sim.simulate(balls, cue_ball, strike, new_seed(), context)
 
 
 ## Guide level 3's noise-free prediction; null when it can't be simulated.
-func predict(_balls: Array[Dictionary], _cue_ball: int, _strike: Dictionary) -> OfsShotRecord:
-	return null
+func predict(balls: Array[Dictionary], cue_ball: int, strike: Dictionary) -> OfsShotRecord:
+	return sim.predict(balls, cue_ball, strike)
 
 
-func min_cue_elevation(_balls: Array[Dictionary], _cue_ball: int, _strike: Dictionary) -> float:
-	return 0.0
+func min_cue_elevation(balls: Array[Dictionary], cue_ball: int, strike: Dictionary) -> float:
+	return sim.min_cue_elevation(balls, cue_ball, strike)
 
 
 ## OfsPhysics.table_shape(): empty until configured.
 func table_shape() -> Dictionary:
-	return {}
+	return sim.table_shape()
 
 
 ## The full rack with seeded micro-gaps (spec 7.7), cue ball first; empty until configured.
-func opening_rack(_seed: int) -> Array[Dictionary]:
-	return []
+func opening_rack(seed: int) -> Array[Dictionary]:
+	var balls: Array[Dictionary] = []
+	for ball: Dictionary in sim.opening_rack(seed):
+		balls.append(ball)
+	return balls
 
 
 ## A parameter in use, such as "miscue_limit" or "max_cue_speed_m_s"; `fallback` before configure.
-func param(_name: String, fallback: float) -> float:
+func param(name: String, fallback: float) -> float:
+	var value: Variant = _values.get(name)
+	if value is float or value is int:
+		return float(value)
 	return fallback
+
+
+func _on_params_changed(_hash: String) -> void:
+	_configure()
+
+
+func _refused(message: String) -> void:
+	Log.error("app", "app.error", {"kind": "message", "message": "physics: " + message})

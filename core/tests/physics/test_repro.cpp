@@ -559,3 +559,34 @@ TEST_CASE("bundle log_shot emits a schema-valid shot.simulated with the bundle a
     CHECK(e.data["bundle"] == make_bundle(in, p));
     CHECK(e.data["result"] == make_result(r));
 }
+
+TEST_CASE("bundle log_shot with context adds it and the line still replays as a bundle") {
+    const SimInput in = sample_input();
+    const PhysicsParams p = sample_params();
+    const ShotRecord r = sample_record(30);
+    const nlohmann::json context = {{"shot_id", "20261113-180000-abcdef-3"}, {"mode", "free_table"},
+                                    {"strike_mode", "stroke"}};
+    auto capture = std::make_shared<Capture>();
+    ofs::log::Logger::instance().clear_sinks();
+    ofs::log::Logger::instance().add_sink(capture);
+    log_shot(in, p, r, context);
+    ofs::log::Logger::instance().clear_sinks();
+    REQUIRE(capture->events.size() == 1);
+    const ofs::log::Event& e = capture->events[0];
+    CHECK(e.event == "shot.simulated");
+    CHECK(e.level == ofs::log::Level::info);
+    const auto problem = ofs::log::check(e, schema());
+    CHECK_MESSAGE(!problem.has_value(), problem.value_or(""));
+    CHECK(e.data["context"] == context);
+    CHECK(e.data["result"] == make_result(r));
+
+    // Through text, as sim_cli replay reads it from a log file.
+    const nlohmann::json line = nlohmann::json::parse(e.data.dump());
+    SimInput back;
+    PhysicsParams back_p;
+    std::string error;
+    REQUIRE_MESSAGE(parse_bundle(line["bundle"], back, back_p, error), error);
+    CHECK(back.seed == in.seed);
+    CHECK(back.table_hash == in.table_hash);
+    CHECK(make_bundle(back, back_p) == make_bundle(in, p));
+}
