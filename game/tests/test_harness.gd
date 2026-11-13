@@ -211,6 +211,17 @@ func test_events_are_made_in_window_coordinates() -> void:
 	var key: Variant = HarnessScript.make_event({"type": "key", "keycode": "F3", "pressed": true}, to_window)
 	check(key is InputEventKey and (key as InputEventKey).physical_keycode == KEY_F3, "named key")
 	check(key is InputEventKey and (key as InputEventKey).is_action_pressed("overlay_toggle"), "matches the F3 action")
+	check(key is InputEventKey and (key as InputEventKey).get_modifiers_mask() == 0, "no modifiers unless asked")
+	var undo: Variant = HarnessScript.make_event({"type": "key", "keycode": "Z", "ctrl": true, "pressed": true}, to_window)
+	check(undo is InputEventKey and (undo as InputEventKey).is_action_pressed("undo", false, true), "Ctrl+Z is the undo action")
+	var plain_z: Variant = HarnessScript.make_event({"type": "key", "keycode": "Z", "pressed": true}, to_window)
+	check(plain_z is InputEventKey and not (plain_z as InputEventKey).is_action_pressed("undo"), "Z alone is not")
+	var all: Variant = HarnessScript.make_event({"type": "key", "keycode": "Y", "ctrl": true, "shift": true, "alt": true,
+			"meta": true, "pressed": true}, to_window)
+	check(all is InputEventKey and (all as InputEventKey).get_modifiers_mask()
+			== KEY_MASK_CTRL | KEY_MASK_SHIFT | KEY_MASK_ALT | KEY_MASK_META, "every modifier")
+	check(HarnessScript.make_event({"type": "key", "keycode": "Z", "ctrl": 1, "pressed": true}, to_window) is String,
+			"a modifier must be a boolean")
 	for bad: Variant in [{"type": "touch", "x": 1, "y": 2}, {"type": "touch", "pressed": true, "x": "a", "y": 2},
 			{"type": "mouse_button", "button": 0, "pressed": true, "x": 0, "y": 0}, {"type": "key", "action": "no_such", "pressed": true},
 			{"type": "key", "keycode": "NotAKey", "pressed": true}, {"type": "wave"}, 3]:

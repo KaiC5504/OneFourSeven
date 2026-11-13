@@ -212,6 +212,34 @@
         "activity": {
           "type": "string",
           "required": true
+        },
+        "active": {
+          "type": "array",
+          "required": false
+        },
+        "held": {
+          "type": "array",
+          "required": false
+        },
+        "idle": {
+          "type": "boolean",
+          "required": false
+        },
+        "frame": {
+          "type": "integer",
+          "required": false
+        },
+        "first_frame": {
+          "type": "string",
+          "required": false
+        },
+        "since_start_s": {
+          "type": "number",
+          "required": false
+        },
+        "input_age_s": {
+          "type": "number",
+          "required": false
         }
       }
     },
@@ -869,6 +897,10 @@
         "problems": {
           "type": "array",
           "required": false
+        },
+        "values": {
+          "type": "object",
+          "required": false
         }
       }
     },
@@ -979,6 +1011,26 @@
         "error": {
           "type": "string",
           "required": false
+        }
+      }
+    },
+    "params.refused": {
+      "subsystem": "params",
+      "levels": [
+        "warn"
+      ],
+      "fields": {
+        "hash": {
+          "type": "string",
+          "required": true
+        },
+        "current_hash": {
+          "type": "string",
+          "required": true
+        },
+        "shot_id": {
+          "type": "string",
+          "required": true
         }
       }
     }

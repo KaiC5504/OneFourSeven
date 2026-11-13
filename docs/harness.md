@@ -115,7 +115,7 @@ sent.
 | `drag` | `index` (default 0), `x`, `y`, `rx`, `ry` (the movement since the last event) |
 | `mouse_button` | `button` (1 left, 2 right, 3 middle, 4/5 wheel up/down; default 1), `pressed`, `x`, `y` |
 | `mouse_motion` | `x`, `y`, `rx`, `ry`, `button_mask` (1 left, 2 right, 4 middle; default 0) |
-| `key` | `pressed`, and `action` (an input action such as `shoot` or `overlay_toggle`) or `keycode` (a name such as `"F3"`, `"Space"`, or a number) |
+| `key` | `pressed`, and `action` (an input action such as `shoot` or `overlay_toggle`) or `keycode` (a name such as `"F3"`, `"Space"`, or a number); with `keycode`, `ctrl`, `shift`, `alt`, `meta` (default false) hold modifiers down |
 
 A one-finger aim drag, then the overlay:
 
@@ -126,6 +126,16 @@ A one-finger aim drag, then the overlay:
   {"type": "touch", "pressed": false, "x": 940, "y": 505},
   {"type": "key", "keycode": "F3", "pressed": true},
   {"type": "key", "keycode": "F3", "pressed": false}]}}
+```
+
+Undo then redo in the free table, as Ctrl+Z and Ctrl+Y (the `undo` and `redo` actions):
+
+```
+{"cmd": "input", "args": {"events": [
+  {"type": "key", "keycode": "Z", "ctrl": true, "pressed": true},
+  {"type": "key", "keycode": "Z", "ctrl": true, "pressed": false},
+  {"type": "key", "keycode": "Y", "ctrl": true, "pressed": true},
+  {"type": "key", "keycode": "Y", "ctrl": true, "pressed": false}]}}
 ```
 
 A first touch also arrives as a left mouse button (Godot's mouse-from-touch emulation).

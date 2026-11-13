@@ -35,6 +35,7 @@ const POSITIONS_DIR := "res://data/positions"
 const MAX_LINE_BYTES := 1 << 20
 const WAIT_IDLE_DEFAULT_SECONDS := 30.0
 const MAX_FRAMES_BETWEEN := 600
+const KEY_MODIFIERS: Array[String] = ["ctrl", "shift", "alt", "meta"]
 const STRIKE_KEYS: Array[String] = ["aim_rad", "tip_x", "tip_y", "elevation_rad", "speed_m_s"]
 const OVERLAY_PATH := "Hud/Overlay"
 
@@ -259,10 +260,17 @@ static func make_event(spec: Variant, to_window: Transform2D) -> Variant:
 				key = _integer(code)
 			if key == KEY_NONE:
 				return "key needs an action or a keycode (a name such as \"F3\" or a number), got %s" % JSON.stringify(code)
+			for modifier: String in KEY_MODIFIERS:
+				if e.has(modifier) and not e[modifier] is bool:
+					return "key's %s must be true or false, got %s" % [modifier, JSON.stringify(e[modifier])]
 			var press := InputEventKey.new()
 			press.keycode = key as Key
 			press.physical_keycode = key as Key
 			press.pressed = pressed
+			press.ctrl_pressed = e.get("ctrl", false)
+			press.shift_pressed = e.get("shift", false)
+			press.alt_pressed = e.get("alt", false)
+			press.meta_pressed = e.get("meta", false)
 			return press
 	return "unknown type %s (touch, drag, mouse_button, mouse_motion, key)" % JSON.stringify(type)
 
@@ -422,8 +430,6 @@ func _report(command: String, args: Array, ok: bool, result: Variant) -> void:
 		Log.warn("harness", "harness.command", data)
 
 
-# The command channel.
-
 ## The port the channel listens on; -1 when it isn't open.
 func channel_port() -> int:
 	return _port
@@ -541,7 +547,6 @@ func _channel(state: String, port: int, error: String = "") -> void:
 		Log.info("harness", "harness.channel", data)
 
 
-## One request line to its response.
 func handle_line(line: String) -> Dictionary:
 	var json := JSON.new()
 	var parsed := json.parse(line) == OK
