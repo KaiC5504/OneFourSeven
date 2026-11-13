@@ -63,7 +63,9 @@ func _ready() -> void:
 	add_child(_camera)
 	_camera.current = true
 	_place_camera(view, cue_xy, aim)
+	_stage.dress_camera(_camera)
 	_stage.fit_shadows(_camera)
+	_stage.capture_reflections()
 	Perf.set_active(&"look_preview", true)
 
 

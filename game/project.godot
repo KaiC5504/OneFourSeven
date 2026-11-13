@@ -59,6 +59,8 @@ textures/vram_compression/import_etc2_astc=true
 renderer/rendering_method="mobile"
 renderer/rendering_method.mobile="mobile"
 anti_aliasing/quality/msaa_3d=2
+reflections/reflection_atlas/reflection_size.mobile=256
+lights_and_shadows/directional_shadow/soft_shadow_filter_quality.mobile=2
 
 [debug]
 

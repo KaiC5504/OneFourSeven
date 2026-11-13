@@ -67,8 +67,12 @@ func _ready() -> void:
 		shape = TableView.shape_from_json(FileAccess.get_file_as_string(Physics.TABLE_SHAPE_PATH))
 	_table.build(shape, OfsTable.dimensions())
 	_stage.set_table_bounds(_table.bounds())
+	_stage.dress_camera(_rig.camera())
+	_stage.capture_reflections()
 	_balls.set_pockets(shape.get("pockets", []))
 	_rig.moved.connect(_on_camera_moved)
+	# Kept out of the table's reflection probe, which would show them where they were captured.
+	_set_layers(_guides, Stage.MOVING_LAYER)
 
 	setup.strike_mode = String(Settings.get_value("strike_mode"))
 	_aim.bind(setup, _gestures, _rig)
@@ -546,8 +550,17 @@ func _build_selection() -> void:
 	# Flattened onto the cloth, so it reads as a ring round the ball from any height.
 	_selection.scale = Vector3(1.0, 0.1, 1.0)
 	_selection.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_selection.layers = Stage.MOVING_LAYER
 	_selection.visible = false
 	add_child(_selection)
+
+
+static func _set_layers(node: Node, layers: int) -> void:
+	var visual := node as VisualInstance3D
+	if visual != null:
+		visual.layers = layers
+	for child in node.get_children():
+		_set_layers(child, layers)
 
 
 func _place_selection() -> void:

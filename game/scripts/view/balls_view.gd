@@ -6,14 +6,14 @@ extends Node3D
 ## turning each ball by its angular velocity; markings make it visible on the cue ball.
 
 const BALL_COLOURS := {
-	"cue": Color(0.93, 0.92, 0.86),
-	"red": Color(0.62, 0.03, 0.04),
+	"cue": Color(0.93, 0.91, 0.86),
+	"red": Color(0.62, 0.03, 0.03),
 	"yellow": Color(0.93, 0.76, 0.08),
 	"green": Color(0.03, 0.36, 0.16),
 	"brown": Color(0.36, 0.17, 0.07),
 	"blue": Color(0.04, 0.15, 0.58),
 	"pink": Color(0.96, 0.52, 0.62),
-	"black": Color(0.02, 0.02, 0.022),
+	"black": Color(0.02, 0.02, 0.02),
 }
 const DOT_COLOUR := Color(0.72, 0.04, 0.05)
 ## cos of the dots' angular radius: 6 mm across on a 52.5 mm ball.
@@ -45,10 +45,10 @@ void fragment() {
 	float m = max(a.x, max(a.y, a.z));
 	float w = fwidth(m);
 	ALBEDO = mix(base_colour, dot_colour, smoothstep(dot_cos - w, dot_cos + w, m));
-	ROUGHNESS = 0.16;
+	ROUGHNESS = 0.2;
 	SPECULAR = 0.5;
 	CLEARCOAT = 1.0;
-	CLEARCOAT_ROUGHNESS = 0.05;
+	CLEARCOAT_ROUGHNESS = 0.02;
 }
 """
 
@@ -175,6 +175,8 @@ func _add_ball(placement: Dictionary) -> void:
 	ball.name = _ball_name(placement)
 	ball.mesh = _mesh
 	ball.material_override = _materials[colour_key]
+	# The balls' own layer: out of the table's reflection probe, and lit by the canopy highlight.
+	ball.layers = Stage.BALL_LAYER
 	ball.set_meta("ball", kind)
 	ball.set_meta("index", index)
 	# Node positions are single precision; the state dump reports these doubles. The array is
@@ -186,6 +188,7 @@ func _add_ball(placement: Dictionary) -> void:
 	contact.name = "ContactShadow"
 	contact.mesh = _shadow_mesh
 	contact.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	contact.layers = Stage.BALL_LAYER
 	contact.position = Vector3(0.0, -radius + CONTACT_SHADOW_LIFT, 0.0)
 	ball.add_child(contact)
 	add_child(ball, true)

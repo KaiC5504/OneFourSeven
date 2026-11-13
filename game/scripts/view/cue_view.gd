@@ -121,14 +121,16 @@ func _ensure_mesh() -> void:
 			Vector2(0.0025, 0.0045), Vector2(0.004, _radius_at(0.004)), Vector2(TIP_LENGTH, _radius_at(TIP_LENGTH))])
 	_lathe(mesh, dome, _material(Color(0.2, 0.36, 0.62), 0.95, 0.0))
 	_lathe(mesh, _taper(TIP_LENGTH, FERRULE_END, 2), _material(Color(0.8, 0.62, 0.32), 0.3, 1.0))
-	_lathe(mesh, _taper(FERRULE_END, BUTT_START, 12), _shaft_material())
+	_lathe(mesh, _taper(FERRULE_END, BUTT_START, 12), _wood_material("ash", 0.7, 0.6, 0.2))
 	var butt := _taper(BUTT_START, LENGTH - 0.004, 8)
 	var end_radius := _radius_at(LENGTH)
 	butt.append_array(PackedVector2Array([Vector2(LENGTH - 0.0015, end_radius * 0.92),
 			Vector2(LENGTH, end_radius * 0.6), Vector2(LENGTH, 0.0)]))
-	_lathe(mesh, butt, _material(Color(0.05, 0.03, 0.022), 0.35, 0.0, 0.8))
+	_lathe(mesh, butt, _wood_material("ebony", 0.6, 1.0, 0.08))
 	_mesh_instance = MeshInstance3D.new()
 	_mesh_instance.name = "Mesh"
+	# Out of the table's reflection probe, which would otherwise keep the cue where it was captured.
+	_mesh_instance.layers = Stage.MOVING_LAYER
 	_mesh_instance.mesh = mesh
 	add_child(_mesh_instance)
 
@@ -146,7 +148,8 @@ static func _taper(from: float, to: float, steps: int) -> PackedVector2Array:
 	return out
 
 
-## A surface of revolution about +Z from (z, radius) points running away from the tip.
+## A surface of revolution about +Z from (z, radius) points running away from the tip. UVs are in
+## metres, U along the cue and V round it, so the wood's grain runs along the cue.
 static func _lathe(mesh: ArrayMesh, profile: PackedVector2Array, material: Material) -> void:
 	var verts := PackedVector3Array()
 	var normals := PackedVector3Array()
@@ -160,7 +163,7 @@ static func _lathe(mesh: ArrayMesh, profile: PackedVector2Array, material: Mater
 			var radial := Vector3(cos(angle), sin(angle), 0.0)
 			verts.append(radial * profile[j].y + Vector3(0.0, 0.0, profile[j].x))
 			normals.append((radial * n.x + Vector3(0.0, 0.0, n.y)).normalized())
-			uvs.append(Vector2(float(k) / SEGMENTS * 3.0, profile[j].x / 0.6))
+			uvs.append(Vector2(profile[j].x, angle * profile[j].y))
 	var cols := SEGMENTS + 1
 	for j in profile.size() - 1:
 		for k in SEGMENTS:
@@ -173,7 +176,11 @@ static func _lathe(mesh: ArrayMesh, profile: PackedVector2Array, material: Mater
 	arrays[Mesh.ARRAY_NORMAL] = normals
 	arrays[Mesh.ARRAY_TEX_UV] = uvs
 	arrays[Mesh.ARRAY_INDEX] = indices
-	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	# Tangents from the UVs, for the normal maps.
+	var st := SurfaceTool.new()
+	st.create_from_arrays(arrays)
+	st.generate_tangents()
+	st.commit(mesh)
 	mesh.surface_set_material(mesh.get_surface_count() - 1, material)
 
 
@@ -189,20 +196,26 @@ static func _material(colour: Color, roughness: float, metallic: float, clearcoa
 	return m
 
 
-static func _shaft_material() -> StandardMaterial3D:
-	var noise := FastNoiseLite.new()
-	noise.seed = 5
-	noise.frequency = 0.03
-	noise.fractal_octaves = 4
-	var ramp := Gradient.new()
-	ramp.set_color(0, Color(0.62, 0.46, 0.28))
-	ramp.set_color(1, Color(0.86, 0.72, 0.52))
-	var grain := NoiseTexture2D.new()
-	grain.noise = noise
-	grain.width = 64
-	grain.height = 256
-	grain.seamless = true
-	grain.color_ramp = ramp
-	var m := _material(Color.WHITE, 0.4, 0.0, 0.6)
-	m.albedo_texture = grain
+## The cue's woods (game/textures/README.md): ash for the shaft, ebony for the butt, 1 m a tile.
+static func _wood_material(wood: String, roughness: float, clearcoat: float, clearcoat_roughness: float) -> StandardMaterial3D:
+	var m := _material(Color.WHITE, roughness, 0.0, clearcoat)
+	m.clearcoat_roughness = clearcoat_roughness
+	m.albedo_texture = _texture("%s_albedo.jpg" % wood)
+	var normal := _texture("%s_normal.jpg" % wood)
+	if normal != null:
+		m.normal_enabled = true
+		m.normal_texture = normal
+		m.normal_scale = 0.3
+	m.roughness_texture = _texture("%s_roughness.jpg" % wood)
+	m.roughness_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_RED
+	m.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
 	return m
+
+
+static func _texture(file: String) -> Texture2D:
+	var path := "res://textures/cue/" + file
+	var texture := load(path) as Texture2D
+	if texture == null:
+		Log.error("app", "app.error", {"kind": "message",
+				"message": "cue_view: %s didn't load; the cue is drawn without it" % path, "file": path})
+	return texture

@@ -40,10 +40,14 @@ const CONTACT_HEIGHT_FALLBACK := 0.03675
 const SHAPE_TOLERANCE := 1e-4
 const SPOT_COLOURS: Array[String] = ["yellow", "green", "brown", "blue", "pink", "black"]
 
-# Tournament green; the nap texture's streaks run along core x, baulk to top (spec 6.4).
-const CLOTH_GREEN := Color(0.045, 0.33, 0.13)
-const NAP_TILE := Vector2(0.45, 0.05)
-const WOOD_TILE := Vector2(1.4, 0.06)
+# UVs are in metres; each material's uv1_scale sets its texture's tile (game/textures/README.md).
+const METRES := Vector2.ONE
+# Tournament green; the cloth texture's nap runs along U, core x, baulk to top (spec 6.4).
+const CLOTH_GREEN := Color(0.11, 0.42, 0.16)
+const CLOTH_TILE := 0.12
+const RAIL_TILE := 2.0
+const LEATHER_TILE := 0.45
+const TEXTURES := "res://textures/"
 
 var _pockets: Array[PocketInfo] = []
 var _sections: Array[Section] = []
@@ -112,6 +116,7 @@ class Surf:
 				tri(i, i + 1, i + cols + 1)
 				tri(i, i + cols + 1, i + cols)
 
+	# Tangents from the UVs, which the normal maps need to lie the right way round.
 	func commit(mesh: ArrayMesh, material: Material) -> void:
 		var arrays := []
 		arrays.resize(Mesh.ARRAY_MAX)
@@ -120,7 +125,10 @@ class Surf:
 		arrays[Mesh.ARRAY_TEX_UV] = uvs
 		arrays[Mesh.ARRAY_COLOR] = colours
 		arrays[Mesh.ARRAY_INDEX] = indices
-		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+		var st := SurfaceTool.new()
+		st.create_from_arrays(arrays)
+		st.generate_tangents()
+		st.commit(mesh)
 		mesh.surface_set_material(mesh.get_surface_count() - 1, material)
 
 
@@ -439,7 +447,7 @@ func _add_cushion(cloth: Surf, section: Section, contact: float, rail_height: fl
 		for k in section.points.size():
 			row.append(section.points[k] - section.normals[k] * profile[j].x)
 		rows.append(row)
-	_sweep(cloth, rows, profile, section.normals, NAP_TILE, Color(0.93, 0.93, 0.93))
+	_sweep(cloth, rows, profile, section.normals, METRES, Color(0.93, 0.93, 0.93))
 
 
 ## The rail's outer edge from the start pocket to the end pocket, `inset` in from it, with the
@@ -508,7 +516,7 @@ func _add_rail(wood: Surf, section: Section, rail_height: float, rail_width: flo
 		var first := wood.verts.size()
 		for p in polygon:
 			wood.vertex(_g(p, rail_height), Vector3.UP,
-					Vector2(p.dot(section.nose_dir) / WOOD_TILE.x, p.dot(section.nose_normal) / WOOD_TILE.y))
+					Vector2(p.dot(section.nose_dir), p.dot(section.nose_normal)))
 		for i in range(0, triangles.size(), 3):
 			wood.tri(first + triangles[i], first + triangles[i + 1], first + triangles[i + 2])
 
@@ -535,7 +543,7 @@ func _add_rail(wood: Surf, section: Section, rail_height: float, rail_width: flo
 			if face.dot(dirs[k] + dirs[k - 1]) < 0.0:
 				face = -face
 			vis = PackedVector2Array([face, face])
-		_sweep(wood, rows, profile, vis, WOOD_TILE)
+		_sweep(wood, rows, profile, vis, METRES)
 
 
 func _add_bed_and_pockets(cloth: Surf, leather: Surf, rail_height: float) -> void:
@@ -565,14 +573,14 @@ func _add_bed_and_pockets(cloth: Surf, leather: Surf, rail_height: float) -> voi
 
 		# The cloth turns down over the fall; below it, and round the back from the rim top, the
 		# leather drops into a closed bowl.
-		_sweep(cloth, _radial_rows(pocket.centre, front, fall_profile, r), fall_profile, _negated(front), NAP_TILE)
+		_sweep(cloth, _radial_rows(pocket.centre, front, fall_profile, r), fall_profile, _negated(front), METRES)
 		var front_bowl := _bowl_profile(bowl, r)
-		_sweep(leather, _radial_rows(pocket.centre, front, front_bowl, 0.0), front_bowl, _negated(front), Vector2(0.2, 0.05))
+		_sweep(leather, _radial_rows(pocket.centre, front, front_bowl, 0.0), front_bowl, _negated(front), METRES)
 		var back_profile := PackedVector2Array()
 		for p in rim:
 			back_profile.append(Vector2(r + p.x, p.y))
 		back_profile.append_array(front_bowl)
-		_sweep(leather, _radial_rows(pocket.centre, back, back_profile, 0.0), back_profile, _negated(back), Vector2(0.2, 0.05))
+		_sweep(leather, _radial_rows(pocket.centre, back, back_profile, 0.0), back_profile, _negated(back), METRES)
 
 		# The rim's ends, where the cushions stop, face back along the facings to the table.
 		for u: Vector2 in [section.end_u, next.start_u]:
@@ -597,7 +605,7 @@ func _add_bed_and_pockets(cloth: Surf, leather: Surf, rail_height: float) -> voi
 		return
 	var first := cloth.verts.size()
 	for p in cleaned:
-		cloth.vertex(_g(p, 0.0), Vector3.UP, Vector2(p.x / NAP_TILE.x, p.y / NAP_TILE.y))
+		cloth.vertex(_g(p, 0.0), Vector3.UP, Vector2(p.x, p.y))
 	for i in range(0, triangles.size(), 3):
 		cloth.tri(first + triangles[i], first + triangles[i + 1], first + triangles[i + 2])
 
@@ -644,9 +652,9 @@ func _add_body(wood: Surf, dims: Dictionary, rail_width: float) -> void:
 		var n := _g(out, 0.0)
 		var length := a.distance_to(b)
 		var first := wood.vertex(_g(a, APRON_BOTTOM), n, Vector2(0.0, 0.0), dark)
-		wood.vertex(_g(b, APRON_BOTTOM), n, Vector2(length / WOOD_TILE.x, 0.0), dark)
-		wood.vertex(_g(b, BODY_BOTTOM), n, Vector2(length / WOOD_TILE.x, 0.6 / WOOD_TILE.y), dark)
-		wood.vertex(_g(a, BODY_BOTTOM), n, Vector2(0.0, 0.6 / WOOD_TILE.y), dark)
+		wood.vertex(_g(b, APRON_BOTTOM), n, Vector2(length, 0.0), dark)
+		wood.vertex(_g(b, BODY_BOTTOM), n, Vector2(length, APRON_BOTTOM - BODY_BOTTOM), dark)
+		wood.vertex(_g(a, BODY_BOTTOM), n, Vector2(0.0, APRON_BOTTOM - BODY_BOTTOM), dark)
 		wood.tri(first, first + 1, first + 2)
 		wood.tri(first, first + 2, first + 3)
 
@@ -685,70 +693,57 @@ func _add_markings(marks: Surf, dims: Dictionary) -> void:
 			marks.tri(middle, middle + 1 + i, middle + 2 + i)
 
 
-func _noise_texture(seed_value: int, frequency: float, octaves: int, size: Vector2i, ramp: Gradient,
-		normal_map: bool = false, bump: float = 1.0) -> NoiseTexture2D:
-	var noise := FastNoiseLite.new()
-	noise.seed = seed_value
-	noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
-	noise.frequency = frequency
-	noise.fractal_octaves = octaves
-	var texture := NoiseTexture2D.new()
-	texture.noise = noise
-	texture.width = size.x
-	texture.height = size.y
-	texture.seamless = true
-	texture.generate_mipmaps = true
-	if normal_map:
-		texture.as_normal_map = true
-		texture.bump_strength = bump
-	else:
-		texture.color_ramp = ramp
-	return texture
-
-
 func _cloth_material() -> StandardMaterial3D:
-	var ramp := Gradient.new()
-	ramp.set_color(0, Color(0.91, 0.92, 0.91))
-	ramp.set_color(1, Color(1.0, 1.0, 1.0))
-	var m := StandardMaterial3D.new()
+	var m := _textured("cloth/cloth", CLOTH_TILE, 0.85, 0.3)
 	m.albedo_color = CLOTH_GREEN
-	m.albedo_texture = _noise_texture(147, 0.012, 4, Vector2i(512, 512), ramp)
+	# The cushions are a shade darker than the bed through their vertex colour.
 	m.vertex_color_use_as_albedo = true
-	m.normal_enabled = true
-	m.normal_texture = _noise_texture(7, 0.09, 2, Vector2i(512, 512), null, true, 3.0)
-	m.normal_scale = 0.2
-	m.roughness = 0.93
-	m.metallic_specular = 0.22
 	# Rim light stands in for the cloth's fuzz catching the light at grazing angles.
 	m.rim_enabled = true
 	m.rim = 0.25
 	m.rim_tint = 0.6
-	m.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
 	return m
 
 
 func _wood_material() -> StandardMaterial3D:
-	var ramp := Gradient.new()
-	ramp.offsets = PackedFloat32Array([0.0, 0.45, 0.6, 1.0])
-	ramp.colors = PackedColorArray([Color(0.09, 0.04, 0.02), Color(0.17, 0.08, 0.035),
-			Color(0.22, 0.105, 0.045), Color(0.14, 0.065, 0.03)])
-	var m := StandardMaterial3D.new()
-	m.albedo_texture = _noise_texture(31, 0.02, 5, Vector2i(256, 256), ramp)
+	var m := _textured("rail/rail", RAIL_TILE, 0.6, 0.3)
+	# The body under the rails is darker through its vertex colour.
 	m.vertex_color_use_as_albedo = true
-	m.roughness = 0.42
 	m.clearcoat_enabled = true
-	m.clearcoat = 0.8
-	m.clearcoat_roughness = 0.12
-	m.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+	m.clearcoat = 1.0
+	m.clearcoat_roughness = 0.08
 	return m
 
 
 func _leather_material() -> StandardMaterial3D:
+	return _textured("leather/leather", LEATHER_TILE, 1.0, 1.0)
+
+
+## A material from <stem>_albedo, _normal and _roughness.jpg under TEXTURES, tiled every `tile`
+## metres. A map that doesn't load is logged and left out.
+func _textured(stem: String, tile: float, roughness: float, normal_scale: float) -> StandardMaterial3D:
 	var m := StandardMaterial3D.new()
-	m.albedo_color = Color(0.012, 0.01, 0.009)
-	m.roughness = 0.55
-	m.metallic_specular = 0.15
+	m.albedo_texture = _texture(stem + "_albedo.jpg")
+	var normal := _texture(stem + "_normal.jpg")
+	if normal != null:
+		m.normal_enabled = true
+		m.normal_texture = normal
+		m.normal_scale = normal_scale
+	m.roughness = roughness
+	m.roughness_texture = _texture(stem + "_roughness.jpg")
+	m.roughness_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_RED
+	m.uv1_scale = Vector3(1.0 / tile, 1.0 / tile, 1.0)
+	m.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
 	return m
+
+
+static func _texture(file: String) -> Texture2D:
+	var path := TEXTURES + file
+	var texture := load(path) as Texture2D
+	if texture == null:
+		Log.error("app", "app.error", {"kind": "message",
+				"message": "table_view: %s didn't load; the table is drawn without it" % path, "file": path})
+	return texture
 
 
 func _marking_material() -> StandardMaterial3D:

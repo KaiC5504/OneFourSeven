@@ -121,6 +121,31 @@ func test_table_is_drawn_from_the_physics_outline() -> void:
 	main.free()
 
 
+func test_the_stage_lights_and_layers_as_the_textures_readme_says() -> void:
+	var main: Node = await _spawn()
+	var camera: Camera3D = main.get_node("CameraRig/Camera3D")
+	check(camera.environment != null and camera.environment.background_mode == Environment.BG_COLOR,
+			"the camera sees the plain backdrop")
+	check_eq(camera.cull_mask & Stage.PROBE_ONLY_LAYER, 0, "and not the canopy")
+	var probe: ReflectionProbe = main.get_node("Stage/Reflections")
+	check_eq(probe.cull_mask, Stage.TABLE_LAYER | Stage.PROBE_ONLY_LAYER, "the probe captures the table and canopy only")
+	var highlight: AreaLight3D = main.get_node("Stage/BallHighlight")
+	check_eq(highlight.light_cull_mask, Stage.BALL_LAYER, "the canopy highlight lights the balls only")
+	for ball: Node in main.get_node("Balls").get_children():
+		check_eq((ball as VisualInstance3D).layers, Stage.BALL_LAYER, "%s on the balls' layer" % ball.name)
+		check_eq((ball.get_node("ContactShadow") as VisualInstance3D).layers, Stage.BALL_LAYER, "and its shadow")
+	check_eq((main.get_node("Cue/Mesh") as VisualInstance3D).layers, Stage.MOVING_LAYER, "the cue out of the probe")
+	for guide: Node in main.get_node("Guides").get_children():
+		check_eq((guide as VisualInstance3D).layers, Stage.MOVING_LAYER, "guide %s out of the probe" % guide.name)
+	var table: ArrayMesh = (main.get_node("Table/Mesh") as MeshInstance3D).mesh
+	for surface: int in [TableView.SURFACE_CLOTH, TableView.SURFACE_WOOD, TableView.SURFACE_LEATHER]:
+		var material := table.surface_get_material(surface) as StandardMaterial3D
+		check(material.albedo_texture != null and material.normal_texture != null and material.roughness_texture != null,
+				"surface %d textured" % surface)
+		check(table.surface_get_format(surface) & Mesh.ARRAY_FORMAT_TANGENT != 0, "surface %d has tangents for its normal map" % surface)
+	main.free()
+
+
 func test_shadow_range_covers_the_whole_table() -> void:
 	var main: Node = await _spawn()
 	var camera: Camera3D = main.get_node("CameraRig/Camera3D")
