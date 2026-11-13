@@ -200,7 +200,7 @@ func move_ball(index: int, xy: Vector2) -> bool:
 	var from := [ball["x"], ball["y"]]
 	if not edit_mode:
 		return _refuse_edit("move", ball["ball"], ball["index"], from, to, "not in edit mode")
-	var reason := _illegal_reason(to[0], to[1], index)
+	var reason := _illegal_reason(balls, to[0], to[1], index)
 	if not reason.is_empty():
 		return _refuse_edit("move", ball["ball"], ball["index"], from, to, reason)
 	var entry := _edit_state()
@@ -231,7 +231,7 @@ func add_ball(ball: String, xy: Vector2) -> bool:
 				return _refuse_edit("add", ball, 0, [], to, "%s is already on the table" % ball)
 	else:
 		return _refuse_edit("add", ball, 0, [], to, "unknown ball; known: red, %s" % ", ".join(COLOURS))
-	var reason := _illegal_reason(to[0], to[1], -1)
+	var reason := _illegal_reason(balls, to[0], to[1], -1)
 	if not reason.is_empty():
 		return _refuse_edit("add", ball, index, [], to, reason)
 	var entry := _edit_state()
@@ -262,7 +262,7 @@ func remove_ball(index: int) -> bool:
 ## On the cloth inside the cushion noses (|x| <= L/2 - R, |y| <= W/2 - R) and at least
 ## 2R + CLEARANCE from every other ball (ignore: that ball's position in `balls`).
 func is_legal(xy: Vector2, ignore: int = -1) -> bool:
-	return _illegal_reason(float(xy.x), float(xy.y), ignore).is_empty()
+	return _illegal_reason(balls, float(xy.x), float(xy.y), ignore).is_empty()
 
 
 ## Why a ball list can't be a table state: unknown names, missing or non-finite numbers, a
@@ -302,16 +302,16 @@ static func ball_list_problems(list: Array, cue_index: int) -> Array[String]:
 	return problems
 
 
-func _illegal_reason(x: float, y: float, ignore: int) -> String:
+static func _illegal_reason(list: Array[Dictionary], x: float, y: float, ignore: int) -> String:
 	var dims := OfsTable.dimensions()
 	var r := float(dims["ball_radius"])
 	if absf(x) > float(dims["playing_length"]) / 2.0 - r or absf(y) > float(dims["playing_width"]) / 2.0 - r:
 		return "outside the cushions"
 	var min_distance := 2.0 * r + CLEARANCE
-	for i in balls.size():
+	for i in list.size():
 		if i == ignore:
 			continue
-		var b := balls[i]
+		var b := list[i]
 		var dx := float(b["x"]) - x
 		var dy := float(b["y"]) - y
 		if dx * dx + dy * dy < min_distance * min_distance:
@@ -367,49 +367,46 @@ func _show(reason: StringName) -> void:
 
 ## Where a potted cue ball comes back: the opening cue position, else the nearest legal point
 ## on the baulk line inside the D, else the nearest inside the D.
-func _return_spot(after: Array[Dictionary], cue_at: int) -> Dictionary:
-	var saved := balls
-	balls = after
+static func _return_spot(after: Array[Dictionary], cue_at: int) -> Dictionary:
 	var home: Dictionary = _opening_layout()[0]
 	var hx := float(home["x"])
 	var hy := float(home["y"])
 	var result := {"x": hx, "y": hy, "detail": "potted; back on the opening cue position"}
-	if not _illegal_reason(hx, hy, cue_at).is_empty():
-		var spot := _nearest_on_baulk_line(hx, hy, cue_at)
+	if not _illegal_reason(after, hx, hy, cue_at).is_empty():
+		var spot := _nearest_on_baulk_line(after, hx, hy, cue_at)
 		if spot.is_empty():
-			spot = _nearest_in_d(hx, hy, cue_at)
+			spot = _nearest_in_d(after, hx, hy, cue_at)
 		if spot.is_empty():
 			result["detail"] = "potted; no legal spot in the D, so back on the opening cue position, overlapping"
 		else:
 			result["x"] = spot["x"]
 			result["y"] = spot["y"]
 			result["detail"] = "potted; opening cue position blocked, placed at [%.6f, %.6f] in the D" % [spot["x"], spot["y"]]
-	balls = saved
 	return result
 
 
-func _nearest_on_baulk_line(hx: float, hy: float, cue_at: int) -> Dictionary:
+static func _nearest_on_baulk_line(list: Array[Dictionary], hx: float, hy: float, cue_at: int) -> Dictionary:
 	var dims := OfsTable.dimensions()
 	var d_radius := float(dims["d_radius"])
 	# A little beyond CLEARANCE, so the endpoint of a blocked stretch passes the legality check.
 	var reach := 2.0 * float(dims["ball_radius"]) + 2.0 * CLEARANCE
 	var candidates: Array[float] = []
-	for i in balls.size():
+	for i in list.size():
 		if i == cue_at:
 			continue
-		var dx := float(balls[i]["x"]) - hx
+		var dx := float(list[i]["x"]) - hx
 		if absf(dx) < reach:
 			var half := sqrt(reach * reach - dx * dx)
-			candidates.append(float(balls[i]["y"]) - half)
-			candidates.append(float(balls[i]["y"]) + half)
+			candidates.append(float(list[i]["y"]) - half)
+			candidates.append(float(list[i]["y"]) + half)
 	candidates.sort_custom(func(a: float, b: float) -> bool: return absf(a - hy) < absf(b - hy))
 	for y in candidates:
-		if absf(y) <= d_radius and _illegal_reason(hx, y, cue_at).is_empty():
+		if absf(y) <= d_radius and _illegal_reason(list, hx, y, cue_at).is_empty():
 			return {"x": hx, "y": y}
 	return {}
 
 
-func _nearest_in_d(hx: float, hy: float, cue_at: int) -> Dictionary:
+static func _nearest_in_d(list: Array[Dictionary], hx: float, hy: float, cue_at: int) -> Dictionary:
 	var dims := OfsTable.dimensions()
 	var baulk_x := float(dims["baulk_line_x"])
 	var d_radius := float(dims["d_radius"])
@@ -424,7 +421,7 @@ func _nearest_in_d(hx: float, hy: float, cue_at: int) -> Dictionary:
 			if (x - baulk_x) * (x - baulk_x) + y * y > d_radius * d_radius:
 				continue
 			var d2 := (x - hx) * (x - hx) + (y - hy) * (y - hy)
-			if d2 < best_d2 and _illegal_reason(x, y, cue_at).is_empty():
+			if d2 < best_d2 and _illegal_reason(list, x, y, cue_at).is_empty():
 				best = {"x": x, "y": y}
 				best_d2 = d2
 	return best
