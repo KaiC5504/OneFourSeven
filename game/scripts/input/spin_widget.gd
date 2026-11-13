@@ -1,62 +1,49 @@
 class_name SpinWidget
 extends Control
-## The cue-ball widget (spec 8.2): tap it to enlarge, then drag the tip marker for top, screw
-## and side. The miscue limit (Physics.param("miscue_limit")) is drawn as a ring; the marker can go
-## past it, up to MAX_TIP, and such a shot miscues.
-##
-## It sizes itself through custom_minimum_size: COLLAPSED_SIZE square, or EXPANDED_SIZE wide and
-## READOUT_HEIGHT taller when expanded, plus expanded_inset. Anchor it to its corner and set
-## grow_horizontal and grow_vertical away from that corner so it expands onto the screen. The
-## expanded panel starts expanded_inset in from the left edge, so it can clear a neighbour such as
-## the elevation control; that strip is see-through and takes no input. While expanded, a press
-## anywhere outside the panel collapses it and still goes on to whatever it landed on.
+## The cue-ball widget (spec 8.2, KaiC's M2 phone session): a ball at the bottom-left, always the
+## same size, dragged on directly for top, screw and side. A press on the marker keeps it under
+## the finger; a press anywhere else on the ball puts it there; a double tap returns to centre
+## ball. The miscue limit (Physics.param("miscue_limit")) is drawn as a ring; the marker can go
+## past it, up to MAX_TIP, and such a shot miscues. A readout beside the ball, such as
+## "screw 0.40" over "left 0.20", shows while dragging or while the tip is off centre.
 
 signal tip_changed(tip: Vector2)
-signal expanded_changed(on: bool)
 
 ## Furthest tip offset the marker reaches, in ball radii.
 const MAX_TIP := 0.8
-const COLLAPSED_SIZE := 150.0
-const EXPANDED_SIZE := 420.0
-const READOUT_HEIGHT := 60.0
-const COLLAPSED_MARGIN := 8.0
-const EXPANDED_MARGIN := 34.0
-# 44 pt touch targets.
+## Canvas units, square: 90 pt on the phone.
+const SIZE := 180.0
+const MARGIN := 4.0
+# 44 pt touch target round the marker.
 const GRAB_RADIUS := 44.0
-const CLOSE_RADIUS := 44.0
-const TAP_SLOP := 20.0
-const FONT_SIZE := 26
+const MARKER_RADIUS := 11.0
+const FONT_SIZE := 24
+const READOUT_GAP := 10.0
+const READOUT_PAD := Vector2(14.0, 8.0)
+const LINE_HEIGHT := 30.0
 
 const BALL_COLOUR := Color(0.93, 0.92, 0.86)
-const PANEL_COLOUR := Color(0.05, 0.06, 0.07, 0.82)
-const CROSSHAIR_COLOUR := Color(0.0, 0.0, 0.0, 0.14)
+const BALL_SHADE := Color(0.72, 0.71, 0.66)
+const PANEL_COLOUR := Color(0.05, 0.06, 0.07, 0.78)
+const CROSSHAIR_COLOUR := Color(0.0, 0.0, 0.0, 0.16)
 const RING_COLOUR := Color(0.78, 0.2, 0.15, 0.6)
 const MARKER_COLOUR := Color(0.16, 0.36, 0.78)
 const MISCUE_COLOUR := Color(0.86, 0.22, 0.16)
 const TEXT_COLOUR := Color(0.9, 0.92, 0.9, 0.92)
 
-enum Press { NONE, EXPAND, MARKER, CLOSE }
-
 const _NO_POINTER := -100
 const _MOUSE := -2
-
-var expanded := false
-## Canvas units from the left edge to the expanded panel.
-var expanded_inset := 0.0:
-	set = set_expanded_inset
 
 var _setup: ShotSetup
 var _tip := Vector2.ZERO
 var _pointer := _NO_POINTER
-var _press := Press.NONE
-var _press_at := Vector2.ZERO
 var _grab_offset := Vector2.ZERO
 
 
 func _ready() -> void:
 	mouse_filter = MOUSE_FILTER_STOP
-	_apply_size()
-	set_process_input(expanded)
+	custom_minimum_size = Vector2(SIZE, SIZE)
+	size = custom_minimum_size
 
 
 func bind(setup: ShotSetup) -> void:
@@ -69,31 +56,17 @@ func bind(setup: ShotSetup) -> void:
 	queue_redraw()
 
 
-func expand() -> void:
-	_set_expanded(true)
-
-
-## Also ends a press in progress: the shot that collapses it may swallow the release.
-func collapse() -> void:
-	_cancel_press("collapsed")
-	_set_expanded(false)
-
-
-func set_expanded_inset(units: float) -> void:
-	units = maxf(units, 0.0)
-	if units == expanded_inset:
+## Ends a press in progress without acting on it: a shot starting, or the app losing focus, may
+## swallow the real release.
+func cancel_press(reason: String = "cancelled by the game") -> void:
+	if _pointer == _NO_POINTER:
 		return
-	expanded_inset = units
-	_apply_size()
-	queue_redraw()
+	Log.info("input", "input.cancel", {"control": "spin", "reason": reason})
+	_end_press()
 
 
-## The part of the control that draws and takes input: all of it while collapsed.
-func panel_rect() -> Rect2:
-	if expanded:
-		var inset := minf(expanded_inset, size.x)
-		return Rect2(inset, 0.0, size.x - inset, size.y)
-	return Rect2(Vector2.ZERO, size)
+func is_pressed() -> bool:
+	return _pointer != _NO_POINTER
 
 
 func current_tip() -> Vector2:
@@ -101,7 +74,7 @@ func current_tip() -> Vector2:
 
 
 ## A point in this control's local coordinates to tip offsets (x right, y up, ball radii),
-## clamped to MAX_TIP, for the current size and expanded state.
+## clamped to MAX_TIP.
 func tip_for_local(local: Vector2) -> Vector2:
 	var radius := ball_radius()
 	if radius <= 0.0:
@@ -116,28 +89,18 @@ func local_for_tip(tip: Vector2) -> Vector2:
 
 
 func ball_centre() -> Vector2:
-	if expanded:
-		var side := _ball_side()
-		return Vector2(panel_rect().get_center().x, side / 2.0)
 	return size / 2.0
 
 
 func ball_radius() -> float:
-	if expanded:
-		return maxf(_ball_side() / 2.0 - EXPANDED_MARGIN, 0.0)
-	return maxf(minf(size.x, size.y) / 2.0 - COLLAPSED_MARGIN, 0.0)
+	return maxf(minf(size.x, size.y) / 2.0 - MARGIN, 0.0)
 
 
 func miscue_ring_radius() -> float:
 	return _miscue_limit() * ball_radius()
 
 
-func close_centre() -> Vector2:
-	var side := _ball_side()
-	return Vector2(panel_rect().get_center().x + side / 2.0 - CLOSE_RADIUS, CLOSE_RADIUS)
-
-
-## The readout, such as "screw 0.40 · left 0.20".
+## The readout, such as "screw 0.40 · left 0.20"; drawn a part to a line.
 static func describe(tip: Vector2, miscue_limit: float) -> String:
 	var parts := PackedStringArray()
 	if absf(tip.y) >= 0.005:
@@ -151,6 +114,19 @@ static func describe(tip: Vector2, miscue_limit: float) -> String:
 	return " · ".join(parts)
 
 
+## Where the readout is drawn, right of the ball, in local coordinates; empty while hidden.
+func readout_rect() -> Rect2:
+	if not is_pressed() and current_tip().is_zero_approx():
+		return Rect2()
+	var font := get_theme_default_font()
+	var lines := describe(current_tip(), _miscue_limit()).split(" · ")
+	var width := 0.0
+	for line in lines:
+		width = maxf(width, font.get_string_size(line, HORIZONTAL_ALIGNMENT_LEFT, -1, FONT_SIZE).x)
+	var box := Vector2(width, lines.size() * LINE_HEIGHT) + READOUT_PAD * 2.0
+	return Rect2(Vector2(size.x + READOUT_GAP, (size.y - box.y) / 2.0), box)
+
+
 func _gui_input(event: InputEvent) -> void:
 	if event is InputEventMouse and event.device == InputEvent.DEVICE_ID_EMULATION:
 		return
@@ -158,8 +134,8 @@ func _gui_input(event: InputEvent) -> void:
 		var touch := event as InputEventScreenTouch
 		if touch.pressed:
 			_on_press(touch.index, touch.position, touch.double_tap)
-		else:
-			_on_release(touch.index, touch.position, touch.canceled)
+		elif touch.index == _pointer:
+			_end_press()
 	elif event is InputEventScreenDrag:
 		var drag := event as InputEventScreenDrag
 		_on_move(drag.index, drag.position)
@@ -169,96 +145,49 @@ func _gui_input(event: InputEvent) -> void:
 			return
 		if button.pressed:
 			_on_press(_MOUSE, button.position, button.double_click)
-		else:
-			_on_release(_MOUSE, button.position, button.canceled)
+		elif _pointer == _MOUSE:
+			_end_press()
 	elif event is InputEventMouseMotion:
 		_on_move(_MOUSE, (event as InputEventMouseMotion).position)
 
 
-# Only listens while expanded, for the press outside that collapses it.
-func _input(event: InputEvent) -> void:
-	if not expanded or not is_visible_in_tree():
-		return
-	var pressed := false
-	if event is InputEventScreenTouch:
-		pressed = (event as InputEventScreenTouch).pressed
-	elif event is InputEventMouseButton and event.device != InputEvent.DEVICE_ID_EMULATION:
-		var button := event as InputEventMouseButton
-		pressed = button.pressed and button.button_index == MOUSE_BUTTON_LEFT
-	if not pressed:
-		return
-	var local := make_input_local(event)
-	var pos: Vector2 = local.get("position")
-	if not panel_rect().has_point(pos):
-		collapse()
-
-
+# Round, so the square's corners pass touches on to the table.
 func _has_point(point: Vector2) -> bool:
-	return panel_rect().has_point(point)
+	return point.distance_to(ball_centre()) <= minf(size.x, size.y) / 2.0
 
 
 func _notification(what: int) -> void:
 	match what:
 		NOTIFICATION_VISIBILITY_CHANGED:
 			if not is_visible_in_tree():
-				_cancel_press("hidden")
+				cancel_press("hidden")
 		# A touch lifted while the app is away never reports its release.
 		NOTIFICATION_APPLICATION_FOCUS_OUT, NOTIFICATION_APPLICATION_PAUSED:
-			_cancel_press("focus lost")
+			cancel_press("focus lost")
 
 
 func _on_press(pointer: int, pos: Vector2, double: bool) -> void:
 	if _pointer != _NO_POINTER:
 		return
-	_pointer = pointer
-	_press_at = pos
-	if not expanded:
-		_press = Press.EXPAND
-		return
-	if pos.distance_to(close_centre()) <= CLOSE_RADIUS:
-		_press = Press.CLOSE
-		return
-	_press = Press.MARKER
 	if double:
-		# Back to centre ball; the rest of this touch only ends the press.
-		_press = Press.NONE
+		# Back to centre ball; the rest of this touch does nothing.
 		_apply_tip(Vector2.ZERO)
 		return
+	_pointer = pointer
 	var marker := local_for_tip(current_tip())
 	_grab_offset = marker - pos if pos.distance_to(marker) <= GRAB_RADIUS else Vector2.ZERO
 	_apply_tip(tip_for_local(pos + _grab_offset))
+	queue_redraw()
 
 
 func _on_move(pointer: int, pos: Vector2) -> void:
-	if pointer != _pointer:
-		return
-	if _press == Press.MARKER:
+	if pointer == _pointer:
 		_apply_tip(tip_for_local(pos + _grab_offset))
-
-
-func _on_release(pointer: int, pos: Vector2, canceled: bool) -> void:
-	if pointer != _pointer:
-		return
-	var press := _press
-	_end_press()
-	if canceled:
-		return
-	if press == Press.EXPAND and pos.distance_to(_press_at) <= TAP_SLOP:
-		expand()
-	elif press == Press.CLOSE and pos.distance_to(close_centre()) <= CLOSE_RADIUS:
-		collapse()
 
 
 func _end_press() -> void:
 	_pointer = _NO_POINTER
-	_press = Press.NONE
-
-
-func _cancel_press(reason: String) -> void:
-	if _pointer == _NO_POINTER:
-		return
-	Log.info("input", "input.cancel", {"control": "spin", "reason": reason})
-	_end_press()
+	queue_redraw()
 
 
 func _apply_tip(tip: Vector2) -> void:
@@ -269,28 +198,6 @@ func _apply_tip(tip: Vector2) -> void:
 		_setup.set_tip(tip.x, tip.y)
 	tip_changed.emit(tip)
 	queue_redraw()
-
-
-func _set_expanded(on: bool) -> void:
-	if expanded == on:
-		return
-	expanded = on
-	_end_press()
-	_apply_size()
-	set_process_input(on)
-	queue_redraw()
-	expanded_changed.emit(on)
-
-
-func _apply_size() -> void:
-	if expanded:
-		custom_minimum_size = Vector2(expanded_inset + EXPANDED_SIZE, EXPANDED_SIZE + READOUT_HEIGHT)
-	else:
-		custom_minimum_size = Vector2(COLLAPSED_SIZE, COLLAPSED_SIZE)
-
-
-func _ball_side() -> float:
-	return minf(panel_rect().size.x, size.y - READOUT_HEIGHT)
 
 
 func _miscue_limit() -> float:
@@ -311,30 +218,27 @@ func _draw() -> void:
 	var limit := _miscue_limit()
 	var tip := current_tip()
 	var miscue := tip.length() > limit
-	if expanded:
-		var panel := StyleBoxFlat.new()
-		panel.bg_color = PANEL_COLOUR
-		panel.set_corner_radius_all(24)
-		draw_style_box(panel, panel_rect())
-	draw_circle(centre, radius + 2.0, Color(0.0, 0.0, 0.0, 0.35))
-	draw_circle(centre, radius, BALL_COLOUR)
-	var cross := 1.5 if expanded else 1.0
-	draw_line(centre - Vector2(radius, 0.0), centre + Vector2(radius, 0.0), CROSSHAIR_COLOUR, cross, true)
-	draw_line(centre - Vector2(0.0, radius), centre + Vector2(0.0, radius), CROSSHAIR_COLOUR, cross, true)
-	draw_arc(centre, limit * radius, 0.0, TAU, 96, RING_COLOUR, 2.0 if expanded else 1.5, true)
+	draw_circle(centre, radius + 2.5, Color(0.0, 0.0, 0.0, 0.35))
+	draw_circle(centre, radius, BALL_SHADE)
+	# Lit from above-left, so it reads as a ball rather than a disc.
+	draw_circle(centre - Vector2(radius, radius) * 0.05, radius * 0.93, BALL_COLOUR)
+	draw_line(centre - Vector2(radius, 0.0), centre + Vector2(radius, 0.0), CROSSHAIR_COLOUR, 1.5, true)
+	draw_line(centre - Vector2(0.0, radius), centre + Vector2(0.0, radius), CROSSHAIR_COLOUR, 1.5, true)
+	draw_arc(centre, limit * radius, 0.0, TAU, 96, RING_COLOUR, 2.0, true)
 	var marker := local_for_tip(tip)
-	var marker_radius := 13.0 if expanded else 7.0
-	draw_circle(marker, marker_radius + 2.0, Color(1.0, 1.0, 1.0, 0.9))
-	draw_circle(marker, marker_radius, MISCUE_COLOUR if miscue else MARKER_COLOUR)
-	if not expanded:
+	draw_circle(marker, MARKER_RADIUS + 2.0, Color(1.0, 1.0, 1.0, 0.9))
+	draw_circle(marker, MARKER_RADIUS, MISCUE_COLOUR if miscue else MARKER_COLOUR)
+	var box := readout_rect()
+	if not box.has_area():
 		return
-	var close := close_centre()
-	draw_circle(close, 20.0, Color(1.0, 1.0, 1.0, 0.12))
-	var arm := 8.0
-	draw_line(close + Vector2(-arm, -arm), close + Vector2(arm, arm), TEXT_COLOUR, 3.0, true)
-	draw_line(close + Vector2(-arm, arm), close + Vector2(arm, -arm), TEXT_COLOUR, 3.0, true)
+	var panel := StyleBoxFlat.new()
+	panel.bg_color = PANEL_COLOUR
+	panel.set_corner_radius_all(14)
+	draw_style_box(panel, box)
 	var font := get_theme_default_font()
-	var baseline := _ball_side() + (READOUT_HEIGHT + FONT_SIZE * 0.7) / 2.0 - 6.0
-	var readout := panel_rect()
-	draw_string(font, Vector2(readout.position.x, baseline), describe(tip, limit), HORIZONTAL_ALIGNMENT_CENTER,
-			readout.size.x, FONT_SIZE, MISCUE_COLOUR.lightened(0.25) if miscue else TEXT_COLOUR)
+	var colour := MISCUE_COLOUR.lightened(0.25) if miscue else TEXT_COLOUR
+	var lines := describe(tip, limit).split(" · ")
+	for i in lines.size():
+		var baseline := box.position.y + READOUT_PAD.y + LINE_HEIGHT * i + (LINE_HEIGHT + FONT_SIZE * 0.7) / 2.0
+		draw_string(font, Vector2(box.position.x + READOUT_PAD.x, baseline), lines[i], HORIZONTAL_ALIGNMENT_LEFT,
+				-1, FONT_SIZE, colour)

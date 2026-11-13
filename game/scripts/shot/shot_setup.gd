@@ -9,9 +9,11 @@ extends RefCounted
 ## &"aim", &"tip", &"elevation", &"elevation_min", &"speed", &"mode" or &"reset".
 signal changed(what: StringName)
 
+## Push: pull back, push forward and release; the push speed sets the pace (spec 8.3).
 const STROKE := "stroke"
-const POWER_BAR := "power_bar"
-## Guide level 3's pace in stroke mode before the session's first stroke (spec 8.4).
+## Pull and release: the pull sets the power and the release fires (KaiC, M2 phone session).
+const PULL := "pull"
+## Guide level 3's pace before the session's first shot (spec 8.4).
 const DEFAULT_PACE_M_S := 1.5
 ## Keeps shot.input well under the logger's 10,000-value cap after a long fine-tune session.
 const MAX_FINE_TUNE_SAMPLES := 400
@@ -23,15 +25,18 @@ var tip_y := 0.0
 var elevation_rad := 0.0
 ## The obstruction's minimum for the current aim and tip; the integrator keeps it current.
 var elevation_min_rad := 0.0
-## The next strike's cue speed: from the power bar, or from the stroke at release.
+## The next strike's cue speed: set at the release of a push or a pull.
 var speed_m_s := 0.0
-## The power bar's position, 0 to 1.
+## The pull's power, 0 to 1: live while pulling, then the last one set (Space replays it).
 var power := 0.0
 var strike_mode := STROKE
+## True while a pull is past its threshold; guide level 3 then uses the pull's speed.
+var pulling := false
+## The last shot's speed, whichever way it was struck.
 var last_stroke_speed_m_s := 0.0
-## Raw input for shot.input (spec 16.10): [t_s, x, y] in the stroke area's canvas units for the
-## latest stroke only, and [t_s, delta_rad] for the last MAX_FINE_TUNE_SAMPLES fine-tune steps.
-## t_s is the control's clock.
+## Raw input for shot.input (spec 16.10): [t_s, x, y] in the cue strip's canvas units for the
+## latest press on it only (the push stroke, or the pull), and [t_s, delta_rad] for the last
+## MAX_FINE_TUNE_SAMPLES fine-tune steps. t_s is the control's clock.
 var stroke_samples: Array[PackedFloat64Array] = []
 var fine_tune_samples: Array[PackedFloat64Array] = []
 ## Aim error added by the stroke-wander setting at release (spec 8.3), included in to_strike().
@@ -80,14 +85,27 @@ func set_speed(m_s: float, bar_power: float = -1.0) -> void:
 	changed.emit(&"speed")
 
 
+## A pull in progress at power 0-1 and the speed it would strike at.
+func set_pull(pull_power: float, m_s: float) -> void:
+	pulling = true
+	set_speed(m_s, pull_power)
+
+
+## The pull is over: released at, or cancelled back to, this power and speed.
+func end_pull(pull_power: float, m_s: float) -> void:
+	pulling = false
+	set_speed(m_s, pull_power)
+
+
 func set_strike_mode(mode: String) -> void:
 	strike_mode = mode
+	pulling = false
 	changed.emit(&"mode")
 
 
-## The pace guide level 3 assumes (spec 8.4).
+## The pace guide level 3 assumes (spec 8.4): a pull's while pulling, else the last shot's.
 func guide_pace_m_s() -> float:
-	if strike_mode == POWER_BAR:
+	if strike_mode == PULL and pulling:
 		return speed_m_s
 	return last_stroke_speed_m_s if last_stroke_speed_m_s > 0.0 else DEFAULT_PACE_M_S
 
@@ -135,14 +153,16 @@ func restore(snap: Dictionary) -> void:
 	speed_m_s = float(snap.get("speed_m_s", speed_m_s))
 	power = float(snap.get("power", power))
 	strike_mode = String(snap.get("strike_mode", strike_mode))
+	pulling = false
 	changed.emit(&"reset")
 
 
 ## After a strike: the samples start over; spin and elevation go back to centre ball and the
 ## minimum when reset_spin is on (spec 8.2).
 func after_shot(reset_spin: bool) -> void:
-	if strike_mode == STROKE and speed_m_s > 0.0:
+	if speed_m_s > 0.0:
 		last_stroke_speed_m_s = speed_m_s
+	pulling = false
 	stroke_samples.clear()
 	fine_tune_samples.clear()
 	wander_rad = 0.0

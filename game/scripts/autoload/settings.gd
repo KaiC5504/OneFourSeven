@@ -5,7 +5,10 @@ signal changed(key: String, value: Variant)
 
 const PATH := "user://settings.json"
 const VERSION := 1
-const STRIKE_MODES: Array[String] = ["stroke", "power_bar"]
+## "stroke" is Push, "pull" is Pull and release.
+const STRIKE_MODES: Array[String] = ["stroke", "pull"]
+## Values earlier builds saved, read as their replacement: the power bar gave way to the pull.
+const MIGRATED := {"strike_mode": {"power_bar": "pull"}}
 const DEFAULTS := {
 	"strike_mode": "stroke",
 	"guide_level": 1,
@@ -95,17 +98,27 @@ func load_settings() -> void:
 	else:
 		problems.append("version missing or not a whole number; read as version %d" % VERSION)
 	var values: Dictionary = (root as Dictionary)["values"]
+	var migrated := false
 	for raw_key: Variant in values:
 		var key := str(raw_key)
 		if not DEFAULTS.has(key):
 			problems.append("unknown key %s dropped" % key)
 			continue
-		var reason := refusal(key, values[raw_key])
+		var value: Variant = values[raw_key]
+		var renames: Dictionary = MIGRATED.get(key, {})
+		if (value is String or value is StringName) and renames.has(String(value)):
+			problems.append("%s %s migrated to %s" % [key, JSON.stringify(String(value)), JSON.stringify(renames[String(value)])])
+			value = renames[String(value)]
+			migrated = true
+		var reason := refusal(key, value)
 		if not reason.is_empty():
 			problems.append("%s: %s; using the default %s" % [key, reason, JSON.stringify(DEFAULTS[key])])
 			continue
-		_values[key] = normalised(key, values[raw_key])
+		_values[key] = normalised(key, value)
 	_log_loaded(version, problems)
+	# Saved at once, so the migration happens, and is logged, only once.
+	if migrated:
+		_save()
 
 
 ## Why `value` can't be stored under `key`, or "" when it can.

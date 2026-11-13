@@ -1,13 +1,14 @@
 class_name FineTuneWheel
 extends Control
-## The fine-tune thumb wheel on the right screen edge (spec 8.1). Every PX_PER_STEP canvas units
+## The fine-tune thumb wheel (spec 8.1), slim, beside the power cue. Every PX_PER_STEP canvas units
 ## of vertical drag, divided by Settings "fine_tune_sensitivity", turn the aim one STEP_DEG step:
 ## dragging up turns the aim anticlockwise seen from above (to the player's left, +aim_rad). Each
 ## change is recorded with ShotSetup.add_fine_tune_sample.
 ##
 ## Touch, a left mouse drag, or the mouse wheel over it (one step per notch). The ridges move with
-## the finger, not by whole steps, so it turns like a wheel; the readout above shows the aim to
-## 0.01 degrees. It redraws only when it turns, the aim changes or it is pressed or released.
+## the finger, not by whole steps, so it turns like a wheel; while it is held a readout beside it
+## shows the aim to 0.01 degrees. It redraws only when it turns, the aim changes or it is pressed
+## or released.
 
 ## steps: signed, + is up; for haptic ticks.
 signal stepped(steps: int)
@@ -15,16 +16,18 @@ signal stepped(steps: int)
 const STEP_DEG := 0.01
 const PX_PER_STEP := 6.0
 
-## 60 x 190 pt on the phone: wider than the 44 pt touch target, tall enough for long turns.
-const MIN_SIZE := Vector2(120.0, 380.0)
-const READOUT_HEIGHT := 46.0
-const READOUT_FONT_SIZE := 22
-const WHEEL_MARGIN := 14.0
+## 44 x 160 pt on the phone: the touch target's width, tall enough for long turns.
+const MIN_SIZE := Vector2(88.0, 320.0)
+const READOUT_SIZE := Vector2(120.0, 46.0)
+const READOUT_GAP := 12.0
+const READOUT_FONT_SIZE := 24
+const WHEEL_MARGIN := 10.0
 ## Surface distance between ridges at the wheel's centre line.
 const RIDGE_SPACING := 12.0
 const SHADING_BANDS := 24
 
 const PANEL_COLOUR := Color(0.04, 0.05, 0.055, 0.55)
+const READOUT_COLOUR := Color(0.05, 0.06, 0.07, 0.78)
 const WHEEL_DARK := Color(0.09, 0.1, 0.11)
 const WHEEL_LIGHT := Color(0.42, 0.44, 0.46)
 const RIDGE_COLOUR := Color(0.02, 0.02, 0.025, 0.85)
@@ -192,22 +195,27 @@ func _on_setup_changed(what: StringName) -> void:
 
 func _draw() -> void:
 	draw_style_box(_panel, Rect2(Vector2.ZERO, size))
-	_draw_readout()
-	var body := Rect2(WHEEL_MARGIN, READOUT_HEIGHT, size.x - WHEEL_MARGIN * 2.0,
-			size.y - READOUT_HEIGHT - WHEEL_MARGIN)
+	var body := Rect2(WHEEL_MARGIN, WHEEL_MARGIN, size.x - WHEEL_MARGIN * 2.0, size.y - WHEEL_MARGIN * 2.0)
 	if body.size.x <= 0.0 or body.size.y <= 0.0:
 		return
 	_draw_wheel(body)
+	if is_pressed():
+		_draw_readout()
 
 
+## Left of the wheel, level with its middle, where the thumb doesn't cover it.
 func _draw_readout() -> void:
+	var box := Rect2(Vector2(-READOUT_GAP - READOUT_SIZE.x, (size.y - READOUT_SIZE.y) / 2.0), READOUT_SIZE)
+	var back := StyleBoxFlat.new()
+	back.bg_color = READOUT_COLOUR
+	back.set_corner_radius_all(14)
+	draw_style_box(back, box)
 	var font := get_theme_default_font()
 	var aim_deg := rad_to_deg(_setup.aim_rad) if _setup != null else 0.0
 	var text := "%.2f°" % aim_deg
-	var width := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, READOUT_FONT_SIZE).x
-	var baseline := (READOUT_HEIGHT + font.get_ascent(READOUT_FONT_SIZE) - font.get_descent(READOUT_FONT_SIZE)) / 2.0
-	draw_string(font, Vector2((size.x - width) / 2.0, baseline), text, HORIZONTAL_ALIGNMENT_LEFT,
-			-1, READOUT_FONT_SIZE, TEXT_COLOUR)
+	var baseline := box.position.y + (box.size.y + font.get_ascent(READOUT_FONT_SIZE) - font.get_descent(READOUT_FONT_SIZE)) / 2.0
+	draw_string(font, Vector2(box.position.x, baseline), text, HORIZONTAL_ALIGNMENT_CENTER, box.size.x,
+			READOUT_FONT_SIZE, TEXT_COLOUR)
 
 
 ## A cylinder seen side-on: shading and ridge spacing follow the cosine of the angle round it.

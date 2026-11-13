@@ -4,7 +4,7 @@ extends TestCase
 
 const R := 0.02625
 const SNAP_A := {"aim_rad": 0.123456789012345678, "tip_x": -0.3, "tip_y": 0.25, "elevation_rad": 0.0872664625997165,
-		"speed_m_s": 2.718281828459045, "power": 0.4, "strike_mode": "power_bar"}
+		"speed_m_s": 2.718281828459045, "power": 0.4, "strike_mode": "pull"}
 const SNAP_B := {"aim_rad": -2.9, "tip_x": 0.1, "tip_y": -0.45, "elevation_rad": 0.0, "speed_m_s": 1.1,
 		"power": 0.0, "strike_mode": "stroke"}
 

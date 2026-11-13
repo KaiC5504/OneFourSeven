@@ -1,5 +1,7 @@
 extends TestCase
-## The controls checked against the spec (8.1-8.3, 8.8, 15).
+## The controls checked against the spec (8.1-8.3, 8.8, 15), with KaiC's M2 phone-session decisions
+## where they replace it: the spin ball adjusted directly with no enlarge step, and the strike
+## modes Push (the finger stroke) and Pull and release in place of the power bar.
 ## Controls are driven through Gestures.feed(), _gui_input() and their injectable clocks, with
 ## real-mouse events (device 0), the Windows path. Settings a test changes are put back.
 
@@ -275,22 +277,26 @@ func _make_spin(setup: ShotSetup) -> SpinWidget:
 	return spin
 
 
-func test_spin_tap_enlarges_the_widget() -> void:
-	# spec 8.2: tap it to enlarge
+func test_spin_is_set_directly_on_the_ball() -> void:
+	# spec 8.2 had "tap it to enlarge, then drag"; KaiC (M2 phone session): one ball, adjusted
+	# directly by dragging on it, no tap-to-enlarge step.
 	var setup := ShotSetup.new()
 	var spin := _make_spin(setup)
-	spin.expanded = false
-	var centre := spin.size * 0.5
-	_gui(spin, _button(MOUSE_BUTTON_LEFT, true, centre))
-	_gui(spin, _button(MOUSE_BUTTON_LEFT, false, centre))
-	check(spin.expanded, "a tap enlarges the widget")
+	var size := spin.size
+	var centre := spin.ball_centre()
+	var r := spin.ball_radius()
+	_gui(spin, _button(MOUSE_BUTTON_LEFT, true, centre + Vector2(0.0, r * 0.6)))
+	check_near(setup.tip_y, -0.6, 1e-4, "the first press sets screw")
+	_gui(spin, _motion(centre + Vector2(r * 0.3, r * 0.6), Vector2(r * 0.3, 0.0), MOUSE_BUTTON_MASK_LEFT))
+	_gui(spin, _button(MOUSE_BUTTON_LEFT, false, centre + Vector2(r * 0.3, r * 0.6)))
+	check_near(setup.tip_x, 0.3, 1e-4, "dragging adds side")
+	check_eq(spin.size, size, "the widget never changes size")
 	_free_all()
 
 
 func test_spin_tip_for_local_is_clamped_to_max_tip() -> void:
 	# spec 8.2 and contract: x right, y up, ball radii, clamped to MAX_TIP
 	var spin := _make_spin(ShotSetup.new())
-	spin.expanded = true
 	var centre := spin.size * 0.5
 	var right := spin.tip_for_local(centre + Vector2(1.0e5, 0.0))
 	check_near(right.x, SpinWidget.MAX_TIP, 1e-3, "far right: tip x")
@@ -310,7 +316,6 @@ func test_spin_marker_goes_past_the_miscue_ring_up_to_max_tip() -> void:
 	check(limit < SpinWidget.MAX_TIP, "the miscue ring (%f) lies inside MAX_TIP" % limit)
 	var setup := ShotSetup.new()
 	var spin := _make_spin(setup)
-	spin.expanded = true
 	var pos := spin.size * 0.5
 	_gui(spin, _button(MOUSE_BUTTON_LEFT, true, pos))
 	for _i: int in 10:
@@ -498,20 +503,23 @@ func test_stroke_curve_is_monotonic_and_finer_at_the_low_end() -> void:
 	check(low < high, "slope at 10%% (%f) below slope at 90%% (%f)" % [low, high])
 
 
-func test_power_bar_curve_is_monotonic_and_finer_at_the_low_end() -> void:
-	# spec 8.3: a slider with a non-linear scale for fine low-power control
+func test_pull_curve_is_monotonic_and_finer_at_the_low_end() -> void:
+	# spec 8.3 asked the power bar for a non-linear scale with fine low-power control; the pull that
+	# replaced it (KaiC, M2 phone session) keeps that curve over the pull's length.
 	var max_speed := 10.0
-	check_eq(PowerBar.speed_for_power(0.0, max_speed), 0.0, "0 at 0")
-	check_near(PowerBar.speed_for_power(1.0, max_speed), max_speed, 1e-9, "max at full power")
+	var full := PullControl.FULL_PULL
+	var speed_at := func(units: float) -> float: return PullControl.speed_for_power(PullControl.power_for_pull(units), max_speed)
+	check_eq(speed_at.call(0.0), 0.0, "0 at no pull")
+	check_near(speed_at.call(full), max_speed, 1e-9, "max at the full pull")
 	var previous := 0.0
 	for i: int in 201:
-		var speed := PowerBar.speed_for_power(i / 200.0, max_speed)
+		var speed: float = speed_at.call(full * i / 200.0)
 		check(speed >= previous - 1e-12, "monotonic at %d/200" % i)
 		previous = speed
-	var low := PowerBar.speed_for_power(0.11, max_speed) - PowerBar.speed_for_power(0.09, max_speed)
-	var high := PowerBar.speed_for_power(0.91, max_speed) - PowerBar.speed_for_power(0.89, max_speed)
+	var low: float = speed_at.call(0.11 * full) - speed_at.call(0.09 * full)
+	var high: float = speed_at.call(0.91 * full) - speed_at.call(0.89 * full)
 	check(low < high, "slope at 10%% (%f) below slope at 90%% (%f)" % [low, high])
-	check(PowerBar.speed_for_power(0.5, max_speed) < 0.5 * max_speed, "half power is under half speed")
+	check(speed_at.call(0.5 * full) < 0.5 * max_speed, "half the pull is under half speed")
 
 
 func test_stroke_wander_is_off_by_default_and_adds_no_aim_error() -> void:
@@ -658,7 +666,7 @@ func test_emulated_mouse_events_give_nothing() -> void:
 
 
 func test_settings_defaults() -> void:
-	# spec 15 defaults: finger stroke, spin and elevation reset, guide level 1
+	# spec 15 defaults: finger stroke (Push), spin and elevation reset, guide level 1
 	var d: Dictionary = Settings.DEFAULTS
 	for key: String in ["strike_mode", "guide_level", "fine_tune_sensitivity", "aim_sensitivity", "stroke_wander", "reset_spin_after_shot", "volume", "haptics"]:
 		check(d.has(key), "setting %s exists" % key)
@@ -668,13 +676,14 @@ func test_settings_defaults() -> void:
 	check_eq(d.get("reset_spin_after_shot"), true, "spin and elevation reset after each shot")
 	check_eq(d.get("stroke_wander"), false, "stroke wander off (spec 8.3)")
 	check_eq(d.get("haptics"), true, "haptics on")
-	check(Settings.STRIKE_MODES.has(ShotSetup.STROKE) and Settings.STRIKE_MODES.has(ShotSetup.POWER_BAR), "both strike modes")
+	check_eq(Settings.STRIKE_MODES, [ShotSetup.STROKE, ShotSetup.PULL] as Array[String], "Push and Pull and release (KaiC, M2)")
 	check_eq(ShotSetup.new().strike_mode, ShotSetup.STROKE, "a new setup strikes by finger stroke")
 
 
 func test_settings_refuse_values_outside_the_spec() -> void:
-	# spec 15: guide lines 0-3; strike mode finger stroke or power bar
-	for bad: Array in [["guide_level", 4], ["guide_level", -1], ["strike_mode", "laser"], ["no_such_setting", 1]]:
+	# spec 15: guide lines 0-3; strike mode Push or Pull (the power bar is gone, KaiC M2)
+	for bad: Array in [["guide_level", 4], ["guide_level", -1], ["strike_mode", "laser"], ["strike_mode", "power_bar"],
+			["no_such_setting", 1]]:
 		var key: String = bad[0]
 		var old: Variant = Settings.get_value(key)
 		var accepted := Settings.set_value(key, bad[1])

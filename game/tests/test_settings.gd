@@ -27,7 +27,7 @@ func test_defaults_without_a_file() -> void:
 func test_set_value_validates_each_key() -> void:
 	var store := _store()
 	var good := {
-		"strike_mode": "power_bar", "guide_level": 3, "aim_sensitivity": 0.25,
+		"strike_mode": "pull", "guide_level": 3, "aim_sensitivity": 0.25,
 		"fine_tune_sensitivity": 4.0, "stroke_wander": true, "reset_spin_after_shot": false,
 		"volume": 0.0, "haptics": false,
 	}
@@ -35,7 +35,7 @@ func test_set_value_validates_each_key() -> void:
 		check(store.set_value(key, good[key]), "%s accepts %s" % [key, str(good[key])])
 		check_eq(store.get_value(key), good[key], key)
 	var bad := [
-		["strike_mode", "mouse"], ["strike_mode", 1], ["guide_level", 4], ["guide_level", -1],
+		["strike_mode", "mouse"], ["strike_mode", "power_bar"], ["strike_mode", 1], ["guide_level", 4], ["guide_level", -1],
 		["guide_level", 1.5], ["guide_level", "2"], ["aim_sensitivity", 0.2], ["aim_sensitivity", 4.01],
 		["fine_tune_sensitivity", NAN], ["fine_tune_sensitivity", "1"], ["stroke_wander", 1],
 		["reset_spin_after_shot", "true"], ["volume", 1.5], ["volume", -0.1], ["haptics", null],
@@ -82,7 +82,7 @@ func test_set_value_normalises_logs_emits_and_saves() -> void:
 
 func test_round_trip_through_the_file() -> void:
 	var store := _store()
-	store.set_value("strike_mode", "power_bar")
+	store.set_value("strike_mode", "pull")
 	store.set_value("guide_level", 3)
 	store.set_value("aim_sensitivity", 1.75)
 	store.set_value("haptics", false)
@@ -122,6 +122,31 @@ func test_bad_values_in_the_file_take_defaults() -> void:
 		check_eq(loaded[0]["level"], "warn", "warn when values were refused")
 		check_eq((loaded[0]["data"]["problems"] as Array).size(), 4, "four problems: " + str(loaded[0]["data"]["problems"]))
 		_check_values(loaded[0]["data"], store.all(), "the values in effect, defaults for the refused ones")
+	_cleanup(store)
+
+
+func test_a_saved_power_bar_becomes_the_pull() -> void:
+	# The power bar gave way to Pull and release (KaiC's M2 phone session).
+	var store := _store()
+	_write(store.path, JSON.stringify({"version": 1, "values": {"strike_mode": "power_bar", "guide_level": 2}}))
+	_mark_log()
+	store.load_settings()
+	check_eq(store.get_value("strike_mode"), "pull", "power_bar read as pull")
+	check_eq(store.get_value("guide_level"), 2, "the rest as saved")
+	var loaded := _logged("settings.loaded")
+	check_eq(loaded.size(), 1, "settings.loaded once")
+	if not loaded.is_empty():
+		var problems: Array = loaded[0]["data"]["problems"]
+		check_eq(problems.size(), 1, "one problem: %s" % [problems])
+		check(problems.size() == 1 and String(problems[0]).contains("migrated") and String(problems[0]).contains("power_bar"),
+				"the migration named: %s" % [problems])
+		_check_values(loaded[0]["data"], store.all(), "the values in effect")
+	var saved: Variant = JSON.parse_string(FileAccess.get_file_as_string(store.path))
+	check(saved is Dictionary and (saved as Dictionary)["values"]["strike_mode"] == "pull", "saved as pull at once")
+	_mark_log()
+	store.load_settings()
+	loaded = _logged("settings.loaded")
+	check(loaded.size() == 1 and (loaded[0]["data"]["problems"] as Array).is_empty(), "so it migrates only once")
 	_cleanup(store)
 
 

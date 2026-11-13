@@ -1,33 +1,14 @@
-extends Label
-## The "PC link" status line, top-left inside the display's safe area, and the safe-area helpers
-## and layout the free table's controls use.
+extends RefCounted
+## The free table's layout (spec 8.9, KaiC's M2 phone session: the table is the screen) and the
+## safe-area helpers it uses.
 
-const MARGIN := Vector2(16.0, 10.0)
-# Canvas units. The canvas is 880 tall, so on the 1320 px phone screen this is 36 px, 12 pt.
-const FONT_SIZE := 24
-# Apple's smallest legible text size.
-const MIN_POINTS := 11.0
-# iOS can report the safe area late and changes it on rotation without a resize, so it is
-# re-read on a timer as well as on size and resume notifications.
-const SAFE_AREA_POLL_SECONDS := 1.0
-## The free table's layout, canvas units: from the safe edge, and between neighbours.
+## Canvas units: from the safe edge, and between neighbours.
 const EDGE := 16.0
 const GAP := 12.0
-const WHEEL_SIZE := Vector2(120.0, 380.0)
-## A track of about 260 units under the readout, fine enough for small elevations.
-const ELEVATION_HEIGHT := 380.0
-const STROKE_WIDTH := 200.0
-const POWER_WIDTH := 160.0
-const STATUS_TEXT := {
-	"off": "off",
-	"searching": "searching…",
-	"connected": "connected",
-	"lost": "lost",
-}
-
-
-static func text_for(status: String) -> String:
-	return "PC link: " + String(STATUS_TEXT.get(status, status))
+## Its track is about 218 units, fine enough for small elevations.
+const ELEVATION_HEIGHT := 300.0
+const CUE_WIDTH := 120.0
+const WHEEL_SIZE := Vector2(88.0, 340.0)
 
 
 ## The safe area's top-left corner in canvas units. The safe area is in screen pixels and
@@ -45,80 +26,29 @@ static func safe_rect(safe_area: Rect2, window_rect: Rect2, canvas_size: Vector2
 	return Rect2((inside.position - window_rect.position) * scale, inside.size * scale)
 
 
-## Where the free table's controls go (spec 8.9) inside `safe` (canvas units), the table left
-## clear in the middle. FreeTableBar centres itself on the left edge ("bar", from its size). The
-## right thumb's column has the fine-tune wheel at the edge, low, where a thumb wheel sits on a
-## real device, the elevation control above it, and the stroke area inside them, full height,
-## where the thumb's pad pushes straight up without curling; the power bar takes the stroke area's
-## place. The spin widget grows up and right from its corner ("spin_corner") at the bottom beside
-## the bar. Only the collapsed spin widget sits on the left, below the baulk balls at the opening
-## view: a tall control there would cover the green, which on the phone sits against the bar. The
-## edit palette goes along the bottom between the bar and the right edge ("bottom"). canvas, when
-## given, lets the spin widget use the margin the phone's home indicator already leaves below the
-## safe area, which keeps it below the green there.
+## Where the free table's controls go inside `safe` (canvas units), every one at an edge and the
+## table clear in the middle:
+## - "bar": FreeTableBar's row (`bar_size`) at the top-left;
+## - "spin": the spin ball at the bottom-left, and "elevation" right above it, as wide: the left
+##   thumb sets where the tip meets the ball and how steep the cue is, the bridge hand's work;
+## - "cue": the power cue, the full usable height of the right edge, for the right thumb, which
+##   pushes or pulls straight down the strip without curling;
+## - "wheel": the fine-tune wheel beside the cue, low, where the right thumb rests, so a last
+##   nudge of the aim runs straight into the stroke;
+## - "bottom": edit mode's row, along the bottom (the shot controls are hidden then).
+## canvas, when given, lets the bottom controls use the margin the phone's home indicator leaves
+## below the safe area, which keeps the spin ball below the green at the opening view.
 static func layout(safe: Rect2, bar_size: Vector2, canvas := Vector2.ZERO) -> Dictionary:
-	var bar := Rect2(Vector2(safe.position.x + FreeTableBar.EDGE_MARGIN,
-			safe.get_center().y - bar_size.y / 2.0).round(), bar_size)
-	var wheel := Rect2(Vector2(safe.end.x - EDGE - WHEEL_SIZE.x, safe.end.y - EDGE - WHEEL_SIZE.y).round(), WHEEL_SIZE)
 	var top := safe.position.y + EDGE
-	var elevation := Rect2(Vector2(wheel.position.x, top).round(), Vector2(ElevationControl.MIN_SIZE.x,
-			clampf(wheel.position.y - GAP - top, ElevationControl.MIN_SIZE.y, ELEVATION_HEIGHT)).round())
-	var stroke := Rect2(Vector2(wheel.position.x - GAP - STROKE_WIDTH, safe.position.y + EDGE).round(),
-			Vector2(STROKE_WIDTH, safe.size.y - 2.0 * EDGE).round())
-	var power := Rect2(stroke.position + Vector2((STROKE_WIDTH - POWER_WIDTH) / 2.0, 0.0),
-			Vector2(POWER_WIDTH, stroke.size.y))
 	var below_safe := maxf(canvas.y - safe.end.y, 0.0)
-	var spin_corner := Vector2(bar.end.x + GAP, safe.end.y - maxf(EDGE - below_safe, 0.0)).round()
-	var bottom := Rect2(Vector2(bar.end.x + GAP, safe.position.y + EDGE),
-			Vector2(safe.end.x - EDGE - bar.end.x - GAP, safe.size.y - 2.0 * EDGE))
-	return {"bar": bar, "wheel": wheel, "stroke": stroke, "power": power, "spin_corner": spin_corner,
-			"elevation": elevation, "bottom": bottom}
-
-
-## Font size in canvas units: FONT_SIZE, or more if that would come out under MIN_POINTS.
-## screen_scale is pixels per point, canvas_scale pixels per canvas unit.
-static func font_size_for(screen_scale: float, canvas_scale: float) -> int:
-	return maxi(FONT_SIZE, ceili(MIN_POINTS * maxf(screen_scale, 1.0) / maxf(canvas_scale, 0.01)))
-
-
-func _ready() -> void:
-	add_theme_color_override("font_color", Color(0.86, 0.88, 0.86, 0.8))
-	add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.0, 0.6))
-	text = text_for(Link.get_status())
-	Link.status_changed.connect(_on_status_changed)
-	get_viewport().size_changed.connect(_place)
-	var poll := Timer.new()
-	poll.wait_time = SAFE_AREA_POLL_SECONDS
-	poll.timeout.connect(_place)
-	add_child(poll)
-	poll.start()
-	_place()
-
-
-func _notification(what: int) -> void:
-	if what == NOTIFICATION_APPLICATION_RESUMED or what == NOTIFICATION_APPLICATION_FOCUS_IN:
-		_place()
-
-
-func _on_status_changed(status: String) -> void:
-	text = text_for(status)
-
-
-func _place() -> void:
-	if not is_inside_tree():
-		return
-	var window := get_window()
-	place_in(Rect2(DisplayServer.get_display_safe_area()), Rect2(Vector2(window.position), Vector2(window.size)),
-			get_viewport_rect().size, DisplayServer.screen_get_scale())
-
-
-## Sets position and font size for a safe area and window in screen pixels and the canvas
-## size in canvas units. Writes only what changed, so a steady poll never makes
-## low-processor mode redraw.
-func place_in(safe_area: Rect2, window_rect: Rect2, canvas_size: Vector2, screen_scale: float) -> void:
-	var font_size := font_size_for(screen_scale, window_rect.size.y / maxf(canvas_size.y, 1.0))
-	if get_theme_font_size("font_size") != font_size:
-		add_theme_font_size_override("font_size", font_size)
-	var origin := safe_origin(safe_area, window_rect, canvas_size) + MARGIN
-	if position != origin:
-		position = origin
+	var bottom := safe.end.y - maxf(EDGE - below_safe, 0.0)
+	var bar := Rect2((safe.position + Vector2(EDGE, EDGE)).round(), bar_size)
+	var side := SpinWidget.SIZE
+	var spin := Rect2(Vector2(safe.position.x + EDGE, bottom - side).round(), Vector2(side, side))
+	var elevation_top := maxf(bar.end.y + GAP, spin.position.y - GAP - ELEVATION_HEIGHT)
+	var elevation := Rect2(Vector2(spin.position.x, elevation_top).round(),
+			Vector2(side, spin.position.y - GAP - elevation_top).round())
+	var cue := Rect2(Vector2(safe.end.x - EDGE - CUE_WIDTH, top).round(), Vector2(CUE_WIDTH, bottom - top).round())
+	var wheel := Rect2(Vector2(cue.position.x - GAP - WHEEL_SIZE.x, bottom - WHEEL_SIZE.y).round(), WHEEL_SIZE)
+	var edit_row := Rect2(Vector2(safe.position.x + EDGE, top), Vector2(safe.size.x - 2.0 * EDGE, bottom - top))
+	return {"bar": bar, "spin": spin, "elevation": elevation, "cue": cue, "wheel": wheel, "bottom": edit_row}

@@ -1,7 +1,7 @@
 extends TestCase
 ## The free table end to end on the real scene (spec 16.3): scripted touches and keys pushed into
 ## the viewport, the shot logged, simulated, played and kept in the history; edit mode, live
-## parameters, the power bar, a refused shot and the harness's hooks.
+## parameters, Push and Pull and release, a refused shot and the harness's hooks.
 
 const MainScript := preload("res://scripts/main.gd")
 const SCHEMA_PATH := "res://data/log_schema.json"
@@ -12,6 +12,7 @@ const AIM_DRAG := 100
 const FINE_TUNE_STEPS := 30
 ## A point on the table clear of every control at the default window size.
 const TABLE_POINT := Vector2(960.0, 300.0)
+const PULL_UNITS := 312.0
 
 var _log_start := 0
 var _t := [0.0]
@@ -164,7 +165,7 @@ func test_edit_mode_moves_adds_and_removes_balls() -> void:
 	check(table.edit_mode, "Edit turns edit mode on")
 	check(not aim.enabled, "no aiming while editing")
 	check(palette.visible, "the palette shows")
-	check(not (main.get_node("Hud/StrokeArea") as Control).visible, "the shot controls step aside")
+	check(not (main.get_node("Hud/StrokeCue") as Control).visible, "the shot controls step aside")
 	check(not (main.get_node("Cue") as Node3D).visible, "and the cue")
 
 	var blue := _find(table, "blue")
@@ -223,7 +224,7 @@ func test_edit_mode_moves_adds_and_removes_balls() -> void:
 	check(not table.edit_mode, "Edit again turns it off")
 	check(aim.enabled, "aiming again")
 	check(not palette.visible, "the palette goes")
-	check((main.get_node("Hud/StrokeArea") as Control).visible, "the shot controls come back")
+	check((main.get_node("Hud/StrokeCue") as Control).visible, "the shot controls come back")
 	_finish(main)
 
 
@@ -261,30 +262,40 @@ func test_parameters_from_the_pc_apply_at_the_next_shot() -> void:
 	_finish(main)
 
 
-func test_power_bar_shoot_and_space() -> void:
+func test_pull_and_release_plays_a_shot_and_space_repeats_it() -> void:
+	# spec 16.3: a scripted pull of PULL_UNITS and release strikes at its speed within 1%.
 	var main: MainScript = await _spawn()
-	Settings.set_value("strike_mode", "power_bar")
+	Settings.set_value("strike_mode", "pull")
 	await tree.process_frame
-	var power: PowerBar = main.get_node("Hud/PowerBar")
+	var pull: PullControl = main.get_node("Hud/PullCue")
 	var setup: ShotSetup = main.setup
-	check(power.visible and not (main.get_node("Hud/StrokeArea") as Control).visible, "the power bar replaces the stroke area")
-	check_eq(setup.strike_mode, ShotSetup.POWER_BAR, "the setup follows the setting")
-	power.set_power(0.5)
-	var shoot := power.get_global_rect().position + power.shoot_rect().get_center()
-	_touch(shoot, true)
-	_touch(shoot, false)
-	check(main.is_playing(), "Shoot struck")
+	check(pull.visible and not (main.get_node("Hud/StrokeCue") as Control).visible, "the pull cue replaces the push cue")
+	check_eq(setup.strike_mode, ShotSetup.PULL, "the setup follows the setting")
+	check_eq(pull.get_global_rect(), (main.get_node("Hud/StrokeCue") as Control).get_global_rect(), "in the same place")
+	var cue: CueView = main.get_node("Cue")
+	var rest := cue.tip_position()
+	var at := _pull(main, PULL_UNITS)
+	await tree.process_frame
+	check(setup.pulling, "pulling")
+	check(cue.tip_position().distance_to(rest) > 0.05, "the cue on the table drew back")
+	_touch(at, false)
+	check(main.is_playing(), "the release struck")
+	var power := PULL_UNITS / PullControl.FULL_PULL
+	var want := PullControl.speed_for_power(power, Physics.param("max_cue_speed_m_s", 10.0))
 	var inputs := _logged("shot.input")
-	check(inputs.size() == 1 and inputs[0]["strike_mode"] == "power_bar", "power-bar shot logged: %s" % [inputs])
+	check(inputs.size() == 1 and inputs[0]["strike_mode"] == "pull", "pull shot logged: %s" % [inputs])
 	if inputs.size() == 1:
-		check_near(inputs[0]["speed_m_s"], PowerBar.speed_for_power(0.5, Physics.param("max_cue_speed_m_s", 10.0)), 1e-12, "the bar's speed")
-		check_eq(inputs[0]["power"], 0.5, "power logged")
+		_check_schema("shot.input", inputs[0])
+		check_near(inputs[0]["speed_m_s"], want, want * 0.01, "the pull's speed within 1%")
+		check_near(inputs[0]["power"], power, 1e-9, "power logged")
+		check(not (inputs[0]["stroke_samples"] as Array).is_empty(), "the pull's samples logged as stroke_samples")
 	main.skip_shot()
 	await _until_idle(main)
 	_mark_log()
 	_key(KEY_SPACE)
-	check(main.is_playing(), "Space shoots in power-bar mode")
-	check_eq(_logged("shot.input").size(), 1, "a second shot")
+	check(main.is_playing(), "Space shoots in pull mode")
+	inputs = _logged("shot.input")
+	check(inputs.size() == 1 and absf(float(inputs[0]["speed_m_s"]) - want) < 1e-9, "at the last power: %s" % [inputs])
 	main.skip_shot()
 	await _until_idle(main)
 	_finish(main)
@@ -330,7 +341,7 @@ func test_history_is_blocked_while_a_shot_plays() -> void:
 	var bar: FreeTableBar = main.get_node("Hud/FreeTableBar")
 	main.harness_play_shot({"aim_rad": 0.1, "tip_x": 0.0, "tip_y": 0.0, "elevation_rad": 0.0, "speed_m_s": 4.0})
 	check(main.is_playing(), "playing")
-	for id: String in ["retake", "undo", "redo", "edit", "rack", "empty"]:
+	for id: String in ["retake", "undo", "redo", "edit", "rack", "empty", "overview"]:
 		check(bar.button(id).disabled, "%s off while it plays" % id)
 	main.undo()
 	_key(KEY_R)
@@ -413,18 +424,18 @@ func test_three_finger_tap_toggles_the_overlay() -> void:
 	_finish(main)
 
 
-func test_starts_in_a_saved_power_bar_mode() -> void:
+func test_starts_in_a_saved_pull_mode() -> void:
 	_reset_settings()
-	Settings.set_value("strike_mode", "power_bar")
+	Settings.set_value("strike_mode", "pull")
 	var main := load("res://scenes/main.tscn").instantiate() as MainScript
 	tree.root.add_child(main)
 	await tree.process_frame
 	await tree.process_frame
 	_mark_log()
-	var power: PowerBar = main.get_node("Hud/PowerBar")
-	check(power.visible and not (main.get_node("Hud/StrokeArea") as Control).visible, "bar shown, stroke area hidden")
-	check(power.can_shoot(), "ready to shoot")
-	check_near(main.setup.speed_m_s, power.speed(), 1e-12, "the setup's speed is the bar's")
+	var pull: PullControl = main.get_node("Hud/PullCue")
+	check(pull.visible and not (main.get_node("Hud/StrokeCue") as Control).visible, "pull cue shown, push cue hidden")
+	check(main.setup.power > 0.0, "a power to shoot at")
+	check_near(main.setup.speed_m_s, ShotSetup.DEFAULT_PACE_M_S, 1e-9, "the default pace")
 	_key(KEY_SPACE)
 	check(main.is_playing(), "Space shoots")
 	main.skip_shot()
@@ -432,24 +443,28 @@ func test_starts_in_a_saved_power_bar_mode() -> void:
 	_finish(main)
 
 
-func test_retake_in_power_bar_mode_is_exact() -> void:
+func test_retake_in_pull_mode_is_exact() -> void:
 	var main: MainScript = await _spawn()
-	Settings.set_value("strike_mode", "power_bar")
+	Settings.set_value("strike_mode", "pull")
 	await tree.process_frame
-	var power: PowerBar = main.get_node("Hud/PowerBar")
+	var pull: PullControl = main.get_node("Hud/PullCue")
 	var setup: ShotSetup = main.setup
 	setup.set_aim(0.0123456789)
 	setup.set_tip(0.1, 0.2)
-	power.set_power(0.37)
+	var at := _pull(main, PullControl.pull_for_power(0.4))
+	_touch(at, false)
 	var struck := setup.snapshot()
-	_key(KEY_SPACE)
+	check(main.is_playing(), "pulled and struck")
 	main.skip_shot()
 	await _until_idle(main)
-	power.set_power(0.8)
+	_touch(_pull(main, 100.0), false)
+	main.skip_shot()
+	await _until_idle(main)
+	_key(KEY_R)
 	_key(KEY_R)
 	check_eq(setup.snapshot(), struck, "the setup as struck")
-	check_eq(power.power(), 0.37, "the bar back at 0.37")
-	check_near(power.speed(), setup.speed_m_s, 1e-12, "the bar's readout is the setup's speed")
+	check_near(pull.power(), 0.4, 1e-9, "the power back")
+	check_near(pull.speed(), setup.speed_m_s, 1e-12, "its speed the setup's")
 	_finish(main)
 
 
@@ -526,23 +541,22 @@ func test_the_wheel_held_through_a_shot_turns_again_after_it() -> void:
 	_finish(main)
 
 
-func test_a_harness_shot_sets_the_power_bar_too() -> void:
+func test_a_harness_shot_sets_the_pull_power_too() -> void:
 	var main: MainScript = await _spawn()
-	Settings.set_value("strike_mode", "power_bar")
+	Settings.set_value("strike_mode", "pull")
 	await tree.process_frame
-	var power: PowerBar = main.get_node("Hud/PowerBar")
-	power.set_power(0.3)
+	var pull: PullControl = main.get_node("Hud/PullCue")
 	var max_speed := Physics.param("max_cue_speed_m_s", 10.0)
 	main.harness_play_shot({"aim_rad": 0.0, "tip_x": 0.0, "tip_y": 0.0, "elevation_rad": 0.0, "speed_m_s": 7.0})
-	check_near(main.setup.power, PowerBar.power_for_speed(7.0, max_speed), 1e-12, "power for 7 m/s")
+	check_near(main.setup.power, PullControl.power_for_speed(7.0, max_speed), 1e-12, "power for 7 m/s")
 	main.skip_shot()
 	await _until_idle(main)
-	check_near(power.speed(), 7.0, 1e-9, "the bar shows the harness's speed")
+	check_near(pull.speed(), 7.0, 1e-9, "the last power is the harness's")
 	_mark_log()
 	_key(KEY_SPACE)
 	var inputs := _logged("shot.input")
-	check(inputs.size() == 1 and absf(float(inputs[0]["speed_m_s"]) - power.speed()) < 1e-9,
-			"Space plays the bar's speed: %s" % [inputs])
+	check(inputs.size() == 1 and absf(float(inputs[0]["speed_m_s"]) - 7.0) < 1e-9,
+			"Space plays it: %s" % [inputs])
 	main.skip_shot()
 	await _until_idle(main)
 	_finish(main)
@@ -686,9 +700,25 @@ func _vertical_drag(from: Vector2, step: float, steps: int) -> void:
 	_table_drag(from, Vector2(0.0, step * steps), steps)
 
 
+## Pull mode: a press near the top of the pull cue, then a pull straight down `units` in steps of
+## 10; the finger stays down. Returns where it is.
+func _pull(main: MainScript, units: float) -> Vector2:
+	var pull: PullControl = main.get_node("Hud/PullCue")
+	var rect := pull.get_global_rect()
+	var at := Vector2(rect.get_center().x, rect.position.y + 100.0)
+	_touch(at, true)
+	var moved := 0.0
+	while moved < units:
+		var step := minf(10.0, units - moved)
+		moved += step
+		_drag_to(at, at + Vector2(0.0, step))
+		at += Vector2(0.0, step)
+	return at
+
+
 ## A pull back, then a push at a constant push_px_s canvas units a second, released moving.
 func _stroke(main: MainScript, push_px_s: float) -> void:
-	var stroke: StrokeControl = main.get_node("Hud/StrokeArea")
+	var stroke: StrokeControl = main.get_node("Hud/StrokeCue")
 	stroke.clock = func() -> float: return _t[0]
 	var rect := stroke.get_global_rect()
 	var at := Vector2(rect.get_center().x, rect.end.y - 200.0)

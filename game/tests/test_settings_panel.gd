@@ -11,8 +11,8 @@ func test_controls_call_through_to_settings() -> void:
 	panel.bind_settings(store)
 	# Godot 4.7's sliders only emit value_changed inside the tree.
 	tree.root.add_child(panel)
-	(panel.control("strike_mode:power_bar") as Button).button_pressed = true
-	check_eq(store.get_value("strike_mode"), "power_bar", "strike mode")
+	(panel.control("strike_mode:pull") as Button).button_pressed = true
+	check_eq(store.get_value("strike_mode"), "pull", "strike mode")
 	(panel.control("guide_level:3") as Button).button_pressed = true
 	check_eq(store.get_value("guide_level"), 3, "guide level")
 	check(not (panel.control("guide_level:1") as Button).button_pressed, "one guide level at a time")
@@ -57,18 +57,22 @@ func test_controls_follow_settings_changed() -> void:
 	var store := _store()
 	var panel := SettingsPanel.new()
 	panel.bind_settings(store)
-	check((panel.control("strike_mode:stroke") as Button).button_pressed, "finger stroke shown by default")
+	check((panel.control("strike_mode:stroke") as Button).button_pressed, "Push shown by default")
+	check_eq((panel.control("strike_mode:stroke") as Button).text, "Push", "named Push")
+	check_eq((panel.control("strike_mode:pull") as Button).text, "Pull and release", "and Pull and release")
+	check(panel.control("strike_mode:power_bar") == null, "no power bar")
 	check((panel.control("guide_level:1") as Button).button_pressed, "guide level 1 shown")
 	check_eq((panel.control("haptics") as Button).text, "On", "switch text")
 	var emitted: Array = []
 	store.changed.connect(func(key: String, _v: Variant) -> void: emitted.append(key))
 	store.set_value("guide_level", 0)
-	store.set_value("strike_mode", "power_bar")
+	store.set_value("strike_mode", "pull")
 	store.set_value("aim_sensitivity", 3.0)
 	store.set_value("haptics", false)
 	check((panel.control("guide_level:0") as Button).button_pressed, "guide level 0 shown")
 	check(not (panel.control("guide_level:1") as Button).button_pressed, "guide level 1 released")
-	check((panel.control("strike_mode:power_bar") as Button).button_pressed, "power bar shown")
+	check((panel.control("strike_mode:pull") as Button).button_pressed, "pull shown")
+	check_eq((panel._captions["strike_mode"] as Label).text, SettingsPanel.STRIKE_TEXT["pull"], "the caption says what Pull does")
 	check_eq((panel.control("aim_sensitivity") as HSlider).value, 3.0, "slider moved")
 	check(not (panel.control("haptics") as Button).button_pressed, "haptics off shown")
 	check_eq((panel.control("haptics") as Button).text, "Off", "switch text")

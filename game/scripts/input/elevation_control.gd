@@ -4,7 +4,8 @@ extends Control
 ## near vertical for masse. Shows when the minimum has forced the cue well above what was asked
 ## for (shows_forced).
 ##
-## A vertical track, 0 at the bottom. The scale is a power curve whose lower half covers
+## A slim vertical track above the spin ball, 0 at the bottom, its readout on top. The whole
+## control takes touches; only the track is drawn. The scale is a power curve whose lower half covers
 ## 0-HALF_TRAVEL_DEG, so the usual cueing angles get half the travel. The player can ask for less
 ## than the obstruction minimum; the track then shows the minimum and the raised elevation.
 
@@ -12,15 +13,17 @@ signal elevation_changed(rad: float)
 
 const HALF_TRAVEL_DEG := 20.0
 const SHOWN_FORCED_DEG := 3.0
-const PAD_TOP := 92.0
-const PAD_BOTTOM := 26.0
+const PAD_TOP := 64.0
+const PAD_BOTTOM := 18.0
 const GRAB_RADIUS := 44.0
-const MIN_SIZE := Vector2(120.0, 280.0)
-const FONT_SIZE := 30
-const SMALL_FONT_SIZE := 22
+const MIN_SIZE := Vector2(88.0, 280.0)
+const FONT_SIZE := 28
+const SMALL_FONT_SIZE := 24
+const TRACK_PANEL_WIDTH := 40.0
 const TICKS_DEG: Array[float] = [0.0, 10.0, 20.0, 40.0, 60.0, 80.0]
 
-const PANEL_COLOUR := Color(0.05, 0.06, 0.07, 0.55)
+const PANEL_COLOUR := Color(0.05, 0.06, 0.07, 0.5)
+const SHADOW_COLOUR := Color(0.0, 0.0, 0.0, 0.7)
 const TRACK_COLOUR := Color(1.0, 1.0, 1.0, 0.22)
 const TEXT_COLOUR := Color(0.9, 0.92, 0.9, 0.92)
 const FORCED_COLOUR := Color(0.96, 0.66, 0.24)
@@ -198,41 +201,38 @@ func _on_setup_changed(what: StringName) -> void:
 
 
 func _draw() -> void:
-	var panel := StyleBoxFlat.new()
-	panel.bg_color = PANEL_COLOUR
-	panel.set_corner_radius_all(18)
-	draw_style_box(panel, Rect2(Vector2.ZERO, size))
 	var x := size.x / 2.0
 	var top := _track_top()
 	var bottom := _track_bottom()
 	if bottom <= top:
 		return
+	var panel := StyleBoxFlat.new()
+	panel.bg_color = PANEL_COLOUR
+	panel.set_corner_radius_all(int(TRACK_PANEL_WIDTH / 2.0))
+	draw_style_box(panel, Rect2(x - TRACK_PANEL_WIDTH / 2.0, top - 14.0, TRACK_PANEL_WIDTH, bottom - top + 28.0))
 	draw_line(Vector2(x, top), Vector2(x, bottom), TRACK_COLOUR, 4.0, true)
 	for deg in TICKS_DEG:
 		var y := local_y_for_elevation(deg_to_rad(deg))
-		var half := 12.0 if is_equal_approx(deg, HALF_TRAVEL_DEG) else 7.0
+		var half := 10.0 if is_equal_approx(deg, HALF_TRAVEL_DEG) else 6.0
 		draw_line(Vector2(x - half, y), Vector2(x + half, y), TRACK_COLOUR, 2.0, true)
 	var forced := shows_forced()
 	var thumb_colour := TEXT_COLOUR
 	if forced:
 		var min_y := local_y_for_elevation(_setup.elevation_min_rad)
 		draw_line(Vector2(x, bottom), Vector2(x, min_y), Color(FORCED_COLOUR, 0.35), 8.0, true)
-		draw_line(Vector2(x - 26.0, min_y), Vector2(x + 26.0, min_y), FORCED_COLOUR, 3.0, true)
+		draw_line(Vector2(x - 22.0, min_y), Vector2(x + 22.0, min_y), FORCED_COLOUR, 3.0, true)
 		var asked := local_y_for_elevation(requested())
-		draw_arc(Vector2(x, asked), 9.0, 0.0, TAU, 32, Color(1.0, 1.0, 1.0, 0.45), 2.0, true)
+		draw_arc(Vector2(x, asked), 8.0, 0.0, TAU, 32, Color(1.0, 1.0, 1.0, 0.45), 2.0, true)
 		thumb_colour = FORCED_COLOUR
 	var thumb_y := local_y_for_elevation(effective())
-	draw_rect(Rect2(x - 26.0, thumb_y - 8.0, 52.0, 16.0), thumb_colour)
+	draw_rect(Rect2(x - 20.0, thumb_y - 6.0, 40.0, 12.0), thumb_colour)
 
 	var font := get_theme_default_font()
-	var value := _degrees_text(effective())
-	var colour := FORCED_COLOUR if forced else TEXT_COLOUR
-	if not forced:
-		draw_string(font, Vector2(0.0, 50.0), value, HORIZONTAL_ALIGNMENT_CENTER, size.x, FONT_SIZE, colour)
-		return
 	var line := readout_text()
-	if font.get_string_size(line, HORIZONTAL_ALIGNMENT_LEFT, -1, SMALL_FONT_SIZE).x <= size.x - 8.0:
-		draw_string(font, Vector2(0.0, 50.0), line, HORIZONTAL_ALIGNMENT_CENTER, size.x, SMALL_FONT_SIZE, colour)
-	else:
-		draw_string(font, Vector2(0.0, 34.0), "raised to", HORIZONTAL_ALIGNMENT_CENTER, size.x, SMALL_FONT_SIZE, colour)
-		draw_string(font, Vector2(0.0, 70.0), value, HORIZONTAL_ALIGNMENT_CENTER, size.x, FONT_SIZE, colour)
+	var font_size := SMALL_FONT_SIZE if forced else FONT_SIZE
+	var colour := FORCED_COLOUR if forced else TEXT_COLOUR
+	# Centred over the track; a forced readout may run wider than a slim control.
+	var width := font.get_string_size(line, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
+	var at := Vector2(x - width / 2.0, 38.0)
+	draw_string(font, at + Vector2(1.5, 1.5), line, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, SHADOW_COLOUR)
+	draw_string(font, at, line, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, colour)

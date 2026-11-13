@@ -14,7 +14,6 @@ const SAFE_AREA_POLL_SECONDS := 1.0
 ## The shot controls while a shot plays: dimmed, and their touches go to the table (a tap skips).
 const PLAYING_ALPHA := 0.35
 const SELECTION_COLOUR := Color(1.0, 0.82, 0.3, 0.9)
-const STROKE_FRAME_COLOUR := Color(1.0, 1.0, 1.0, 0.42)
 ## Edit mode: where a new ball goes when its own spot is taken, rings of this many ball widths out.
 const FREE_SPOT_RINGS := 40
 
@@ -50,8 +49,8 @@ var _notice_timer := Timer.new()
 @onready var _elevation: ElevationControl = $Hud/ElevationControl
 @onready var _spin: SpinWidget = $Hud/SpinWidget
 @onready var _wheel: FineTuneWheel = $Hud/FineTuneWheel
-@onready var _stroke: StrokeControl = $Hud/StrokeArea
-@onready var _power: PowerBar = $Hud/PowerBar
+@onready var _stroke: StrokeControl = $Hud/StrokeCue
+@onready var _pull: PullControl = $Hud/PullCue
 @onready var _palette: EditPalette = $Hud/EditPalette
 @onready var _notice: Label = $Hud/Notice
 @onready var _bar: FreeTableBar = $Hud/FreeTableBar
@@ -81,11 +80,12 @@ func _ready() -> void:
 	_spin.bind(setup)
 	_elevation.bind(setup)
 	_stroke.bind(setup)
-	_power.bind(setup)
+	_pull.bind(setup)
 	setup.changed.connect(_on_setup_changed)
 	_stroke.backswing_changed.connect(_on_backswing_changed)
+	_pull.backswing_changed.connect(_on_backswing_changed)
 	_stroke.struck.connect(func(_speed: float) -> void: _strike(ShotSetup.STROKE))
-	_power.shoot_pressed.connect(func() -> void: _strike(ShotSetup.POWER_BAR))
+	_pull.struck.connect(func(_speed: float) -> void: _strike(ShotSetup.PULL))
 	_wheel.stepped.connect(func(_steps: int) -> void: _haptics.tick())
 
 	_gestures.pinched.connect(func(factor: float, _centre: Vector2) -> void: _rig.pinch(factor))
@@ -115,10 +115,6 @@ func _ready() -> void:
 
 	_build_selection()
 	_build_notice()
-	_build_stroke_frame()
-	_spin.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
-	_spin.grow_horizontal = Control.GROW_DIRECTION_END
-	_spin.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	get_viewport().size_changed.connect(_layout)
 	var poll := Timer.new()
 	poll.wait_time = SAFE_AREA_POLL_SECONDS
@@ -147,8 +143,8 @@ func _process(_delta: float) -> void:
 		_settle()
 
 
-# Keyboard test aids (spec 8.8): R retake, Ctrl+Z undo, Ctrl+Y redo, Space shoots in power-bar
-# mode. F3 is the overlay's own.
+# Keyboard test aids (spec 8.8): R retake, Ctrl+Z undo, Ctrl+Y redo, Space shoots at the last power
+# in pull mode. F3 is the overlay's own.
 func _unhandled_input(event: InputEvent) -> void:
 	if not (event is InputEventKey or event is InputEventAction) or _settings_panel.visible:
 		return
@@ -159,8 +155,8 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event.is_action_pressed("redo", false, true):
 		redo()
 	elif event.is_action_pressed("shoot", false, true):
-		if _power.is_visible_in_tree() and _power.can_shoot():
-			_strike(ShotSetup.POWER_BAR)
+		if _pull.is_visible_in_tree() and not _playing:
+			_pull.shoot_last_power()
 	else:
 		return
 	get_viewport().set_input_as_handled()
@@ -191,7 +187,7 @@ func skip_shot() -> void:
 
 
 ## Logs, simulates and starts playing the shot set up; its id, or "" when none could start.
-## strike_mode is what the logs call the way it was struck: stroke, power_bar or harness.
+## strike_mode is what the logs call the way it was struck: stroke (Push), pull or harness.
 func _strike(strike_mode: String) -> String:
 	if _playing or _free.edit_mode:
 		return ""
@@ -220,12 +216,12 @@ func _strike(strike_mode: String) -> String:
 	_audio.begin_shot(record.strike_outcome())
 	_guides.hide_all()
 	_rig.hold(true)
-	_spin.collapse()
 	_stroke.cancel_stroke("shot started")
 	# Their touches are ignored while it plays, so a thumb still down would never lift.
+	_spin.cancel_press("shot started")
 	_wheel.cancel_press("shot started")
 	_elevation.cancel_press("shot started")
-	_power.cancel_press("shot started")
+	_pull.cancel_press("shot started")
 	_set_playing(true)
 	_overlay.set_shot_times(record.sim_us(), _guides.last_predict_us())
 	# A shot with no motion finishes inside play(), so everything above is in place first.
@@ -290,10 +286,10 @@ func _settle() -> void:
 func _set_playing(on: bool) -> void:
 	_playing = on
 	_aim.enabled = not on and not _free.edit_mode
-	for control: Control in [_spin, _elevation, _wheel, _stroke, _power]:
+	for control: Control in [_spin, _elevation, _wheel, _stroke, _pull]:
 		control.mouse_filter = Control.MOUSE_FILTER_IGNORE if on else Control.MOUSE_FILTER_STOP
 		control.modulate.a = PLAYING_ALPHA if on else 1.0
-	for id: String in ["edit", "rack", "empty"]:
+	for id: String in ["edit", "rack", "empty", "overview"]:
 		_bar.button(id).disabled = on
 	if on:
 		_bar.set_history(false, false, false)
@@ -430,7 +426,7 @@ func _on_edit_mode_changed(on: bool) -> void:
 	_bar.set_edit_mode(on)
 	_aim.enabled = not on and not _playing
 	_selected = -1
-	_spin.collapse()
+	_spin.cancel_press("edit mode")
 	_show_controls()
 	_update_palette()
 	_place_selection()
@@ -440,12 +436,12 @@ func _on_edit_mode_changed(on: bool) -> void:
 ## The shot controls for the strike mode, or the edit palette in edit mode.
 func _show_controls() -> void:
 	var editing := _free.edit_mode
-	var power_bar := setup.strike_mode == ShotSetup.POWER_BAR
+	var pull := setup.strike_mode == ShotSetup.PULL
 	_spin.visible = not editing
 	_elevation.visible = not editing
 	_wheel.visible = not editing
-	_stroke.visible = not editing and not power_bar
-	_power.visible = not editing and power_bar
+	_stroke.visible = not editing and not pull
+	_pull.visible = not editing and pull
 	_palette.visible = editing
 
 
@@ -616,33 +612,6 @@ func _build_notice() -> void:
 	add_child(_notice_timer)
 
 
-## An outline and a name over the stroke area, which on its own was too faint to find.
-func _build_stroke_frame() -> void:
-	var outline := StyleBoxFlat.new()
-	outline.draw_center = false
-	outline.border_color = STROKE_FRAME_COLOUR
-	outline.set_border_width_all(3)
-	outline.set_corner_radius_all(24)
-	var frame := Panel.new()
-	frame.name = "Frame"
-	frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	frame.add_theme_stylebox_override("panel", outline)
-	frame.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_stroke.add_child(frame)
-	var label := Label.new()
-	label.name = "Name"
-	label.text = "stroke"
-	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	label.add_theme_color_override("font_color", STROKE_FRAME_COLOUR)
-	label.add_theme_font_size_override("font_size", 26)
-	label.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
-	label.offset_left = -80.0
-	label.offset_right = 80.0
-	label.offset_top = 56.0
-	_stroke.add_child(label)
-
-
 ## A line at the top of the screen for a moment: no pop-up, nothing to dismiss (spec 11.2).
 func _show_notice(text: String) -> void:
 	_notice.text = text
@@ -659,20 +628,14 @@ func _layout() -> void:
 	var canvas := get_viewport().get_visible_rect().size
 	var safe := HudScript.safe_rect(Rect2(DisplayServer.get_display_safe_area()),
 			Rect2(Vector2(window.position), Vector2(window.size)), canvas)
-	var rects := HudScript.layout(safe, _bar.size, canvas)
+	var rects := HudScript.layout(safe, _bar.row_rect().size, canvas)
 	_put(_wheel, rects["wheel"])
-	_put(_stroke, rects["stroke"])
-	_put(_power, rects["power"])
+	_put(_stroke, rects["cue"])
+	_put(_pull, rects["cue"])
 	_put(_elevation, rects["elevation"])
-	var corner: Vector2 = rects["spin_corner"]
-	var bottom := corner.y - canvas.y
-	if _spin.offset_left != corner.x or _spin.offset_bottom != bottom:
-		_spin.offset_left = corner.x
-		_spin.offset_right = corner.x
-		_spin.offset_top = bottom
-		_spin.offset_bottom = bottom
+	_put(_spin, rects["spin"])
 	_palette.place_in(rects["bottom"])
-	_overlay.clear_right = safe.end.x - (rects["stroke"] as Rect2).position.x
+	_overlay.clear_right = safe.end.x - (rects["cue"] as Rect2).position.x
 	var notice_at := Vector2(safe.get_center().x - _notice.size.x / 2.0, safe.position.y + HudScript.EDGE).round()
 	if _notice.position != notice_at:
 		_notice.position = notice_at
@@ -710,7 +673,7 @@ func harness_play_shot(strike: Dictionary) -> String:
 	setup.set_aim(float(strike["aim_rad"]))
 	setup.set_tip(float(strike["tip_x"]), float(strike["tip_y"]))
 	setup.set_elevation(float(strike["elevation_rad"]))
-	setup.set_speed(speed, PowerBar.power_for_speed(speed, Physics.param("max_cue_speed_m_s", 10.0)))
+	setup.set_speed(speed, PullControl.power_for_speed(speed, Physics.param("max_cue_speed_m_s", 10.0)))
 	setup.wander_rad = 0.0
 	return _strike(HARNESS_STRIKE)
 

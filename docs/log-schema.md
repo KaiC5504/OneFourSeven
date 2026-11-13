@@ -88,7 +88,7 @@ New subsystems: `input`, `ui`, `audio`, `settings`, `freetable`. A played shot l
 
 | Event / field | Level | When | Fields |
 | --- | --- | --- | --- |
-| `shot.input` | info | the player strikes, before the simulation | `shot_id`, `mode` (`free_table`), `strike_mode` (`stroke`, `power_bar`), `aim_rad`, `wander_rad`, `tip_x`, `tip_y`, `elevation_requested_rad`, `elevation_min_rad`, `speed_m_s`, `power`, `guide_level`, `stroke_samples` (`[t_s, x, y]` in the stroke area's canvas units), `fine_tune_samples` (`[t_s, delta_rad]`) |
+| `shot.input` | info | the player strikes, before the simulation | `shot_id`, `mode` (`free_table`), `strike_mode` (`stroke` for Push, `pull` for Pull and release, `harness`), `aim_rad`, `wander_rad`, `tip_x`, `tip_y`, `elevation_requested_rad`, `elevation_min_rad`, `speed_m_s`, `power`, `guide_level`, `stroke_samples` (`[t_s, x, y]` in the power cue's canvas units: the latest press on it, the push stroke in `stroke` mode and the pull in `pull` mode; there is no separate `pull_samples`), `fine_tune_samples` (`[t_s, delta_rad]`) |
 | `shot.simulated` + | | | `context` (`shot_id`, `mode`, `strike_mode`) when the game played it |
 | `shot.rejected` | warn | the binding refused a shot (not configured, malformed balls or strike, a ball listed twice, the core threw) | `shot_id`, `reason`, and to reproduce it `balls`, `cue_ball`, `strike` as the caller passed them (non-finite numbers and other types as text; at most 32 items per Array or Dictionary) |
 | `shot.playback` | info/warn | a shot finished playing (warn when frames dropped) | `shot_id`, `t_end`, `wall_s`, `frames`, `dropped_frames`, `frame_ms_max`, `events`, `speed`, `skipped` |
@@ -99,8 +99,8 @@ New subsystems: `input`, `ui`, `audio`, `settings`, `freetable`. A played shot l
 | `guide.predict_slow` | warn | a guide level 3 prediction took longer than its budget | `sim_us`, `budget_us`, `level` |
 | `freetable.action` | info | retake, undo, redo, a setup or edit mode toggled | `action`, `history_index`, `history_size`, `shot_id`, `detail` |
 | `freetable.edit` | info/warn | a ball moved, added or removed in edit mode (warn when refused) | `action` (`move`, `add`, `remove`), `ball`, `index`, `from`, `to` (core `[x, y]`), `legal`, `reason` |
-| `input.cancel` | info | a stroke or gesture was cancelled | `control`, `reason` |
-| `settings.loaded` | info/warn | settings read at start (warn when a value was refused or the file unreadable) | `path`, `version`, `problems` |
+| `input.cancel` | info | a stroke or gesture was cancelled | `control` (`stroke`, `pull`, `spin`, `elevation`, `fine_tune`, `gestures`), `reason` (for `pull`: `no pull`, `slid back to the start`, `left the cue strip`, `touch cancelled`, or why the game ended it) |
+| `settings.loaded` | info/warn | settings read at start (warn when a value was refused or migrated, or the file unreadable) | `path`, `version`, `problems` (a saved `strike_mode` of `power_bar` reads as `pull` and is listed as `strike_mode "power_bar" migrated to "pull"`; the file is saved at once, so it happens once) |
 | `settings.changed` | info/warn | a setting changed (warn when the value was refused) | `key`, `old`, `new`, `ok`, `reason` |
 | `screen.changed` | info | the screen changed | `from`, `to` |
 | `overlay.toggled` | info | the debug overlay opened or closed | `visible`, `via` (`three_finger_tap`, `key`, `harness`) |

@@ -383,9 +383,13 @@ func _build_geometry(balls: Array[Dictionary], r: float) -> void:
 
 func _set_pace_text(setup: ShotSetup) -> void:
 	var pace := setup.guide_pace_m_s()
-	# Before the session's first stroke the pace is the default, not anything the player did.
-	var from_stroke := setup.strike_mode == ShotSetup.STROKE and setup.last_stroke_speed_m_s > 0.0
-	var text := ("last stroke %.1f m/s" if from_stroke else "pace %.1f m/s") % pace
+	var text := "pace %.1f m/s"
+	if setup.strike_mode == ShotSetup.PULL and setup.pulling:
+		text = "pull %.1f m/s"
+	# Before the session's first shot the pace is the default, not anything the player did.
+	elif setup.last_stroke_speed_m_s > 0.0:
+		text = "last stroke %.1f m/s"
+	text = text % pace
 	if _pace_label.text != text:
 		_pace_label.text = text
 

@@ -374,7 +374,7 @@ func _strike(aim: float, speed: float) -> Dictionary:
 
 
 func _context(shot_id: String) -> Dictionary:
-	return {"shot_id": shot_id, "mode": "free_table", "strike_mode": "power_bar"}
+	return {"shot_id": shot_id, "mode": "free_table", "strike_mode": "pull"}
 
 
 func _first(events: Array, kind: String) -> Dictionary:

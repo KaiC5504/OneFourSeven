@@ -1,10 +1,11 @@
 class_name StrokeControl
 extends Control
-## The finger stroke (spec 8.3) in its stroke area: pull back (drag down), push forward (drag up)
-## and release. The push speed over the last WINDOW_S before release sets the cue speed through
-## speed_for_push, which gives fine control at low power. The cue follows the backswing. Dragging
-## out of the area, or a release reported outside it, cancels. With Settings "stroke_wander" on, sideways wander during the push adds
-## a small aim error (ShotSetup.wander_rad).
+## Push, the finger stroke (spec 8.3), on the power cue at the right edge: pull back (drag down),
+## push forward (drag up) and release. The push speed over the last WINDOW_S before release sets
+## the cue speed through speed_for_push, which gives fine control at low power. The cue, here and
+## on the table, follows the backswing. Dragging out of the strip, or a release reported outside
+## it, cancels. With Settings "stroke_wander" on, sideways wander during the push adds a small aim
+## error (ShotSetup.wander_rad).
 
 signal backswing_changed(distance_m: float)
 signal struck(speed_m_s: float)
@@ -215,26 +216,4 @@ func _set_backswing(distance_m: float) -> void:
 
 
 func _draw() -> void:
-	var rect := Rect2(Vector2.ZERO, size)
-	var strip := StyleBoxFlat.new()
-	strip.bg_color = Color(1.0, 1.0, 1.0, 0.045)
-	strip.border_color = Color(1.0, 1.0, 1.0, 0.09)
-	strip.set_border_width_all(2)
-	strip.set_corner_radius_all(24)
-	draw_style_box(strip, rect)
-	var x := size.x / 2.0
-	var hint := Color(1.0, 1.0, 1.0, 0.22)
-	for end: float in [1.0, -1.0]:
-		# A chevron at each end: push up at the top, pull back at the bottom.
-		var tip_y := 30.0 if end > 0.0 else size.y - 30.0
-		var back := tip_y + 14.0 * end
-		draw_line(Vector2(x - 16.0, back), Vector2(x, tip_y), hint, 3.0, true)
-		draw_line(Vector2(x + 16.0, back), Vector2(x, tip_y), hint, 3.0, true)
-	draw_line(Vector2(x, 60.0), Vector2(x, size.y - 60.0), Color(1.0, 1.0, 1.0, 0.07), 2.0, true)
-	if not is_stroking():
-		return
-	if _finger.y > _start.y:
-		draw_rect(Rect2(0.0, _start.y, size.x, _finger.y - _start.y), Color(1.0, 1.0, 1.0, 0.07))
-	draw_line(Vector2(0.0, _start.y), Vector2(size.x, _start.y), Color(1.0, 1.0, 1.0, 0.4), 2.0, true)
-	draw_circle(_finger, 30.0, Color(1.0, 1.0, 1.0, 0.16))
-	draw_arc(_finger, 30.0, 0.0, TAU, 48, Color(1.0, 1.0, 1.0, 0.45), 2.0, true)
+	CueStrip.draw(self, size, _finger.y - _start.y if is_stroking() else 0.0, is_stroking())

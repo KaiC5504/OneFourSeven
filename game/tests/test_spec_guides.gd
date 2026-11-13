@@ -199,7 +199,7 @@ func test_guides_never_alter_the_setup() -> void:
 	var calls: Array[Dictionary] = []
 	var guides := _guides(calls)
 	var balls := _balls()
-	for mode: String in [ShotSetup.STROKE, ShotSetup.POWER_BAR]:
+	for mode: String in [ShotSetup.STROKE, ShotSetup.PULL]:
 		for level: int in [0, 1, 2, 3]:
 			var setup := _setup()
 			setup.set_strike_mode(mode)

@@ -160,6 +160,20 @@ func test_shadow_range_covers_the_whole_table() -> void:
 	main.free()
 
 
+## The free table's controls, as main.gd places them, by their layout key.
+const PLACED := {"FineTuneWheel": "wheel", "StrokeCue": "cue", "PullCue": "cue", "ElevationControl": "elevation",
+		"SpinWidget": "spin"}
+
+
+## The bar's row size once its theme applies, in the tree.
+func _row_size() -> Vector2:
+	var probe := FreeTableBar.new()
+	tree.root.add_child(probe)
+	var size := probe.row_rect().size
+	probe.free()
+	return size
+
+
 func test_controls_follow_the_layout() -> void:
 	var main: Node = await _spawn()
 	var hud: Node = main.get_node("Hud")
@@ -168,26 +182,16 @@ func test_controls_follow_the_layout() -> void:
 	var safe: Rect2 = HudScript.safe_rect(Rect2(DisplayServer.get_display_safe_area()),
 			Rect2(Vector2(window.position), Vector2(window.size)), canvas)
 	var bar: FreeTableBar = hud.get_node("FreeTableBar")
-	var rects: Dictionary = HudScript.layout(safe, bar.size)
-	check_eq(bar.size, (bar.get_child(0) as Control).get_combined_minimum_size(), "the bar's size is what it draws")
-	check_eq(Rect2(bar.position, bar.size), rects["bar"], "the bar places itself where the layout expects")
-	for pair: Array in [["FineTuneWheel", "wheel"], ["StrokeArea", "stroke"], ["PowerBar", "power"],
-			["ElevationControl", "elevation"]]:
-		var control: Control = hud.get_node(pair[0])
-		check_eq(control.get_rect(), rects[pair[1]], pair[0])
-	var spin: SpinWidget = hud.get_node("SpinWidget")
-	var corner: Vector2 = rects["spin_corner"]
-	check_eq(spin.get_rect(), Rect2(corner - Vector2(0.0, SpinWidget.COLLAPSED_SIZE), Vector2.ONE * SpinWidget.COLLAPSED_SIZE),
-			"spin widget collapsed in its corner")
-	spin.expand()
-	await tree.process_frame
-	check_eq(spin.get_rect().position + Vector2(0.0, spin.size.y), corner, "expanded, it grows up and right from the corner")
-	check_eq(spin.size, Vector2(SpinWidget.EXPANDED_SIZE, SpinWidget.EXPANDED_SIZE + SpinWidget.READOUT_HEIGHT), "expanded size")
-	check(not spin.get_rect().intersects(rects["elevation"]), "expanded, it leaves the elevation control clear")
+	var rects: Dictionary = HudScript.layout(safe, bar.row_rect().size, canvas)
+	check_eq(bar.row_rect(), rects["bar"], "the bar's row where the layout expects")
+	for control_name: String in PLACED:
+		check_eq((hud.get_node(control_name) as Control).get_rect(), rects[PLACED[control_name]], control_name)
+	check_eq((hud.get_node("SpinWidget") as Control).size, Vector2.ONE * SpinWidget.SIZE, "the spin ball's own size")
 	check_eq((hud.get_node("FineTuneWheel") as Control).mouse_filter, Control.MOUSE_FILTER_STOP, "the wheel takes its own touches")
-	var stroke_mode: bool = Settings.get_value("strike_mode") == "stroke"
-	check_eq((hud.get_node("StrokeArea") as Control).visible, stroke_mode, "stroke area in stroke mode")
-	check_eq((hud.get_node("PowerBar") as Control).visible, not stroke_mode, "power bar in power-bar mode")
+	var push_mode: bool = Settings.get_value("strike_mode") == "stroke"
+	check_eq((hud.get_node("StrokeCue") as Control).visible, push_mode, "the push cue in Push mode")
+	check_eq((hud.get_node("PullCue") as Control).visible, not push_mode, "the pull cue in Pull mode")
+	check(hud.get_node_or_null("LinkLabel") == null and hud.get_node_or_null("PowerBar") == null, "no link text or power bar")
 	main.free()
 
 
@@ -196,172 +200,121 @@ func test_the_opening_view_keeps_the_cue_ball_and_baulk_colours_clear() -> void:
 	await tree.process_frame
 	var camera: Camera3D = main.get_node("CameraRig/Camera3D")
 	var hud: Node = main.get_node("Hud")
-	var controls: Array[Control] = [hud.get_node("ElevationControl"), hud.get_node("SpinWidget"),
-			hud.get_node("FineTuneWheel"), hud.get_node("StrokeArea")]
+	var controls: Array[Control] = []
+	for control_name: String in PLACED:
+		controls.append(hud.get_node(control_name))
+	var bar: FreeTableBar = hud.get_node("FreeTableBar")
 	var viewport := main.get_viewport().get_visible_rect().size
-	var bar_size := (hud.get_node("FreeTableBar") as Control).size
-	for ball_name: String in ["cue", "yellow", "brown", "green"]:
+	for ball_name: String in ["cue", "yellow", "brown", "green", "blue", "pink", "black"]:
 		var centre := (main.get_node("Balls/" + ball_name) as Node3D).global_position
 		var at := camera.unproject_position(centre)
 		var edge := camera.unproject_position(centre + camera.global_basis.x * RADIUS)
 		var disc := Rect2(at, Vector2.ZERO).grow(at.distance_to(edge))
 		for control in controls:
-			check(not control.get_global_rect().intersects(disc), "%s clear of %s (%s vs %s)" % [ball_name, control.name, disc, control.get_global_rect()])
+			if control.visible:
+				check(not control.get_global_rect().intersects(disc), "%s clear of %s (%s vs %s)" % [ball_name, control.name, disc, control.get_global_rect()])
+		check(not bar.row_rect().intersects(disc), "%s clear of the bar" % ball_name)
 		# The same view on the phone (the camera keeps its height), with its safe areas.
 		var scale := PHONE_CANVAS.y / viewport.y
 		var on_phone := Rect2((disc.position - viewport / 2.0) * scale + PHONE_CANVAS / 2.0, disc.size * scale)
 		for safe_px in PHONE_SAFE_AREAS:
 			var safe := HudScript.safe_rect(safe_px, PHONE_SCREEN, PHONE_CANVAS)
-			var rects: Dictionary = HudScript.layout(safe, bar_size, PHONE_CANVAS)
-			var spin := Rect2(rects["spin_corner"] - Vector2(0.0, SpinWidget.COLLAPSED_SIZE), Vector2.ONE * SpinWidget.COLLAPSED_SIZE)
-			check(safe.encloses(spin), "phone: the spin widget inside the safe area")
-			for key: String in ["elevation", "wheel", "stroke"]:
-				check(not on_phone.intersects(rects[key]), "phone: %s clear of the %s" % [ball_name, key])
-			check(not on_phone.intersects(spin), "phone: %s clear of the spin widget (%s vs %s)" % [ball_name, on_phone, spin])
-	main.free()
-
-
-func test_the_stroke_area_is_outlined_and_named() -> void:
-	var main: Node = await _spawn()
-	var stroke: Control = main.get_node("Hud/StrokeArea")
-	var frame := stroke.get_node_or_null("Frame") as Panel
-	var label := stroke.get_node_or_null("Name") as Label
-	check(frame != null and frame.is_visible_in_tree(), "an outline")
-	check(label != null and label.text == "stroke" and label.is_visible_in_tree(), "and its name")
-	if frame != null:
-		check_eq(frame.get_global_rect(), stroke.get_global_rect(), "round the whole area")
-		check_eq(frame.mouse_filter, Control.MOUSE_FILTER_IGNORE, "touches pass to the stroke")
+			var rects: Dictionary = HudScript.layout(safe, _row_size(), PHONE_CANVAS)
+			for key: String in ["bar", "spin", "elevation", "cue", "wheel"]:
+				check(not on_phone.intersects(rects[key]), "phone: %s clear of the %s (%s vs %s)" % [ball_name, key, on_phone, rects[key]])
 	main.free()
 
 
 func test_the_debug_overlay_hides_no_control_on_the_phone() -> void:
 	var main: Node = await _spawn()
 	var overlay: DebugOverlay = main.get_node("Hud/Overlay")
-	var bar: FreeTableBar = main.get_node("Hud/FreeTableBar")
 	overlay.set_shown(true, "key")
 	for safe_px in PHONE_SAFE_AREAS:
 		var safe: Rect2 = HudScript.safe_rect(safe_px, PHONE_SCREEN, PHONE_CANVAS)
-		var rects: Dictionary = HudScript.layout(safe, bar.size)
+		var rects: Dictionary = HudScript.layout(safe, _row_size(), PHONE_CANVAS)
 		# As main.gd's layout sets it.
-		overlay.clear_right = safe.end.x - (rects["stroke"] as Rect2).position.x
+		overlay.clear_right = safe.end.x - (rects["cue"] as Rect2).position.x
 		overlay.place_in(safe_px, PHONE_SCREEN, PHONE_CANVAS, 3.0)
 		var block := (overlay.get_node("Text") as Control).get_rect()
 		check(safe.encloses(block), "inside the safe area: %s in %s" % [block, safe])
-		for key: String in ["stroke", "power", "wheel", "elevation", "bar"]:
+		for key: String in ["cue", "wheel", "elevation", "spin", "bar"]:
 			check(not block.intersects(rects[key]), "clear of the %s (%s vs %s)" % [key, block, rects[key]])
 	overlay.set_shown(false, "key")
 	main.free()
 
 
 func test_layout_fits_the_phones_safe_area_either_way_round() -> void:
-	# The bar measures itself once its theme applies, in the tree.
-	var probe := FreeTableBar.new()
-	tree.root.add_child(probe)
-	var bar_size := probe.size
-	probe.free()
+	var row := _row_size()
+	check(row.y <= 110.0, "the bar is one slim row: %s" % row)
 	for safe_px in PHONE_SAFE_AREAS:
 		var safe: Rect2 = HudScript.safe_rect(safe_px, PHONE_SCREEN, PHONE_CANVAS)
-		var rects: Dictionary = HudScript.layout(safe, bar_size)
-		var corner: Vector2 = rects["spin_corner"]
-		var spin := Rect2(corner - Vector2(0.0, SpinWidget.COLLAPSED_SIZE), Vector2.ONE * SpinWidget.COLLAPSED_SIZE)
-		var expanded := Rect2(corner - Vector2(0.0, SpinWidget.EXPANDED_SIZE + SpinWidget.READOUT_HEIGHT),
-				Vector2(SpinWidget.EXPANDED_SIZE, SpinWidget.EXPANDED_SIZE + SpinWidget.READOUT_HEIGHT))
-		var placed := {"bar": rects["bar"], "wheel": rects["wheel"], "stroke": rects["stroke"],
-				"spin": spin, "elevation": rects["elevation"]}
-		for key: String in placed:
-			check(safe.encloses(placed[key]), "%s %s inside the safe area %s" % [key, placed[key], safe])
-		check(safe.encloses(rects["power"]), "power bar inside the safe area")
-		check(safe.encloses(expanded), "the expanded spin widget inside the safe area")
-		check((rects["stroke"] as Rect2).encloses(rects["power"]), "the power bar where the stroke area is")
+		var rects: Dictionary = HudScript.layout(safe, row, PHONE_CANVAS)
+		var placed := {}
+		for key: String in ["bar", "spin", "elevation", "cue", "wheel"]:
+			placed[key] = rects[key]
+			check(safe.encloses(rects[key]), "%s %s inside the safe area %s" % [key, rects[key], safe])
 		var keys := placed.keys()
 		for i in keys.size():
 			for j in range(i + 1, keys.size()):
 				check(not (placed[keys[i]] as Rect2).intersects(placed[keys[j]]), "%s clear of %s" % [keys[i], keys[j]])
-		check(not expanded.intersects(rects["bar"]), "the expanded spin widget clears the bar")
-		check(not expanded.intersects(rects["stroke"]), "and the stroke area")
-		check(not expanded.intersects(rects["elevation"]), "and the elevation control")
-		check((rects["elevation"] as Rect2).size.y - ElevationControl.PAD_TOP - ElevationControl.PAD_BOTTOM >= 250.0,
-				"the elevation's track is at least 250 units: %s" % rects["elevation"])
-		check_eq((rects["elevation"] as Rect2).position.x, (rects["wheel"] as Rect2).position.x, "above the wheel")
+		var spin: Rect2 = rects["spin"]
+		var elevation: Rect2 = rects["elevation"]
+		var cue: Rect2 = rects["cue"]
+		var wheel: Rect2 = rects["wheel"]
+		check(spin.position.x - safe.position.x <= HudScript.EDGE and safe.end.y - spin.end.y <= HudScript.EDGE,
+				"the spin ball in the bottom-left corner")
+		check(elevation.end.y < spin.position.y and elevation.end.y > spin.position.y - 2.0 * HudScript.GAP,
+				"the elevation right above it")
+		check(elevation.size.y - ElevationControl.PAD_TOP - ElevationControl.PAD_BOTTOM >= 200.0,
+				"its track at least 200 units: %s" % elevation)
+		check(safe.end.x - cue.end.x <= HudScript.EDGE, "the cue at the right edge")
+		check(cue.size.y > safe.size.y * 0.9, "the cue the full usable height")
+		check(cue.size.x >= 88.0, "a 44 pt touch target")
+		check(cue.size.y - CueStrip.TIP_REST >= PullControl.FULL_PULL, "room to pull to full power")
+		check(wheel.end.x < cue.position.x and wheel.position.x > cue.position.x - 2.0 * HudScript.GAP - wheel.size.x,
+				"the wheel beside the cue")
+		check(wheel.size.x >= 88.0 and wheel.size.x < 120.0, "slimmer than before, still a touch target")
 		# The middle of the screen, where the table is, stays clear.
-		var middle := Rect2(PHONE_CANVAS.x * 0.3, 0.0, PHONE_CANVAS.x * 0.4, PHONE_CANVAS.y * 0.75)
-		for key: String in placed:
+		var middle := Rect2(PHONE_CANVAS.x * 0.2, 0.0, PHONE_CANVAS.x * 0.6, PHONE_CANVAS.y)
+		for key: String in ["spin", "elevation", "cue", "wheel"]:
 			check(not (placed[key] as Rect2).intersects(middle), "%s clear of the table's middle" % key)
-		check(safe.end.x - (rects["wheel"] as Rect2).end.x <= HudScript.EDGE, "the wheel at the right edge")
-		check((rects["stroke"] as Rect2).size.y > safe.size.y * 0.9, "the stroke area runs the full height")
-		check((rects["bottom"] as Rect2).position.x > (rects["bar"] as Rect2).end.x, "the palette's row clears the bar")
-
-
-func test_link_label_text() -> void:
-	check_eq(HudScript.text_for("off"), "PC link: off", "off")
-	check_eq(HudScript.text_for("searching"), "PC link: searching…", "searching")
-	check_eq(HudScript.text_for("connected"), "PC link: connected", "connected")
-	check_eq(HudScript.text_for("lost"), "PC link: lost", "lost")
-
-
-func test_link_label_follows_status() -> void:
-	var main: Node = await _spawn()
-	var label: Label = main.get_node("Hud/LinkLabel")
-	check_eq(label.text, HudScript.text_for(Link.get_status()), "initial text")
-	Link.status_changed.emit("lost")
-	check_eq(label.text, "PC link: lost", "after status_changed")
-	main.free()
-
-
-func test_link_label_clears_the_dynamic_island() -> void:
-	# iPhone 17 Pro Max landscape: 2868x1320 px, 62 pt (186 px) side insets either way
-	# round, 21 pt (63 px) home indicator; the canvas is 1912 wide.
-	var screen := Rect2(0, 0, 2868, 1320)
-	var safe := Rect2(186, 0, 2868 - 372, 1320 - 63)
-	var canvas := Vector2(1912, 880)
-	var origin := HudScript.safe_origin(safe, screen, canvas)
-	check_near(origin.x, 124.0, 0.01, "left inset in canvas units")
-	check_near(origin.y, 0.0, 0.01, "top inset")
-
-
-func test_link_label_is_inside_the_safe_area_in_both_landscape_directions() -> void:
-	var main: Node = await _spawn()
-	var label: Label = main.get_node("Hud/LinkLabel")
-	var screen := Rect2(0, 0, 2868, 1320)
-	var canvas := Vector2(1912, 880)
-	# The island side always gets the full inset; the other side is tried with and without
-	# one, with the island on either side.
-	var safe_areas: Array[Rect2] = [
-		Rect2(186, 0, 2868 - 372, 1320 - 63),
-		Rect2(186, 0, 2868 - 186, 1320 - 63),
-		Rect2(0, 0, 2868 - 186, 1320 - 63),
-	]
-	for safe in safe_areas:
-		label.place_in(safe, screen, canvas, 3.0)
-		var font_size := label.get_theme_font_size("font_size")
-		var text_size := label.get_theme_font("font").get_string_size(label.text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
-		var px_per_unit := screen.size.y / canvas.y
-		var on_screen := Rect2(label.position * px_per_unit, text_size * px_per_unit)
-		check(safe.encloses(on_screen), "label %s inside safe area %s" % [on_screen, safe])
-	main.free()
-
-
-func test_link_label_moves_when_the_safe_area_changes() -> void:
-	var main: Node = await _spawn()
-	var label: Label = main.get_node("Hud/LinkLabel")
-	var screen := Rect2(0, 0, 2868, 1320)
-	var canvas := Vector2(1912, 880)
-	label.place_in(screen, screen, canvas, 3.0)
-	var before := label.position
-	label.place_in(Rect2(186, 0, 2868 - 372, 1320 - 63), screen, canvas, 3.0)
-	check_near(label.position.x - before.x, 124.0, 0.01, "moved right by the inset in canvas units")
-	main.free()
-
-
-func test_link_label_is_at_least_11_points_on_the_phone() -> void:
-	# 3 px per point; the 880-unit canvas fills the 1320 px screen height, 1.5 px per unit.
-	var size := HudScript.font_size_for(3.0, 1.5)
-	check(size * 1.5 / 3.0 >= 11.0, "%d canvas units is %.1f pt" % [size, size * 1.5 / 3.0])
-	var scaled_down := HudScript.font_size_for(3.0, 0.5)
-	check(scaled_down * 0.5 / 3.0 >= 11.0, "still 11 pt when the canvas is scaled down: %d" % scaled_down)
+		check((rects["bottom"] as Rect2).size.x > safe.size.x * 0.9, "edit mode's row spans the bottom")
 
 
 func test_safe_area_is_clipped_to_the_window() -> void:
 	# On Windows the safe area is the whole desktop; a window inside it needs no inset.
 	var origin := HudScript.safe_origin(Rect2(0, 0, 2560, 1400), Rect2(300, 200, 956, 440), Vector2(1912, 880))
 	check_eq(origin, Vector2.ZERO, "window inside the safe area")
+
+
+func test_safe_area_clears_the_dynamic_island() -> void:
+	# iPhone 17 Pro Max landscape: 2868x1320 px, 62 pt (186 px) side insets either way round,
+	# 21 pt (63 px) home indicator; the canvas is 1912 wide.
+	var origin := HudScript.safe_origin(PHONE_SAFE_AREAS[0], PHONE_SCREEN, PHONE_CANVAS)
+	check_near(origin.x, 124.0, 0.01, "left inset in canvas units")
+	check_near(origin.y, 0.0, 0.01, "top inset")
+
+
+func test_the_link_status_is_a_dot_on_the_menu() -> void:
+	var main: Node = await _spawn()
+	var bar: FreeTableBar = main.get_node("Hud/FreeTableBar")
+	check_eq(bar.link_status(), Link.get_status(), "the bar shows the link's status")
+	Link.status_changed.emit("connected")
+	check_eq(bar.link_status(), "connected", "and follows it")
+	Link.status_changed.emit(Link.get_status())
+	main.free()
+
+
+func test_the_menu_opens_over_the_controls_and_reaches_its_items() -> void:
+	var main: Node = await _spawn()
+	var bar: FreeTableBar = main.get_node("Hud/FreeTableBar")
+	var hud: Node = main.get_node("Hud")
+	bar.open_menu()
+	await tree.process_frame
+	var list := bar.list_rect()
+	for id: String in ["rack", "empty", "edit", "settings"]:
+		check(list.encloses(bar.button(id).get_global_rect()), "%s in the list" % id)
+	check(bar.get_index() > hud.get_node("SpinWidget").get_index() and bar.get_index() > hud.get_node("ElevationControl").get_index(),
+			"the open menu above the shot controls")
+	bar.close_menu()
+	main.free()

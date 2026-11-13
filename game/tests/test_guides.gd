@@ -220,11 +220,15 @@ func test_level_three_draws_moving_balls_at_the_guide_pace() -> void:
 	predictor.clock.now += 1.0
 	guides.show_for(_balls([Vector2(-1.0, 0.0), Vector2(0.0, 0.0), Vector2(0.5, 0.5)]), 0, setup, 3)
 	check_eq((guides.get_node("PaceLabel") as Label3D).text, "last stroke 2.4 m/s", "stroke label")
-	setup.set_strike_mode(ShotSetup.POWER_BAR)
+	setup.set_strike_mode(ShotSetup.PULL)
 	predictor.clock.now += 1.0
 	guides.show_for(_balls([Vector2(-1.0, 0.0), Vector2(0.0, 0.0), Vector2(0.5, 0.5)]), 0, setup, 3)
-	check_eq((guides.get_node("PaceLabel") as Label3D).text, "pace 3.0 m/s", "power bar label")
-	check_near(predictor.calls[-1]["strike"]["speed_m_s"], 3.0, 1e-9, "power bar pace")
+	check_eq((guides.get_node("PaceLabel") as Label3D).text, "last stroke 2.4 m/s", "pull mode between pulls: the last shot's")
+	setup.set_pull(0.6, 3.0)
+	predictor.clock.now += 1.0
+	guides.show_for(_balls([Vector2(-1.0, 0.0), Vector2(0.0, 0.0), Vector2(0.5, 0.5)]), 0, setup, 3)
+	check_eq((guides.get_node("PaceLabel") as Label3D).text, "pull 3.0 m/s", "pulling: the pull's")
+	check_near(predictor.calls[-1]["strike"]["speed_m_s"], 3.0, 1e-9, "the pull's pace predicted")
 	guides.free()
 
 

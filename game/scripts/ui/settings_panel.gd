@@ -12,13 +12,16 @@ const SettingsStore := preload("res://scripts/autoload/settings.gd")
 ## Canvas units: the canvas is 880 tall, 1320 px on the phone, so 2 units are 1 pt and 88 units
 ## the 44 pt minimum touch target.
 const TOUCH := 88.0
-## Narrow enough that the card, centred in the phone's safe area, clears FreeTableBar's column.
 const COLUMN_WIDTH := 580.0
 const TEXT := Color(0.88, 0.9, 0.88)
 const MUTED := Color(0.62, 0.66, 0.64)
 const ACCENT := Color(0.42, 0.75, 0.55)
 const CARD := Color(0.07, 0.08, 0.085, 0.97)
 const GUIDE_TEXT := ["Cue only", "Aim line and ghost ball", "Plus the object ball's line", "Predicted paths"]
+const STRIKE_TEXT := {
+	"stroke": "Pull back and push through: its speed sets the pace",
+	"pull": "Pull back and let go: the pull sets the power",
+}
 
 ## When true the panel centres itself in the display's safe area; set false to call place_in.
 var auto_place := true
@@ -27,6 +30,7 @@ var _store: SettingsStore
 var _controls := {}
 var _values := {}
 var _dragging := {}
+var _captions := {}
 var _card: PanelContainer
 
 
@@ -64,7 +68,7 @@ func close() -> void:
 	closed.emit()
 
 
-## The control for a setting: "<key>:<value>" for a choice button ("strike_mode:power_bar",
+## The control for a setting: "<key>:<value>" for a choice button ("strike_mode:pull",
 ## "guide_level:2"), "<key>" for a slider or switch, "close" for Close.
 func control(id: String) -> Control:
 	return _controls.get(id)
@@ -166,8 +170,8 @@ func _build() -> void:
 	var card_style := _box(CARD, 28)
 	card_style.content_margin_left = 44.0
 	card_style.content_margin_right = 44.0
-	card_style.content_margin_top = 24.0
-	card_style.content_margin_bottom = 32.0
+	card_style.content_margin_top = 20.0
+	card_style.content_margin_bottom = 20.0
 	_card.add_theme_stylebox_override("panel", card_style)
 	add_child(_card)
 	var body := VBoxContainer.new()
@@ -192,7 +196,8 @@ func _build() -> void:
 	body.add_child(columns)
 	var left := _column(columns)
 	var right := _column(columns)
-	_choice_row(left, "Strike", "strike_mode", [["stroke", "Finger stroke"], ["power_bar", "Power bar"]])
+	_choice_row(left, "Strike", "strike_mode", [["stroke", "Push"], ["pull", "Pull and release"]])
+	_caption(left, "strike_mode")
 	_choice_row(left, "Guide lines", "guide_level", [[0, "0"], [1, "1"], [2, "2"], [3, "3"]])
 	_slider_row(left, "Aim sensitivity", "aim_sensitivity", 0.05, true)
 	_slider_row(left, "Fine-tune sensitivity", "fine_tune_sensitivity", 0.05, true)
@@ -246,6 +251,17 @@ func _choice_row(parent: Container, title: String, key: String, options: Array) 
 		buttons.add_child(button)
 	row.add_child(buttons)
 	parent.add_child(row)
+
+
+## A muted line under a choice row saying what the chosen option does.
+func _caption(parent: Container, key: String) -> void:
+	var caption := Label.new()
+	caption.add_theme_color_override("font_color", MUTED)
+	caption.add_theme_font_size_override("font_size", 24)
+	caption.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	caption.custom_minimum_size.x = COLUMN_WIDTH
+	(parent.get_child(parent.get_child_count() - 1) as Container).add_child(caption)
+	_captions[key] = caption
 
 
 func _slider_row(parent: Container, title: String, key: String, step: float, logarithmic: bool) -> void:
@@ -346,6 +362,8 @@ func _refresh(key: String) -> void:
 			(_controls[id] as Button).set_pressed_no_signal(id == "%s:%s" % [key, str(value)])
 	if key == "guide_level":
 		(_values[key] as Label).text = GUIDE_TEXT[clampi(int(value), 0, GUIDE_TEXT.size() - 1)]
+	if key == "strike_mode":
+		(_captions[key] as Label).text = String(STRIKE_TEXT.get(String(value), ""))
 
 
 func _show_value(key: String, value: float) -> void:
