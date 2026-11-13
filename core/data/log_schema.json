@@ -10,7 +10,12 @@
     "log",
     "harness",
     "physics",
-    "shot"
+    "shot",
+    "input",
+    "ui",
+    "audio",
+    "settings",
+    "freetable"
   ],
   "events": {
     "app.start": {
@@ -263,6 +268,10 @@
         "new_hash": {
           "type": "string",
           "required": true
+        },
+        "shot_id": {
+          "type": "string",
+          "required": false
         }
       }
     },
@@ -504,6 +513,10 @@
         "result": {
           "type": "object",
           "required": true
+        },
+        "context": {
+          "type": "object",
+          "required": false
         }
       }
     },
@@ -568,6 +581,404 @@
         "problems": {
           "type": "array",
           "required": true
+        }
+      }
+    },
+    "shot.input": {
+      "subsystem": "shot",
+      "levels": [
+        "info"
+      ],
+      "fields": {
+        "shot_id": {
+          "type": "string",
+          "required": true
+        },
+        "mode": {
+          "type": "string",
+          "required": true
+        },
+        "strike_mode": {
+          "type": "string",
+          "required": true
+        },
+        "aim_rad": {
+          "type": "number",
+          "required": true
+        },
+        "wander_rad": {
+          "type": "number",
+          "required": true
+        },
+        "tip_x": {
+          "type": "number",
+          "required": true
+        },
+        "tip_y": {
+          "type": "number",
+          "required": true
+        },
+        "elevation_requested_rad": {
+          "type": "number",
+          "required": true
+        },
+        "elevation_min_rad": {
+          "type": "number",
+          "required": true
+        },
+        "speed_m_s": {
+          "type": "number",
+          "required": true
+        },
+        "power": {
+          "type": "number",
+          "required": true
+        },
+        "guide_level": {
+          "type": "integer",
+          "required": true
+        },
+        "stroke_samples": {
+          "type": "array",
+          "required": true
+        },
+        "fine_tune_samples": {
+          "type": "array",
+          "required": true
+        }
+      }
+    },
+    "shot.rejected": {
+      "subsystem": "shot",
+      "levels": [
+        "warn"
+      ],
+      "fields": {
+        "shot_id": {
+          "type": "string",
+          "required": true
+        },
+        "reason": {
+          "type": "string",
+          "required": true
+        }
+      }
+    },
+    "shot.playback": {
+      "subsystem": "shot",
+      "levels": [
+        "info",
+        "warn"
+      ],
+      "fields": {
+        "shot_id": {
+          "type": "string",
+          "required": true
+        },
+        "t_end": {
+          "type": "number",
+          "required": true
+        },
+        "wall_s": {
+          "type": "number",
+          "required": true
+        },
+        "frames": {
+          "type": "integer",
+          "required": true
+        },
+        "dropped_frames": {
+          "type": "integer",
+          "required": true
+        },
+        "frame_ms_max": {
+          "type": "number",
+          "required": true
+        },
+        "events": {
+          "type": "integer",
+          "required": true
+        },
+        "speed": {
+          "type": "number",
+          "required": true
+        },
+        "skipped": {
+          "type": "boolean",
+          "required": false
+        }
+      }
+    },
+    "physics.configured": {
+      "subsystem": "physics",
+      "levels": [
+        "info",
+        "error"
+      ],
+      "fields": {
+        "ok": {
+          "type": "boolean",
+          "required": true
+        },
+        "params_hash": {
+          "type": "string",
+          "required": true
+        },
+        "table_hash": {
+          "type": "string",
+          "required": true
+        },
+        "problems": {
+          "type": "array",
+          "required": false
+        }
+      }
+    },
+    "params.pending": {
+      "subsystem": "params",
+      "levels": [
+        "info"
+      ],
+      "fields": {
+        "hash": {
+          "type": "string",
+          "required": true
+        },
+        "current_hash": {
+          "type": "string",
+          "required": true
+        }
+      }
+    },
+    "guide.predict_slow": {
+      "subsystem": "ui",
+      "levels": [
+        "warn"
+      ],
+      "fields": {
+        "sim_us": {
+          "type": "number",
+          "required": true
+        },
+        "budget_us": {
+          "type": "number",
+          "required": true
+        },
+        "level": {
+          "type": "integer",
+          "required": true
+        }
+      }
+    },
+    "freetable.action": {
+      "subsystem": "freetable",
+      "levels": [
+        "info"
+      ],
+      "fields": {
+        "action": {
+          "type": "string",
+          "required": true
+        },
+        "history_index": {
+          "type": "integer",
+          "required": true
+        },
+        "history_size": {
+          "type": "integer",
+          "required": true
+        },
+        "shot_id": {
+          "type": "string",
+          "required": false
+        },
+        "detail": {
+          "type": "any",
+          "required": false
+        }
+      }
+    },
+    "freetable.edit": {
+      "subsystem": "freetable",
+      "levels": [
+        "info",
+        "warn"
+      ],
+      "fields": {
+        "action": {
+          "type": "string",
+          "required": true
+        },
+        "ball": {
+          "type": "string",
+          "required": true
+        },
+        "index": {
+          "type": "integer",
+          "required": true
+        },
+        "from": {
+          "type": "array",
+          "required": false
+        },
+        "to": {
+          "type": "array",
+          "required": false
+        },
+        "legal": {
+          "type": "boolean",
+          "required": true
+        },
+        "reason": {
+          "type": "string",
+          "required": false
+        }
+      }
+    },
+    "input.cancel": {
+      "subsystem": "input",
+      "levels": [
+        "info"
+      ],
+      "fields": {
+        "control": {
+          "type": "string",
+          "required": true
+        },
+        "reason": {
+          "type": "string",
+          "required": true
+        }
+      }
+    },
+    "settings.loaded": {
+      "subsystem": "settings",
+      "levels": [
+        "info",
+        "warn"
+      ],
+      "fields": {
+        "path": {
+          "type": "string",
+          "required": true
+        },
+        "version": {
+          "type": "integer",
+          "required": true
+        },
+        "problems": {
+          "type": "array",
+          "required": false
+        }
+      }
+    },
+    "settings.changed": {
+      "subsystem": "settings",
+      "levels": [
+        "info",
+        "warn"
+      ],
+      "fields": {
+        "key": {
+          "type": "string",
+          "required": true
+        },
+        "old": {
+          "type": "any",
+          "required": false
+        },
+        "new": {
+          "type": "any",
+          "required": true
+        },
+        "ok": {
+          "type": "boolean",
+          "required": true
+        },
+        "reason": {
+          "type": "string",
+          "required": false
+        }
+      }
+    },
+    "screen.changed": {
+      "subsystem": "ui",
+      "levels": [
+        "info"
+      ],
+      "fields": {
+        "from": {
+          "type": "string",
+          "required": true
+        },
+        "to": {
+          "type": "string",
+          "required": true
+        }
+      }
+    },
+    "overlay.toggled": {
+      "subsystem": "ui",
+      "levels": [
+        "info"
+      ],
+      "fields": {
+        "visible": {
+          "type": "boolean",
+          "required": true
+        },
+        "via": {
+          "type": "string",
+          "required": true
+        }
+      }
+    },
+    "audio.error": {
+      "subsystem": "audio",
+      "levels": [
+        "warn"
+      ],
+      "fields": {
+        "sound": {
+          "type": "string",
+          "required": true
+        },
+        "reason": {
+          "type": "string",
+          "required": true
+        }
+      }
+    },
+    "haptics.unavailable": {
+      "subsystem": "audio",
+      "levels": [
+        "info"
+      ],
+      "fields": {
+        "reason": {
+          "type": "string",
+          "required": true
+        }
+      }
+    },
+    "harness.channel": {
+      "subsystem": "harness",
+      "levels": [
+        "info",
+        "warn"
+      ],
+      "fields": {
+        "state": {
+          "type": "string",
+          "required": true
+        },
+        "port": {
+          "type": "integer",
+          "required": true
+        },
+        "error": {
+          "type": "string",
+          "required": false
         }
       }
     }

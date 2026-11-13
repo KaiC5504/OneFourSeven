@@ -79,3 +79,30 @@ every number is finite. `tools/sim_cli replay` re-runs a bundle.
 `elevation_used_rad`, `elevation_raised`, `anomalies`, `sim_us`, `event_list` (the first 400 events as
 `[t, kind, a, b, body]`), `event_digest` (content hash of every event's `[kind, a, b, body]` in
 order, without the times, so libm rounding across platforms doesn't change it).
+
+## Added in M2 (the feel build)
+
+New subsystems: `input`, `ui`, `audio`, `settings`, `freetable`. A played shot logs `shot.input`, then
+`shot.simulated` (with `context`), then `shot.playback`, all with the same `shot_id`
+(`<session>-<n>`).
+
+| Event / field | Level | When | Fields |
+| --- | --- | --- | --- |
+| `shot.input` | info | the player strikes, before the simulation | `shot_id`, `mode` (`free_table`), `strike_mode` (`stroke`, `power_bar`), `aim_rad`, `wander_rad`, `tip_x`, `tip_y`, `elevation_requested_rad`, `elevation_min_rad`, `speed_m_s`, `power`, `guide_level`, `stroke_samples` (`[t_s, x, y]` in the stroke area's canvas units), `fine_tune_samples` (`[t_s, delta_rad]`) |
+| `shot.simulated` + | | | `context` (`shot_id`, `mode`, `strike_mode`) when the game played it |
+| `shot.rejected` | warn | the binding refused a shot (not configured, malformed balls or strike) | `shot_id`, `reason` |
+| `shot.playback` | info/warn | a shot finished playing (warn when frames dropped) | `shot_id`, `t_end`, `wall_s`, `frames`, `dropped_frames`, `frame_ms_max`, `events`, `speed`, `skipped` |
+| `physics.configured` | info/error | the binding took (or refused) parameters and table shape | `ok`, `params_hash`, `table_hash`, `problems` |
+| `params.pending` | info | new parameters arrived while a shot was playing or being set up; they apply at the next shot | `hash`, `current_hash` |
+| `params.applied` + | | | `shot_id`: the first shot that used them |
+| `guide.predict_slow` | warn | a guide level 3 prediction took longer than its budget | `sim_us`, `budget_us`, `level` |
+| `freetable.action` | info | retake, undo, redo, a setup or edit mode toggled | `action`, `history_index`, `history_size`, `shot_id`, `detail` |
+| `freetable.edit` | info/warn | a ball moved, added or removed in edit mode (warn when refused) | `action` (`move`, `add`, `remove`), `ball`, `index`, `from`, `to` (core `[x, y]`), `legal`, `reason` |
+| `input.cancel` | info | a stroke or gesture was cancelled | `control`, `reason` |
+| `settings.loaded` | info/warn | settings read at start (warn when a value was refused or the file unreadable) | `path`, `version`, `problems` |
+| `settings.changed` | info/warn | a setting changed (warn when the value was refused) | `key`, `old`, `new`, `ok`, `reason` |
+| `screen.changed` | info | the screen changed | `from`, `to` |
+| `overlay.toggled` | info | the debug overlay opened or closed | `visible`, `via` (`three_finger_tap`, `key`, `harness`) |
+| `audio.error` | warn | a sound failed to load or play | `sound`, `reason` |
+| `haptics.unavailable` | info | once per session when vibration can't be used | `reason` |
+| `harness.channel` | info/warn | the debug command channel listened, took a client, closed or failed | `state`, `port`, `error` |

@@ -8,6 +8,7 @@ const EMBEDDED_PATH := "res://data/table_params.json"
 
 var _table_params: Dictionary = {}
 var _hash := ""
+var _text := ""
 
 
 func _ready() -> void:
@@ -17,6 +18,7 @@ func _ready() -> void:
 		_warn("params: %s is missing or not a JSON object" % EMBEDDED_PATH)
 		return
 	_table_params = parsed
+	_text = text
 	# Hash the file's own text, not a re-serialised Dictionary: Godot turns integers into
 	# floats, which would change the canonical bytes and no longer match devlink.py's hash.
 	_hash = OfsLog.content_hash('{"table_params":%s}' % text)
@@ -30,6 +32,22 @@ func current() -> Dictionary:
 
 func current_hash() -> String:
 	return _hash
+
+
+## table_params.json's text as in use, integers intact (OfsPhysics.configure takes it).
+func current_text() -> String:
+	return _text
+
+
+## The hash of parameters received but not yet applied; "" when none are waiting.
+func pending_hash() -> String:
+	return ""
+
+
+## Applies waiting parameters at a shot boundary (spec 16.10: at the next shot, never mid-shot),
+## logging params.applied with the shot's id and emitting changed. False when none were waiting.
+func commit_pending(_shot_id: String) -> bool:
+	return false
 
 
 ## json_text is the "files" object of a /params answer; hash is the server's hash of it.

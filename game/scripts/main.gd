@@ -48,9 +48,9 @@ const SPOT_COLOURS: Array[String] = ["yellow", "green", "brown", "blue", "pink",
 
 @onready var _table: Node3D = $Table
 @onready var _balls: Node3D = $Balls
-@onready var _camera: Camera3D = $Camera3D
-@onready var _light: DirectionalLight3D = $Light
-@onready var _environment: WorldEnvironment = $WorldEnvironment
+@onready var _camera: Camera3D = $CameraRig/Camera3D
+@onready var _light: DirectionalLight3D = $Stage/Light
+@onready var _environment: WorldEnvironment = $Stage/WorldEnvironment
 
 var _frame_corners: Array[Vector3] = []
 
@@ -364,3 +364,26 @@ func _add_d(baulk_x: float, radius: float, material: StandardMaterial3D) -> void
 	double_sided.cull_mode = BaseMaterial3D.CULL_DISABLED
 	node.material_override = double_sided
 	_table.add_child(node)
+
+
+# The harness's hooks (spec 16.5; docs/harness.md). Debug builds only: Harness calls them through
+# get_tree().current_scene. The M2 integrator fills them in.
+
+## balls: a ball list (OfsPhysics); false when the position isn't legal.
+func harness_load_position(_balls: Array, _cue_ball: int) -> bool:
+	return false
+
+
+## Plays a shot with exact parameters (a strike Dictionary); its shot id, or "" when refused.
+func harness_play_shot(_strike: Dictionary) -> String:
+	return ""
+
+
+## True while a shot is playing.
+func harness_busy() -> bool:
+	return false
+
+
+## The game's own part of the state dump: screen, balls, shot setup, settings, last shot.
+func harness_state() -> Dictionary:
+	return {}

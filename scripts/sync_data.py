@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Copies core/data/*.json into game/data/ and writes game/data/build_info.json.
+"""Copies core/data/*.json into game/data/, the named table positions from
+core/tests/fixtures/positions/ into game/data/positions/ (the harness loads them), and writes
+game/data/build_info.json.
 
     python scripts/sync_data.py        # OFS_BUILD_NUMBER sets the build number (default "dev")
 
@@ -18,6 +20,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "core" / "data"
 TARGET = ROOT / "game" / "data"
+POSITIONS = ROOT / "core" / "tests" / "fixtures" / "positions"
 
 
 def project_version() -> str:
@@ -59,6 +62,13 @@ def main() -> int:
             stale.unlink()
     for path in sources:
         write(TARGET / path.name, path.read_bytes())
+    positions = sorted(POSITIONS.glob("*.json"))
+    (TARGET / "positions").mkdir(exist_ok=True)
+    for stale in (TARGET / "positions").glob("*.json"):
+        if stale.name not in {path.name for path in positions}:
+            stale.unlink()
+    for path in positions:
+        write(TARGET / "positions" / path.name, path.read_bytes())
     info = {
         "version": project_version(),
         "build_number": os.environ.get("OFS_BUILD_NUMBER") or "dev",
@@ -66,7 +76,7 @@ def main() -> int:
         "git_dirty": git_dirty(),
     }
     write(TARGET / "build_info.json", (json.dumps(info, indent=2) + "\n").encode("utf-8"))
-    print(f"synced {len(sources)} data files; build {info['version']} ({info['build_number']}) "
+    print(f"synced {len(sources)} data files, {len(positions)} positions; build {info['version']} ({info['build_number']}) "
           f"{info['git_sha'][:12]}{' with uncommitted changes' if info['git_dirty'] else ''}")
     return 0
 

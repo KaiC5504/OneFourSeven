@@ -63,5 +63,8 @@ Divergence compare_results(const nlohmann::json& logged, const nlohmann::json& r
 
 // Emits shot.simulated (info) with {bundle, result}.
 void log_shot(const SimInput& in, const PhysicsParams& p, const ShotRecord& r);
+// The same with the game's context added as "context": {shot_id, mode, strike_mode} (spec 16.10),
+// which ties the line to the game's shot.input.
+void log_shot(const SimInput& in, const PhysicsParams& p, const ShotRecord& r, const nlohmann::json& context);
 
 }  // namespace ofs::phys

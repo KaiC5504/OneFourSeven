@@ -19,6 +19,7 @@ add_library(ofs_core STATIC
     src/physics/simulator.cpp
     src/physics/repro.cpp
     src/physics/rack.cpp
+    src/physics/record_query.cpp
 )
 
 target_include_directories(ofs_core
@@ -61,6 +62,7 @@ if(OFS_BUILD_TESTS)
         tests/physics/test_simulator_regress.cpp
         tests/physics/test_repro.cpp
         tests/physics/test_rack.cpp
+        tests/physics/test_record_query.cpp
     )
     target_link_libraries(ofs_core_tests PRIVATE ofs_core)
     target_compile_definitions(ofs_core_tests PRIVATE

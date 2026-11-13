@@ -357,4 +357,8 @@ void log_shot(const SimInput& in, const PhysicsParams& p, const ShotRecord& r) {
     log::info("shot", "shot.simulated", {{"bundle", make_bundle(in, p)}, {"result", make_result(r)}});
 }
 
+void log_shot(const SimInput& in, const PhysicsParams& p, const ShotRecord& r, const nlohmann::json&) {
+    log_shot(in, p, r);
+}
+
 }  // namespace ofs::phys

@@ -1,23 +1,107 @@
-[gd_scene load_steps=3 format=3]
+[gd_scene load_steps=23 format=3]
 
 [ext_resource type="Script" path="res://scripts/main.gd" id="1_main"]
 [ext_resource type="Script" path="res://scripts/hud.gd" id="2_hud"]
+[ext_resource type="Script" path="res://scripts/view/stage.gd" id="3_stage"]
+[ext_resource type="Script" path="res://scripts/view/table_view.gd" id="4_table"]
+[ext_resource type="Script" path="res://scripts/view/balls_view.gd" id="5_balls"]
+[ext_resource type="Script" path="res://scripts/view/cue_view.gd" id="6_cue"]
+[ext_resource type="Script" path="res://scripts/view/guides.gd" id="7_guides"]
+[ext_resource type="Script" path="res://scripts/input/camera_rig.gd" id="8_rig"]
+[ext_resource type="Script" path="res://scripts/input/gestures.gd" id="9_gestures"]
+[ext_resource type="Script" path="res://scripts/input/aim_control.gd" id="10_aim"]
+[ext_resource type="Script" path="res://scripts/play/shot_player.gd" id="11_player"]
+[ext_resource type="Script" path="res://scripts/play/table_audio.gd" id="12_audio"]
+[ext_resource type="Script" path="res://scripts/play/haptics.gd" id="13_haptics"]
+[ext_resource type="Script" path="res://scripts/free_table/free_table.gd" id="14_free"]
+[ext_resource type="Script" path="res://scripts/input/spin_widget.gd" id="15_spin"]
+[ext_resource type="Script" path="res://scripts/input/elevation_control.gd" id="16_elev"]
+[ext_resource type="Script" path="res://scripts/input/fine_tune_wheel.gd" id="17_wheel"]
+[ext_resource type="Script" path="res://scripts/input/stroke_control.gd" id="18_stroke"]
+[ext_resource type="Script" path="res://scripts/input/power_bar.gd" id="19_power"]
+[ext_resource type="Script" path="res://scripts/free_table/free_table_bar.gd" id="20_bar"]
+[ext_resource type="Script" path="res://scripts/ui/settings_panel.gd" id="21_settings"]
+[ext_resource type="Script" path="res://scripts/ui/debug_overlay.gd" id="22_overlay"]
 
 [node name="Main" type="Node3D"]
 script = ExtResource("1_main")
 
+[node name="Stage" type="Node3D" parent="."]
+script = ExtResource("3_stage")
+
+[node name="Light" type="DirectionalLight3D" parent="Stage"]
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="Stage"]
+
 [node name="Table" type="Node3D" parent="."]
+script = ExtResource("4_table")
 
 [node name="Balls" type="Node3D" parent="."]
+script = ExtResource("5_balls")
 
-[node name="Camera3D" type="Camera3D" parent="."]
+[node name="Cue" type="Node3D" parent="."]
+script = ExtResource("6_cue")
+
+[node name="Guides" type="Node3D" parent="."]
+script = ExtResource("7_guides")
+
+[node name="CameraRig" type="Node3D" parent="."]
+script = ExtResource("8_rig")
+
+[node name="Camera3D" type="Camera3D" parent="CameraRig"]
 current = true
 
-[node name="Light" type="DirectionalLight3D" parent="."]
+[node name="Gestures" type="Node" parent="."]
+script = ExtResource("9_gestures")
 
-[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+[node name="AimControl" type="Node" parent="."]
+script = ExtResource("10_aim")
+
+[node name="ShotPlayer" type="Node" parent="."]
+script = ExtResource("11_player")
+
+[node name="TableAudio" type="Node3D" parent="."]
+script = ExtResource("12_audio")
+
+[node name="Haptics" type="Node" parent="."]
+script = ExtResource("13_haptics")
+
+[node name="FreeTable" type="Node" parent="."]
+script = ExtResource("14_free")
 
 [node name="Hud" type="CanvasLayer" parent="."]
 
 [node name="LinkLabel" type="Label" parent="Hud"]
 script = ExtResource("2_hud")
+
+[node name="SpinWidget" type="Control" parent="Hud"]
+script = ExtResource("15_spin")
+mouse_filter = 2
+
+[node name="ElevationControl" type="Control" parent="Hud"]
+script = ExtResource("16_elev")
+mouse_filter = 2
+
+[node name="FineTuneWheel" type="Control" parent="Hud"]
+script = ExtResource("17_wheel")
+mouse_filter = 2
+
+[node name="StrokeArea" type="Control" parent="Hud"]
+script = ExtResource("18_stroke")
+mouse_filter = 2
+
+[node name="PowerBar" type="Control" parent="Hud"]
+script = ExtResource("19_power")
+mouse_filter = 2
+
+[node name="FreeTableBar" type="Control" parent="Hud"]
+script = ExtResource("20_bar")
+mouse_filter = 2
+
+[node name="SettingsPanel" type="Control" parent="Hud"]
+script = ExtResource("21_settings")
+mouse_filter = 2
+
+[node name="Overlay" type="Control" parent="Hud"]
+script = ExtResource("22_overlay")
+mouse_filter = 2

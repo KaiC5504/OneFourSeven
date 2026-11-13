@@ -53,7 +53,7 @@ func test_balls_sit_at_documented_core_positions() -> void:
 
 func test_camera_looks_from_baulk_towards_black() -> void:
 	var main: Node = await _spawn()
-	var camera: Camera3D = main.get_node("Camera3D")
+	var camera: Camera3D = main.get_node("CameraRig/Camera3D")
 	check(camera.position.z > 1.7845, "camera behind the baulk cushion")
 	check(camera.position.y > 0.5, "camera elevated")
 	var black := main.get_node("Balls/black") as Node3D
@@ -95,8 +95,8 @@ func test_six_pockets_cut_into_the_table() -> void:
 
 func test_shadow_range_covers_the_whole_table() -> void:
 	var main: Node = await _spawn()
-	var camera: Camera3D = main.get_node("Camera3D")
-	var light: DirectionalLight3D = main.get_node("Light")
+	var camera: Camera3D = main.get_node("CameraRig/Camera3D")
+	var light: DirectionalLight3D = main.get_node("Stage/Light")
 	var forward := -camera.global_transform.basis.z
 	for corner: Vector3 in [Vector3(-1.1, 0.0, -2.0), Vector3(1.1, 0.0, -2.0)]:
 		check(light.directional_shadow_max_distance > (corner - camera.position).dot(forward), "far corner %s in shadow range" % corner)

@@ -12,6 +12,7 @@ add_library(onefourseven SHARED
     src/ofs_devlink.cpp
     src/engine_logger.cpp
     src/ofs_device.cpp
+    src/ofs_physics.cpp
 )
 
 if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
