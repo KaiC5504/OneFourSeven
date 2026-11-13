@@ -41,7 +41,7 @@ All maps are 1024 x 1024 JPG.
 | Tile | **0.12 m** square (the scan gives no size; chosen by eye: at 0.25 m and above it reads as carpet or felt, at 0.12 m as fine baize) |
 | StandardMaterial3D | `albedo_color` sRGB (0.11, 0.42, 0.16); `roughness` 0.85 (about 0.7 with the map); `normal_scale` 0.3; `rim_enabled`, `rim` 0.25, `rim_tint` 0.6; no clear-coat |
 
-Under the stage below the cloth renders at about sRGB (52, 129, 62), a TV tournament green. The soft
+Under the stage below the cloth renders at about sRGB (42-66, 120-129, 52-73), a TV tournament green. The soft
 sheen near the camera comes from the roughness picking up the canopy in the reflection probe; rim adds
 very little. Anisotropy was tried for a sheen along the nap and looked wrong (dark or washed out), so it
 is off. The cushions use the same material.
@@ -109,6 +109,8 @@ and a dim room elsewhere. This is the setup that gets all three in the Mobile re
    - **Capture again** about 0.5 s after the table is built (set `update_mode` to Once again), and after
      any material change. The first capture can miss meshes whose shaders are still compiling: in some
      runs the cloth came out black in it and the balls had black lower halves.
+   - With the probe, the preview prints `7 RIDs of type "Texture" were leaked` when it quits (it
+     doesn't without the probe). It comes after the session log closes, so it never shows there.
 6. **Ball highlight**: an AreaLight3D the canopy's size at the canopy, facing down, `light_cull_mask` =
    the balls' layer only, `area_normalize_energy` off, `light_energy` 0.05, `light_specular` 100, no
    shadow. The probe alone leaves the canopy grey on a black ball (the Mobile renderer stores probes with
