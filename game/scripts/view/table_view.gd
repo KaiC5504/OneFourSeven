@@ -710,8 +710,9 @@ func _wood_material() -> StandardMaterial3D:
 	# The body under the rails is darker through its vertex colour.
 	m.vertex_color_use_as_albedo = true
 	m.clearcoat_enabled = true
-	m.clearcoat = 1.0
-	m.clearcoat_roughness = 0.08
+	# A satin lacquer: a mirror finish showed the canopy as a hard white streak along the rails.
+	m.clearcoat = 0.35
+	m.clearcoat_roughness = 0.3
 	return m
 
 

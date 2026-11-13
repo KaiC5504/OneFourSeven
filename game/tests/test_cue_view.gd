@@ -65,6 +65,18 @@ func test_the_cue_is_full_length_and_tapered() -> void:
 	cue.free()
 
 
+func test_the_cue_dissolves_before_the_camera_clips_it() -> void:
+	var cue := _cue()
+	var mesh := (cue.get_node("Mesh") as MeshInstance3D).mesh
+	check(CueView.NEAR_HIDDEN_M > CameraRig.NEAR_M, "hidden before the near plane cuts it open")
+	for i in mesh.get_surface_count():
+		var material := mesh.surface_get_material(i) as BaseMaterial3D
+		check_eq(material.distance_fade_mode, BaseMaterial3D.DISTANCE_FADE_PIXEL_DITHER, "surface %d dithers out" % i)
+		check_near(material.distance_fade_min_distance, CueView.NEAR_HIDDEN_M, 1e-6, "surface %d hidden up close" % i)
+		check_near(material.distance_fade_max_distance, CueView.NEAR_SOLID_M, 1e-6, "surface %d solid beyond" % i)
+	cue.free()
+
+
 func test_show_and_strike() -> void:
 	var cue := _cue()
 	cue.set_pose(CUE_XY, 0.0, 0.1, Vector2.ZERO, 0.1)

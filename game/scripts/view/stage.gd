@@ -1,13 +1,14 @@
 class_name Stage
 extends Node3D
 ## The scene around the table (spec 13.1; game/textures/README.md): TV snooker's dark arena with a
-## bright canopy over the table. The cameras see a plain dark backdrop; the balls show a faint, soft
-## reflection of the canopy, the green cloth round their lower halves and a dim studio elsewhere.
+## light over the table. The cameras see a plain dark backdrop; the balls and rails show a faint glow
+## from the canopy, the balls the green cloth round their lower halves, and the dark arena elsewhere.
 ## Children: Light (the key light, straight down with soft contact shadows), WorldEnvironment, and
 ## once set up the Canopy and the Reflections probe.
 ##
-## The reflection probe captures the table and the canopy once (capture_reflections); whatever
-## moves stays out of it on its own layer, or the balls would reflect a stale table.
+## The reflection probe captures the table and the canopy twice (capture_reflections): in the
+## first frame drawn, and again once the renderer has stopped compiling pipelines. Whatever moves
+## stays out of it on its own layer, or the balls would reflect a stale table.
 
 ## The table, which the probe captures.
 const TABLE_LAYER := 1
@@ -17,6 +18,9 @@ const BALL_LAYER := 1 << 1
 const MOVING_LAYER := 1 << 2
 ## The canopy, which only the probe sees.
 const PROBE_ONLY_LAYER := 1 << 19
+## What the probe lights. The cue moves through the box and would mirror the cloth: green ebony and
+## olive brass.
+const PROBE_RECEIVERS := TABLE_LAYER | BALL_LAYER
 
 const BACKDROP := Color(0.02, 0.022, 0.025)
 const HDRI_PATH := "res://env/studio_small_04_1k.hdr"
@@ -25,19 +29,23 @@ const AMBIENT_ENERGY := 0.6
 const KEY_ENERGY := 0.7
 ## The canopy's size seen from the cloth: soft contact shadows.
 const KEY_ANGULAR_DISTANCE := 25.0
-const CANOPY_SIZE := Vector2(1.0, 2.4)
+## The canopy glows brightest in its middle and fades to nothing at its edges, so the balls and the
+## lacquered rails show a soft glow instead of a lamp's hard outline.
+const CANOPY_SIZE := Vector2(1.0, 1.6)
 const CANOPY_HEIGHT := 1.0
-const CANOPY_ENERGY := 6.0
+const CANOPY_ENERGY := 0.4
 ## The probe's box reaches this far past the playing area on each side.
 const PROBE_MARGIN := 0.2
 ## The default 1 m fade is wider than the box is tall and would leave the balls near zero.
 const PROBE_BLEND := 0.02
 ## The first capture can miss meshes whose pipelines are still compiling (the cloth then reflects
-## black), so the probe captures again once the scene has settled.
-const RECAPTURE_S := 0.5
-const CAPTURE_DRAW_S := 0.1
-## A faint, soft highlight on the balls; the README's canopy-sized area light made a hard white
-## rectangle that KaiC found unreal.
+## black), so the probe captures again once this many frames in a row have compiled nothing, or
+## after RECAPTURE_LATEST_FRAMES whatever is compiling. Waiting for the compiles keeps the second
+## capture off the frames that already stall, which on the phone take seconds. Frames, not time:
+## the phone's first frame alone takes longer than any sensible timeout.
+const SETTLED_FRAMES := 3
+const RECAPTURE_LATEST_FRAMES := 120
+## A faint, soft highlight on the balls. The README's canopy-sized area light read as a hard white rectangle.
 const KEY_SPECULAR := 0.25
 # A full-size table with its rails, before TableView reports the real bounds.
 const DEFAULT_BOUNDS := AABB(Vector3(-1.1, -0.7, -1.95), Vector3(2.2, 0.75, 3.9))
@@ -49,9 +57,11 @@ const MAX_SHADOW_DISTANCE := 12.0
 var _bounds := DEFAULT_BOUNDS
 var _backdrop: Environment
 var _probe: ReflectionProbe
-var _recapture: Timer
 var _capturing := false
 var _recaptured := false
+var _capture_frames := 0
+var _compilations := -1
+var _quiet_frames := 0
 
 
 func setup() -> void:
@@ -66,10 +76,10 @@ func setup() -> void:
 		world.name = "WorldEnvironment"
 		add_child(world)
 
-	# The world shows the dim studio, so the probe captures it round the canopy; the cameras
-	# override it with the plain backdrop (dress_camera).
+	# The dim studio lights the scene and is what the cue, outside the probe, reflects; the cameras
+	# show the plain backdrop instead (dress_camera).
 	var sky := Sky.new()
-	sky.radiance_size = Sky.RADIANCE_SIZE_256
+	sky.radiance_size = Sky.RADIANCE_SIZE_128
 	var panorama := PanoramaSkyMaterial.new()
 	panorama.panorama = _load_texture(HDRI_PATH)
 	panorama.energy_multiplier = SKY_ENERGY
@@ -108,18 +118,22 @@ func dress_camera(camera: Camera3D) -> void:
 	camera.cull_mask &= ~PROBE_ONLY_LAYER
 
 
-## Captures the table and canopy into the balls' reflections now and again after RECAPTURE_S:
-## call once the table is built, and after any change to its materials.
+## Captures the table and canopy into the balls' reflections in the next frame drawn, and again
+## once pipeline compiling has settled: call once the table is built, and after any change to its
+## materials.
 func capture_reflections() -> void:
 	if _probe == null:
 		return
 	_probe.update_mode = ReflectionProbe.UPDATE_ONCE
 	_recaptured = false
+	_capture_frames = 0
+	_compilations = -1
+	_quiet_frames = 0
 	if not _capturing:
 		_capturing = true
 		# Idle frames aren't drawn, and a capture needs one.
 		Perf.set_active(&"reflection_capture", true)
-	_recapture.start(RECAPTURE_S)
+	set_process(true)
 
 
 ## The table's extent in world space (TableView.bounds()); fit_shadows covers all of it.
@@ -140,6 +154,41 @@ func fit_shadows(camera: Camera3D) -> void:
 	light.directional_shadow_max_distance = clampf(farthest + 0.1, MIN_SHADOW_DISTANCE, MAX_SHADOW_DISTANCE)
 
 
+func _ready() -> void:
+	set_process(_capturing)
+
+
+func _process(_delta: float) -> void:
+	if not _capturing:
+		set_process(false)
+		return
+	_capture_frames += 1
+	var compiled := pipeline_compilations()
+	if compiled != _compilations:
+		_compilations = compiled
+		_quiet_frames = 0
+	else:
+		_quiet_frames += 1
+	if _recaptured:
+		# The frame after the one that drew the second capture.
+		_capturing = false
+		Perf.set_active(&"reflection_capture", false)
+		set_process(false)
+	elif _quiet_frames >= SETTLED_FRAMES or _capture_frames >= RECAPTURE_LATEST_FRAMES:
+		_probe.update_mode = ReflectionProbe.UPDATE_ONCE
+		_recaptured = true
+
+
+## Pipelines the renderer has compiled so far, of every kind.
+static func pipeline_compilations() -> int:
+	var rs := RenderingServer
+	return (rs.get_rendering_info(rs.RENDERING_INFO_PIPELINE_COMPILATIONS_CANVAS)
+			+ rs.get_rendering_info(rs.RENDERING_INFO_PIPELINE_COMPILATIONS_MESH)
+			+ rs.get_rendering_info(rs.RENDERING_INFO_PIPELINE_COMPILATIONS_SURFACE)
+			+ rs.get_rendering_info(rs.RENDERING_INFO_PIPELINE_COMPILATIONS_DRAW)
+			+ rs.get_rendering_info(rs.RENDERING_INFO_PIPELINE_COMPILATIONS_SPECIALIZATION))
+
+
 func _exit_tree() -> void:
 	if _capturing:
 		_capturing = false
@@ -147,7 +196,7 @@ func _exit_tree() -> void:
 
 
 func _add_canopy() -> void:
-	for old: String in ["Canopy", "Reflections", "Recapture"]:
+	for old: String in ["Canopy", "Reflections"]:
 		var node := get_node_or_null(old)
 		if node != null:
 			remove_child(node)
@@ -172,6 +221,7 @@ func _add_canopy() -> void:
 	glow.emission_enabled = true
 	glow.emission = Color.WHITE
 	glow.emission_energy_multiplier = CANOPY_ENERGY
+	glow.emission_texture = _canopy_falloff()
 	glow.cull_mode = BaseMaterial3D.CULL_DISABLED
 	canopy.material_override = glow
 	add_child(canopy)
@@ -181,29 +231,31 @@ func _add_canopy() -> void:
 	_probe.size = Vector3(playing.y + 2.0 * PROBE_MARGIN, CANOPY_HEIGHT + 0.1, playing.x + 2.0 * PROBE_MARGIN)
 	_probe.position = Vector3(0.0, (CANOPY_HEIGHT + 0.1) / 2.0 - 0.05, 0.0)
 	_probe.origin_offset = Vector3(0.0, ball_radius - _probe.position.y, 0.0)
-	_probe.box_projection = true
+	# Box projection cut the canopy's glow into hard-edged shards on balls near the cushions.
+	_probe.box_projection = false
+	# Leaves the studio's bright panels out of the capture: around the canopy the balls and rails
+	# reflect the dark arena (project.godot's default clear colour; Godot's grey made the rails milky).
+	_probe.interior = true
 	_probe.blend_distance = PROBE_BLEND
 	_probe.cull_mask = TABLE_LAYER | PROBE_ONLY_LAYER
+	_probe.reflection_mask = PROBE_RECEIVERS
 	_probe.update_mode = ReflectionProbe.UPDATE_ONCE
 	add_child(_probe)
 
-	_recapture = Timer.new()
-	_recapture.name = "Recapture"
-	_recapture.one_shot = true
-	_recapture.timeout.connect(_on_recapture)
-	add_child(_recapture)
 
-
-func _on_recapture() -> void:
-	if _recaptured:
-		_recaptured = false
-		_capturing = false
-		Perf.set_active(&"reflection_capture", false)
-		return
-	_probe.update_mode = ReflectionProbe.UPDATE_ONCE
-	_recaptured = true
-	# A moment more for the second capture to be drawn before idle stops drawing.
-	_recapture.start(CAPTURE_DRAW_S)
+static func _canopy_falloff() -> GradientTexture2D:
+	var gradient := Gradient.new()
+	gradient.interpolation_mode = Gradient.GRADIENT_INTERPOLATE_CUBIC
+	gradient.offsets = PackedFloat32Array([0.0, 0.3, 0.65, 1.0])
+	gradient.colors = PackedColorArray([Color.WHITE, Color(0.6, 0.6, 0.6), Color(0.15, 0.15, 0.15), Color.BLACK])
+	var texture := GradientTexture2D.new()
+	texture.gradient = gradient
+	texture.fill = GradientTexture2D.FILL_RADIAL
+	texture.fill_from = Vector2(0.5, 0.5)
+	texture.fill_to = Vector2(1.0, 0.5)
+	texture.width = 64
+	texture.height = 64
+	return texture
 
 
 static func _load_texture(path: String) -> Texture2D:

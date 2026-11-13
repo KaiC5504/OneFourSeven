@@ -70,6 +70,10 @@ var _materials := {}
 var _shadow_mesh: PlaneMesh
 
 
+func _ready() -> void:
+	set_process(_dropping > 0)
+
+
 ## The pockets' drop centres, from OfsPhysics.table_shape()["pockets"], for the potted balls' drop.
 func set_pockets(pockets: Array) -> void:
 	_pockets.clear()
@@ -274,8 +278,6 @@ func is_dropping() -> bool:
 
 
 func _process(delta: float) -> void:
-	if _dropping == 0:
-		return
 	for i in _balls.size():
 		if _drop_elapsed[i] < 0.0:
 			continue
@@ -326,6 +328,7 @@ func _restore(i: int) -> void:
 func _set_dropping(count: int) -> void:
 	_dropping = maxi(count, 0)
 	Perf.set_active(&"ball_drop", _dropping > 0)
+	set_process(_dropping > 0)
 
 
 # The shadow is the ball's child but must stay flat on the cloth under it, whatever the spin.

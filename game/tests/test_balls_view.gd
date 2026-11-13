@@ -104,12 +104,15 @@ func test_a_pocketed_ball_drops_into_its_pocket_and_hides() -> void:
 	state[o + ShotPlayback.Y] = 0.9
 	state[o + ShotPlayback.MOTION] = ShotPlayback.POCKETED
 	state[o + ShotPlayback.POCKET] = 0.0
+	check(not view.is_processing(), "no per-frame work before a drop")
 	view.apply_state(state, 0.01)
 	var ball := view.get_child(5) as Node3D
 	check(view.is_dropping(), "dropping")
+	check(view.is_processing(), "animates the drop each frame")
 	check(ball.visible, "still visible while it drops")
 	await tree.create_timer(BallsView.DROP_SECONDS + 0.2).timeout
 	check(not view.is_dropping(), "the drop ended")
+	check(not view.is_processing(), "and stops working each frame")
 	check(not ball.visible, "hidden once it has dropped")
 	var centre := _v2(shape["pockets"][0]["drop_centre"])
 	check(TableSpace.godot_to_core(ball.position).distance_to(centre) < 1e-4, "ended over the drop centre")

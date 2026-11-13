@@ -229,3 +229,96 @@ func test_camera_settings() -> void:
 	check_eq(rig.camera().fov, CameraRig.FOV_DEG, "fov")
 	check_eq(rig.camera().transform, Transform3D.IDENTITY, "the camera sits at the rig's origin")
 	rig.free()
+
+
+## The camera's distance from the cue's surface, the cue drawn as CueView draws it.
+func _clearance_from_cue(rig: CameraRig, cue_xy: Vector2, aim: float, elevation: float) -> float:
+	var pose := CueView.pose(cue_xy, aim, elevation, Vector2.ZERO, 0.0)
+	var back := pose.basis.z
+	var eye := rig.camera().global_position
+	var along := clampf((eye - pose.origin).dot(back), 0.0, CueView.LENGTH)
+	var nearest := pose.origin + back * along
+	return eye.distance_to(nearest) - CueView.BUTT_DIAMETER / 2.0
+
+
+func test_a_raised_cue_lifts_the_camera_above_it() -> void:
+	var rig := _rig()
+	var cue := Vector2(-1.758, 0.2)
+	rig.follow(cue, 0.0)
+	var flat := rig.transform
+	rig.set_cue_elevation(deg_to_rad(2.0))
+	check(rig.transform.is_equal_approx(flat), "a cue barely raised leaves the view alone")
+	var elevation := deg_to_rad(41.0)
+	rig.set_cue_elevation(elevation)
+	rig._process(1.0)
+	check_near(rig.pitch_for(elevation), 41.0 + CameraRig.ABOVE_CUE_DEG, 1e-9, "pitched above the cue")
+	check_eq(rig.pitch_deg(), CameraRig.DEFAULT_PITCH_DEG, "the player's tilt is kept")
+	check_near(-_forward(rig).y, sin(deg_to_rad(41.0 + CameraRig.ABOVE_CUE_DEG)), 1e-6, "looking down that steeply")
+	check(_clearance_from_cue(rig, cue, 0.0, elevation) > 0.3, "well clear of the butt")
+	var to_cue := (TableSpace.core_to_godot(cue.x, cue.y, 0.02625) - rig.camera().global_position).normalized()
+	var half_fov := deg_to_rad(CameraRig.FOV_DEG / 2.0)
+	check(to_cue.y < _forward(rig).y and to_cue.angle_to(_forward(rig)) < half_fov * 0.9,
+			"the cue ball still low in view")
+	rig.set_pitch_deg(80.0)
+	check_near(-_forward(rig).y, sin(deg_to_rad(80.0)), 0.02, "a higher tilt wins")
+	rig.free()
+
+
+func test_a_raised_cue_never_comes_near_the_camera() -> void:
+	var rig := _rig()
+	var cues: Array[Vector2] = [Vector2(-1.758, 0.2), Vector2(0.4, -0.3), Vector2(1.7, 0.85)]
+	for zoom: float in [CameraRig.ZOOM_MIN, 1.0, CameraRig.ZOOM_MAX]:
+		rig.set_zoom_scale(zoom)
+		for pitch: float in [CameraRig.PITCH_MIN_DEG, CameraRig.DEFAULT_PITCH_DEG, 30.0]:
+			rig.set_pitch_deg(pitch)
+			for elevation: float in [0.25, 0.45, 0.6, 0.75]:
+				for cue in cues:
+					for aim: float in [0.0, 2.2, -1.0]:
+						rig.set_cue_elevation(elevation)
+						rig.follow(cue, aim)
+						rig._process(1.0)
+						var gap := _clearance_from_cue(rig, cue, aim, elevation)
+						check(gap > 0.1, "%.3f m from the cue (zoom %.2f, pitch %.0f, elevation %.2f, cue %s, aim %.1f)"
+								% [gap, zoom, pitch, elevation, cue, aim])
+	rig.free()
+
+
+func test_forced_elevation_eases_and_dragged_elevation_is_immediate() -> void:
+	var rig := _rig()
+	var cue := Vector2(0.2, 0.1)
+	rig.follow(cue, 0.5)
+	rig.set_cue_elevation(0.7)
+	check(rig.is_easing(), "a jump of the cue over a ball eases")
+	rig._process(CameraRig.EASE_S + 0.01)
+	check(not rig.is_easing(), "settled")
+	check(rig.transform.is_equal_approx(rig.pose_for(cue, 0.5, 0.7)), "above the raised cue")
+	rig.set_cue_elevation(0.72)
+	check(not rig.is_easing(), "a drag-sized change")
+	check(rig.transform.is_equal_approx(rig.pose_for(cue, 0.5, 0.72)), "applies at once")
+	rig.hold(true)
+	rig.set_cue_elevation(0.0)
+	check(rig.transform.is_equal_approx(rig.pose_for(cue, 0.5, 0.72)), "held still during a shot")
+	rig.hold(false)
+	check(rig.is_easing(), "eases back down after it")
+	rig._process(1.0)
+	check(rig.transform.is_equal_approx(rig.pose_for(cue, 0.5, 0.0)), "back at cue level")
+	rig.set_cue_elevation(NAN)
+	check_eq(rig.cue_elevation(), 0.0, "nonsense ignored")
+	rig.free()
+
+
+func test_the_planning_view_frames_the_whole_table() -> void:
+	var rig := _rig()
+	rig.set_pitch_deg(CameraRig.PITCH_MAX_DEG)
+	var half_fov := tan(deg_to_rad(CameraRig.FOV_DEG / 2.0))
+	var bounds := Stage.DEFAULT_BOUNDS
+	for entry: Array in [[Vector2(-1.0, 0.1), 0.0], [Vector2(1.5, -0.4), PI], [Vector2(0.0, 0.6), PI / 2.0]]:
+		rig.follow(entry[0], entry[1])
+		rig._process(1.0)
+		var to_camera := rig.camera().global_transform.affine_inverse()
+		for x: float in [bounds.position.x, bounds.end.x]:
+			for z: float in [bounds.position.z, bounds.end.z]:
+				var corner := to_camera * Vector3(x, bounds.end.y, z)
+				check(absf(corner.y / -corner.z) < half_fov * 0.97,
+						"rail corner %s inside the view's height for %s" % [Vector2(x, z), entry])
+	rig.free()
