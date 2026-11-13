@@ -19,7 +19,8 @@
 //
 // A ball list is an Array of Dictionaries {ball: String ("cue", "red", "yellow", ...), index: int
 // (0-14 for reds, else 0), x: float, y: float}, the same shape OfsTable.opening_layout returns;
-// balls are addressed by their position in that Array. A strike is a Dictionary {aim_rad, tip_x,
+// balls are addressed by their position in that Array. An optional "pocket" (as final_balls gives
+// it) of 0 or more takes that ball as already potted. A strike is a Dictionary {aim_rad, tip_x,
 // tip_y, elevation_rad, speed_m_s} with the meanings of ofs::phys::CueStrike.
 
 // One simulated shot. Read-only; created only by OfsPhysics.
@@ -63,6 +64,9 @@ private:
     ofs::phys::ShotRecord record_;
     std::shared_ptr<const ofs::phys::TableShape> table_;
     godot::String shot_id_;
+    // Built on the first events() call and handed out read-only, so callers can't change it.
+    mutable godot::Array events_;
+    mutable bool events_built_ = false;
 };
 
 class OfsPhysics : public godot::RefCounted {
@@ -113,9 +117,13 @@ public:
     static godot::String member_json(const godot::String &json_text, const godot::String &key);
 
 private:
+    godot::Ref<OfsShotRecord> run(const godot::Array &balls, int cue_ball, const godot::Dictionary &strike,
+                                  int64_t seed, const godot::Dictionary *context);
+
     bool ready_ = false;
     ofs::phys::PhysicsParams params_;
     std::shared_ptr<const ofs::phys::TableShape> table_;
     godot::String params_hash_;
     godot::String table_hash_;
+    godot::Dictionary table_shape_;
 };
