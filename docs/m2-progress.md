@@ -15,7 +15,9 @@ and `ShotPlayback` real; `Settings` and `Physics` autoloads; `Params.current_tex
 Space shoot, R retake, Ctrl+Z / Ctrl+Y); 16 new log events; named positions synced into
 `game/data/positions/`.
 
-## Wave 1 (9 builders)
+## Wave 1 (9 builders, launched 2026-11-13 on 32f4be7)
+Addenda before launch: 8497fc2 (OfsPhysics.opening_rack, outline names and kinds), 32f4be7 (test slot
+test_record_query_impl.cpp for the binding agent).
 A binding, B look, C playback + sound + haptics, D gestures + aim + fine-tune + camera,
 E spin + elevation + stroke + power bar, F guides, G harness channel + overlay + params + perf,
 H free table + settings, I independent tests.
