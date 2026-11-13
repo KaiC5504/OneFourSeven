@@ -34,3 +34,12 @@ screens. After G merges: run_debug.py passes --mute unless --sound.
   area ~200 wide full height, power bar ≥140×420; wire backswing_changed → CueView.set_pose,
   struck / shoot_pressed → the shot; collapse() / cancel_stroke() when a shot starts. KaiC's feel
   check: 6000 units/s fastest push, exponent 1.5, wander gain 0.1.
+- D aim + camera (cbeb725): slop 8, tap < 0.5 s, pinch/tilt thresholds 16/12 with hysteresis 40;
+  dragging right turns the aim clockwise (negative aim_rad); camera pitch default 16°, zoom
+  0.35-1.6, FOV 40. Integrator: FineTuneWheel mouse_filter STOP, right edge ~120×380 in the safe
+  area; gestures.pinched → rig.pinch, two_finger_dragged → rig.tilt(relative.y), setup.changed →
+  rig.follow, hold around the shot, wheel.stepped → haptics tick; AimControl off during shots/edit.
+- F guides (c4f78c6): level 3 shows paths + pace only; pocket mouth → kind "pocket"; throttle 5/s
+  with a deferred last prediction; predict_slow over 4000 µs. Integrator: call show_for on
+  change (cheap if unchanged), hide_all during shots, last_predict_us → overlay.
+  Screens check: spheres near the frame edges look stretched (wide horizontal FOV at 2.17:1).
