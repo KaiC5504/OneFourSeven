@@ -96,6 +96,8 @@ var _watch_aim := 0.0
 var _watch := {}
 var _watch_target := {}
 var _overview := false
+# reset_view() while held: the release eases to the default view even if the cue ball didn't move.
+var _view_reset := false
 var _before_overview := Vector2(DEFAULT_PITCH_DEG, 1.0)
 var _half_size := FALLBACK_HALF_SIZE
 var _ball_radius := FALLBACK_BALL_RADIUS
@@ -207,6 +209,20 @@ func is_overview() -> bool:
 	return _overview
 
 
+## The default tilt and zoom, out of the overview, applied by the next follow() or release. Every
+## shot starts from behind the cue ball, so a tilt left high can't strand the player overhead.
+func reset_view() -> void:
+	_leave_overview()
+	if _pitch_deg == DEFAULT_PITCH_DEG and _zoom == 1.0:
+		return
+	_pitch_deg = DEFAULT_PITCH_DEG
+	_zoom = 1.0
+	if _held:
+		_view_reset = true
+	elif _has_pose:
+		_start_ease(true)
+
+
 # A tilt or pinch takes the view as it is from there: no way back to the tilt before the overview.
 func _leave_overview() -> void:
 	if _overview:
@@ -244,9 +260,10 @@ func hold(on: bool) -> void:
 	elif _watching:
 		_watching = false
 		_start_ease(true)
-	elif _has_pose and (_target_cue != _shown_cue or _target_aim != _shown_aim
+	elif _has_pose and (_view_reset or _target_cue != _shown_cue or _target_aim != _shown_aim
 			or _target_elevation != _shown_elevation):
-		_start_ease()
+		_start_ease(_view_reset)
+	_view_reset = false
 
 
 ## While held, frames these points (core metres, on the cloth: the moving balls now and a little

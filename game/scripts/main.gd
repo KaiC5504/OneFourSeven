@@ -313,6 +313,7 @@ func _settle() -> void:
 		_balls.sync(_free.balls)
 	setup.after_shot(bool(Settings.get_value("reset_spin_after_shot")))
 	_set_playing(false)
+	_rig.reset_view()
 	_refresh()
 	_rig.hold(false)
 

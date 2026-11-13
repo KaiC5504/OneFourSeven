@@ -374,6 +374,22 @@ func test_overview_goes_to_the_planning_view_and_back() -> void:
 	rig.free()
 
 
+func test_reset_view_returns_behind_the_cue_ball_after_a_shot() -> void:
+	var rig := _rig()
+	rig.follow(Vector2(-1.0, 0.0), 0.0)
+	rig.set_overview(true)
+	rig._process(1.0)
+	rig.hold(true)
+	rig.reset_view()
+	rig.hold(false)
+	rig._process(1.0)
+	check(not rig.is_overview(), "out of the overview")
+	check_near(rig.pitch_deg(), CameraRig.DEFAULT_PITCH_DEG, 1e-9, "the default tilt")
+	check_near(rig.zoom_scale(), 1.0, 1e-9, "the default zoom")
+	check(rig.transform.is_equal_approx(rig.pose_for(Vector2(-1.0, 0.0), 0.0)), "behind the cue ball")
+	rig.free()
+
+
 func test_watching_frames_the_points_and_glides() -> void:
 	var rig := _rig()
 	rig.follow(Vector2(-1.0, 0.0), 0.0)
