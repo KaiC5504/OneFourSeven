@@ -104,6 +104,31 @@ func test_state_at_ends_match_inputs_and_final_balls() -> void:
 	check(int(final[1]["pocket"]) >= 0, "the red has a pocket")
 
 
+func test_final_balls_feed_the_next_shot() -> void:
+	var sim := _configured()
+	var record := sim.simulate(_straight_pot_balls(), 0, _strike(PI / 2.0, 1.5), 3, _context("test-4"))
+	if record == null:
+		check(false, "simulated")
+		return
+	var after: Array[Dictionary] = []
+	for b: Dictionary in record.final_balls():
+		after.append(b)
+	var pocket: int = after[1]["pocket"]
+	var next := sim.predict(after, 0, _strike(PI / 2.0, 3.0))
+	if next == null:
+		check(false, "final_balls accepted as a ball list")
+		return
+	check_eq(int(next.state_at(0.0)[OfsShotRecord.kStride + 8]), pocket, "the potted red stays in its pocket")
+	check_eq(next.final_balls()[1]["pocket"], pocket, "and is still potted after")
+	check(_first(next.events(), "ball_ball").is_empty(), "nothing hits a potted ball")
+	var cue_potted := _with(after, 0, "pocket", 2)
+	_mark_log()
+	check(sim.simulate(cue_potted, 0, _strike(0.0, 1.0), 1, _context("potted-cue")) == null, "potted cue ball")
+	check(sim.simulate(_with(after, 1, "pocket", 6), 0, _strike(0.0, 1.0), 1, _context("bad-pocket")) == null,
+			"no pocket 6")
+	check_eq(_logged("shot.rejected").size(), 2, "both rejected")
+
+
 func test_predict_is_deterministic_and_logs_nothing() -> void:
 	var sim := _configured()
 	var balls := _straight_pot_balls()
