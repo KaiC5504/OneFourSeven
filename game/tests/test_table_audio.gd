@@ -214,6 +214,24 @@ func test_roll_follows_the_fastest_ball() -> void:
 	audio.free()
 
 
+func test_processes_only_while_the_roll_sounds() -> void:
+	var audio := _audio()
+	await tree.process_frame
+	check(not audio.is_processing(), "idle at the start")
+	audio.on_event(_event("ball_ball", 2.0), _two_balls())
+	check(not audio.is_processing(), "a click plays without the frame loop")
+	audio.on_frame(_state([{"x": 0.0, "vx": 1.0, "motion": ShotPlayback.ROLLING}]), 0.1, 0.01)
+	check(audio.is_processing(), "on while a ball rolls")
+	audio.on_frame(_state([{"x": 0.0, "motion": ShotPlayback.STATIONARY}]), 0.2, 0.01)
+	for i in 40:
+		audio._process(0.02)
+	check(not audio.is_processing(), "off once the roll has faded")
+	audio.on_frame(_state([{"x": 0.0, "vx": 1.0, "motion": ShotPlayback.ROLLING}]), 0.3, 0.01)
+	audio.stop_all()
+	check(not audio.is_processing(), "and after stop_all")
+	audio.free()
+
+
 func test_every_sound_loads() -> void:
 	var files: Array[String] = [TableAudio.ROLL_SOUND]
 	for sound: String in TableAudio.SOUNDS:

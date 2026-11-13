@@ -313,6 +313,45 @@ func test_set_balls_resets_history_and_refuses_malformed_lists() -> void:
 	table.free()
 
 
+func test_set_balls_refuses_a_ball_off_the_table_but_takes_touching_ones() -> void:
+	var table := _table()
+	var dims := OfsTable.dimensions()
+	var r := float(dims["ball_radius"])
+	var edge_x := float(dims["playing_length"]) / 2.0 - r
+	check(table.set_balls(_two_balls(0.0, 0.0, 2.0 * r, 0.0), 0), "two balls touching")
+	check(table.set_balls(_two_balls(-edge_x, 0.0, edge_x, 0.0), 0), "balls against the end cushions")
+	var before: Array[Dictionary] = table.balls.duplicate(true)
+	var version := table.version()
+	_mark_log()
+	check(not table.set_balls(_two_balls(0.0, 0.0, 5.0, 0.0), 0), "a red 5 m up the table")
+	check(not table.set_balls(_two_balls(0.0, float(dims["playing_width"]) / 2.0, 0.5, 0.0), 0), "a cue ball in the side cushion")
+	check_eq(table.balls, before, "the table is unchanged")
+	check_eq(table.version(), version, "and its version")
+	var errors := _logged("app.error")
+	check(errors.size() == 2 and String(errors[0]["message"]).contains("red 0") and String(errors[0]["message"]).contains("outside the cushions"),
+			"each refusal says which ball and why: %s" % [errors])
+	table.free()
+
+
+func test_version_goes_up_with_every_change_of_balls() -> void:
+	var table := _table()
+	var seen: Array[int] = [table.version()]
+	table.set_balls(_two_balls(0.0, 0.0, 0.5, 0.0), 0)
+	seen.append(table.version())
+	table.set_edit_mode(true)
+	table.move_ball(1, Vector2(0.6, 0.1))
+	seen.append(table.version())
+	table.undo()
+	seen.append(table.version())
+	table.redo()
+	seen.append(table.version())
+	for i in range(1, seen.size()):
+		check(seen[i] > seen[i - 1], "change %d bumps the version: %s" % [i, seen])
+	table.move_ball(1, Vector2(9.0, 0.0))
+	check_eq(table.version(), seen[-1], "a refused edit leaves it")
+	table.free()
+
+
 func test_signals() -> void:
 	var table := _table()
 	var start := _two_balls(0.0, 0.0, 0.5, 0.0)

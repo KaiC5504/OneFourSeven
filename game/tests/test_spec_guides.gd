@@ -1,5 +1,5 @@
 extends TestCase
-## Guide lines checked against the spec (8.4) and straight-line geometry, from the contracts only.
+## Guide lines checked against the spec (8.4) and straight-line geometry.
 
 const R := 0.02625
 const TOP_NOSE_X := 1.7845

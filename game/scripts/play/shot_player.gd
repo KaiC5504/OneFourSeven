@@ -82,7 +82,6 @@ func is_skipping() -> bool:
 	return _skipping
 
 
-## Shot time now, seconds.
 func time() -> float:
 	return _t
 

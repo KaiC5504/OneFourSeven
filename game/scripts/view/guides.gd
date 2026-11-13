@@ -34,8 +34,24 @@ const PATH_COLOURS := {
 	"pink": Color(1.0, 0.6, 0.75, 0.85),
 	"black": Color(0.04, 0.04, 0.04, 0.85),
 }
-const PACE_LABEL_HEIGHT := 0.03
-const PACE_LABEL_SIDE := 0.05
+## Metres between the cue ball's edge and the pace label.
+const PACE_LABEL_GAP := 0.012
+## Where the pace label may sit round the cue ball, seen from the camera, in order of preference:
+## [right, up] directions from the ball and the text's alignment. The first one clear of every
+## ball wins, else the one overlapping least.
+const PACE_LABEL_SPOTS: Array[Array] = [
+	[Vector2(1.0, 0.0), HORIZONTAL_ALIGNMENT_LEFT],
+	[Vector2(-1.0, 0.0), HORIZONTAL_ALIGNMENT_RIGHT],
+	[Vector2(0.0, -1.0), HORIZONTAL_ALIGNMENT_CENTER],
+	[Vector2(1.0, -1.0), HORIZONTAL_ALIGNMENT_LEFT],
+	[Vector2(-1.0, -1.0), HORIZONTAL_ALIGNMENT_RIGHT],
+	[Vector2(0.0, 1.0), HORIZONTAL_ALIGNMENT_CENTER],
+]
+## Screen pixels kept between the pace label and a ball.
+const PACE_LABEL_CLEAR_PX := 6.0
+## The ghost ring is a tube this thick rather than a flat ribbon, which thins to broken dashes
+## when seen edge-on at the far end of the table.
+const RING_TUBE_RADIUS := 0.0018
 # Tolerances for "already touching": squared-distance slack (about 1e-11 m) and arc angle slack.
 const TOUCH_EPS := 1.0e-12
 const ANGLE_EPS := 1.0e-9
@@ -68,6 +84,10 @@ var _pending: Dictionary = {}
 var _last_predict_s := -INF
 var _last_predict_us := 0.0
 var _refusal_logged := false
+## The table the pace label was last placed against.
+var _label_balls: Array[Dictionary] = []
+var _label_cue_ball := -1
+var _label_aim := 0.0
 
 
 func _init() -> void:
@@ -83,6 +103,12 @@ func _init() -> void:
 		node.material_override = _ribbon_material
 		node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		add_child(node)
+	var ring_material := StandardMaterial3D.new()
+	ring_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	ring_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	ring_material.albedo_color = LINE_COLOUR
+	_ghost_ring.mesh = TorusMesh.new()
+	_ghost_ring.material_override = ring_material
 	var ghost_material := StandardMaterial3D.new()
 	ghost_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	ghost_material.albedo_color = GHOST_COLOUR
@@ -94,7 +120,6 @@ func _init() -> void:
 	_pace_label.name = "PaceLabel"
 	_pace_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 	_pace_label.no_depth_test = true
-	# Left-aligned so the text starts beside the cue ball instead of across it.
 	_pace_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	_pace_label.font_size = 40
 	_pace_label.outline_size = 10
@@ -106,14 +131,17 @@ func _init() -> void:
 	_set_visible_nodes(false, false, false)
 
 
-func show_for(balls: Array[Dictionary], cue_ball: int, setup: ShotSetup, level: int) -> void:
+## table_version is FreeTable.version() for `balls`, which spares copying the balls into the key
+## every frame while aiming; -1 compares the balls themselves.
+func show_for(balls: Array[Dictionary], cue_ball: int, setup: ShotSetup, level: int, table_version: int = -1) -> void:
 	_level = clampi(level, 0, 3)
 	if _level == 0 or cue_ball < 0 or cue_ball >= balls.size():
 		hide_all()
 		return
 	var r := _radius()
+	var table_key: Variant = table_version if table_version >= 0 else balls.duplicate(true)
 	# The shape's size is in the key so geometry drawn before Physics was configured is redone.
-	var geometry_key: Array = [cue_ball, setup.aim_rad, balls.duplicate(true), _shape().size()]
+	var geometry_key: Array = [cue_ball, setup.aim_rad, table_key, _shape().size()]
 	if _level < 3:
 		_pending = {}
 		set_process(false)
@@ -125,7 +153,6 @@ func show_for(balls: Array[Dictionary], cue_ball: int, setup: ShotSetup, level: 
 		_set_visible_nodes(has_contact, _level == 2 and _contact["kind"] == "ball", false)
 		return
 	var key: Array = geometry_key + [setup.tip_x, setup.tip_y, setup.elevation_rad, setup.guide_pace_m_s()]
-	_place_pace_label(balls[cue_ball], setup)
 	if key != _predicted_key:
 		_request_prediction(key, balls, cue_ball, setup)
 	elif not _pending.is_empty():
@@ -133,6 +160,11 @@ func show_for(balls: Array[Dictionary], cue_ball: int, setup: ShotSetup, level: 
 		_pending = {}
 		set_process(false)
 	_set_visible_nodes(false, false, true)
+	_set_pace_text(setup)
+	_label_balls = balls
+	_label_cue_ball = cue_ball
+	_label_aim = setup.aim_rad
+	place_pace_label()
 
 
 func hide_all() -> void:
@@ -294,8 +326,8 @@ func _predict_pending(now: float) -> void:
 		if not _refusal_logged:
 			_refusal_logged = true
 			Log.warn("app", "app.error", {"kind": "message", "message":
-					"guides: no level 3 prediction (predictor returned null for cue ball %d of %d balls, strike %s); paths hidden until one succeeds"
-					% [job["cue_ball"], balls.size(), JSON.stringify(job["strike"])]})
+					"guides: no level 3 prediction (predictor returned null for cue ball %d of %d balls, strike %s: %s); paths hidden until one succeeds"
+					% [job["cue_ball"], balls.size(), JSON.stringify(job["strike"]), _predict_error()]})
 		return
 	_refusal_logged = false
 	var lines: Array[PackedVector2Array] = []
@@ -330,16 +362,17 @@ func _build_geometry(balls: Array[Dictionary], r: float) -> void:
 		sphere.radial_segments = 32
 		sphere.rings = 16
 		_ghost_ball.mesh = sphere
-		var ring := PackedVector2Array()
-		for i in RING_SEGMENTS + 1:
-			ring.append(Vector2.from_angle(TAU * i / RING_SEGMENTS) * r)
-		_set_ribbons(_ghost_ring, [ring], [LINE_COLOUR])
+		var ring: TorusMesh = _ghost_ring.mesh
+		ring.inner_radius = r - RING_TUBE_RADIUS
+		ring.outer_radius = r + RING_TUBE_RADIUS
+		ring.rings = RING_SEGMENTS
+		ring.ring_segments = 8
 	if _contact["kind"] == "none":
 		return
 	var cue: Dictionary = balls[int(_geometry_key[0])]
 	var ghost: Vector2 = _contact["ghost"]
 	_set_ribbons(_aim_line, [PackedVector2Array([Vector2(float(cue["x"]), float(cue["y"])), ghost])], [LINE_COLOUR])
-	_ghost_ring.position = TableSpace.core_to_godot(ghost.x, ghost.y, 0.0)
+	_ghost_ring.position = TableSpace.core_to_godot(ghost.x, ghost.y, RING_TUBE_RADIUS)
 	_ghost_ball.position = TableSpace.core_to_godot(ghost.x, ghost.y, r)
 	if _contact["kind"] == "ball":
 		var target: Dictionary = balls[int(_contact["index"])]
@@ -348,15 +381,90 @@ func _build_geometry(balls: Array[Dictionary], r: float) -> void:
 		_set_ribbons(_object_line, [PackedVector2Array([from, from + dir * OBJECT_LINE_LENGTH])], [OBJECT_LINE_COLOUR])
 
 
-func _place_pace_label(cue: Dictionary, setup: ShotSetup) -> void:
+func _set_pace_text(setup: ShotSetup) -> void:
 	var pace := setup.guide_pace_m_s()
 	# Before the session's first stroke the pace is the default, not anything the player did.
 	var from_stroke := setup.strike_mode == ShotSetup.STROKE and setup.last_stroke_speed_m_s > 0.0
 	var text := ("last stroke %.1f m/s" if from_stroke else "pace %.1f m/s") % pace
 	if _pace_label.text != text:
 		_pace_label.text = text
-	var right := Vector2(sin(setup.aim_rad), -cos(setup.aim_rad)) * PACE_LABEL_SIDE
-	_pace_label.position = TableSpace.core_to_godot(float(cue["x"]) + right.x, float(cue["y"]) + right.y, PACE_LABEL_HEIGHT)
+
+
+## Puts the pace label beside the cue ball where, seen from the camera, it covers no ball. Call it
+## when the camera moves; show_for calls it for a new table or text.
+func place_pace_label() -> void:
+	if not _pace_label.visible or _label_cue_ball < 0 or _label_cue_ball >= _label_balls.size():
+		return
+	var r := _radius()
+	var cue: Dictionary = _label_balls[_label_cue_ball]
+	var centre := TableSpace.core_to_godot(float(cue["x"]), float(cue["y"]), r)
+	var camera := get_viewport().get_camera_3d() if is_inside_tree() else null
+	# Without a camera (tests), seen from cloth level behind the cue ball along the aim.
+	var right := TableSpace.core_to_godot(sin(_label_aim), -cos(_label_aim), 0.0)
+	var up := Vector3.UP
+	if camera != null:
+		right = global_basis.inverse() * camera.global_basis.x
+		up = global_basis.inverse() * camera.global_basis.y
+	var view := _to_screen.bind(camera, centre, right, up)
+	var font := _pace_label.font if _pace_label.font != null else ThemeDB.fallback_font
+	var text := font.get_string_size(_pace_label.text, HORIZONTAL_ALIGNMENT_LEFT, -1, _pace_label.font_size) \
+			+ Vector2.ONE * _pace_label.outline_size
+	var w := text.x * _pace_label.pixel_size
+	var h := text.y * _pace_label.pixel_size
+	var obstacles: Array[Rect2] = []
+	for i in _label_balls.size():
+		var b := _label_balls[i]
+		if int(b.get("pocket", -1)) < 0:
+			var at := TableSpace.core_to_godot(float(b["x"]), float(b["y"]), r)
+			obstacles.append(_screen_box(view, at, right, up, -r, r, r).grow(PACE_LABEL_CLEAR_PX))
+	var screen := get_viewport().get_visible_rect() if camera != null else Rect2()
+	var best := 0
+	var best_overlap := INF
+	for i in PACE_LABEL_SPOTS.size():
+		var direction: Vector2 = PACE_LABEL_SPOTS[i][0]
+		var align: HorizontalAlignment = PACE_LABEL_SPOTS[i][1]
+		var left := 0.0 if align == HORIZONTAL_ALIGNMENT_LEFT else (-w if align == HORIZONTAL_ALIGNMENT_RIGHT else -w / 2.0)
+		var box := _screen_box(view, _spot_anchor(centre, right, up, direction, h), right, up, left, left + w, h / 2.0)
+		var overlap := 0.0
+		for obstacle in obstacles:
+			overlap += obstacle.intersection(box).get_area()
+		if screen.has_area():
+			overlap += box.get_area() - screen.intersection(box).get_area()
+		if overlap < best_overlap:
+			best = i
+			best_overlap = overlap
+		if overlap <= 0.0:
+			break
+	_pace_label.horizontal_alignment = PACE_LABEL_SPOTS[best][1]
+	_pace_label.position = _spot_anchor(centre, right, up, PACE_LABEL_SPOTS[best][0], h)
+
+
+func _spot_anchor(centre: Vector3, right: Vector3, up: Vector3, direction: Vector2, text_height: float) -> Vector3:
+	var reach := _radius() + PACE_LABEL_GAP
+	return centre + right * direction.x * reach + up * direction.y * (reach + text_height / 2.0)
+
+
+## The screen rectangle of a box facing the viewer: from `left` to `right_edge` along `right`
+## and half_height either side of `at` along `up`.
+static func _screen_box(view: Callable, at: Vector3, right: Vector3, up: Vector3, left: float, right_edge: float,
+		half_height: float) -> Rect2:
+	var box := Rect2(view.call(at + right * left - up * half_height), Vector2.ZERO)
+	box = box.expand(view.call(at + right * right_edge - up * half_height))
+	box = box.expand(view.call(at + right * left + up * half_height))
+	return box.expand(view.call(at + right * right_edge + up * half_height))
+
+
+## Through the camera, else straight across `right` and `up` from `origin` at 1000 px a metre.
+func _to_screen(p: Vector3, camera: Camera3D, origin: Vector3, right: Vector3, up: Vector3) -> Vector2:
+	if camera != null:
+		return camera.unproject_position(to_global(p))
+	return Vector2((p - origin).dot(right), -(p - origin).dot(up)) * 1000.0
+
+
+func _predict_error() -> String:
+	if predictor == Physics.predict and Physics.sim != null and Physics.sim.has_method("last_error"):
+		return String(Physics.sim.call("last_error"))
+	return "no reason given"
 
 
 func _set_visible_nodes(geometry: bool, object_line: bool, paths: bool) -> void:

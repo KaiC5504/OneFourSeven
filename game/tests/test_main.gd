@@ -183,11 +183,61 @@ func test_controls_follow_the_layout() -> void:
 	await tree.process_frame
 	check_eq(spin.get_rect().position + Vector2(0.0, spin.size.y), corner, "expanded, it grows up and right from the corner")
 	check_eq(spin.size, Vector2(SpinWidget.EXPANDED_SIZE, SpinWidget.EXPANDED_SIZE + SpinWidget.READOUT_HEIGHT), "expanded size")
-	check(spin.get_index() > hud.get_node("ElevationControl").get_index(), "expanded, it covers the elevation control")
+	check(not spin.get_rect().intersects(rects["elevation"]), "expanded, it leaves the elevation control clear")
 	check_eq((hud.get_node("FineTuneWheel") as Control).mouse_filter, Control.MOUSE_FILTER_STOP, "the wheel takes its own touches")
 	var stroke_mode: bool = Settings.get_value("strike_mode") == "stroke"
 	check_eq((hud.get_node("StrokeArea") as Control).visible, stroke_mode, "stroke area in stroke mode")
 	check_eq((hud.get_node("PowerBar") as Control).visible, not stroke_mode, "power bar in power-bar mode")
+	main.free()
+
+
+func test_the_opening_view_keeps_the_cue_ball_and_baulk_colours_clear() -> void:
+	var main: Node = await _spawn()
+	await tree.process_frame
+	var camera: Camera3D = main.get_node("CameraRig/Camera3D")
+	var hud: Node = main.get_node("Hud")
+	var controls: Array[Control] = [hud.get_node("ElevationControl"), hud.get_node("SpinWidget")]
+	for ball_name: String in ["cue", "yellow", "brown", "green"]:
+		var centre := (main.get_node("Balls/" + ball_name) as Node3D).global_position
+		var at := camera.unproject_position(centre)
+		var edge := camera.unproject_position(centre + camera.global_basis.x * RADIUS)
+		var disc := Rect2(at, Vector2.ZERO).grow(at.distance_to(edge))
+		for control in controls:
+			# The green sits by the bar; its centre must show, the rest of the baulk balls entirely.
+			var covered := control.get_global_rect().has_point(at) if ball_name == "green" else control.get_global_rect().intersects(disc)
+			check(not covered, "%s clear of %s (%s vs %s)" % [ball_name, control.name, disc, control.get_global_rect()])
+	main.free()
+
+
+func test_the_stroke_area_is_outlined_and_named() -> void:
+	var main: Node = await _spawn()
+	var stroke: Control = main.get_node("Hud/StrokeArea")
+	var frame := stroke.get_node_or_null("Frame") as Panel
+	var label := stroke.get_node_or_null("Name") as Label
+	check(frame != null and frame.is_visible_in_tree(), "an outline")
+	check(label != null and label.text == "stroke" and label.is_visible_in_tree(), "and its name")
+	if frame != null:
+		check_eq(frame.get_global_rect(), stroke.get_global_rect(), "round the whole area")
+		check_eq(frame.mouse_filter, Control.MOUSE_FILTER_IGNORE, "touches pass to the stroke")
+	main.free()
+
+
+func test_the_debug_overlay_hides_no_control_on_the_phone() -> void:
+	var main: Node = await _spawn()
+	var overlay: DebugOverlay = main.get_node("Hud/Overlay")
+	var bar: FreeTableBar = main.get_node("Hud/FreeTableBar")
+	overlay.set_shown(true, "key")
+	for safe_px in PHONE_SAFE_AREAS:
+		var safe: Rect2 = HudScript.safe_rect(safe_px, PHONE_SCREEN, PHONE_CANVAS)
+		var rects: Dictionary = HudScript.layout(safe, bar.size)
+		# As main.gd's layout sets it.
+		overlay.clear_right = safe.end.x - (rects["stroke"] as Rect2).position.x
+		overlay.place_in(safe_px, PHONE_SCREEN, PHONE_CANVAS, 3.0)
+		var block := (overlay.get_node("Text") as Control).get_rect()
+		check(safe.encloses(block), "inside the safe area: %s in %s" % [block, safe])
+		for key: String in ["stroke", "power", "wheel", "bar"]:
+			check(not block.intersects(rects[key]), "clear of the %s (%s vs %s)" % [key, block, rects[key]])
+	overlay.set_shown(false, "key")
 	main.free()
 
 
@@ -217,6 +267,7 @@ func test_layout_fits_the_phones_safe_area_either_way_round() -> void:
 				check(not (placed[keys[i]] as Rect2).intersects(placed[keys[j]]), "%s clear of %s" % [keys[i], keys[j]])
 		check(not expanded.intersects(rects["bar"]), "the expanded spin widget clears the bar")
 		check(not expanded.intersects(rects["stroke"]), "and the stroke area")
+		check(not expanded.intersects(rects["elevation"]), "and the elevation control")
 		# The middle of the screen, where the table is, stays clear.
 		var middle := Rect2(PHONE_CANVAS.x * 0.3, 0.0, PHONE_CANVAS.x * 0.4, PHONE_CANVAS.y * 0.75)
 		for key: String in placed:

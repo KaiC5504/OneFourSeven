@@ -16,7 +16,6 @@ const GAP := 12.0
 const WHEEL_SIZE := Vector2(120.0, 380.0)
 const STROKE_WIDTH := 200.0
 const POWER_WIDTH := 160.0
-const ELEVATION_SIZE := Vector2(120.0, 380.0)
 const STATUS_TEXT := {
 	"off": "off",
 	"searching": "searching…",
@@ -48,9 +47,11 @@ static func safe_rect(safe_area: Rect2, window_rect: Rect2, canvas_size: Vector2
 ## clear in the middle. FreeTableBar centres itself on the left edge ("bar", from its size). The
 ## right thumb's column has the fine-tune wheel at the edge, where a thumb wheel sits on a real
 ## device, and the stroke area inside it, full height, where the thumb's pad pushes straight up
-## without curling; the power bar takes the stroke area's place. The spin widget grows up and
-## right from its corner ("spin_corner") at the bottom beside the bar, the elevation control next
-## to it; the edit palette goes along the bottom between the bar and the right edge ("bottom").
+## without curling; the power bar takes the stroke area's place. Bottom left, beside the bar, the
+## elevation control at its smallest, then the spin widget, which grows up and right from its
+## corner ("spin_corner") and so never over the elevation. Both stay low, clear of the cue ball
+## and the baulk colours at the opening view. The edit palette goes along the bottom between the
+## bar and the right edge ("bottom").
 static func layout(safe: Rect2, bar_size: Vector2) -> Dictionary:
 	var bar := Rect2(Vector2(safe.position.x + FreeTableBar.EDGE_MARGIN,
 			safe.get_center().y - bar_size.y / 2.0).round(), bar_size)
@@ -60,9 +61,9 @@ static func layout(safe: Rect2, bar_size: Vector2) -> Dictionary:
 			Vector2(STROKE_WIDTH, safe.size.y - 2.0 * EDGE).round())
 	var power := Rect2(stroke.position + Vector2((STROKE_WIDTH - POWER_WIDTH) / 2.0, 0.0),
 			Vector2(POWER_WIDTH, stroke.size.y))
-	var spin_corner := Vector2(bar.end.x + GAP, safe.end.y - EDGE).round()
-	var elevation := Rect2(Vector2(spin_corner.x + SpinWidget.COLLAPSED_SIZE + GAP,
-			spin_corner.y - ELEVATION_SIZE.y), ELEVATION_SIZE)
+	var elevation := Rect2(Vector2(bar.end.x + GAP, safe.end.y - EDGE - ElevationControl.MIN_SIZE.y).round(),
+			ElevationControl.MIN_SIZE)
+	var spin_corner := Vector2(elevation.end.x + GAP, safe.end.y - EDGE).round()
 	var bottom := Rect2(Vector2(bar.end.x + GAP, safe.position.y + EDGE),
 			Vector2(safe.end.x - EDGE - bar.end.x - GAP, safe.size.y - 2.0 * EDGE))
 	return {"bar": bar, "wheel": wheel, "stroke": stroke, "power": power, "spin_corner": spin_corner,

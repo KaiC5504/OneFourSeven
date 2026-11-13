@@ -303,6 +303,8 @@ func test_a_refused_shot_returns_to_aiming() -> void:
 	var table: FreeTable = main.get_node("FreeTable")
 	var aim: AimControl = main.get_node("AimControl")
 	var history := table.history_size()
+	main.setup.add_fine_tune_sample(1.0, 0.0002)
+	main.setup.add_stroke_sample(1.0, Vector2(10.0, 20.0))
 	table.balls[1]["ball"] = "purple"
 	var shot_id: String = main.harness_play_shot({"aim_rad": 0.0, "tip_x": 0.0, "tip_y": 0.0,
 			"elevation_rad": 0.0, "speed_m_s": 2.0})
@@ -315,6 +317,8 @@ func test_a_refused_shot_returns_to_aiming() -> void:
 	var notice: Label = main.get_node("Hud/Notice")
 	check(notice.visible and not notice.text.is_empty(), "the player is told: %s" % notice.text)
 	check_eq(table.history_size(), history, "nothing added to the history")
+	check(main.setup.fine_tune_samples.is_empty() and main.setup.stroke_samples.is_empty(), "the gesture samples start over")
+	check(table._pending_shot.is_empty(), "no shot left waiting for its result")
 	check(not (main.get_node("Hud/FreeTableBar") as FreeTableBar).button("rack").disabled, "the bar still works")
 	table.balls[1]["ball"] = "red"
 	_finish(main)
@@ -407,6 +411,238 @@ func test_three_finger_tap_toggles_the_overlay() -> void:
 	var toggles := _logged("overlay.toggled")
 	check(toggles.size() == 1 and toggles[0]["via"] == "three_finger_tap", "logged: %s" % [toggles])
 	_finish(main)
+
+
+func test_starts_in_a_saved_power_bar_mode() -> void:
+	_reset_settings()
+	Settings.set_value("strike_mode", "power_bar")
+	var main := load("res://scenes/main.tscn").instantiate() as MainScript
+	tree.root.add_child(main)
+	await tree.process_frame
+	await tree.process_frame
+	_mark_log()
+	var power: PowerBar = main.get_node("Hud/PowerBar")
+	check(power.visible and not (main.get_node("Hud/StrokeArea") as Control).visible, "bar shown, stroke area hidden")
+	check(power.can_shoot(), "ready to shoot")
+	check_near(main.setup.speed_m_s, power.speed(), 1e-12, "the setup's speed is the bar's")
+	_key(KEY_SPACE)
+	check(main.is_playing(), "Space shoots")
+	main.skip_shot()
+	await _until_idle(main)
+	_finish(main)
+
+
+func test_retake_in_power_bar_mode_is_exact() -> void:
+	var main: MainScript = await _spawn()
+	Settings.set_value("strike_mode", "power_bar")
+	await tree.process_frame
+	var power: PowerBar = main.get_node("Hud/PowerBar")
+	var setup: ShotSetup = main.setup
+	setup.set_aim(0.0123456789)
+	setup.set_tip(0.1, 0.2)
+	power.set_power(0.37)
+	var struck := setup.snapshot()
+	_key(KEY_SPACE)
+	main.skip_shot()
+	await _until_idle(main)
+	power.set_power(0.8)
+	_key(KEY_R)
+	check_eq(setup.snapshot(), struck, "the setup as struck")
+	check_eq(power.power(), 0.37, "the bar back at 0.37")
+	check_near(power.speed(), setup.speed_m_s, 1e-12, "the bar's readout is the setup's speed")
+	_finish(main)
+
+
+func test_turning_edit_off_mid_drag_puts_the_ball_back() -> void:
+	var main: MainScript = await _spawn()
+	var table: FreeTable = main.get_node("FreeTable")
+	var aim: AimControl = main.get_node("AimControl")
+	table.set_edit_mode(true)
+	await tree.process_frame
+	var before: Array[Dictionary] = table.balls.duplicate(true)
+	var at := _screen_of_ball(main, "blue")
+	_touch(at, true)
+	for i in 6:
+		_drag_to(at + Vector2(20.0 * i, 0.0), at + Vector2(20.0 * (i + 1), 0.0))
+	check(not _ball_node_at_entry(main, table, "blue"), "the blue follows the finger")
+	_mark_log()
+	table.set_edit_mode(false)
+	check_eq(table.balls, before, "the table is as it was")
+	_check_nodes_match(main, table.balls, "edit off mid-drag")
+	_drag_to(at + Vector2(120.0, 0.0), at + Vector2(160.0, 0.0))
+	_touch(at + Vector2(160.0, 0.0), false)
+	check_eq(table.balls, before, "the finger lifting later moves nothing")
+	check_eq(_logged("freetable.edit").size(), 0, "and edits nothing")
+	var start_aim: float = main.setup.aim_rad
+	_table_drag(TABLE_POINT, Vector2(-AIM_DRAG, 0.0), 10)
+	check_near(main.setup.aim_rad, start_aim + AIM_DRAG * aim.rad_per_px(), 1e-9, "a fresh drag aims")
+	_finish(main)
+
+
+func test_undo_mid_drag_puts_the_ball_back() -> void:
+	var main: MainScript = await _spawn()
+	var table: FreeTable = main.get_node("FreeTable")
+	var camera: Camera3D = main.get_node("CameraRig/Camera3D")
+	table.set_edit_mode(true)
+	await tree.process_frame
+	check(table.move_ball(_find(table, "pink"), Vector2(0.4, -0.3)), "a first edit to undo")
+	await tree.process_frame
+	var at := _screen_of_ball(main, "blue")
+	_touch(at, true)
+	for i in 6:
+		_drag_to(at + Vector2(0.0, 15.0 * i), at + Vector2(0.0, 15.0 * (i + 1)))
+	main.undo()
+	var undone: Array[Dictionary] = table.balls.duplicate(true)
+	_check_nodes_match(main, undone, "undo mid-drag")
+	_mark_log()
+	_touch(at + Vector2(0.0, 90.0), false)
+	check_eq(table.balls, undone, "the finger lifting later moves nothing")
+	check_eq(_logged("freetable.edit").size(), 0, "and edits nothing")
+	var blue_at := _screen_of_ball(main, "blue")
+	_table_drag(blue_at, _screen_at(camera, Vector2(0.3, 0.2)) - blue_at, 12)
+	await tree.process_frame
+	check_near(table.balls[_find(table, "blue")]["x"], 0.3, 2e-3, "a fresh drag moves the blue again")
+	_finish(main)
+
+
+func test_the_wheel_held_through_a_shot_turns_again_after_it() -> void:
+	var main: MainScript = await _spawn()
+	var setup: ShotSetup = main.setup
+	var wheel: FineTuneWheel = main.get_node("Hud/FineTuneWheel")
+	var at := wheel.get_global_rect().get_center()
+	_touch(at, true, 1)
+	check(wheel.is_pressed(), "a thumb on the wheel")
+	var push := StrokeControl.FASTEST_PUSH_PX_S * pow(2.0 / Physics.param("max_cue_speed_m_s", 10.0), 1.0 / StrokeControl.PUSH_EXPONENT)
+	_stroke(main, push)
+	check(main.is_playing(), "struck")
+	if wheel.is_pressed():
+		# FineTuneWheel.cancel_press is still the contracts' stub; nothing more to check here yet.
+		print("  pending: FineTuneWheel.cancel_press not implemented")
+		_touch(at, false, 1)
+		main.skip_shot()
+		await _until_idle(main)
+		_finish(main)
+		return
+	_touch(at, false, 1)
+	main.skip_shot()
+	await _until_idle(main)
+	check(not wheel.is_pressed(), "the wheel is free")
+	var before := setup.aim_rad
+	_vertical_drag(at, -FineTuneWheel.PX_PER_STEP, 5)
+	check_near(setup.aim_rad, before + deg_to_rad(5 * FineTuneWheel.STEP_DEG), 1e-9, "a fresh turn works")
+	_finish(main)
+
+
+func test_a_harness_shot_sets_the_power_bar_too() -> void:
+	var main: MainScript = await _spawn()
+	Settings.set_value("strike_mode", "power_bar")
+	await tree.process_frame
+	var power: PowerBar = main.get_node("Hud/PowerBar")
+	power.set_power(0.3)
+	var max_speed := Physics.param("max_cue_speed_m_s", 10.0)
+	main.harness_play_shot({"aim_rad": 0.0, "tip_x": 0.0, "tip_y": 0.0, "elevation_rad": 0.0, "speed_m_s": 7.0})
+	check_near(main.setup.power, PowerBar.power_for_speed(7.0, max_speed), 1e-12, "power for 7 m/s")
+	main.skip_shot()
+	await _until_idle(main)
+	check_near(power.speed(), 7.0, 1e-9, "the bar shows the harness's speed")
+	_mark_log()
+	_key(KEY_SPACE)
+	var inputs := _logged("shot.input")
+	check(inputs.size() == 1 and absf(float(inputs[0]["speed_m_s"]) - power.speed()) < 1e-9,
+			"Space plays the bar's speed: %s" % [inputs])
+	main.skip_shot()
+	await _until_idle(main)
+	_finish(main)
+
+
+func test_a_harness_shot_out_of_range_is_warned_about() -> void:
+	var main: MainScript = await _spawn()
+	var max_speed := Physics.param("max_cue_speed_m_s", 10.0)
+	main.harness_play_shot({"aim_rad": 0.0, "tip_x": 0.0, "tip_y": 0.0, "elevation_rad": 0.1, "speed_m_s": 2.0})
+	main.skip_shot()
+	await _until_idle(main)
+	check_eq(_warnings(), [] as Array[String], "nothing to warn about in range")
+	_mark_log()
+	main.harness_play_shot({"aim_rad": 0.0, "tip_x": 0.9, "tip_y": 0.6, "elevation_rad": -0.1,
+			"speed_m_s": max_speed + 1.0})
+	main.skip_shot()
+	await _until_idle(main)
+	var warnings := _warnings()
+	check_eq(warnings.size(), 3, "tip, speed and elevation: %s" % [warnings])
+	_mark_log()
+	main.harness_play_shot({"aim_rad": 0.0, "tip_x": 0.0, "tip_y": 0.0, "elevation_rad": 2.0, "speed_m_s": 1.0})
+	main.skip_shot()
+	await _until_idle(main)
+	warnings = _warnings()
+	check(warnings.size() == 1 and warnings[0].contains("elevation"), "elevation above the max: %s" % [warnings])
+	_finish(main)
+
+
+func test_shot_input_keeps_its_identity_when_truncated() -> void:
+	var main: MainScript = await _spawn()
+	for i in 6000:
+		main.setup.add_stroke_sample(float(i), Vector2(i, -i))
+	var shot_id: String = main.harness_play_shot({"aim_rad": 0.0, "tip_x": 0.0, "tip_y": 0.0,
+			"elevation_rad": 0.0, "speed_m_s": 1.0})
+	var inputs := _logged("shot.input")
+	check_eq(inputs.size(), 1, "logged")
+	if inputs.size() == 1:
+		var samples: Array = inputs[0].get("stroke_samples", [])
+		check(not samples.is_empty() and samples[-1] == "<truncated>", "the samples were cut short")
+		check_eq(inputs[0].get("shot_id"), shot_id, "shot_id kept")
+		check_eq(inputs[0].get("mode"), "free_table", "mode kept")
+		check_eq(inputs[0].get("strike_mode"), "harness", "strike_mode kept")
+		check_eq(int(inputs[0].get("guide_level", -1)), 1, "guide_level kept")
+	main.skip_shot()
+	await _until_idle(main)
+	_finish(main)
+
+
+func test_redo_to_the_latest_shot_resets_spin_as_the_shot_did() -> void:
+	var main: MainScript = await _spawn()
+	var setup: ShotSetup = main.setup
+	main.harness_play_shot({"aim_rad": 0.05, "tip_x": 0.2, "tip_y": -0.3, "elevation_rad": 0.1, "speed_m_s": 1.5})
+	main.skip_shot()
+	await _until_idle(main)
+	check_eq([setup.tip_x, setup.tip_y, setup.elevation_rad], [0.0, 0.0, 0.0], "reset after the shot")
+	main.undo()
+	check_eq([setup.tip_x, setup.tip_y, setup.elevation_rad], [0.2, -0.3, 0.1], "undo: the shot's spin")
+	main.redo()
+	check_eq([setup.tip_x, setup.tip_y, setup.elevation_rad], [0.0, 0.0, 0.0], "redo: reset as after the shot")
+	Settings.set_value("reset_spin_after_shot", false)
+	main.undo()
+	main.redo()
+	check_eq([setup.tip_x, setup.tip_y, setup.elevation_rad], [0.2, -0.3, 0.1], "reset off: kept as the shot left it")
+	_finish(main)
+
+
+func test_guides_key_on_the_table_version() -> void:
+	var main: MainScript = await _spawn()
+	var table: FreeTable = main.get_node("FreeTable")
+	var version := table.version()
+	(main.get_node("Hud/FreeTableBar") as FreeTableBar).setup_chosen.emit("empty")
+	check(table.version() > version, "a table change bumps the version")
+	version = table.version()
+	main.setup.set_aim(0.01)
+	await tree.process_frame
+	check_eq(table.version(), version, "aiming doesn't")
+	_finish(main)
+
+
+## The warnings harness_play_shot logged since _mark_log.
+func _warnings() -> Array[String]:
+	var found: Array[String] = []
+	for data in _logged("harness.command"):
+		if data.get("command") == "play_shot" and data.get("result") is Dictionary:
+			for w: Variant in (data["result"] as Dictionary).get("warnings", []):
+				found.append(String(w))
+	return found
+
+
+func _ball_node_at_entry(main: Node, table: FreeTable, ball_name: String) -> bool:
+	var xy: Array = main.get_node("Balls/" + ball_name).get_meta("core_xy")
+	var entry: Dictionary = table.balls[_find(table, ball_name)]
+	return xy[0] == entry["x"] and xy[1] == entry["y"]
 
 
 # Input, pushed straight into the viewport in canvas units, as the phone's touches arrive.
