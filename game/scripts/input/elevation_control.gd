@@ -1,7 +1,8 @@
 class_name ElevationControl
 extends Control
 ## Cue elevation (spec 8.2): from the obstruction minimum (spec 7.3) up to max_elevation_rad,
-## near vertical for masse. Shows when the minimum has forced the cue above what was asked for.
+## near vertical for masse. Shows when the minimum has forced the cue well above what was asked
+## for (shows_forced).
 ##
 ## A vertical track, 0 at the bottom. The scale is a power curve whose lower half covers
 ## 0-HALF_TRAVEL_DEG, so the usual cueing angles get half the travel. The player can ask for less
@@ -10,6 +11,7 @@ extends Control
 signal elevation_changed(rad: float)
 
 const HALF_TRAVEL_DEG := 20.0
+const SHOWN_FORCED_DEG := 3.0
 const PAD_TOP := 92.0
 const PAD_BOTTOM := 26.0
 const GRAB_RADIUS := 44.0
@@ -46,15 +48,25 @@ func bind(setup: ShotSetup) -> void:
 	queue_redraw()
 
 
-## Shown as forced while ShotSetup.elevation_forced().
 ## Ends a press in progress as if the finger had lifted, without acting on it: a shot
 ## starting, or the app losing focus, may swallow the real release.
-func cancel_press() -> void:
-	pass
+func cancel_press(reason: String = "cancelled by the game") -> void:
+	if _pointer == _NO_POINTER:
+		return
+	_pointer = _NO_POINTER
+	Log.info("input", "input.cancel", {"control": "elevation", "reason": reason})
 
 
+## ShotSetup.elevation_forced(): the minimum is above the request by any amount.
 func is_forced() -> bool:
 	return _setup != null and _setup.elevation_forced()
+
+
+## Drawn as forced (amber, "raised to") only when the minimum is SHOWN_FORCED_DEG or more above
+## the request: the cue clearing the cushion rail lifts every baulk-line shot about 2°, which is
+## not worth a warning.
+func shows_forced() -> bool:
+	return is_forced() and _setup.elevation_min_rad - _setup.elevation_rad >= deg_to_rad(SHOWN_FORCED_DEG) - 1e-12
 
 
 ## What the player asked for.
@@ -97,10 +109,10 @@ func local_y_for_elevation(rad: float) -> float:
 	return _track_bottom() - travel_for_elevation(rad, _max_rad()) * (_track_bottom() - _track_top())
 
 
-## The readout: "12°", or "raised to 34°" while forced.
+## The readout: "12°", or "raised to 34°" while shows_forced().
 func readout_text() -> String:
 	var value := _degrees_text(effective())
-	return "raised to " + value if is_forced() else value
+	return "raised to " + value if shows_forced() else value
 
 
 static func _degrees_text(rad: float) -> String:
@@ -133,8 +145,13 @@ func _gui_input(event: InputEvent) -> void:
 
 
 func _notification(what: int) -> void:
-	if what == NOTIFICATION_VISIBILITY_CHANGED and not is_visible_in_tree():
-		_pointer = _NO_POINTER
+	match what:
+		NOTIFICATION_VISIBILITY_CHANGED:
+			if not is_visible_in_tree():
+				cancel_press("hidden")
+		# A touch lifted while the app is away never reports its release.
+		NOTIFICATION_APPLICATION_FOCUS_OUT, NOTIFICATION_APPLICATION_PAUSED:
+			cancel_press("focus lost")
 
 
 func _on_press(pointer: int, pos: Vector2) -> void:
@@ -195,7 +212,7 @@ func _draw() -> void:
 		var y := local_y_for_elevation(deg_to_rad(deg))
 		var half := 12.0 if is_equal_approx(deg, HALF_TRAVEL_DEG) else 7.0
 		draw_line(Vector2(x - half, y), Vector2(x + half, y), TRACK_COLOUR, 2.0, true)
-	var forced := is_forced()
+	var forced := shows_forced()
 	var thumb_colour := TEXT_COLOUR
 	if forced:
 		var min_y := local_y_for_elevation(_setup.elevation_min_rad)

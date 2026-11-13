@@ -6,7 +6,8 @@ extends Control
 ## Vertical: the readout at the top, the slider (0 at the bottom) and the Shoot button below it.
 ## Shoot fires on release over the button, and is inert at zero power. When the strike mode
 ## switches to the power bar, the setup's speed is set from the bar, starting at
-## ShotSetup.DEFAULT_PACE_M_S if no power has been set yet.
+## ShotSetup.DEFAULT_PACE_M_S if no power has been set yet. In power-bar mode it is set again from
+## the power on a setup reset, on new parameters and when the bar is shown.
 
 signal power_changed(power: float)
 signal shoot_pressed
@@ -40,12 +41,16 @@ var _grab_offset := 0.0
 func _ready() -> void:
 	mouse_filter = MOUSE_FILTER_STOP
 	custom_minimum_size = MIN_SIZE
+	Params.changed.connect(_on_params_changed)
 
 
 ## Ends a press in progress as if the finger had lifted, without acting on it: a shot
 ## starting, or the app losing focus, may swallow the real release.
-func cancel_press() -> void:
-	pass
+func cancel_press(reason: String = "cancelled by the game") -> void:
+	if _pointer == _NO_POINTER:
+		return
+	Log.info("input", "input.cancel", {"control": "power_bar", "reason": reason})
+	_end_press()
 
 
 func bind(setup: ShotSetup) -> void:
@@ -140,8 +145,15 @@ func _gui_input(event: InputEvent) -> void:
 
 
 func _notification(what: int) -> void:
-	if what == NOTIFICATION_VISIBILITY_CHANGED and not is_visible_in_tree():
-		_end_press()
+	match what:
+		NOTIFICATION_VISIBILITY_CHANGED:
+			if is_visible_in_tree():
+				_sync_speed()
+			else:
+				cancel_press("hidden")
+		# A touch lifted while the app is away never reports its release.
+		NOTIFICATION_APPLICATION_FOCUS_OUT, NOTIFICATION_APPLICATION_PAUSED:
+			cancel_press("focus lost")
 
 
 func _on_press(pointer: int, pos: Vector2) -> void:
@@ -203,9 +215,29 @@ func _track_bottom() -> float:
 func _on_setup_changed(what: StringName) -> void:
 	if what == &"mode" and _setup.strike_mode == ShotSetup.POWER_BAR:
 		_apply_mode()
-	elif what == &"speed" or what == &"reset":
+	elif what == &"reset":
+		_sync_speed()
+	elif what == &"speed":
 		_power = _setup.power
 		queue_redraw()
+
+
+func _on_params_changed(_hash: String) -> void:
+	_sync_speed()
+
+
+# Otherwise a new max_cue_speed_m_s or a restored power would leave the setup striking at a speed
+# the readout doesn't show. A speed written without a power (a harness shot) stands until the
+# next reset.
+func _sync_speed() -> void:
+	if _setup == null:
+		return
+	_power = _setup.power
+	if _setup.strike_mode == ShotSetup.POWER_BAR:
+		var s := speed_for_power(_power, _max_speed())
+		if s != _setup.speed_m_s:
+			_setup.set_speed(s, _power)
+	queue_redraw()
 
 
 func _draw() -> void:

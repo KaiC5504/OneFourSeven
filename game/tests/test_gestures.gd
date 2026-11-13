@@ -87,11 +87,12 @@ func _button(g: Gestures, button: MouseButton, at: Vector2, pressed: bool,
 	g.feed(e)
 
 
-func _motion(g: Gestures, at: Vector2, relative: Vector2, device: int = 0) -> void:
+func _motion(g: Gestures, at: Vector2, relative: Vector2, device: int = 0, mask: int = 0) -> void:
 	var e := InputEventMouseMotion.new()
 	e.position = at
 	e.relative = relative
 	e.device = device
+	e.button_mask = mask
 	g.feed(e)
 
 
@@ -333,12 +334,41 @@ func test_mouse_right_drag_is_a_two_finger_drag() -> void:
 	var g := _gestures()
 	var r := Recorder.new(g)
 	_button(g, MOUSE_BUTTON_RIGHT, Vector2(500, 300), true)
-	_motion(g, Vector2(500, 325), Vector2(0, 25))
-	_motion(g, Vector2(500, 335), Vector2(0, 10))
+	_motion(g, Vector2(500, 325), Vector2(0, 25), 0, MOUSE_BUTTON_MASK_RIGHT)
+	_motion(g, Vector2(500, 335), Vector2(0, 10), 0, MOUSE_BUTTON_MASK_RIGHT)
 	_button(g, MOUSE_BUTTON_RIGHT, Vector2(500, 335), false)
 	_motion(g, Vector2(500, 400), Vector2(0, 65))
 	check_eq(r.names(), ["two_finger_dragged", "two_finger_dragged"] as Array[String], "while held only")
 	check_eq(r.two_finger_sum(), Vector2(0, 35), "relative")
+	g.free()
+
+
+func test_right_drag_ends_when_its_release_is_lost() -> void:
+	var g := _gestures()
+	var r := Recorder.new(g)
+	_button(g, MOUSE_BUTTON_RIGHT, Vector2(500, 300), true)
+	_motion(g, Vector2(500, 325), Vector2(0, 25), 0, MOUSE_BUTTON_MASK_RIGHT)
+	# Released over a HUD control: the release never reaches the gestures.
+	_motion(g, Vector2(500, 400), Vector2(0, 75), 0, MOUSE_BUTTON_MASK_LEFT)
+	_motion(g, Vector2(500, 450), Vector2(0, 50))
+	check_eq(r.names(), ["two_finger_dragged"] as Array[String], "no tilt once the button is up")
+	g.free()
+
+
+func test_release_outside_the_viewport_is_not_a_move() -> void:
+	var g := _gestures()
+	tree.root.add_child(g)
+	var r := Recorder.new(g)
+	_down(g, 0, Vector2(100, 100))
+	_move(g, 0, Vector2(150, 100))
+	# How iOS may report a touch it cancelled.
+	_up(g, 0, Vector2(-1, -1))
+	check_eq(r.names(), ["drag_started", "drag_moved", "drag_ended"] as Array[String], "no move to the release point")
+	check_eq(r.events[2][1], Vector2(150, 100), "the drag ends where the finger last was")
+	_down(g, 0, Vector2(100, 100))
+	_move(g, 0, Vector2(150, 100))
+	_up(g, 0, Vector2(170, 110))
+	check_eq(r.of("drag_moved")[-1][2], Vector2(20, 10), "a release inside still moves")
 	g.free()
 
 

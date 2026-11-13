@@ -13,6 +13,8 @@ const STROKE := "stroke"
 const POWER_BAR := "power_bar"
 ## Guide level 3's pace in stroke mode before the session's first stroke (spec 8.4).
 const DEFAULT_PACE_M_S := 1.5
+## Keeps shot.input well under the logger's 10,000-value cap after a long fine-tune session.
+const MAX_FINE_TUNE_SAMPLES := 400
 
 var aim_rad := 0.0
 var tip_x := 0.0
@@ -27,8 +29,9 @@ var speed_m_s := 0.0
 var power := 0.0
 var strike_mode := STROKE
 var last_stroke_speed_m_s := 0.0
-## Raw input since the shot was set up, for shot.input (spec 16.10): [t_s, x, y] in the stroke
-## area's canvas units, and [t_s, delta_rad] for the fine-tune wheel. t_s is the control's clock.
+## Raw input for shot.input (spec 16.10): [t_s, x, y] in the stroke area's canvas units for the
+## latest stroke only, and [t_s, delta_rad] for the last MAX_FINE_TUNE_SAMPLES fine-tune steps.
+## t_s is the control's clock.
 var stroke_samples: Array[PackedFloat64Array] = []
 var fine_tune_samples: Array[PackedFloat64Array] = []
 ## Aim error added by the stroke-wander setting at release (spec 8.3), included in to_strike().
@@ -89,11 +92,18 @@ func guide_pace_m_s() -> float:
 	return last_stroke_speed_m_s if last_stroke_speed_m_s > 0.0 else DEFAULT_PACE_M_S
 
 
+## A new stroke press: only the stroke that strikes is logged.
+func clear_stroke_samples() -> void:
+	stroke_samples.clear()
+
+
 func add_stroke_sample(t_s: float, position: Vector2) -> void:
 	stroke_samples.append(PackedFloat64Array([t_s, position.x, position.y]))
 
 
 func add_fine_tune_sample(t_s: float, delta_rad: float) -> void:
+	if fine_tune_samples.size() >= MAX_FINE_TUNE_SAMPLES:
+		fine_tune_samples.remove_at(0)
 	fine_tune_samples.append(PackedFloat64Array([t_s, delta_rad]))
 
 

@@ -122,6 +122,11 @@ func _handle(event: InputEvent) -> bool:
 	if motion != null:
 		if _touches.has(MOUSE_INDEX):
 			return _move(MOUSE_INDEX, motion.position)
+		# The right button's release goes astray when it happens over a HUD control or outside
+		# the window.
+		if _right_held and (motion.button_mask & MOUSE_BUTTON_MASK_RIGHT) == 0:
+			_right_held = false
+			_log_cancel("right button released unseen")
 		if _right_held:
 			two_finger_dragged.emit(motion.relative)
 			return true
@@ -209,7 +214,8 @@ func _release(index: int, at: Vector2, cancelled: bool) -> void:
 	var touch: Touch = _touches.get(index)
 	if touch == null:
 		return
-	if not cancelled and at != touch.position:
+	# iOS can report a cancelled touch as a release near (-1, -1): that is not where the finger was.
+	if not cancelled and at != touch.position and _in_viewport(at):
 		_move(index, at)
 	_touches.erase(index)
 	var now: float = clock.call()
@@ -292,6 +298,12 @@ func _anchor_two() -> void:
 	_anchor_separation = points[0].distance_to(points[1])
 	_last_centre = _anchor_centre
 	_last_separation = _anchor_separation
+
+
+func _in_viewport(at: Vector2) -> bool:
+	if not is_inside_tree():
+		return true
+	return get_viewport().get_visible_rect().has_point(at)
 
 
 func _any_moved(slop: float) -> bool:

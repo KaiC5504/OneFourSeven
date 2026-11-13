@@ -166,6 +166,67 @@ func test_readout() -> void:
 	check_eq(SpinWidget.describe(Vector2(0.0, 0.6), 0.55), "top 0.60 · miscue", "past the ring")
 
 
+func test_focus_lost_frees_the_widget() -> void:
+	for what: int in [Node.NOTIFICATION_APPLICATION_FOCUS_OUT, Node.NOTIFICATION_APPLICATION_PAUSED]:
+		var widget := _make()
+		_touch(widget, true, Vector2(70.0, 70.0))
+		widget._notification(what)
+		_touch(widget, false, Vector2(70.0, 70.0))
+		check(not widget.expanded, "the lost press does nothing on %d" % what)
+		_tap(widget, Vector2(70.0, 70.0))
+		check(widget.expanded, "a new tap expands after %d" % what)
+		widget.free()
+
+
+func test_collapse_ends_a_press() -> void:
+	var setup := ShotSetup.new()
+	var widget := _make(setup)
+	_touch(widget, true, Vector2(70.0, 70.0))
+	widget.collapse()
+	_tap(widget, Vector2(70.0, 70.0))
+	check(widget.expanded, "a new tap expands")
+	await tree.process_frame
+	var c := widget.ball_centre()
+	var r := widget.ball_radius()
+	_touch(widget, true, c)
+	widget.collapse()
+	widget.expand()
+	_drag(widget, c + Vector2(r * 0.5, 0.0))
+	check_eq(setup.tip_x, 0.0, "the old finger moves nothing")
+	_touch(widget, true, c + Vector2(r * 0.5, 0.0))
+	check_near(setup.tip_x, 0.5, 1e-4, "a new press does")
+	widget.free()
+
+
+func test_expanded_inset_keeps_the_panel_clear_of_its_neighbour() -> void:
+	var setup := ShotSetup.new()
+	var widget := _make(setup)
+	widget.expanded_inset = 300.0
+	check_eq(widget.size, Vector2.ONE * SpinWidget.COLLAPSED_SIZE, "collapsed as before")
+	widget.expand()
+	await tree.process_frame
+	var tall := SpinWidget.EXPANDED_SIZE + SpinWidget.READOUT_HEIGHT
+	check_eq(widget.size, Vector2(300.0 + SpinWidget.EXPANDED_SIZE, tall), "grown by the inset")
+	check_eq(widget.panel_rect(), Rect2(300.0, 0.0, SpinWidget.EXPANDED_SIZE, tall), "the panel past the inset")
+	check(not widget._has_point(Vector2(150.0, 200.0)), "the strip takes no input")
+	check(widget._has_point(Vector2(400.0, 200.0)), "the panel does")
+	check_near(widget.ball_centre().x, 300.0 + SpinWidget.EXPANDED_SIZE / 2.0, 1e-9, "the ball in the panel")
+	check(widget.panel_rect().has_point(widget.close_centre()), "the close button in the panel")
+	check_eq(widget.tip_for_local(widget.ball_centre()), Vector2.ZERO, "centre ball at its centre")
+	var c := widget.ball_centre()
+	_tap(widget, c + Vector2(widget.ball_radius() * 0.3, 0.0))
+	check_near(setup.tip_x, 0.3, 1e-4, "the tip maps in the panel")
+	var strip := InputEventScreenTouch.new()
+	strip.pressed = true
+	strip.position = widget.position + Vector2(150.0, 200.0)
+	widget._input(strip)
+	check(not widget.expanded, "a press in the strip collapses it, like any press outside")
+	await tree.process_frame
+	check_eq(widget.size, Vector2.ONE * SpinWidget.COLLAPSED_SIZE, "collapsed size")
+	check_eq(widget.panel_rect(), Rect2(Vector2.ZERO, widget.size), "collapsed: all of it")
+	widget.free()
+
+
 func test_emulated_mouse_is_ignored() -> void:
 	var widget := _make()
 	var e := InputEventMouseButton.new()

@@ -1,5 +1,5 @@
 extends TestCase
-## The controls checked against the spec (8.1-8.3, 8.8, 15) and the contracts' signatures only.
+## The controls checked against the spec (8.1-8.3, 8.8, 15).
 ## Controls are driven through Gestures.feed(), _gui_input() and their injectable clocks, with
 ## real-mouse events (device 0), the Windows path. Settings a test changes are put back.
 
@@ -92,7 +92,7 @@ func _px_per_step() -> float:
 
 
 func test_fine_tune_one_step_is_step_deg_and_up_is_plus_aim() -> void:
-	# spec 8.1: fine-tune steps of about 0.01 degrees; contract: dragging up is +aim_rad
+	# spec 8.1: fine-tune steps of about 0.01 degrees; dragging up is +aim_rad
 	check_eq(FineTuneWheel.STEP_DEG, 0.01, "STEP_DEG")
 	var setup := ShotSetup.new()
 	setup.set_aim(0.3)
@@ -658,7 +658,7 @@ func test_emulated_mouse_events_give_nothing() -> void:
 
 
 func test_settings_defaults() -> void:
-	# spec 15 and KaiC's M2 decisions: finger stroke, spin and elevation reset, guide level 1
+	# spec 15 defaults: finger stroke, spin and elevation reset, guide level 1
 	var d: Dictionary = Settings.DEFAULTS
 	for key: String in ["strike_mode", "guide_level", "fine_tune_sensitivity", "aim_sensitivity", "stroke_wander", "reset_spin_after_shot", "volume", "haptics"]:
 		check(d.has(key), "setting %s exists" % key)

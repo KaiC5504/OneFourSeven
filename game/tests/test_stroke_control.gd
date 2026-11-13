@@ -301,3 +301,57 @@ func test_hiding_cancels() -> void:
 	stroke.hide()
 	check_eq(_cancelled, ["hidden"] as Array[String], "cancelled when hidden")
 	stroke.free()
+
+
+func test_focus_lost_cancels_and_frees_the_area() -> void:
+	for what: int in [Node.NOTIFICATION_APPLICATION_FOCUS_OUT, Node.NOTIFICATION_APPLICATION_PAUSED]:
+		_cancelled.clear()
+		var stroke := _make()
+		_touch(stroke, true, Vector2(150.0, 300.0))
+		stroke._notification(what)
+		check_eq(_cancelled, ["focus lost"] as Array[String], "cancelled on %d" % what)
+		check(not stroke.is_stroking(), "the press is over")
+		var pos := Vector2(150.0, 300.0)
+		_touch(stroke, true, pos)
+		pos = _move(stroke, pos, Vector2(0.0, -3000.0), 0.1)
+		_touch(stroke, false, pos)
+		check_eq(_struck.size(), 1, "a new stroke strikes")
+		_struck.clear()
+		stroke.free()
+
+
+func test_release_reported_outside_the_area_never_strikes() -> void:
+	var setup := ShotSetup.new()
+	var stroke := _make(setup)
+	stroke.position = Vector2(1400.0, 10.0)
+	var pos := Vector2(150.0, 300.0)
+	_touch(stroke, true, pos)
+	pos = _move(stroke, pos, Vector2(0.0, -3000.0), 0.1)
+	# A cancelled touch as iOS may report it: released at the screen's (-1, -1).
+	fake_t += STEP
+	_touch(stroke, false, Vector2(-1.0, -1.0) - stroke.position)
+	check_eq(_struck.size(), 0, "no strike")
+	check_eq(_cancelled, [StrokeControl.LEFT_AREA] as Array[String], "cancelled as leaving the area")
+	check_eq(setup.speed_m_s, 0.0, "speed untouched")
+	stroke.free()
+
+
+func test_each_press_starts_the_samples_over() -> void:
+	var setup := ShotSetup.new()
+	var stroke := _make(setup)
+	fake_t = 0.0
+	var pos := Vector2(150.0, 300.0)
+	for i in 3:
+		_touch(stroke, true, pos)
+		pos = _move(stroke, pos, Vector2(0.0, 300.0), 0.2)
+		_touch(stroke, false, pos)
+	check_eq(_cancelled.size(), 3, "three strokes that never pushed")
+	_touch(stroke, true, pos)
+	var t0 := fake_t
+	pos = _move(stroke, pos, Vector2(0.0, -3000.0), 0.1)
+	_touch(stroke, false, pos)
+	check_eq(_struck.size(), 1, "struck")
+	# Touch-down, 12 push frames and the release.
+	check_eq(setup.stroke_samples.size(), 14, "only the stroke that struck")
+	check_near(setup.stroke_samples[0][0], t0, 1e-9, "starting at its touch-down")
+	stroke.free()
