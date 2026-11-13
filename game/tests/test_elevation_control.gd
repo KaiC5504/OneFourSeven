@@ -91,3 +91,50 @@ func test_forced() -> void:
 	check(not control.is_forced(), "not forced above the minimum")
 	check_eq(control.readout_text(), "40°", "readout above the minimum")
 	control.free()
+
+
+func test_a_small_raise_reads_as_normal() -> void:
+	var setup := ShotSetup.new()
+	var control := _make(setup)
+	# The baulk-line case: the butt clears the rail at about 2°.
+	setup.set_elevation(0.0)
+	setup.set_elevation_min(deg_to_rad(2.0))
+	check(control.is_forced(), "still forced")
+	check(not control.shows_forced(), "but not shown as forced")
+	check_eq(control.readout_text(), "2.0°", "the effective elevation, plainly")
+	setup.set_elevation(deg_to_rad(5.0))
+	setup.set_elevation_min(deg_to_rad(7.9))
+	check(not control.shows_forced(), "2.9° above the request")
+	check_eq(control.readout_text(), "7.9°", "plain")
+	setup.set_elevation_min(deg_to_rad(8.0))
+	check(control.shows_forced(), "3° above the request")
+	check_eq(control.readout_text(), "raised to 8.0°", "shown as forced")
+	control.free()
+
+
+func test_cancel_press_frees_the_control() -> void:
+	var setup := ShotSetup.new()
+	var control := _make(setup)
+	var y10 := control.local_y_for_elevation(deg_to_rad(10.0))
+	var y30 := control.local_y_for_elevation(deg_to_rad(30.0))
+	_touch(control, true, Vector2(60.0, y10))
+	control.cancel_press()
+	_drag(control, Vector2(60.0, y30))
+	check_near(rad_to_deg(setup.elevation_rad), 10.0, 1e-3, "the old finger moves nothing")
+	_touch(control, true, Vector2(60.0, y30))
+	check_near(rad_to_deg(setup.elevation_rad), 30.0, 1e-3, "a new press works")
+	control.free()
+
+
+func test_focus_lost_frees_the_control() -> void:
+	for what: int in [Node.NOTIFICATION_APPLICATION_FOCUS_OUT, Node.NOTIFICATION_APPLICATION_PAUSED]:
+		var setup := ShotSetup.new()
+		var control := _make(setup)
+		_touch(control, true, Vector2(60.0, control.local_y_for_elevation(deg_to_rad(10.0))))
+		control._notification(what)
+		var y := control.local_y_for_elevation(deg_to_rad(30.0))
+		_drag(control, Vector2(60.0, y))
+		check_near(rad_to_deg(setup.elevation_rad), 10.0, 1e-3, "no move after %d" % what)
+		_touch(control, true, Vector2(60.0, y))
+		check_near(rad_to_deg(setup.elevation_rad), 30.0, 1e-3, "a new press works after %d" % what)
+		control.free()

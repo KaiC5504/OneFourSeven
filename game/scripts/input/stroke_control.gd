@@ -3,7 +3,7 @@ extends Control
 ## The finger stroke (spec 8.3) in its stroke area: pull back (drag down), push forward (drag up)
 ## and release. The push speed over the last WINDOW_S before release sets the cue speed through
 ## speed_for_push, which gives fine control at low power. The cue follows the backswing. Dragging
-## out of the area cancels. With Settings "stroke_wander" on, sideways wander during the push adds
+## out of the area, or a release reported outside it, cancels. With Settings "stroke_wander" on, sideways wander during the push adds
 ## a small aim error (ShotSetup.wander_rad).
 
 signal backswing_changed(distance_m: float)
@@ -125,8 +125,13 @@ func _gui_input(event: InputEvent) -> void:
 
 
 func _notification(what: int) -> void:
-	if what == NOTIFICATION_VISIBILITY_CHANGED and not is_visible_in_tree():
-		cancel_stroke("hidden")
+	match what:
+		NOTIFICATION_VISIBILITY_CHANGED:
+			if not is_visible_in_tree():
+				cancel_stroke("hidden")
+		# A touch lifted while the app is away never reports its release.
+		NOTIFICATION_APPLICATION_FOCUS_OUT, NOTIFICATION_APPLICATION_PAUSED:
+			cancel_stroke("focus lost")
 
 
 func _on_press(pointer: int, pos: Vector2) -> void:
@@ -137,6 +142,8 @@ func _on_press(pointer: int, pos: Vector2) -> void:
 	_t.clear()
 	_x.clear()
 	_y.clear()
+	if _setup != null:
+		_setup.clear_stroke_samples()
 	_sample(pos)
 	_set_backswing(0.0)
 	queue_redraw()
@@ -159,6 +166,10 @@ func _on_release(pointer: int, pos: Vector2, canceled: bool) -> void:
 	_sample(pos)
 	if canceled:
 		_cancel("touch cancelled")
+		return
+	# iOS can report a cancelled touch as a release far off the control, near the screen's (-1, -1).
+	if not Rect2(Vector2.ZERO, size).grow(LEAVE_MARGIN).has_point(pos):
+		_cancel(LEFT_AREA)
 		return
 	var velocity := finger_velocity(_t, _x, _y, WINDOW_S)
 	if velocity.y < MIN_PUSH_PX_S:

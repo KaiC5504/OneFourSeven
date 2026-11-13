@@ -70,8 +70,9 @@ func units_per_step() -> float:
 
 ## Ends a press in progress as if the finger had lifted, without acting on it: a shot
 ## starting, or the app losing focus, may swallow the real release.
-func cancel_press() -> void:
-	pass
+func cancel_press(reason: String = "cancelled by the game") -> void:
+	if _pointer != NO_POINTER:
+		_release(reason)
 
 
 func is_pressed() -> bool:
@@ -92,8 +93,7 @@ func _notification(what: int) -> void:
 		NOTIFICATION_RESIZED:
 			queue_redraw()
 		NOTIFICATION_APPLICATION_FOCUS_OUT, NOTIFICATION_APPLICATION_PAUSED:
-			if _pointer != NO_POINTER:
-				_release("focus lost")
+			cancel_press("focus lost")
 
 
 func _handle(event: InputEvent) -> bool:

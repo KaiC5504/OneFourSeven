@@ -5,9 +5,11 @@ extends Control
 ## past it, up to MAX_TIP, and such a shot miscues.
 ##
 ## It sizes itself through custom_minimum_size: COLLAPSED_SIZE square, or EXPANDED_SIZE wide and
-## READOUT_HEIGHT taller when expanded. Anchor it to its corner and set grow_horizontal and
-## grow_vertical away from that corner so it expands onto the screen. While expanded, a press
-## anywhere outside it collapses it and still goes on to whatever it landed on.
+## READOUT_HEIGHT taller when expanded, plus expanded_inset. Anchor it to its corner and set
+## grow_horizontal and grow_vertical away from that corner so it expands onto the screen. The
+## expanded panel starts expanded_inset in from the left edge, so it can clear a neighbour such as
+## the elevation control; that strip is see-through and takes no input. While expanded, a press
+## anywhere outside the panel collapses it and still goes on to whatever it landed on.
 
 signal tip_changed(tip: Vector2)
 signal expanded_changed(on: bool)
@@ -39,6 +41,9 @@ const _NO_POINTER := -100
 const _MOUSE := -2
 
 var expanded := false
+## Canvas units from the left edge to the expanded panel.
+var expanded_inset := 0.0:
+	set = set_expanded_inset
 
 var _setup: ShotSetup
 var _tip := Vector2.ZERO
@@ -68,8 +73,27 @@ func expand() -> void:
 	_set_expanded(true)
 
 
+## Also ends a press in progress: the shot that collapses it may swallow the release.
 func collapse() -> void:
+	_cancel_press("collapsed")
 	_set_expanded(false)
+
+
+func set_expanded_inset(units: float) -> void:
+	units = maxf(units, 0.0)
+	if units == expanded_inset:
+		return
+	expanded_inset = units
+	_apply_size()
+	queue_redraw()
+
+
+## The part of the control that draws and takes input: all of it while collapsed.
+func panel_rect() -> Rect2:
+	if expanded:
+		var inset := minf(expanded_inset, size.x)
+		return Rect2(inset, 0.0, size.x - inset, size.y)
+	return Rect2(Vector2.ZERO, size)
 
 
 func current_tip() -> Vector2:
@@ -94,7 +118,7 @@ func local_for_tip(tip: Vector2) -> Vector2:
 func ball_centre() -> Vector2:
 	if expanded:
 		var side := _ball_side()
-		return Vector2(size.x / 2.0, side / 2.0)
+		return Vector2(panel_rect().get_center().x, side / 2.0)
 	return size / 2.0
 
 
@@ -110,7 +134,7 @@ func miscue_ring_radius() -> float:
 
 func close_centre() -> Vector2:
 	var side := _ball_side()
-	return Vector2(size.x / 2.0 + side / 2.0 - CLOSE_RADIUS, CLOSE_RADIUS)
+	return Vector2(panel_rect().get_center().x + side / 2.0 - CLOSE_RADIUS, CLOSE_RADIUS)
 
 
 ## The readout, such as "screw 0.40 · left 0.20".
@@ -165,13 +189,22 @@ func _input(event: InputEvent) -> void:
 		return
 	var local := make_input_local(event)
 	var pos: Vector2 = local.get("position")
-	if not Rect2(Vector2.ZERO, size).has_point(pos):
+	if not panel_rect().has_point(pos):
 		collapse()
 
 
+func _has_point(point: Vector2) -> bool:
+	return panel_rect().has_point(point)
+
+
 func _notification(what: int) -> void:
-	if what == NOTIFICATION_VISIBILITY_CHANGED and not is_visible_in_tree():
-		_end_press()
+	match what:
+		NOTIFICATION_VISIBILITY_CHANGED:
+			if not is_visible_in_tree():
+				_cancel_press("hidden")
+		# A touch lifted while the app is away never reports its release.
+		NOTIFICATION_APPLICATION_FOCUS_OUT, NOTIFICATION_APPLICATION_PAUSED:
+			_cancel_press("focus lost")
 
 
 func _on_press(pointer: int, pos: Vector2, double: bool) -> void:
@@ -221,6 +254,13 @@ func _end_press() -> void:
 	_press = Press.NONE
 
 
+func _cancel_press(reason: String) -> void:
+	if _pointer == _NO_POINTER:
+		return
+	Log.info("input", "input.cancel", {"control": "spin", "reason": reason})
+	_end_press()
+
+
 func _apply_tip(tip: Vector2) -> void:
 	if tip.is_equal_approx(current_tip()):
 		return
@@ -244,13 +284,13 @@ func _set_expanded(on: bool) -> void:
 
 func _apply_size() -> void:
 	if expanded:
-		custom_minimum_size = Vector2(EXPANDED_SIZE, EXPANDED_SIZE + READOUT_HEIGHT)
+		custom_minimum_size = Vector2(expanded_inset + EXPANDED_SIZE, EXPANDED_SIZE + READOUT_HEIGHT)
 	else:
 		custom_minimum_size = Vector2(COLLAPSED_SIZE, COLLAPSED_SIZE)
 
 
 func _ball_side() -> float:
-	return minf(size.x, size.y - READOUT_HEIGHT)
+	return minf(panel_rect().size.x, size.y - READOUT_HEIGHT)
 
 
 func _miscue_limit() -> float:
@@ -275,7 +315,7 @@ func _draw() -> void:
 		var panel := StyleBoxFlat.new()
 		panel.bg_color = PANEL_COLOUR
 		panel.set_corner_radius_all(24)
-		draw_style_box(panel, Rect2(Vector2.ZERO, size))
+		draw_style_box(panel, panel_rect())
 	draw_circle(centre, radius + 2.0, Color(0.0, 0.0, 0.0, 0.35))
 	draw_circle(centre, radius, BALL_COLOUR)
 	var cross := 1.5 if expanded else 1.0
@@ -295,5 +335,6 @@ func _draw() -> void:
 	draw_line(close + Vector2(-arm, arm), close + Vector2(arm, -arm), TEXT_COLOUR, 3.0, true)
 	var font := get_theme_default_font()
 	var baseline := _ball_side() + (READOUT_HEIGHT + FONT_SIZE * 0.7) / 2.0 - 6.0
-	draw_string(font, Vector2(0.0, baseline), describe(tip, limit), HORIZONTAL_ALIGNMENT_CENTER,
-			size.x, FONT_SIZE, MISCUE_COLOUR.lightened(0.25) if miscue else TEXT_COLOUR)
+	var readout := panel_rect()
+	draw_string(font, Vector2(readout.position.x, baseline), describe(tip, limit), HORIZONTAL_ALIGNMENT_CENTER,
+			readout.size.x, FONT_SIZE, MISCUE_COLOUR.lightened(0.25) if miscue else TEXT_COLOUR)

@@ -178,6 +178,51 @@ func test_emulated_mouse_is_ignored() -> void:
 	w.free()
 
 
+func test_cancel_press_frees_the_wheel() -> void:
+	var setup := ShotSetup.new()
+	var w := _wheel(setup)
+	_touch(w, 1, 300.0, true)
+	w.cancel_press()
+	check(not w.is_pressed(), "the press is over")
+	_drag(w, 1, 300.0, 240.0, 3.0)
+	check_eq(setup.aim_rad, 0.0, "the old finger turns nothing")
+	_touch(w, 1, 240.0, false)
+	_swipe(w, 300.0, 300.0 - 5.0 * FineTuneWheel.PX_PER_STEP)
+	check_near(setup.aim_rad, 5.0 * STEP_RAD, 1e-15, "a new press turns it")
+	w.cancel_press()
+	check(not w.is_pressed(), "harmless with no press")
+	w.free()
+
+
+func test_focus_lost_frees_the_wheel() -> void:
+	for what: int in [Node.NOTIFICATION_APPLICATION_FOCUS_OUT, Node.NOTIFICATION_APPLICATION_PAUSED]:
+		var setup := ShotSetup.new()
+		var w := _wheel(setup)
+		_mouse(w, MOUSE_BUTTON_LEFT, 300.0, true)
+		w._notification(what)
+		check(not w.is_pressed(), "released on %d" % what)
+		_motion(w, 240.0)
+		check_eq(setup.aim_rad, 0.0, "no turn after")
+		_swipe(w, 300.0, 300.0 - FineTuneWheel.PX_PER_STEP)
+		check_near(setup.aim_rad, STEP_RAD, 1e-15, "a new press turns it")
+		w.free()
+
+
+func test_samples_keep_the_last_400() -> void:
+	var setup := ShotSetup.new()
+	var w := _wheel(setup)
+	_touch(w, 0, 300.0, true)
+	for i in 450:
+		_now[0] = float(i)
+		_drag(w, 0, 300.0 - i * FineTuneWheel.PX_PER_STEP, 300.0 - (i + 1) * FineTuneWheel.PX_PER_STEP, FineTuneWheel.PX_PER_STEP)
+	_touch(w, 0, 0.0, false)
+	check_near(rad_to_deg(setup.aim_rad), 4.5, 1e-9, "every step turned the aim")
+	check_eq(setup.fine_tune_samples.size(), ShotSetup.MAX_FINE_TUNE_SAMPLES, "capped")
+	check_eq(setup.fine_tune_samples[0][0], 50.0, "the oldest dropped")
+	check_eq(setup.fine_tune_samples[-1][0], 449.0, "the newest kept")
+	w.free()
+
+
 func test_unbound_wheel_does_not_fail() -> void:
 	var w := FineTuneWheel.new()
 	w.size = FineTuneWheel.MIN_SIZE
