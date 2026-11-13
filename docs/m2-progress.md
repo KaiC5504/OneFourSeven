@@ -43,3 +43,17 @@ screens. After G merges: run_debug.py passes --mute unless --sound.
   with a deferred last prediction; predict_slow over 4000 µs. Integrator: call show_for on
   change (cheap if unchanged), hide_all during shots, last_predict_us → overlay.
   Screens check: spheres near the frame edges look stretched (wide horizontal FOV at 2.17:1).
+- B look (ea56e3e): table as one mesh of 4 surfaces swept from the outline, sky-shader canopy for
+  reflections, cue ball with 6 dots, drop animation; ~0.9 ms/frame uncapped at 2564×1320 on the PC.
+  Integrator: Stage.setup(); TableView.build(Physics.table_shape(), OfsTable.dimensions());
+  stage.set_table_bounds(table.bounds()); balls.set_pockets(shape["pockets"]) after each build;
+  stage.fit_shadows(camera) on rig.moved; replace main.gd's CSG table and test_main's pocket test.
+- A binding (5a7e334, e6d9223): replay of a break-off from the game's line: 171 events, 0 diverged.
+  Debug: break-off 3.0 ms through the binding (2.8 core), state_at 22 balls 8.9 µs, path 194 µs.
+  Ball lists may carry "pocket" so final_balls() feeds the next shot. Release extension timing
+  not yet measured.
+- G harness (f9e022a): --mute, --demo-position, --harness-port channel (docs/harness.md,
+  tools/harness_client.py), run_debug mutes by default (--sound opts out), Params pending until
+  commit_pending(shot_id), Perf.last_summary, DebugOverlay (F3). Integrator: fill main.gd's
+  harness_* hooks, three-finger tap → Overlay.toggle, set_shot_times, commit_pending at the strike.
+  Unverified: -DemoPosition on iOS needs data/positions in the export filter.
