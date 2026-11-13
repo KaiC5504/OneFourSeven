@@ -259,6 +259,8 @@ jobs:
               # The simulator's Compatibility renderer (GLES3) can't sample float textures; the
               # phone renders with Metal and never takes this path.
               ("warning", r"^Image format RGBAFloat not supported by hardware, converting to RGBAHalf\.$"),
+              # The same renderer has no ASTC; the phone's GPU samples the table textures as ASTC.
+              ("warning", r"^Image format ASTC_4x4 not supported by hardware, converting to RGBA8\.$"),
           ]
           found = []
           for path in sorted(pathlib.Path(sys.argv[1]).rglob("*.jsonl")):

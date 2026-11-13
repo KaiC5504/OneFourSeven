@@ -47,6 +47,12 @@ func bind(setup: ShotSetup) -> void:
 
 
 ## Shown as forced while ShotSetup.elevation_forced().
+## Ends a press in progress as if the finger had lifted, without acting on it: a shot
+## starting, or the app losing focus, may swallow the real release.
+func cancel_press() -> void:
+	pass
+
+
 func is_forced() -> bool:
 	return _setup != null and _setup.elevation_forced()
 

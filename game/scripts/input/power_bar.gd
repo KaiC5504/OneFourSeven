@@ -42,6 +42,12 @@ func _ready() -> void:
 	custom_minimum_size = MIN_SIZE
 
 
+## Ends a press in progress as if the finger had lifted, without acting on it: a shot
+## starting, or the app losing focus, may swallow the real release.
+func cancel_press() -> void:
+	pass
+
+
 func bind(setup: ShotSetup) -> void:
 	if _setup != null and _setup.changed.is_connected(_on_setup_changed):
 		_setup.changed.disconnect(_on_setup_changed)

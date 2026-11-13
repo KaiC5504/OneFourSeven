@@ -84,3 +84,13 @@ The CC0 asset agent runs in parallel (textures, env, its preview); J wires its m
 
 ## Check round (launched on 3d61753, dev pushed: CI 43396383322 Windows, 43396383307 iOS)
 C++ binding, GDScript/flow, logging + replay, test gaps, spec, comments, screens, Windows run.
+- Checks all in (findings in the lead's scratchpad m2-findings.md). Windows CI 43396383322 green;
+  iOS 43396383307 failed only on the session-log check (simulator ASTC conversion warning).
+- KaiC: builds for him go to the iPhone through the Mac (mac.py phone), not TestFlight. First
+  phone build 2611132018 (8cd24d5): starts clean over the link; one 3.4 s hitch in the first seconds.
+
+## Fix round (contracts e.g. below)
+Contracts: cancel_press() stubs on FineTuneWheel, ElevationControl, PowerBar; CI allows the
+simulator's ASTC warning; export filters include data/positions and exclude dev scenes.
+Agents: binding (C++), controls (input/*), flow (main, hud, guides, free table, play), autoloads
+(harness, params, physics, perf, settings), look (views, camera, the cue wedge, reflections).

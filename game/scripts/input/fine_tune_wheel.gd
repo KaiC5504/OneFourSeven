@@ -68,6 +68,12 @@ func units_per_step() -> float:
 	return PX_PER_STEP / maxf(float(Settings.get_value("fine_tune_sensitivity")), 0.001)
 
 
+## Ends a press in progress as if the finger had lifted, without acting on it: a shot
+## starting, or the app losing focus, may swallow the real release.
+func cancel_press() -> void:
+	pass
+
+
 func is_pressed() -> bool:
 	return _pointer != NO_POINTER
 
