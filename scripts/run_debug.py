@@ -2,11 +2,14 @@
 """The debug build in one command: sync the data, build the Debug extension, import the project
 when anything changed, then start the game in a window.
 
-    python scripts/run_debug.py                            # the table, phone link on
+    python scripts/run_debug.py                            # the table, phone link on, muted
+    python scripts/run_debug.py --sound                    # with sound
     python scripts/run_debug.py -- --demo-screen=table     # everything after -- goes to the game
 
-The game picks up parameters live from `uv run tools/devlink.py` running in another terminal,
-which serves core/data/table_params.json (spec 17.1).
+The game starts with --mute so agent runs stay silent; --sound, before --, leaves it out. The
+game picks up parameters live from `uv run tools/devlink.py` running in another terminal, which
+serves core/data/table_params.json (spec 17.1). To drive it from a script, see
+tools/harness_client.py and docs/harness.md.
 """
 
 from __future__ import annotations
@@ -45,11 +48,20 @@ def import_needed() -> bool:
     return False
 
 
+def game_args_for(argv: list[str]) -> list[str] | None:
+    """The game's user arguments for run_debug's own, or None when they aren't understood."""
+    sound = argv[:1] == ["--sound"]
+    rest = argv[1:] if sound else argv
+    if rest and rest[0] != "--":
+        return None
+    return ([] if sound else ["--mute"]) + rest[1:]
+
+
 def main(argv: list[str]) -> int:
-    if argv and argv[0] != "--":
+    game_args = game_args_for(argv)
+    if game_args is None:
         print(__doc__.strip(), file=sys.stderr)
         return 2
-    game_args = argv[1:]
     must("sync_data", gate.step([sys.executable, ROOT / "scripts" / "sync_data.py"]))
     configure, build = gate.configure_and_build(gate.BUILD, "Debug")
     must("configure", configure)

@@ -1,11 +1,17 @@
 extends Node
-## Harness autoload: debug-build launch arguments for agents and CI (spec 16.5). Inert in
-## release builds, where _ready returns before reading any argument.
+## Harness autoload: debug-build launch arguments and a local command channel for agents and CI
+## (spec 16.5; docs/harness.md). Inert in release builds, where begin returns before acting on
+## any argument.
 ##
 ## User arguments (after `--`): --screenshot=<path>, --dump-state=<path>,
-## --quit-after=<seconds>, --demo-screen=<name>. iOS launch arguments: -DemoScreen <name>.
+## --quit-after=<seconds>, --demo-screen=<name>, --demo-position=<name>, --mute,
+## --harness-port=<port>. iOS launch arguments: -DemoScreen <name>, -DemoPosition <name>.
 ## Relative paths land under user://. A flag given twice keeps its last value. Every command
 ## logs harness.command.
+##
+## The channel (Windows only) listens on 127.0.0.1: newline-delimited JSON requests
+## {"id", "cmd", "args"}, each answered {"id", "ok", "result" | "error"} in order, one at a time
+## per client.
 
 signal captures_done
 
@@ -17,13 +23,33 @@ const FLAGS := {
 	"--dump-state": "dump_state",
 	"--quit-after": "quit_after",
 	"--demo-screen": "demo_screen",
+	"--demo-position": "demo_position",
+	"--harness-port": "harness_port",
 }
+const SWITCHES := {"--mute": "mute"}
+# iOS launch arguments come as `-Name value` pairs, which Godot does not treat as user arguments.
+const LAUNCH_FLAGS := {"-DemoScreen": "--demo-screen", "-DemoPosition": "--demo-position"}
 # Read by other autoloads (Link reads --no-link), so the harness accepts them silently.
 const OTHER_FLAGS: Array[String] = ["--no-link"]
+const POSITIONS_DIR := "res://data/positions"
+const MAX_LINE_BYTES := 1 << 20
+const WAIT_IDLE_DEFAULT_SECONDS := 30.0
+const MAX_FRAMES_BETWEEN := 600
+const STRIKE_KEYS: Array[String] = ["aim_rad", "tip_x", "tip_y", "elevation_rad", "speed_m_s"]
+const OVERLAY_PATH := "Hud/Overlay"
 
-var _args := {}
+## The scene commands act on; tests swap in a fake one.
+var scene_provider: Callable = func() -> Node: return get_tree().current_scene
+## Ends the game for the quit command; tests swap it out.
+var quitter: Callable = func() -> void: get_tree().quit()
+
 var _screen := "table"
 var _captures_pending := false
+var _server: TCPServer
+var _port := -1
+# Each {"peer", "buffer", "queue", "busy"}.
+var _clients: Array[Dictionary] = []
+var _quitting := false
 
 
 static func parse_args(user_args: PackedStringArray, launch_args: PackedStringArray) -> Dictionary:
@@ -32,6 +58,9 @@ static func parse_args(user_args: PackedStringArray, launch_args: PackedStringAr
 		"dump_state": "",
 		"quit_after": -1.0,
 		"demo_screen": "",
+		"demo_position": "",
+		"harness_port": -1,
+		"mute": false,
 		"invalid": PackedStringArray(),
 		"repeated": PackedStringArray(),
 	}
@@ -40,15 +69,18 @@ static func parse_args(user_args: PackedStringArray, launch_args: PackedStringAr
 	while i < user_args.size():
 		var arg := user_args[i]
 		i += 1
-		if arg == "-DemoScreen":
+		if LAUNCH_FLAGS.has(arg):
 			# A missing value must not swallow the next flag.
 			if i < user_args.size() and not user_args[i].begins_with("-"):
-				_store(parsed, seen, "--demo-screen", user_args[i])
+				_store(parsed, seen, LAUNCH_FLAGS[arg], user_args[i])
 				i += 1
 			else:
 				parsed["invalid"].append(arg)
 			continue
 		if OTHER_FLAGS.has(arg):
+			continue
+		if SWITCHES.has(arg):
+			parsed[SWITCHES[arg]] = true
 			continue
 		var eq := arg.find("=")
 		var key := arg.substr(0, eq) if eq >= 0 else arg
@@ -56,13 +88,16 @@ static func parse_args(user_args: PackedStringArray, launch_args: PackedStringAr
 		var ok := FLAGS.has(key) and not value.is_empty()
 		if ok and key == "--quit-after":
 			ok = value.is_valid_float() and is_finite(value.to_float()) and value.to_float() >= 0.0
+		elif ok and key == "--harness-port":
+			ok = value.is_valid_int() and value.to_int() >= 0 and value.to_int() <= 65535
 		if ok:
 			_store(parsed, seen, key, value)
 		else:
 			parsed["invalid"].append(arg)
-	var demo := launch_args.find("-DemoScreen")
-	if demo >= 0 and demo + 1 < launch_args.size() and not launch_args[demo + 1].begins_with("-"):
-		_store(parsed, seen, "--demo-screen", launch_args[demo + 1])
+	for flag: String in LAUNCH_FLAGS:
+		var at := launch_args.find(flag)
+		if at >= 0 and at + 1 < launch_args.size() and not launch_args[at + 1].begins_with("-"):
+			_store(parsed, seen, LAUNCH_FLAGS[flag], launch_args[at + 1])
 	return parsed
 
 
@@ -71,7 +106,12 @@ static func _store(parsed: Dictionary, seen: Dictionary, flag: String, value: St
 		parsed["repeated"].append(flag)
 	seen[flag] = true
 	var field: String = FLAGS[flag]
-	parsed[field] = value.to_float() if field == "quit_after" else value
+	if field == "quit_after":
+		parsed[field] = value.to_float()
+	elif field == "harness_port":
+		parsed[field] = value.to_int()
+	else:
+		parsed[field] = value
 
 
 static func resolve_path(path: String) -> String:
@@ -106,75 +146,252 @@ static func build_state(scene: Node, screen: String, session: String, link_statu
 	}
 
 
+## A named position file (core/tests/fixtures/positions: "cue_ball" and "start": {"balls":
+## [{ball, index, r: [x, y]}]}) as {"balls": the game's ball list, "cue_ball"}, or {"error"}.
+static func position_from_fixture(fixture: Variant) -> Dictionary:
+	if not fixture is Dictionary:
+		return {"error": "not a JSON object"}
+	var start: Variant = (fixture as Dictionary).get("start")
+	if not start is Dictionary:
+		return {"error": "no start object"}
+	var converted := game_balls((start as Dictionary).get("balls"))
+	if converted.has("error"):
+		return converted
+	var cue_ball: Variant = _integer((fixture as Dictionary).get("cue_ball", 0))
+	if cue_ball == null:
+		return {"error": "cue_ball is not an integer"}
+	return {"balls": converted["balls"], "cue_ball": cue_ball}
+
+
+## Ball entries {ball, index, x, y} or {ball, index, r: [x, y]} as the game's ball list
+## [{ball, index, x, y}] (OfsPhysics), or {"error"} naming the first bad entry.
+static func game_balls(entries: Variant) -> Dictionary:
+	if not entries is Array or (entries as Array).is_empty():
+		return {"error": "balls must be a non-empty array"}
+	var balls: Array[Dictionary] = []
+	var list: Array = entries
+	for i: int in list.size():
+		var entry: Variant = list[i]
+		if not entry is Dictionary or not (entry as Dictionary).get("ball") is String:
+			return {"error": "balls[%d] has no ball name" % i}
+		var e: Dictionary = entry
+		var xy: Variant = e.get("r", [e.get("x"), e.get("y")])
+		var x: Variant = _finite((xy as Array)[0]) if xy is Array and (xy as Array).size() == 2 else null
+		var y: Variant = _finite((xy as Array)[1]) if xy is Array and (xy as Array).size() == 2 else null
+		var index: Variant = _integer(e.get("index", 0))
+		if x == null or y == null or index == null:
+			return {"error": "balls[%d] (%s) needs finite x and y (or r) and an integer index" % [i, e["ball"]]}
+		balls.append({"ball": e["ball"], "index": index, "x": x, "y": y})
+	return {"balls": balls}
+
+
+## A synthesized InputEvent from a channel input spec (docs/harness.md), or the reason it can't
+## be made. x, y, rx, ry are canvas units; to_window maps them to the window, where the
+## viewport expects events to come from.
+static func make_event(spec: Variant, to_window: Transform2D) -> Variant:
+	if not spec is Dictionary:
+		return "not an object"
+	var e: Dictionary = spec
+	var type: Variant = e.get("type")
+	var at: Variant = _point(e, "x", "y")
+	var moved: Variant = _point(e, "rx", "ry")
+	var pressed: Variant = e.get("pressed")
+	match type:
+		"touch":
+			var index: Variant = _integer(e.get("index", 0))
+			if at == null or not pressed is bool or index == null:
+				return "touch needs x, y, pressed and an integer index"
+			var touch := InputEventScreenTouch.new()
+			touch.index = index
+			touch.pressed = pressed
+			touch.position = to_window * (at as Vector2)
+			return touch
+		"drag":
+			var index: Variant = _integer(e.get("index", 0))
+			if at == null or index == null:
+				return "drag needs x, y and an integer index"
+			var drag := InputEventScreenDrag.new()
+			drag.index = index
+			drag.position = to_window * (at as Vector2)
+			drag.relative = to_window.basis_xform(moved if moved != null else Vector2.ZERO)
+			drag.screen_relative = drag.relative
+			return drag
+		"mouse_button":
+			var button: Variant = _integer(e.get("button", MOUSE_BUTTON_LEFT))
+			if at == null or not pressed is bool or button == null or button < 1 or button > 9:
+				return "mouse_button needs x, y, pressed and a button 1-9"
+			var click := InputEventMouseButton.new()
+			click.button_index = button
+			click.pressed = pressed
+			click.position = to_window * (at as Vector2)
+			click.global_position = click.position
+			click.button_mask = (1 << (button - 1)) if pressed else 0
+			click.factor = 1.0
+			return click
+		"mouse_motion":
+			var mask: Variant = _integer(e.get("button_mask", 0))
+			if at == null or mask == null:
+				return "mouse_motion needs x, y and an integer button_mask"
+			var motion := InputEventMouseMotion.new()
+			motion.position = to_window * (at as Vector2)
+			motion.global_position = motion.position
+			motion.relative = to_window.basis_xform(moved if moved != null else Vector2.ZERO)
+			motion.screen_relative = motion.relative
+			motion.button_mask = mask
+			return motion
+		"key":
+			if not pressed is bool:
+				return "key needs pressed"
+			if e.get("action") is String:
+				var action: String = e["action"]
+				if not InputMap.has_action(action):
+					return "no input action %s" % action
+				var event := InputEventAction.new()
+				event.action = action
+				event.pressed = pressed
+				event.strength = 1.0 if pressed else 0.0
+				return event
+			var code: Variant = e.get("keycode")
+			var key: int = KEY_NONE
+			if code is String:
+				key = OS.find_keycode_from_string(code)
+			elif _integer(code) != null:
+				key = _integer(code)
+			if key == KEY_NONE:
+				return "key needs an action or a keycode (a name such as \"F3\" or a number), got %s" % JSON.stringify(code)
+			var press := InputEventKey.new()
+			press.keycode = key as Key
+			press.physical_keycode = key as Key
+			press.pressed = pressed
+			return press
+	return "unknown type %s (touch, drag, mouse_button, mouse_motion, key)" % JSON.stringify(type)
+
+
+static func _finite(value: Variant) -> Variant:
+	if (value is float or value is int) and is_finite(float(value)):
+		return float(value)
+	return null
+
+
+# JSON numbers arrive as floats; a whole one counts as an integer.
+static func _integer(value: Variant) -> Variant:
+	if value is int:
+		return value
+	if value is float and is_finite(value) and value == floorf(value) and absf(value) < 9.0e15:
+		return int(value)
+	return null
+
+
+static func _point(e: Dictionary, x_key: String, y_key: String) -> Variant:
+	var x: Variant = _finite(e.get(x_key))
+	var y: Variant = _finite(e.get(y_key))
+	return Vector2(x, y) if x != null and y != null else null
+
+
 func _ready() -> void:
-	if not OS.is_debug_build():
+	set_process(false)
+	begin(OS.is_debug_build(), OS.get_name(), OS.get_cmdline_user_args(), OS.get_cmdline_args())
+
+
+func begin(debug_build: bool, os_name: String, user_args: PackedStringArray, launch_args: PackedStringArray) -> void:
+	if not debug_build:
 		return
 	process_mode = Node.PROCESS_MODE_ALWAYS
-	_args = parse_args(OS.get_cmdline_user_args(), OS.get_cmdline_args())
-	_run.call_deferred()
+	var args := parse_args(user_args, launch_args)
+	if args["mute"]:
+		# Before any scene can make a sound: agent runs stay silent.
+		AudioServer.set_bus_mute(0, true)
+		_report("mute", [], true, "bus %s muted" % AudioServer.get_bus_name(0))
+	_run.call_deferred(os_name, args)
 
 
-func _run() -> void:
-	for arg: String in _args["invalid"]:
+func _run(os_name: String, args: Dictionary) -> void:
+	for arg: String in args["invalid"]:
 		_report("unknown", [arg], false, "unrecognised or malformed argument")
-	for flag: String in _args["repeated"]:
+	for flag: String in args["repeated"]:
 		_report("repeated", [flag], false, "given more than once; the last value is used")
-	var demo: String = _args["demo_screen"]
+	var demo: String = args["demo_screen"]
 	if not demo.is_empty():
 		var known := SCREENS.has(demo)
 		_report("demo-screen", [demo], known, demo if known else "unknown screen; known: %s" % ", ".join(SCREENS))
 		if known:
 			_screen = demo
-	var quit_after: float = _args["quit_after"]
+	var port: int = args["harness_port"]
+	if port >= 0:
+		if os_name == "Windows":
+			start_channel(port)
+		else:
+			_report("harness-port", [port], false, "the command channel runs only on Windows, not %s" % os_name)
+	var position: String = args["demo_position"]
+	if not position.is_empty():
+		# One frame, so the scene's own setup has run before the position replaces its balls.
+		await get_tree().process_frame
+		var loaded := _load_position({"name": position})
+		_report("demo-position", [position], loaded["ok"], loaded.get("result", loaded.get("error")))
+	var quit_after: float = args["quit_after"]
 	if quit_after >= 0.0:
 		_quit_after(quit_after)
-	var screenshot: String = _args["screenshot"]
-	var dump: String = _args["dump_state"]
+	var screenshot: String = args["screenshot"]
+	var dump: String = args["dump_state"]
 	if screenshot.is_empty() and dump.is_empty():
 		return
 	_captures_pending = true
 	await get_tree().create_timer(STABLE_SECONDS, true, false, true).timeout
 	# The state needs no rendering, so it doesn't wait for a frame a headless run never draws.
 	if not dump.is_empty():
-		_dump_state(resolve_path(dump))
+		var written := _write_state(resolve_path(dump))
+		_report("dump-state", [resolve_path(dump)], written["ok"], written.get("result", written.get("error")))
 	if not screenshot.is_empty():
-		await _screenshot(resolve_path(screenshot))
+		var captured: Dictionary = await _capture(resolve_path(screenshot))
+		_report("screenshot", [resolve_path(screenshot)], captured["ok"], captured.get("result", captured.get("error")))
 	_captures_pending = false
 	captures_done.emit()
 
 
-func _screenshot(path: String) -> void:
+## {"ok": true, "result": the file's absolute path} or {"ok": false, "error"}.
+func _capture(path: String) -> Dictionary:
 	if DisplayServer.get_name() == "headless":
-		_report("screenshot", [path], false, "the headless display server renders nothing")
-		return
+		return _fail("the headless display server renders nothing")
 	# In low-processor mode an unchanged scene is never redrawn, so ask for frames instead of
 	# waiting for one.
 	Perf.set_active(&"harness_capture", true)
 	var drawn: bool = await _frame_drawn_within(CAPTURE_TIMEOUT_SECONDS)
 	Perf.set_active(&"harness_capture", false)
 	if not drawn:
-		_report("screenshot", [path], false, "no frame drawn within %d s" % int(CAPTURE_TIMEOUT_SECONDS))
-		return
+		return _fail("no frame drawn within %d s" % int(CAPTURE_TIMEOUT_SECONDS))
 	var texture := get_viewport().get_texture()
 	var image := texture.get_image() if texture else null
 	if image == null or image.is_empty():
-		_report("screenshot", [path], false, "no image from the viewport")
-		return
+		return _fail("no image from the viewport")
 	DirAccess.make_dir_recursive_absolute(path.get_base_dir())
 	var err := image.save_png(path)
-	_report("screenshot", [path], err == OK, ProjectSettings.globalize_path(path) if err == OK else error_string(err))
+	if err != OK:
+		return _fail("saving %s failed: %s" % [ProjectSettings.globalize_path(path), error_string(err)])
+	return _ok(ProjectSettings.globalize_path(path))
 
 
-func _dump_state(path: String) -> void:
-	var state := build_state(get_tree().current_scene, _screen, Log.session(), Link.get_status(), Params.current_hash())
+## build_state with the parameters waiting, the last second's perf numbers and, over them, the
+## scene's own harness_state().
+func full_state() -> Dictionary:
+	var scene := _scene()
+	var state := build_state(scene, _screen, Log.session(), Link.get_status(), Params.current_hash())
+	state["params_pending_hash"] = Params.pending_hash()
+	state["perf"] = Perf.last_summary()
+	if scene and scene.has_method("harness_state"):
+		var game: Variant = scene.call("harness_state")
+		if game is Dictionary:
+			state.merge(game, true)
+	return state
+
+
+func _write_state(path: String) -> Dictionary:
 	DirAccess.make_dir_recursive_absolute(path.get_base_dir())
 	var file := FileAccess.open(path, FileAccess.WRITE)
 	if file == null:
-		_report("dump-state", [path], false, error_string(FileAccess.get_open_error()))
-		return
-	file.store_string(JSON.stringify(state, "  "))
+		return _fail("opening %s failed: %s" % [ProjectSettings.globalize_path(path), error_string(FileAccess.get_open_error())])
+	file.store_string(JSON.stringify(full_state(), "  ", true, true))
 	file.close()
-	_report("dump-state", [path], true, ProjectSettings.globalize_path(path))
+	return _ok(ProjectSettings.globalize_path(path))
 
 
 func _frame_drawn_within(seconds: float) -> bool:
@@ -203,3 +420,358 @@ func _report(command: String, args: Array, ok: bool, result: Variant) -> void:
 		Log.info("harness", "harness.command", data)
 	else:
 		Log.warn("harness", "harness.command", data)
+
+
+# The command channel.
+
+## The port the channel listens on; -1 when it isn't open.
+func channel_port() -> int:
+	return _port
+
+
+func start_channel(port: int) -> bool:
+	stop_channel()
+	var server := TCPServer.new()
+	var err := server.listen(port, "127.0.0.1")
+	if err != OK:
+		_channel("error", port, "listening on 127.0.0.1:%d failed: %s" % [port, error_string(err)])
+		return false
+	_server = server
+	_port = server.get_local_port()
+	# harness_client.py reads this line to find a port picked with 0.
+	print("harness listening on 127.0.0.1:%d" % _port)
+	_channel("listening", _port)
+	set_process(true)
+	return true
+
+
+func stop_channel() -> void:
+	if _server == null:
+		return
+	for client: Dictionary in _clients:
+		(client["peer"] as StreamPeerTCP).disconnect_from_host()
+	_clients.clear()
+	_server.stop()
+	_server = null
+	_channel("closed", _port)
+	_port = -1
+	set_process(false)
+
+
+func _exit_tree() -> void:
+	stop_channel()
+
+
+func _process(_delta: float) -> void:
+	if _server == null:
+		return
+	while _server.is_connection_available():
+		var peer := _server.take_connection()
+		_clients.append({"peer": peer, "buffer": PackedByteArray(), "queue": [], "busy": false})
+		_channel("client", _port)
+	for client: Dictionary in _clients.duplicate():
+		_poll(client)
+
+
+func _poll(client: Dictionary) -> void:
+	var peer: StreamPeerTCP = client["peer"]
+	peer.poll()
+	if peer.get_status() != StreamPeerTCP.STATUS_CONNECTED:
+		_clients.erase(client)
+		_channel("closed", _port, "" if peer.get_status() == StreamPeerTCP.STATUS_NONE else "client connection status %d" % peer.get_status())
+		return
+	var available := peer.get_available_bytes()
+	if available > 0:
+		var got: Array = peer.get_partial_data(available)
+		if got[0] != OK:
+			_drop(client, "reading from the client failed: %s" % error_string(got[0]))
+			return
+		var buffer: PackedByteArray = client["buffer"]
+		buffer.append_array(got[1])
+		var newline := buffer.find(10)
+		while newline >= 0:
+			var line := buffer.slice(0, newline).get_string_from_utf8().strip_edges()
+			if not line.is_empty():
+				(client["queue"] as Array).append(line)
+			buffer = buffer.slice(newline + 1)
+			newline = buffer.find(10)
+		client["buffer"] = buffer
+		if buffer.size() > MAX_LINE_BYTES:
+			_send(client, {"id": null, "ok": false, "error": "a request line over %d bytes; closing" % MAX_LINE_BYTES})
+			_drop(client, "a request line over %d bytes" % MAX_LINE_BYTES)
+			return
+	var queue: Array = client["queue"]
+	if not client["busy"] and not queue.is_empty():
+		_serve(client, queue.pop_front())
+
+
+func _serve(client: Dictionary, line: String) -> void:
+	client["busy"] = true
+	var response: Dictionary = await handle_line(line)
+	_send(client, response)
+	client["busy"] = false
+	if _quitting:
+		OfsLog.flush()
+		# Disconnecting sends what was written before the process goes.
+		stop_channel()
+		quitter.call()
+
+
+func _send(client: Dictionary, response: Dictionary) -> void:
+	var peer: StreamPeerTCP = client["peer"]
+	if peer.get_status() != StreamPeerTCP.STATUS_CONNECTED:
+		return
+	var err := peer.put_data((JSON.stringify(response, "", true, true) + "\n").to_utf8_buffer())
+	if err != OK:
+		_channel("error", _port, "answering request %s failed: %s" % [JSON.stringify(response.get("id")), error_string(err)])
+
+
+func _drop(client: Dictionary, reason: String) -> void:
+	(client["peer"] as StreamPeerTCP).disconnect_from_host()
+	_clients.erase(client)
+	_channel("error", _port, reason)
+
+
+func _channel(state: String, port: int, error: String = "") -> void:
+	var data := {"state": state, "port": port}
+	if not error.is_empty():
+		data["error"] = error
+		Log.warn("harness", "harness.channel", data)
+	else:
+		Log.info("harness", "harness.channel", data)
+
+
+## One request line to its response.
+func handle_line(line: String) -> Dictionary:
+	var json := JSON.new()
+	var parsed := json.parse(line) == OK
+	var request: Variant = json.data if parsed else null
+	if not request is Dictionary:
+		var why := "a request is a JSON object" if parsed else "not JSON: %s" % json.get_error_message()
+		_report("request", [line.left(200)], false, why)
+		return {"id": null, "ok": false, "error": why}
+	var id: Variant = (request as Dictionary).get("id")
+	# Godot reads every JSON number as a float; a client's 1 should come back as 1, not 1.0.
+	if _integer(id) != null:
+		id = _integer(id)
+	var cmd: Variant = (request as Dictionary).get("cmd")
+	var args: Variant = (request as Dictionary).get("args", {})
+	var outcome: Dictionary
+	if not cmd is String:
+		outcome = _fail("cmd must be a string")
+	elif not args is Dictionary:
+		outcome = _fail("args must be an object")
+	else:
+		outcome = await run_command(cmd, args)
+	if not cmd is String or not args is Dictionary:
+		_report(str(cmd), [args], false, outcome["error"])
+	var response := {"id": id, "ok": outcome["ok"]}
+	if outcome["ok"]:
+		response["result"] = outcome["result"]
+	else:
+		response["error"] = outcome["error"]
+	return response
+
+
+## {"ok": true, "result"} or {"ok": false, "error"}; logged as harness.command.
+func run_command(cmd: String, args: Dictionary) -> Dictionary:
+	var outcome: Dictionary
+	match cmd:
+		"ping":
+			outcome = _ok("pong")
+		"load_position":
+			outcome = _load_position(args)
+		"play_shot":
+			outcome = _play_shot(args)
+		"wait_idle":
+			outcome = await _wait_idle(args)
+		"set_setting":
+			outcome = _set_setting(args)
+		"dump_state":
+			outcome = _dump_state(args)
+		"screenshot":
+			if args.get("path") is String and not (args["path"] as String).is_empty():
+				outcome = await _capture(resolve_path(args["path"]))
+			else:
+				outcome = _fail("path must be a non-empty string")
+		"overlay":
+			outcome = _overlay(args)
+		"input":
+			outcome = await _send_input(args)
+		"quit":
+			_quitting = true
+			outcome = _ok("quitting")
+		_:
+			outcome = _fail("unknown command %s; known: ping, load_position, play_shot, wait_idle, set_setting, dump_state, screenshot, overlay, input, quit" % cmd)
+	var logged: Variant = outcome.get("result", outcome.get("error"))
+	if cmd == "dump_state" and outcome["ok"]:
+		logged = "state of %d keys" % (outcome["result"] as Dictionary).size()
+	_report(cmd, [_logged_args(cmd, args)], outcome["ok"], logged)
+	return outcome
+
+
+# A long gesture would make one enormous log line; its length is enough there.
+static func _logged_args(cmd: String, args: Dictionary) -> Dictionary:
+	if cmd != "input" or not args.get("events") is Array:
+		return args
+	var short := args.duplicate()
+	short["events"] = "%d events" % (args["events"] as Array).size()
+	return short
+
+
+func _scene() -> Node:
+	return scene_provider.call() as Node
+
+
+func _hook(scene: Node, method: String) -> String:
+	if scene == null:
+		return "no current scene"
+	if not scene.has_method(method):
+		return "the scene (%s) has no %s" % [scene.name, method]
+	return ""
+
+
+func _load_position(args: Dictionary) -> Dictionary:
+	var position: Dictionary
+	if args.has("name"):
+		position = load_position_file(str(args["name"]))
+	elif args.has("balls"):
+		position = game_balls(args["balls"])
+		if not position.has("error"):
+			position["cue_ball"] = _integer(args.get("cue_ball", 0))
+			if position["cue_ball"] == null:
+				position = {"error": "cue_ball must be an integer"}
+	else:
+		position = {"error": "needs a name, or balls and cue_ball"}
+	if position.has("error"):
+		return _fail(position["error"])
+	var balls: Array = position["balls"]
+	var cue_ball: int = position["cue_ball"]
+	if cue_ball < 0 or cue_ball >= balls.size():
+		return _fail("cue_ball %d is not one of the %d balls" % [cue_ball, balls.size()])
+	var scene := _scene()
+	var missing := _hook(scene, "harness_load_position")
+	if not missing.is_empty():
+		return _fail(missing)
+	if not scene.call("harness_load_position", balls, cue_ball):
+		return _fail("the scene refused the position (%d balls, cue ball %d); see its log" % [balls.size(), cue_ball])
+	return _ok({"balls": balls.size(), "cue_ball": cue_ball})
+
+
+## res://data/positions/<name>.json as {"balls", "cue_ball"}, or {"error"}.
+static func load_position_file(position_name: String) -> Dictionary:
+	if not position_name.is_valid_filename() or position_name.is_empty() or position_name.contains("."):
+		return {"error": "%s is not a position name" % JSON.stringify(position_name)}
+	var path := POSITIONS_DIR.path_join(position_name + ".json")
+	if not FileAccess.file_exists(path):
+		return {"error": "no position %s in %s (scripts/sync_data.py copies them from core/tests/fixtures/positions)" % [position_name, POSITIONS_DIR]}
+	var json := JSON.new()
+	if json.parse(FileAccess.get_file_as_string(path)) != OK:
+		return {"error": "%s: %s at line %d" % [path, json.get_error_message(), json.get_error_line()]}
+	var position := position_from_fixture(json.data)
+	if position.has("error"):
+		position["error"] = "%s: %s" % [path, position["error"]]
+	return position
+
+
+func _play_shot(args: Dictionary) -> Dictionary:
+	var strike := {}
+	for key: String in STRIKE_KEYS:
+		var value: Variant = _finite(args.get(key))
+		if value == null:
+			return _fail("%s must be a finite number, got %s" % [key, JSON.stringify(args.get(key))])
+		strike[key] = value
+	var scene := _scene()
+	var missing := _hook(scene, "harness_play_shot")
+	if not missing.is_empty():
+		return _fail(missing)
+	var shot_id: Variant = scene.call("harness_play_shot", strike)
+	if not shot_id is String or (shot_id as String).is_empty():
+		return _fail("the scene refused the shot (busy, or the binding rejected it; see shot.rejected)")
+	return _ok({"shot_id": shot_id})
+
+
+func _wait_idle(args: Dictionary) -> Dictionary:
+	var timeout: Variant = _finite(args.get("timeout_s", WAIT_IDLE_DEFAULT_SECONDS))
+	if timeout == null or timeout < 0.0:
+		return _fail("timeout_s must be a number of seconds, 0 or more")
+	var scene := _scene()
+	var missing := _hook(scene, "harness_busy")
+	if not missing.is_empty():
+		return _fail(missing)
+	var start := Time.get_ticks_msec()
+	while scene.call("harness_busy"):
+		if Time.get_ticks_msec() - start >= timeout * 1000.0:
+			return _fail("still busy after %.1f s" % timeout)
+		await get_tree().process_frame
+		if not is_instance_valid(scene):
+			return _fail("the scene went away while waiting")
+	return _ok({"waited_s": (Time.get_ticks_msec() - start) / 1000.0})
+
+
+func _set_setting(args: Dictionary) -> Dictionary:
+	if not args.get("key") is String or not args.has("value"):
+		return _fail("needs key (a string) and value")
+	var key: String = args["key"]
+	var value: Variant = args["value"]
+	if Settings.get_value(key) is int and _integer(value) != null:
+		value = _integer(value)
+	if not Settings.set_value(key, value):
+		return _fail("Settings refused %s = %s (see settings.changed)" % [key, JSON.stringify(value)])
+	return _ok({"key": key, "value": Settings.get_value(key)})
+
+
+func _dump_state(args: Dictionary) -> Dictionary:
+	if not args.has("path"):
+		return _ok(full_state())
+	if not args["path"] is String or (args["path"] as String).is_empty():
+		return _fail("path must be a non-empty string")
+	var written := _write_state(resolve_path(args["path"]))
+	if not written["ok"]:
+		return written
+	var state := full_state()
+	state["path"] = written["result"]
+	return _ok(state)
+
+
+func _overlay(args: Dictionary) -> Dictionary:
+	if not args.get("visible") is bool:
+		return _fail("visible must be true or false")
+	var scene := _scene()
+	var overlay := scene.get_node_or_null(OVERLAY_PATH) if scene else null
+	if overlay == null or not overlay.has_method("set_shown"):
+		return _fail("the scene has no debug overlay at %s" % OVERLAY_PATH)
+	overlay.call("set_shown", args["visible"], "harness")
+	return _ok({"visible": overlay.get("visible")})
+
+
+func _send_input(args: Dictionary) -> Dictionary:
+	if not args.get("events") is Array or (args["events"] as Array).is_empty():
+		return _fail("events must be a non-empty array")
+	var frames: Variant = _integer(args.get("frames_between", 1))
+	if frames == null or frames < 0 or frames > MAX_FRAMES_BETWEEN:
+		return _fail("frames_between must be an integer from 0 to %d" % MAX_FRAMES_BETWEEN)
+	var to_window := get_viewport().get_final_transform()
+	var events: Array[InputEvent] = []
+	var specs: Array = args["events"]
+	for i: int in specs.size():
+		var made: Variant = make_event(specs[i], to_window)
+		if made is String:
+			return _fail("events[%d]: %s" % [i, made])
+		events.append(made)
+	for i: int in events.size():
+		Input.parse_input_event(events[i])
+		if i < events.size() - 1:
+			for _frame: int in frames:
+				await get_tree().process_frame
+	# Buffered events reach the scene at the start of the next frame.
+	await get_tree().process_frame
+	return _ok({"sent": events.size()})
+
+
+static func _ok(result: Variant) -> Dictionary:
+	return {"ok": true, "result": result}
+
+
+static func _fail(error: String) -> Dictionary:
+	return {"ok": false, "error": error}

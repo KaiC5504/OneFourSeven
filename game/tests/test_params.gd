@@ -1,8 +1,10 @@
 extends TestCase
-## The Params autoload: embedded parameters at start, live ones from the phone link.
+## The Params autoload: embedded parameters at start, live ones from the phone link applied at
+## the next shot.
 
 const REMOTE := '{"table_params":{"schema_version":1,"values":{"test_value":2}}}'
 const REMOTE_HASH := "feedfacefeedface"
+const REMOTE_TABLE := '{"schema_version":1,"values":{"test_value":2}}'
 
 var _changes: Array[String] = []
 var _log_start := 0
@@ -35,41 +37,129 @@ func test_embedded_hash_is_taken_from_the_file_text() -> void:
 	check(Params.current_hash() != OfsLog.content_hash(reserialised), "integers in the file stay integers")
 
 
-func test_apply_remote_replaces_logs_and_emits() -> void:
-	var old: Dictionary = Params.current()
-	var old_hash := Params.current_hash()
+# What OfsPhysics.member_json does, keeping REMOTE's integers as the binding would.
+func _extract(json_text: String, key: String) -> String:
+	if json_text == REMOTE and key == "table_params":
+		return REMOTE_TABLE
+	var json := JSON.new()
+	if json.parse(json_text) != OK or not json.data is Dictionary or not (json.data as Dictionary).has(key):
+		return ""
+	return JSON.stringify(json.data[key])
+
+
+func _swap_in() -> Array:
+	var saved := [Params.extract_member, Params.current(), Params.current_text(), Params.current_hash(),
+			Params.get("_pending_params"), Params.get("_pending_text"), Params.pending_hash(), Link.applied_params_hash]
+	Params.extract_member = _extract
 	Params.changed.connect(_on_changed)
 	_mark_log()
+	return saved
+
+
+func _restore(saved: Array) -> void:
+	Params.changed.disconnect(_on_changed)
+	Params.extract_member = saved[0]
+	Params.set("_table_params", saved[1])
+	Params.set("_text", saved[2])
+	Params.set("_hash", saved[3])
+	Params.set("_pending_params", saved[4])
+	Params.set("_pending_text", saved[5])
+	Params.set("_pending_hash", saved[6])
+	Link.applied_params_hash = saved[7]
+
+
+func test_apply_remote_waits_for_the_next_shot() -> void:
+	var saved := _swap_in()
+	var old: Dictionary = Params.current()
+	var old_hash := Params.current_hash()
 	Params.apply_remote(REMOTE, REMOTE_HASH)
+	check_eq(Params.current(), old, "current() unchanged until a shot")
+	check_eq(Params.current_hash(), old_hash, "hash unchanged")
+	check_eq(Link.applied_params_hash, old_hash, "Link still has the applied hash")
+	check_eq(Params.pending_hash(), REMOTE_HASH, "pending_hash")
+	check_eq(_changes.size(), 0, "changed not emitted")
+	check_eq(_logged("params.applied").size(), 0, "nothing applied")
+	check_eq(_logged("params.pending"), [{"hash": REMOTE_HASH, "current_hash": old_hash}] as Array[Dictionary], "params.pending")
+	_restore(saved)
+
+
+func test_commit_pending_applies_at_the_shot_boundary() -> void:
+	var saved := _swap_in()
+	var old_hash := Params.current_hash()
+	Params.apply_remote(REMOTE, REMOTE_HASH)
+	check(Params.commit_pending("s-7"), "committed")
 	check_eq((Params.current()["values"] as Dictionary).get("test_value"), 2.0, "current() replaced")
+	check_eq(Params.current_text(), REMOTE_TABLE, "current_text is the binding's text, integers intact")
 	check_eq(Params.current_hash(), REMOTE_HASH, "hash")
+	check_eq(Params.pending_hash(), "", "nothing pending")
 	check_eq(Link.applied_params_hash, REMOTE_HASH, "Link.applied_params_hash")
 	check_eq(_changes, [REMOTE_HASH] as Array[String], "changed emitted once")
-	var applied := _logged("params.applied")
-	check_eq(applied.size(), 1, "params.applied logged")
-	if not applied.is_empty():
-		check_eq(applied[0], {"source": "devlink", "old_hash": old_hash, "new_hash": REMOTE_HASH}, "fields")
-	Params.changed.disconnect(_on_changed)
-	Params.apply_remote(JSON.stringify({"table_params": old}), old_hash)
+	check_eq(_logged("params.applied"),
+			[{"source": "devlink", "old_hash": old_hash, "new_hash": REMOTE_HASH, "shot_id": "s-7"}] as Array[Dictionary],
+			"params.applied names the first shot that used them")
+	check(not Params.commit_pending("s-8"), "a second commit has nothing to apply")
+	check_eq(_logged("params.applied").size(), 1, "and logs nothing")
+	check_eq(_changes.size(), 1, "nor emits")
+	_restore(saved)
+
+
+func test_known_hashes_are_ignored() -> void:
+	var saved := _swap_in()
+	Params.apply_remote(REMOTE, REMOTE_HASH)
+	Params.apply_remote(REMOTE, REMOTE_HASH)
+	check_eq(_logged("params.pending").size(), 1, "the pending hash again is ignored")
+	Params.commit_pending("s-1")
+	Params.apply_remote(REMOTE, REMOTE_HASH)
+	check_eq(Params.pending_hash(), "", "the current hash is not pending again")
+	check_eq(_logged("params.pending").size(), 1, "nor logged")
+	_restore(saved)
+
+
+func test_a_newer_set_replaces_the_pending_one() -> void:
+	var saved := _swap_in()
+	var newer := '{"table_params":{"schema_version":1,"values":{"test_value":3}}}'
+	Params.apply_remote(REMOTE, REMOTE_HASH)
+	Params.apply_remote(newer, "0000000000000003")
+	check_eq(Params.pending_hash(), "0000000000000003", "the newer set waits")
+	check(Params.commit_pending("s-2"), "committed")
+	check_eq((Params.current()["values"] as Dictionary).get("test_value"), 3.0, "the newer values apply")
+	check_eq(_logged("params.pending").size(), 2, "both logged as pending")
+	check_eq(_logged("params.applied").size(), 1, "one applied")
+	_restore(saved)
 
 
 func test_apply_remote_rejects_invalid_input() -> void:
+	var saved := _swap_in()
 	var before: Dictionary = Params.current()
 	var before_hash := Params.current_hash()
-	Params.changed.connect(_on_changed)
+	Params.apply_remote(REMOTE, REMOTE_HASH)
 	_mark_log()
 	Params.apply_remote("not json", "1111111111111111")
 	Params.apply_remote('{"other": {}}', "2222222222222222")
 	Params.apply_remote('{"table_params": 3}', "3333333333333333")
 	check_eq(Params.current(), before, "current() unchanged")
 	check_eq(Params.current_hash(), before_hash, "hash unchanged")
+	check_eq(Params.pending_hash(), REMOTE_HASH, "the earlier pending set stays")
 	check_eq(Link.applied_params_hash, before_hash, "Link.applied_params_hash unchanged")
 	check_eq(_changes.size(), 0, "changed not emitted")
+	check_eq(_logged("params.pending").size(), 0, "nothing more pending")
 	var errors := _logged("app.error")
 	check_eq(errors.size(), 3, "one app.error per rejected set")
-	for error in errors:
+	for error: Dictionary in errors:
 		check_eq(error.get("kind"), "message", "kind")
-	Params.changed.disconnect(_on_changed)
+		check(str(error.get("message")).contains("(hash "), "names the hash: %s" % error.get("message"))
+	_restore(saved)
+
+
+func test_extraction_is_the_binding_by_default() -> void:
+	var fresh: Node = load("res://scripts/autoload/params.gd").new()
+	var text := '{"a":{"b":1},"c":2}'
+	var extracted: String = fresh.get("extract_member").call(text, "a")
+	check_eq(extracted, OfsPhysics.member_json(text, "a"), "calls OfsPhysics.member_json")
+	# Empty while the binding is still a stub.
+	if not extracted.is_empty():
+		check_eq(extracted.replace(" ", ""), '{"b":1}', "the member with its integer")
+	fresh.free()
 
 
 func _on_changed(hash: String) -> void:
