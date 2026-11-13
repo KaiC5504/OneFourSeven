@@ -96,12 +96,16 @@ public:
     double min_cue_elevation(const godot::Array &balls, int cue_ball, const godot::Dictionary &strike) const;
 
     // The outline the game draws (spec 6.3), from the configured table_shape.json:
-    // {lines: [{p1: [x, y], p2: [x, y], normal: [x, y]}], arcs: [{centre: [x, y], radius,
-    // angle_start, angle_end, pocket}], pockets: [{name, corner, drop_centre: [x, y], drop_radius}],
-    // rail_height, rail_width}. Empty before configure succeeds.
+    // {lines: [{name, kind ("nose" | "facing"), p1: [x, y], p2: [x, y], normal: [x, y]}], arcs:
+    // [{name, centre: [x, y], radius, angle_start, angle_end, pocket (index)}], pockets: [{name,
+    // corner, drop_centre: [x, y], drop_radius}], rail_height, rail_width}, in the file's order
+    // (TableShape's indices, which events' `body` uses). Empty before configure succeeds.
     godot::Dictionary table_shape() const;
     // The configured parameter values by field name (physics_params_values); empty before configure.
     godot::Dictionary params_values() const;
+    // rack.hpp's opening_rack as a ball list (cue ball first, reds 0-14, then the colours), with
+    // the seeded micro-gaps of spec 7.7. Empty before configure.
+    godot::Array opening_rack(int64_t seed) const;
 
     // json_text parsed and json_text[key] written back out as JSON text, keeping integers as
     // integers (GDScript's parser turns them into floats, which the parameter loader refuses for

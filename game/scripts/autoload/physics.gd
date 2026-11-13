@@ -41,6 +41,11 @@ func table_shape() -> Dictionary:
 	return {}
 
 
+## The full rack with seeded micro-gaps (spec 7.7), cue ball first; empty until configured.
+func opening_rack(_seed: int) -> Array[Dictionary]:
+	return []
+
+
 ## A parameter in use, such as "miscue_limit" or "max_cue_speed_m_s"; `fallback` before configure.
 func param(_name: String, fallback: float) -> float:
 	return fallback

@@ -46,6 +46,7 @@ void OfsPhysics::_bind_methods() {
     ClassDB::bind_method(D_METHOD("min_cue_elevation", "balls", "cue_ball", "strike"), &OfsPhysics::min_cue_elevation);
     ClassDB::bind_method(D_METHOD("table_shape"), &OfsPhysics::table_shape);
     ClassDB::bind_method(D_METHOD("params_values"), &OfsPhysics::params_values);
+    ClassDB::bind_method(D_METHOD("opening_rack", "seed"), &OfsPhysics::opening_rack);
     ClassDB::bind_static_method("OfsPhysics", D_METHOD("member_json", "json_text", "key"), &OfsPhysics::member_json);
 }
 
@@ -62,4 +63,5 @@ Ref<OfsShotRecord> OfsPhysics::predict(const Array &, int, const Dictionary &) {
 double OfsPhysics::min_cue_elevation(const Array &, int, const Dictionary &) const { return 0.0; }
 Dictionary OfsPhysics::table_shape() const { return {}; }
 Dictionary OfsPhysics::params_values() const { return {}; }
+Array OfsPhysics::opening_rack(int64_t) const { return {}; }
 String OfsPhysics::member_json(const String &, const String &) { return {}; }
