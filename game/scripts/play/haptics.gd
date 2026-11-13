@@ -11,6 +11,8 @@ extends Node
 const MIN_INTERVAL_MS := 30
 const BALL_MIN_SPEED := 0.3
 const STRIKE_FULL_SPEED := 8.0
+const TICK_MS := 4
+const TICK_AMPLITUDE := 0.2
 
 ## Called as vibrate.call(duration_ms: int, amplitude: float); tests replace it.
 var vibrate := Callable(Input, &"vibrate_handheld")
@@ -38,6 +40,20 @@ func on_event(event: Dictionary) -> void:
 		return
 	_last_pulse_ms = now
 	vibrate.call(roundi(pulse.x), pulse.y)
+
+
+## A faint tick for a step of the fine-tune wheel, under the same rate limit as the events.
+func tick() -> void:
+	if not bool(Settings.get_value("haptics")):
+		return
+	if not handheld:
+		_log_unavailable()
+		return
+	var now := int(clock_ms.call())
+	if _last_pulse_ms >= 0 and now - _last_pulse_ms < MIN_INTERVAL_MS:
+		return
+	_last_pulse_ms = now
+	vibrate.call(TICK_MS, TICK_AMPLITUDE)
 
 
 ## (duration_ms, amplitude 0-1) for an event; zero for none. Never weaker for a faster hit.

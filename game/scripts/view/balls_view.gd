@@ -64,6 +64,10 @@ var _drop_to := PackedVector3Array()
 var _gone := PackedByteArray()
 var _dropping := 0
 var _short_state_logged := false
+var _mesh: SphereMesh
+var _shader: Shader
+var _materials := {}
+var _shadow_mesh: PlaneMesh
 
 
 ## The pockets' drop centres, from OfsPhysics.table_shape()["pockets"], for the potted balls' drop.
@@ -86,52 +90,117 @@ func build(balls: Array[Dictionary]) -> void:
 	_short_state_logged = false
 	var dims := OfsTable.dimensions()
 	radius = float(dims.get("ball_radius", RADIUS_FALLBACK))
-	var mesh := SphereMesh.new()
-	mesh.radius = radius
-	mesh.height = radius * 2.0
-	mesh.radial_segments = 64
-	mesh.rings = 32
-	var shader := Shader.new()
-	shader.code = BALL_SHADER
-	var materials := {}
-	var shadow := _contact_shadow_mesh()
+	_mesh = SphereMesh.new()
+	_mesh.radius = radius
+	_mesh.height = radius * 2.0
+	_mesh.radial_segments = 64
+	_mesh.rings = 32
+	_shader = Shader.new()
+	_shader.code = BALL_SHADER
+	_materials = {}
+	_shadow_mesh = _contact_shadow_mesh()
 	for placement in balls:
-		var kind := String(placement.get("ball", ""))
-		var index := int(placement.get("index", 0))
-		if not BALL_COLOURS.has(kind):
-			Log.warn("app", "app.error", {"kind": "message",
-					"message": "balls_view: unknown ball '%s' at list index %d; drawn as the cue ball" % [kind, _balls.size()]})
-		var colour_key := kind if BALL_COLOURS.has(kind) else "cue"
-		if not materials.has(colour_key):
-			var m := ShaderMaterial.new()
-			m.shader = shader
-			m.set_shader_parameter("base_colour", BALL_COLOURS[colour_key])
-			m.set_shader_parameter("dot_colour", DOT_COLOUR)
-			m.set_shader_parameter("dot_cos", DOT_COS if colour_key == "cue" else 2.0)
-			materials[colour_key] = m
-		var x := float(placement.get("x", 0.0))
-		var y := float(placement.get("y", 0.0))
-		var ball := MeshInstance3D.new()
-		ball.name = "red_%d" % index if kind == "red" else kind
-		ball.mesh = mesh
-		ball.material_override = materials[colour_key]
-		ball.set_meta("ball", kind)
-		ball.set_meta("index", index)
-		# Node positions are single precision; the state dump reports these doubles. The array is
-		# updated in place as the ball moves.
-		var xy := [x, y]
+		_add_ball(placement)
+	_reset_drops()
+
+
+## Moves to a new list (the free table after a shot, an edit, a retake) keeping every ball whose
+## name is still in it, turned as it was, so the cue ball's dots don't jump between shots. New
+## balls are built, missing ones freed, the children put in the list's order, and any drop ends.
+func sync(balls: Array[Dictionary]) -> void:
+	if _mesh == null:
+		build(balls)
+		return
+	var wanted := {}
+	for placement in balls:
+		wanted[_ball_name(placement)] = true
+	var kept := {}
+	for i in _balls.size():
+		var ball := _balls[i]
+		if wanted.has(String(ball.name)) and not kept.has(String(ball.name)):
+			kept[String(ball.name)] = [ball, _shadows[i]]
+		else:
+			remove_child(ball)
+			ball.queue_free()
+	_balls.clear()
+	_shadows.clear()
+	_xy.clear()
+	_short_state_logged = false
+	for placement in balls:
+		var entry: Array = kept.get(_ball_name(placement), [])
+		if entry.is_empty():
+			_add_ball(placement)
+			continue
+		var ball: MeshInstance3D = entry[0]
+		var shadow: MeshInstance3D = entry[1]
+		var xy := [float(placement.get("x", 0.0)), float(placement.get("y", 0.0))]
 		ball.set_meta("core_xy", xy)
-		ball.position = TableSpace.core_to_godot(x, y, radius)
-		var contact := MeshInstance3D.new()
-		contact.name = "ContactShadow"
-		contact.mesh = shadow
-		contact.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		contact.position = Vector3(0.0, -radius + CONTACT_SHADOW_LIFT, 0.0)
-		ball.add_child(contact)
-		add_child(ball, true)
+		ball.position = TableSpace.core_to_godot(xy[0], xy[1], radius)
+		ball.visible = true
+		shadow.visible = true
 		_balls.append(ball)
-		_shadows.append(contact)
+		_shadows.append(shadow)
 		_xy.append(xy)
+	for i in _balls.size():
+		move_child(_balls[i], i)
+	_reset_drops()
+
+
+## Puts ball i at core xy on the cloth, as an edit drag shows it before the move is made.
+func place_ball(i: int, xy: Vector2) -> void:
+	if i < 0 or i >= _balls.size():
+		return
+	_balls[i].position = TableSpace.core_to_godot(xy.x, xy.y, radius)
+	_xy[i][0] = float(xy.x)
+	_xy[i][1] = float(xy.y)
+
+
+func _add_ball(placement: Dictionary) -> void:
+	var kind := String(placement.get("ball", ""))
+	var index := int(placement.get("index", 0))
+	if not BALL_COLOURS.has(kind):
+		Log.warn("app", "app.error", {"kind": "message",
+				"message": "balls_view: unknown ball '%s' at list index %d; drawn as the cue ball" % [kind, _balls.size()]})
+	var colour_key := kind if BALL_COLOURS.has(kind) else "cue"
+	if not _materials.has(colour_key):
+		var m := ShaderMaterial.new()
+		m.shader = _shader
+		m.set_shader_parameter("base_colour", BALL_COLOURS[colour_key])
+		m.set_shader_parameter("dot_colour", DOT_COLOUR)
+		m.set_shader_parameter("dot_cos", DOT_COS if colour_key == "cue" else 2.0)
+		_materials[colour_key] = m
+	var x := float(placement.get("x", 0.0))
+	var y := float(placement.get("y", 0.0))
+	var ball := MeshInstance3D.new()
+	ball.name = _ball_name(placement)
+	ball.mesh = _mesh
+	ball.material_override = _materials[colour_key]
+	ball.set_meta("ball", kind)
+	ball.set_meta("index", index)
+	# Node positions are single precision; the state dump reports these doubles. The array is
+	# updated in place as the ball moves.
+	var xy := [x, y]
+	ball.set_meta("core_xy", xy)
+	ball.position = TableSpace.core_to_godot(x, y, radius)
+	var contact := MeshInstance3D.new()
+	contact.name = "ContactShadow"
+	contact.mesh = _shadow_mesh
+	contact.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	contact.position = Vector3(0.0, -radius + CONTACT_SHADOW_LIFT, 0.0)
+	ball.add_child(contact)
+	add_child(ball, true)
+	_balls.append(ball)
+	_shadows.append(contact)
+	_xy.append(xy)
+
+
+static func _ball_name(placement: Dictionary) -> String:
+	var kind := String(placement.get("ball", ""))
+	return "red_%d" % int(placement.get("index", 0)) if kind == "red" else kind
+
+
+func _reset_drops() -> void:
+	_set_dropping(0)
 	var count := _balls.size()
 	_drop_elapsed.resize(count)
 	_drop_elapsed.fill(-1.0)
