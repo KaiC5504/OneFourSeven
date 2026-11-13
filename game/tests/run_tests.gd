@@ -8,6 +8,7 @@ const TEST_DIR := "res://tests"
 const TestCaseScript := preload("res://tests/support/test_case.gd")
 # The slowest devlink tests wait on several scaled timeouts; this is well past them.
 const TEST_TIMEOUT_SECONDS := 30.0
+const TEST_SETTINGS_PATH := "user://test_settings.json"
 
 
 ## Collects GDScript errors (ERROR_TYPE_SCRIPT) so a test that crashes fails instead of
@@ -45,6 +46,13 @@ func _initialize() -> void:
 		printerr("run_tests: no Link autoload to switch off")
 	else:
 		link.set("link_enabled", false)
+	# Tests change settings through the autoload, which saves: keep the player's own file out of it.
+	var settings := root.get_node_or_null("Settings")
+	if settings == null:
+		printerr("run_tests: no Settings autoload to point at a test file")
+	else:
+		DirAccess.remove_absolute(TEST_SETTINGS_PATH)
+		settings.set("path", TEST_SETTINGS_PATH)
 	OS.add_logger(_script_errors)
 	_run.call_deferred()
 

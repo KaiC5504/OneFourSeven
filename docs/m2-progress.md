@@ -57,3 +57,22 @@ screens. After G merges: run_debug.py passes --mute unless --sound.
   commit_pending(shot_id), Perf.last_summary, DebugOverlay (F3). Integrator: fill main.gd's
   harness_* hooks, three-finger tap → Overlay.toggle, set_shot_times, commit_pending at the strike.
   Unverified: -DemoPosition on iOS needs data/positions in the export filter.
+- C playback + sound + haptics (98286a1): sounds synthesized in plain Python (contact pulse
+  into modal resonators), PCM imports, roll loop capped at -24 dB in game. Godot 4.7 iOS haptics
+  are Core Haptics *continuous* events (no sharpness): if KaiC finds them mushy, the transient-event
+  plugin is the fallback. Integrator: frame → TableAudio.on_frame; event_reached → on_event and
+  Haptics.on_event unless ShotPlayer.is_skipping(); begin_shot(strike_outcome) before play;
+  stop_all on undo/retake.
+- H free table + settings (daca28d, e1a2f65): history semantics in its report (setups undoable,
+  edit sessions one entry, retake = undo of a shot). Integrator: shot_started(snapshot, shot_id)
+  before simulate, shot_finished(final_balls) after playback, ShotSetup.restore on returned
+  snapshots, bar ↔ FreeTable wiring, edit-mode gestures. Saved custom setups are M5.
+- I spec tests (56cd2d5): all pass against the merged builders. Notes: the miscue ring isn't
+  exposed for a direct test; neither spec nor contract fixes the sideways-drag sign (D chose
+  right = clockwise).
+- Lead: run_tests.gd points Settings at user://test_settings.json so tests never touch the
+  player's file.
+
+## Wave 2 (launched 2026-11-13 on the merged wave 1)
+J integrator works in the main checkout (the only builder left; saves a godot-cpp build).
+The CC0 asset agent runs in parallel (textures, env, its preview); J wires its materials when it lands.
