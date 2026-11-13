@@ -129,8 +129,7 @@ func test_the_stage_lights_and_layers_as_the_textures_readme_says() -> void:
 	check_eq(camera.cull_mask & Stage.PROBE_ONLY_LAYER, 0, "and not the canopy")
 	var probe: ReflectionProbe = main.get_node("Stage/Reflections")
 	check_eq(probe.cull_mask, Stage.TABLE_LAYER | Stage.PROBE_ONLY_LAYER, "the probe captures the table and canopy only")
-	var highlight: AreaLight3D = main.get_node("Stage/BallHighlight")
-	check_eq(highlight.light_cull_mask, Stage.BALL_LAYER, "the canopy highlight lights the balls only")
+	check(main.get_node_or_null("Stage/BallHighlight") == null, "no hard canopy highlight on the balls")
 	for ball: Node in main.get_node("Balls").get_children():
 		check_eq((ball as VisualInstance3D).layers, Stage.BALL_LAYER, "%s on the balls' layer" % ball.name)
 		check_eq((ball.get_node("ContactShadow") as VisualInstance3D).layers, Stage.BALL_LAYER, "and its shadow")

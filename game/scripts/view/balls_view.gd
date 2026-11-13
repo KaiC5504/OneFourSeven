@@ -45,10 +45,10 @@ void fragment() {
 	float m = max(a.x, max(a.y, a.z));
 	float w = fwidth(m);
 	ALBEDO = mix(base_colour, dot_colour, smoothstep(dot_cos - w, dot_cos + w, m));
-	ROUGHNESS = 0.2;
-	SPECULAR = 0.5;
-	CLEARCOAT = 1.0;
-	CLEARCOAT_ROUGHNESS = 0.02;
+	ROUGHNESS = 0.38;
+	SPECULAR = 0.3;
+	CLEARCOAT = 0.2;
+	CLEARCOAT_ROUGHNESS = 0.3;
 }
 """
 

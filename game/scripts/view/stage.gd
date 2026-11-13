@@ -1,18 +1,17 @@
 class_name Stage
 extends Node3D
 ## The scene around the table (spec 13.1; game/textures/README.md): TV snooker's dark arena with a
-## bright canopy over the table. The cameras see a plain dark backdrop; the balls reflect the canopy,
-## the green cloth round their lower halves and a dim studio elsewhere. Children: Light (the key
-## light, straight down with soft contact shadows), WorldEnvironment, and once set up the Canopy,
-## the Reflections probe and the BallHighlight.
+## bright canopy over the table. The cameras see a plain dark backdrop; the balls show a faint, soft
+## reflection of the canopy, the green cloth round their lower halves and a dim studio elsewhere.
+## Children: Light (the key light, straight down with soft contact shadows), WorldEnvironment, and
+## once set up the Canopy and the Reflections probe.
 ##
 ## The reflection probe captures the table and the canopy once (capture_reflections); whatever
 ## moves stays out of it on its own layer, or the balls would reflect a stale table.
 
 ## The table, which the probe captures.
 const TABLE_LAYER := 1
-## The balls: left out of the probe (a ball in its own probe reflects itself as a dark blob) and
-## the only thing the canopy highlight lights.
+## The balls: left out of the probe (a ball in its own probe reflects itself as a dark blob).
 const BALL_LAYER := 1 << 1
 ## The cue, the guides and anything else that moves.
 const MOVING_LAYER := 1 << 2
@@ -37,8 +36,9 @@ const PROBE_BLEND := 0.02
 ## black), so the probe captures again once the scene has settled.
 const RECAPTURE_S := 0.5
 const CAPTURE_DRAW_S := 0.1
-const HIGHLIGHT_ENERGY := 0.05
-const HIGHLIGHT_SPECULAR := 100.0
+## A faint, soft highlight on the balls; the README's canopy-sized area light made a hard white
+## rectangle that KaiC found unreal.
+const KEY_SPECULAR := 0.25
 # A full-size table with its rails, before TableView reports the real bounds.
 const DEFAULT_BOUNDS := AABB(Vector3(-1.1, -0.7, -1.95), Vector3(2.2, 0.75, 3.9))
 const PLAYING_FALLBACK := Vector2(3.569, 1.778)
@@ -90,8 +90,7 @@ func setup() -> void:
 	light.rotation = Vector3(-PI / 2.0, 0.0, 0.0)
 	light.light_energy = KEY_ENERGY
 	light.light_angular_distance = KEY_ANGULAR_DISTANCE
-	# The highlights come from the canopy (the probe and the ball highlight); a sun would add a dot.
-	light.light_specular = 0.0
+	light.light_specular = KEY_SPECULAR
 	light.shadow_enabled = true
 	# One split over a range fitted to the table spends the whole shadow map on it.
 	light.directional_shadow_mode = DirectionalLight3D.SHADOW_ORTHOGONAL
@@ -148,7 +147,7 @@ func _exit_tree() -> void:
 
 
 func _add_canopy() -> void:
-	for old: String in ["Canopy", "Reflections", "BallHighlight", "Recapture"]:
+	for old: String in ["Canopy", "Reflections", "Recapture"]:
 		var node := get_node_or_null(old)
 		if node != null:
 			remove_child(node)
@@ -187,20 +186,6 @@ func _add_canopy() -> void:
 	_probe.cull_mask = TABLE_LAYER | PROBE_ONLY_LAYER
 	_probe.update_mode = ReflectionProbe.UPDATE_ONCE
 	add_child(_probe)
-
-	# The Mobile renderer stores probes with too little range for the canopy's reflection in a black
-	# ball to reach white, so an area light the canopy's size adds it analytically, on the balls only.
-	var highlight := AreaLight3D.new()
-	highlight.name = "BallHighlight"
-	highlight.position = Vector3(0.0, CANOPY_HEIGHT, 0.0)
-	highlight.rotation.x = -PI / 2.0
-	highlight.area_size = CANOPY_SIZE
-	highlight.area_range = CANOPY_HEIGHT + 1.0
-	highlight.area_normalize_energy = false
-	highlight.light_energy = HIGHLIGHT_ENERGY
-	highlight.light_specular = HIGHLIGHT_SPECULAR
-	highlight.light_cull_mask = BALL_LAYER
-	add_child(highlight)
 
 	_recapture = Timer.new()
 	_recapture.name = "Recapture"
