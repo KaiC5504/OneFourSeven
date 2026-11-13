@@ -658,7 +658,7 @@ func _layout() -> void:
 	var canvas := get_viewport().get_visible_rect().size
 	var safe := HudScript.safe_rect(Rect2(DisplayServer.get_display_safe_area()),
 			Rect2(Vector2(window.position), Vector2(window.size)), canvas)
-	var rects := HudScript.layout(safe, _bar.size)
+	var rects := HudScript.layout(safe, _bar.size, canvas)
 	_put(_wheel, rects["wheel"])
 	_put(_stroke, rects["stroke"])
 	_put(_power, rects["power"])
@@ -670,11 +670,6 @@ func _layout() -> void:
 		_spin.offset_right = corner.x
 		_spin.offset_top = bottom
 		_spin.offset_bottom = bottom
-	# Through get/set until the controls agent's SpinWidget.expanded_inset is merged in.
-	var inset: float = (rects["elevation"] as Rect2).end.x + HudScript.GAP - corner.x
-	var current: Variant = _spin.get("expanded_inset")
-	if current != null and float(current) != inset:
-		_spin.set("expanded_inset", inset)
 	_palette.place_in(rects["bottom"])
 	_overlay.clear_right = safe.end.x - (rects["stroke"] as Rect2).position.x
 	var notice_at := Vector2(safe.get_center().x - _notice.size.x / 2.0, safe.position.y + HudScript.EDGE).round()

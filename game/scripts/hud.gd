@@ -14,6 +14,8 @@ const SAFE_AREA_POLL_SECONDS := 1.0
 const EDGE := 16.0
 const GAP := 12.0
 const WHEEL_SIZE := Vector2(120.0, 380.0)
+## A track of about 260 units under the readout, fine enough for small elevations.
+const ELEVATION_HEIGHT := 380.0
 const STROKE_WIDTH := 200.0
 const POWER_WIDTH := 160.0
 const STATUS_TEXT := {
@@ -45,25 +47,28 @@ static func safe_rect(safe_area: Rect2, window_rect: Rect2, canvas_size: Vector2
 
 ## Where the free table's controls go (spec 8.9) inside `safe` (canvas units), the table left
 ## clear in the middle. FreeTableBar centres itself on the left edge ("bar", from its size). The
-## right thumb's column has the fine-tune wheel at the edge, where a thumb wheel sits on a real
-## device, and the stroke area inside it, full height, where the thumb's pad pushes straight up
-## without curling; the power bar takes the stroke area's place. Bottom left, beside the bar, the
-## elevation control at its smallest, then the spin widget, which grows up and right from its
-## corner ("spin_corner") and so never over the elevation. Both stay low, clear of the cue ball
-## and the baulk colours at the opening view. The edit palette goes along the bottom between the
-## bar and the right edge ("bottom").
-static func layout(safe: Rect2, bar_size: Vector2) -> Dictionary:
+## right thumb's column has the fine-tune wheel at the edge, low, where a thumb wheel sits on a
+## real device, the elevation control above it, and the stroke area inside them, full height,
+## where the thumb's pad pushes straight up without curling; the power bar takes the stroke area's
+## place. The spin widget grows up and right from its corner ("spin_corner") at the bottom beside
+## the bar. Only the collapsed spin widget sits on the left, below the baulk balls at the opening
+## view: a tall control there would cover the green, which on the phone sits against the bar. The
+## edit palette goes along the bottom between the bar and the right edge ("bottom"). canvas, when
+## given, lets the spin widget use the margin the phone's home indicator already leaves below the
+## safe area, which keeps it below the green there.
+static func layout(safe: Rect2, bar_size: Vector2, canvas := Vector2.ZERO) -> Dictionary:
 	var bar := Rect2(Vector2(safe.position.x + FreeTableBar.EDGE_MARGIN,
 			safe.get_center().y - bar_size.y / 2.0).round(), bar_size)
-	var wheel := Rect2(Vector2(safe.end.x - EDGE - WHEEL_SIZE.x,
-			safe.get_center().y - WHEEL_SIZE.y / 2.0).round(), WHEEL_SIZE)
+	var wheel := Rect2(Vector2(safe.end.x - EDGE - WHEEL_SIZE.x, safe.end.y - EDGE - WHEEL_SIZE.y).round(), WHEEL_SIZE)
+	var top := safe.position.y + EDGE
+	var elevation := Rect2(Vector2(wheel.position.x, top).round(), Vector2(ElevationControl.MIN_SIZE.x,
+			clampf(wheel.position.y - GAP - top, ElevationControl.MIN_SIZE.y, ELEVATION_HEIGHT)).round())
 	var stroke := Rect2(Vector2(wheel.position.x - GAP - STROKE_WIDTH, safe.position.y + EDGE).round(),
 			Vector2(STROKE_WIDTH, safe.size.y - 2.0 * EDGE).round())
 	var power := Rect2(stroke.position + Vector2((STROKE_WIDTH - POWER_WIDTH) / 2.0, 0.0),
 			Vector2(POWER_WIDTH, stroke.size.y))
-	var elevation := Rect2(Vector2(bar.end.x + GAP, safe.end.y - EDGE - ElevationControl.MIN_SIZE.y).round(),
-			ElevationControl.MIN_SIZE)
-	var spin_corner := Vector2(elevation.end.x + GAP, safe.end.y - EDGE).round()
+	var below_safe := maxf(canvas.y - safe.end.y, 0.0)
+	var spin_corner := Vector2(bar.end.x + GAP, safe.end.y - maxf(EDGE - below_safe, 0.0)).round()
 	var bottom := Rect2(Vector2(bar.end.x + GAP, safe.position.y + EDGE),
 			Vector2(safe.end.x - EDGE - bar.end.x - GAP, safe.size.y - 2.0 * EDGE))
 	return {"bar": bar, "wheel": wheel, "stroke": stroke, "power": power, "spin_corner": spin_corner,

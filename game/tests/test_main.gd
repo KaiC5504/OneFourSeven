@@ -196,16 +196,28 @@ func test_the_opening_view_keeps_the_cue_ball_and_baulk_colours_clear() -> void:
 	await tree.process_frame
 	var camera: Camera3D = main.get_node("CameraRig/Camera3D")
 	var hud: Node = main.get_node("Hud")
-	var controls: Array[Control] = [hud.get_node("ElevationControl"), hud.get_node("SpinWidget")]
+	var controls: Array[Control] = [hud.get_node("ElevationControl"), hud.get_node("SpinWidget"),
+			hud.get_node("FineTuneWheel"), hud.get_node("StrokeArea")]
+	var viewport := main.get_viewport().get_visible_rect().size
+	var bar_size := (hud.get_node("FreeTableBar") as Control).size
 	for ball_name: String in ["cue", "yellow", "brown", "green"]:
 		var centre := (main.get_node("Balls/" + ball_name) as Node3D).global_position
 		var at := camera.unproject_position(centre)
 		var edge := camera.unproject_position(centre + camera.global_basis.x * RADIUS)
 		var disc := Rect2(at, Vector2.ZERO).grow(at.distance_to(edge))
 		for control in controls:
-			# The green sits by the bar; its centre must show, the rest of the baulk balls entirely.
-			var covered := control.get_global_rect().has_point(at) if ball_name == "green" else control.get_global_rect().intersects(disc)
-			check(not covered, "%s clear of %s (%s vs %s)" % [ball_name, control.name, disc, control.get_global_rect()])
+			check(not control.get_global_rect().intersects(disc), "%s clear of %s (%s vs %s)" % [ball_name, control.name, disc, control.get_global_rect()])
+		# The same view on the phone (the camera keeps its height), with its safe areas.
+		var scale := PHONE_CANVAS.y / viewport.y
+		var on_phone := Rect2((disc.position - viewport / 2.0) * scale + PHONE_CANVAS / 2.0, disc.size * scale)
+		for safe_px in PHONE_SAFE_AREAS:
+			var safe := HudScript.safe_rect(safe_px, PHONE_SCREEN, PHONE_CANVAS)
+			var rects: Dictionary = HudScript.layout(safe, bar_size, PHONE_CANVAS)
+			var spin := Rect2(rects["spin_corner"] - Vector2(0.0, SpinWidget.COLLAPSED_SIZE), Vector2.ONE * SpinWidget.COLLAPSED_SIZE)
+			check(safe.encloses(spin), "phone: the spin widget inside the safe area")
+			for key: String in ["elevation", "wheel", "stroke"]:
+				check(not on_phone.intersects(rects[key]), "phone: %s clear of the %s" % [ball_name, key])
+			check(not on_phone.intersects(spin), "phone: %s clear of the spin widget (%s vs %s)" % [ball_name, on_phone, spin])
 	main.free()
 
 
@@ -235,7 +247,7 @@ func test_the_debug_overlay_hides_no_control_on_the_phone() -> void:
 		overlay.place_in(safe_px, PHONE_SCREEN, PHONE_CANVAS, 3.0)
 		var block := (overlay.get_node("Text") as Control).get_rect()
 		check(safe.encloses(block), "inside the safe area: %s in %s" % [block, safe])
-		for key: String in ["stroke", "power", "wheel", "bar"]:
+		for key: String in ["stroke", "power", "wheel", "elevation", "bar"]:
 			check(not block.intersects(rects[key]), "clear of the %s (%s vs %s)" % [key, block, rects[key]])
 	overlay.set_shown(false, "key")
 	main.free()
@@ -268,8 +280,9 @@ func test_layout_fits_the_phones_safe_area_either_way_round() -> void:
 		check(not expanded.intersects(rects["bar"]), "the expanded spin widget clears the bar")
 		check(not expanded.intersects(rects["stroke"]), "and the stroke area")
 		check(not expanded.intersects(rects["elevation"]), "and the elevation control")
-		check_eq((rects["elevation"] as Rect2).end.x + HudScript.GAP, corner.x,
-				"the elevation left of the spin widget, so its expanded inset is 0")
+		check((rects["elevation"] as Rect2).size.y - ElevationControl.PAD_TOP - ElevationControl.PAD_BOTTOM >= 250.0,
+				"the elevation's track is at least 250 units: %s" % rects["elevation"])
+		check_eq((rects["elevation"] as Rect2).position.x, (rects["wheel"] as Rect2).position.x, "above the wheel")
 		# The middle of the screen, where the table is, stays clear.
 		var middle := Rect2(PHONE_CANVAS.x * 0.3, 0.0, PHONE_CANVAS.x * 0.4, PHONE_CANVAS.y * 0.75)
 		for key: String in placed:
