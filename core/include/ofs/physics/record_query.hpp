@@ -18,9 +18,9 @@ namespace ofs::phys {
 // - pocket: a's speed as its centre entered the drop circle;
 // - strike: the cue ball's speed just after the strike;
 // - transition, nap, guard: 0.
-// "Just before" means the segment each ball was on before the event, evaluated at the event's
-// time, so a ball whose segment starts at that event reads its incoming motion. An index past the
-// event list returns 0.
+// "Just before" is the ball's motion entering this event. The record keeps one segment per ball per
+// instant (the one after all its events there), so for events sharing a time the earlier ones at
+// that instant are re-resolved to recover it. An index past the event list returns 0.
 double event_impact_speed(const ShotRecord& r, std::size_t i, const TableShape& t);
 
 // A ball's centre path from t = 0 until it comes to rest or is potted, as (x, y) points: every
