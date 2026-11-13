@@ -40,12 +40,15 @@ public:
     int ball_count() const;
     godot::String shot_id() const;
     // Every ball at time t (clamped to [0, t_end]), kStride doubles each, in ball-list order.
+    // Empty, with app.error logged, if the core throws.
     godot::PackedFloat64Array state_at(double t) const;
     // Every event in time order: {t, kind (event_kind_name), a, b, body, from, to (motion
-    // names), speed (record_query.hpp's event_impact_speed, m/s)}.
+    // names), speed (record_query.hpp's event_impact_speed, m/s)}. Empty, with app.error logged,
+    // if the core throws.
     godot::Array events() const;
-    // record_query.hpp's sample_path, at most 2048 points.
-    godot::PackedVector2Array path(int ball, double max_step_s) const;
+    // record_query.hpp's sample_path, at most 2048 points. Empty for a ball out of range (logged
+    // as physics.query_refused) or if the core throws (app.error).
+    godot::PackedVector2Array path(int64_t ball, double max_step_s) const;
     // {v: [x, y], w: [x, y, z], elevation_used_rad, elevation_raised, squirt_rad, miscue};
     // empty when the shot had no strike.
     godot::Dictionary strike_outcome() const;
@@ -87,17 +90,20 @@ public:
     godot::String table_hash() const;
 
     // The shot as played: seed from the caller, logged as shot.simulated with `context`
-    // ({shot_id, mode, strike_mode}). null, with shot.rejected logged, when not configured or the
-    // ball list or strike is malformed (unknown ball name, missing key, non-finite number,
-    // cue_ball out of range).
-    godot::Ref<OfsShotRecord> simulate(const godot::Array &balls, int cue_ball, const godot::Dictionary &strike,
+    // ({shot_id, mode, strike_mode}). null, with shot.rejected logged (the reason and the inputs as
+    // passed), when not configured, the ball list or strike is malformed (unknown ball name,
+    // missing key, non-finite number, a ball listed twice, cue_ball out of range) or the core
+    // throws.
+    godot::Ref<OfsShotRecord> simulate(const godot::Array &balls, int64_t cue_ball, const godot::Dictionary &strike,
                                        int64_t seed, const godot::Dictionary &context);
-    // The noise-free prediction for guide level 3 (spec 8.4): seed 0, nothing logged. null when
-    // simulate would refuse.
-    godot::Ref<OfsShotRecord> predict(const godot::Array &balls, int cue_ball, const godot::Dictionary &strike);
+    // The noise-free prediction for guide level 3 (spec 8.4): seed 0, not logged. null when
+    // simulate would refuse, with physics.query_refused logged once per distinct reason.
+    godot::Ref<OfsShotRecord> predict(const godot::Array &balls, int64_t cue_ball, const godot::Dictionary &strike);
     // cue.hpp's min_cue_elevation for the strike's tip offsets (aim_rad, tip_x, tip_y read; the
-    // rest ignored). 0 when not configured.
-    double min_cue_elevation(const godot::Array &balls, int cue_ball, const godot::Dictionary &strike) const;
+    // rest ignored). 0 when not configured or the input is malformed, logged as predict's are.
+    double min_cue_elevation(const godot::Array &balls, int64_t cue_ball, const godot::Dictionary &strike) const;
+    // Why the last simulate, predict or min_cue_elevation call was refused; "" when it wasn't.
+    godot::String last_error() const;
 
     // The outline the game draws (spec 6.3), from the configured table_shape.json:
     // {lines: [{name, kind ("nose" | "facing"), p1: [x, y], p2: [x, y], normal: [x, y]}], arcs:
@@ -117,7 +123,7 @@ public:
     static godot::String member_json(const godot::String &json_text, const godot::String &key);
 
 private:
-    godot::Ref<OfsShotRecord> run(const godot::Array &balls, int cue_ball, const godot::Dictionary &strike,
+    godot::Ref<OfsShotRecord> run(const godot::Array &balls, int64_t cue_ball, const godot::Dictionary &strike,
                                   int64_t seed, const godot::Dictionary *context);
 
     bool ready_ = false;
@@ -126,4 +132,5 @@ private:
     godot::String params_hash_;
     godot::String table_hash_;
     godot::Dictionary table_shape_;
+    mutable godot::String last_error_;
 };

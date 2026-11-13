@@ -3,7 +3,9 @@
 #include <algorithm>
 #include <cmath>
 #include <iterator>
+#include <utility>
 
+#include "ofs/physics/collide.hpp"
 #include "ofs/physics/motion.hpp"
 
 namespace ofs::phys {
@@ -23,19 +25,117 @@ BallState evolve_within(const ShotRecord& r, const Segment& s, double dt) {
     return evolve(s.start, dt, r.params, s.nap);
 }
 
-// The ball on the segment it was on before time t: the latest with t0 < t, or the first when none
-// starts before t (the strike at t = 0).
-bool state_before(const ShotRecord& r, int ball, double t, BallState& out) {
+double dot_xy(const Vec3& a, const Vec3& b) { return a.x * b.x + a.y * b.y; }
+
+// Only a zero_time_chain anomaly runs longer; replaying all of one for each of its events would
+// cost the square of the chain.
+constexpr std::size_t kMaxReplay = 64;
+
+bool restarted_at_zero(const ShotRecord& r, int ball) {
+    for (const ShotEvent& e : r.events) {
+        if (e.t != 0.0) break;
+        if (e.kind != EventKind::strike && (e.a == ball || e.b == ball)) return true;
+    }
+    return false;
+}
+
+// The ball at time t before any event at t: on the latest segment with t0 < t. The simulator keeps
+// one segment per ball per instant, so at t = 0 the first segment is whatever the last event there
+// left; a ball some event touched at 0 is rebuilt, the cue ball as the strike left it, any other
+// at rest as the shot began.
+bool state_entering(const ShotRecord& r, int ball, double t, BallState& out) {
     const std::vector<Segment>* segs = segments_of(r, ball);
     if (segs == nullptr) return false;
     const auto after = std::lower_bound(segs->begin(), segs->end(), t,
                                         [](const Segment& s, double time) { return s.t0 < time; });
-    const Segment& s = after == segs->begin() ? segs->front() : *std::prev(after);
-    out = evolve_within(r, s, t - s.t0);
+    if (after != segs->begin()) {
+        const Segment& s = *std::prev(after);
+        out = evolve_within(r, s, t - s.t0);
+        return true;
+    }
+    out = segs->front().start;
+    if (!restarted_at_zero(r, ball)) return true;
+    out.v = {};
+    out.w = {};
+    out.motion = Motion::stationary;
+    out.pocket = -1;
+    if (r.has_strike && !r.events.empty() && r.events.front().kind == EventKind::strike &&
+        r.events.front().a == ball) {
+        out.v = r.strike.v;
+        out.w = r.strike.w;
+        out.motion = classify(out, r.params);
+    }
     return true;
 }
 
-double dot_xy(const Vec3& a, const Vec3& b) { return a.x * b.x + a.y * b.y; }
+// Event i's balls just before it. A ball that took several events at one instant (a chain through
+// a frozen pair) has no segment for the moments between them, so the events before i at its
+// instant are replayed from the state entering it, with the simulator's responses.
+class InstantReplay {
+public:
+    InstantReplay(const ShotRecord& r, std::size_t i, const TableShape& table) : r_(r), t_(r.events[i].t) {
+        std::size_t first = i;
+        while (first > 0 && i - first < kMaxReplay && r.events[first - 1].t == t_) --first;
+        known_.reserve(2 * (i - first) + 2);
+        for (std::size_t j = first; j < i; ++j) apply(r.events[j], table);
+    }
+
+    BallState* state(int ball) {
+        for (auto& [k, s] : known_) {
+            if (k == ball) return &s;
+        }
+        BallState s;
+        if (!state_entering(r_, ball, t_, s)) return nullptr;
+        known_.emplace_back(ball, s);
+        return &known_.back().second;
+    }
+
+private:
+    void apply(const ShotEvent& e, const TableShape& table) {
+        const PhysicsParams& p = r_.params;
+        const double rest = p.ball_rest_speed_m_s;
+        switch (e.kind) {
+            case EventKind::ball_ball: {
+                BallState* a = state(e.a);
+                BallState* b = state(e.b);
+                if (a == nullptr || b == nullptr || a == b) return;
+                const Vec3 n = unit_or_zero(Vec3{b->r.x - a->r.x, b->r.y - a->r.y, 0.0});
+                // Closing slower than that, the simulator holds the pair as a contact instead.
+                if (dot_xy(a->v - b->v, n) >= rest) collide_balls(*a, *b, p);
+                return;
+            }
+            case EventKind::ball_line: {
+                BallState* a = state(e.a);
+                if (a == nullptr || e.body < 0 || static_cast<std::size_t>(e.body) >= table.lines.size()) return;
+                const LineCushion& c = table.lines[static_cast<std::size_t>(e.body)];
+                if (-(a->v.x * c.normal.x + a->v.y * c.normal.y) >= rest) collide_line(*a, c, p);
+                return;
+            }
+            case EventKind::ball_arc: {
+                BallState* a = state(e.a);
+                if (a == nullptr || e.body < 0 || static_cast<std::size_t>(e.body) >= table.arcs.size()) return;
+                const ArcCushion& c = table.arcs[static_cast<std::size_t>(e.body)];
+                const Vec3 n = unit_or_zero(Vec3{a->r.x - c.centre.x, a->r.y - c.centre.y, 0.0});
+                if (-dot_xy(a->v, n) >= rest) collide_arc(*a, c, p);
+                return;
+            }
+            case EventKind::pocket: {
+                BallState* a = state(e.a);
+                if (a == nullptr) return;
+                a->motion = Motion::pocketed;
+                a->pocket = e.body;
+                a->v = {};
+                a->w = {};
+                return;
+            }
+            default: return;
+        }
+    }
+
+    const ShotRecord& r_;
+    double t_;
+    std::vector<std::pair<int, BallState>> known_;
+};
 
 bool translates(Motion m) { return m == Motion::sliding || m == Motion::rolling; }
 
@@ -57,17 +157,20 @@ double event_impact_speed(const ShotRecord& r, std::size_t i, const TableShape& 
     const ShotEvent& e = r.events[i];
     if (e.kind == EventKind::strike) return norm_xy(r.strike.v);
 
-    BallState a;
     if (e.kind != EventKind::ball_ball && e.kind != EventKind::ball_line && e.kind != EventKind::ball_arc &&
         e.kind != EventKind::pocket) {
         return 0.0;
     }
-    if (!state_before(r, e.a, e.t, a)) return 0.0;
+    InstantReplay replay(r, i, t);
+    const BallState* a_state = replay.state(e.a);
+    if (a_state == nullptr) return 0.0;
+    const BallState a = *a_state;
 
     switch (e.kind) {
         case EventKind::ball_ball: {
-            BallState b;
-            if (!state_before(r, e.b, e.t, b)) return 0.0;
+            const BallState* b_state = replay.state(e.b);
+            if (b_state == nullptr) return 0.0;
+            const BallState b = *b_state;
             const Vec3 n = unit_or_zero(Vec3{b.r.x - a.r.x, b.r.y - a.r.y, 0.0});
             return std::max(0.0, dot_xy(a.v - b.v, n));
         }

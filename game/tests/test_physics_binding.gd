@@ -141,8 +141,16 @@ func test_predict_is_deterministic_and_logs_nothing() -> void:
 	check_eq(a.state_at(a.t_end()), b.state_at(b.t_end()), "same final state")
 	check_eq(a.events(), b.events(), "same events")
 	check_eq(a.shot_id(), "", "no shot_id")
-	check(sim.predict(balls, 5, _strike(0.0, 1.0)) == null, "refused without a word")
+	check_eq(sim.last_error(), "", "no error after a prediction")
 	check_eq(_logged_count(), 0, "nothing logged")
+	for i in 3:
+		check(sim.predict(balls, 5147, _strike(0.0, 1.0)) == null, "refused")
+	var reason := "cue_ball 5147 is out of range (2 balls)"
+	check_eq(sim.last_error(), reason, "last_error says why")
+	var refused := _logged("physics.query_refused")
+	check_eq(refused, [{"what": "predict", "reason": reason}], "logged once however often it's asked")
+	check(sim.predict(balls, 0, _strike(PI / 2.0, 1.0)) != null, "predicted again")
+	check_eq(sim.last_error(), "", "cleared by the next prediction")
 
 
 func test_simulate_logs_shot_simulated_with_context() -> void:
@@ -173,12 +181,25 @@ func test_min_cue_elevation_over_the_baulk_cushion() -> void:
 			"lower with the tip high")
 	check_eq(sim.min_cue_elevation(_straight_pot_balls(), 0, {"aim_rad": PI / 2.0, "tip_x": 0.0, "tip_y": 0.0}),
 			0.0, "nothing in the way; only aim and tip are needed")
-	check_eq(OfsPhysics.new().min_cue_elevation(position["balls"], 0, _strike(0.0, 2.0)), 0.0, "0 unconfigured")
+	var fresh := OfsPhysics.new()
+	check_eq(fresh.min_cue_elevation(position["balls"], 0, _strike(0.0, 2.0)), 0.0, "0 unconfigured")
+	check_eq(fresh.last_error(), "physics is not configured", "unconfigured, says last_error")
+	_mark_log()
+	var bad := {"aim_rad": 0.0, "tip_x": "tip-147", "tip_y": 0.0}
+	check_eq(sim.min_cue_elevation(position["balls"], position["cue_ball"], bad), 0.0, "0 for a malformed strike")
+	check_eq(sim.min_cue_elevation(position["balls"], position["cue_ball"], bad), 0.0, "and again")
+	var reason := 'strike: "tip_x" is not a number (tip-147)'
+	check_eq(sim.last_error(), reason, "last_error says why")
+	check_eq(_logged("physics.query_refused"), [{"what": "min_cue_elevation", "reason": reason}], "logged once")
+	sim.min_cue_elevation(position["balls"], position["cue_ball"], high)
+	check_eq(sim.last_error(), "", "cleared by an answer")
 
 
 func test_malformed_input_is_rejected_and_logged() -> void:
 	var sim := _configured()
 	var good := _straight_pot_balls()
+	var twice := _with(good, 0, "x", 0.0)
+	twice.append(good[1].duplicate())
 	var cases := {
 		"unknown ball": [_with(good, 1, "ball", "purple"), 0, _strike(0.0, 1.0)],
 		"missing x": [_without(good, 1, "x"), 0, _strike(0.0, 1.0)],
@@ -188,6 +209,9 @@ func test_malformed_input_is_rejected_and_logged() -> void:
 		"cue_ball not the cue": [good, 1, _strike(0.0, 1.0)],
 		"missing speed": [good, 0, {"aim_rad": 0.0, "tip_x": 0.0, "tip_y": 0.0, "elevation_rad": 0.0}],
 		"infinite aim": [good, 0, _strike(INF, 1.0)],
+		"red 0 twice": [twice, 0, _strike(0.0, 1.0)],
+		"cue_ball past 32 bits": [good, 1 << 32, _strike(0.0, 1.0)],
+		"cue_ball below 32 bits": [good, -(1 << 32), _strike(0.0, 1.0)],
 	}
 	_mark_log()
 	for name: String in cases:
@@ -196,12 +220,61 @@ func test_malformed_input_is_rejected_and_logged() -> void:
 	var rejected := _logged("shot.rejected")
 	check_eq(rejected.size(), cases.size(), "one shot.rejected each")
 	for i in mini(rejected.size(), cases.size()):
+		var c: Array = cases.values()[i]
 		check_eq(rejected[i]["shot_id"], "bad-" + str(cases.keys()[i]), "shot_id")
 		check(not str(rejected[i]["reason"]).is_empty(), "a reason")
+		check_eq(rejected[i]["cue_ball"], c[1], "cue_ball as passed")
+		check_eq((rejected[i]["balls"] as Array).size(), (c[0] as Array).size(), "balls as passed")
+		check_eq((rejected[i]["strike"] as Dictionary).keys().size(), (c[2] as Dictionary).size(), "strike as passed")
+	if rejected.size() == cases.size():
+		var by_name := {}
+		for i in cases.size():
+			by_name[cases.keys()[i]] = rejected[i]
+		check_eq(by_name["unknown ball"]["balls"][1]["ball"], "purple", "the bad name is logged")
+		check_eq(by_name["nan y"]["balls"][0]["y"], "nan", "a non-finite number as text")
+		check_eq(by_name["infinite aim"]["strike"]["aim_rad"], "inf", "in the strike too")
+		check_eq(by_name["missing x"]["balls"][1].has("x"), false, "a missing key stays missing")
+		check_eq(by_name["red 0 twice"]["reason"], "balls[2]: red 0 is already in the list", "duplicate named")
+		check_eq(by_name["cue_ball past 32 bits"]["reason"], "cue_ball 4294967296 is out of range (2 balls)",
+				"not truncated to 0")
+		check_eq(by_name["cue_ball past 32 bits"]["cue_ball"], 4294967296, "logged whole")
 	check_eq(_logged("shot.simulated").size(), 0, "nothing simulated")
 	_mark_log()
 	check(OfsPhysics.new().simulate(good, 0, _strike(0.0, 1.0), 1, _context("early")) == null, "unconfigured")
 	check_eq(_logged("shot.rejected").size(), 1, "unconfigured logs shot.rejected")
+
+
+func test_a_full_table_is_the_most_a_ball_list_holds() -> void:
+	var sim := _configured()
+	var rack: Array[Dictionary] = []
+	for b: Dictionary in sim.opening_rack(5):
+		rack.append(b)
+	check(sim.predict(rack, 0, _strike(0.0, 1.0)) != null, "all 22 balls")
+	var extra := rack.duplicate()
+	extra.append(rack[21].duplicate())
+	check(sim.predict(extra, 0, _strike(0.0, 1.0)) == null, "a 23rd is a ball listed twice")
+	check_eq(sim.last_error(), "balls[22]: black 0 is already in the list", "named")
+
+
+func test_64_bit_indices_are_refused_not_truncated() -> void:
+	var sim := _configured()
+	var balls := _straight_pot_balls()
+	var past := (1 << 32) + 1
+	check(sim.predict(balls, 1 << 32, _strike(PI / 2.0, 1.5)) == null, "predict: 2^32 is not ball 0")
+	check_eq(sim.min_cue_elevation(balls, 1 << 32, _strike(PI / 2.0, 1.5)), 0.0, "min_cue_elevation: nor here")
+	check_eq(sim.last_error(), "cue_ball 4294967296 is out of range (2 balls)", "last_error")
+	var record := sim.predict(balls, 0, _strike(PI / 2.0, 1.5))
+	if record == null:
+		check(false, "predicted")
+		return
+	_mark_log()
+	check_eq(record.path(past, 0.01).size(), 0, "path: 2^32 + 1 is not ball 1")
+	check_eq(record.path(-1, 0.01).size(), 0, "path: no ball -1")
+	check(record.path(1, 0.01).size() > 1, "ball 1's path")
+	var refused := _logged("physics.query_refused")
+	check_eq(refused.size(), 2, "both refusals logged")
+	if refused.size() == 2:
+		check_eq(refused[0], {"what": "path", "reason": "ball 4294967297 is out of range (2 balls)"}, "path refusal")
 
 
 func test_bad_params_are_refused_and_the_old_ones_kept() -> void:

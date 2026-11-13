@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 
+#include "ofs/physics/collide.hpp"
 #include "ofs/physics/motion.hpp"
 #include "ofs/physics/record_query.hpp"
 #include "ofs/physics/simulator.hpp"
@@ -123,6 +124,68 @@ TEST_CASE("record query impl: ball_ball uses the incoming segment at an event th
     r.events[0].a = 0;
     r.events[0].b = 1;
     CHECK(event_impact_speed(r, 0, TableShape{}) == 0.0);
+}
+
+TEST_CASE("record query impl: a chain through a frozen pair reads each impact at the same instant") {
+    // The second red touches the first, so the first passes the cue ball's hit on at once.
+    SimInput in = straight_pot();
+    in.start.balls.push_back(at_rest(0.0, 0.55 + 2.0 * kR));
+    const ShotRecord r = simulate(in, file_table(), file_params());
+    const int first = find_event(r, EventKind::ball_ball, 0);
+    REQUIRE(first > 0);
+    const std::size_t hit = static_cast<std::size_t>(first);
+    REQUIRE(hit + 1 < r.events.size());
+    const ShotEvent& chained = r.events[hit + 1];
+    REQUIRE(chained.kind == EventKind::ball_ball);
+    REQUIRE(chained.t == r.events[hit].t);
+    REQUIRE(((chained.a == 1 && chained.b == 2) || (chained.a == 2 && chained.b == 1)));
+
+    const double cue_speed = event_impact_speed(r, hit, file_table());
+    CHECK(cue_speed == doctest::Approx(r.ball_at(0, r.events[hit].t - 1e-9).v.y).epsilon(1e-6));
+    // The red takes nearly all of the cue ball's speed into the second red; the segment the record
+    // kept for it at that instant is after both impacts, nearly still.
+    BallState cue = r.ball_at(0, r.events[hit].t - 1e-9);
+    BallState red = at_rest(0.0, 0.55);
+    collide_balls(cue, red, r.params);
+    const double passed_on = event_impact_speed(r, hit + 1, file_table());
+    CHECK(passed_on == doctest::Approx(red.v.y).epsilon(1e-3));
+    CHECK(passed_on > 0.8 * cue_speed);
+    CHECK(norm_xy(r.ball_at(1, chained.t).v) < 0.2 * cue_speed);
+}
+
+TEST_CASE("record query impl: a hand-built chain replays the earlier events at its instant") {
+    ShotRecord r = two_ball_record();
+    const BallState a_at = evolve(r.segments[0][0].start, 0.5, r.params, {});
+    r.segments.push_back({{0.0, at_rest(a_at.r.x + 4.0 * kR, 0.0), {}}});
+    r.final_state.balls.push_back(r.segments[2][0].start);
+    r.events = {{0.5, EventKind::ball_ball, 0, 1, -1, Motion::rolling, Motion::rolling},
+                {0.5, EventKind::ball_ball, 1, 2, -1, Motion::stationary, Motion::sliding},
+                {0.5, EventKind::ball_ball, 2, 1, -1, Motion::stationary, Motion::sliding}};
+    BallState a = a_at;
+    BallState b = r.segments[1][0].start;
+    collide_balls(a, b, r.params);
+    REQUIRE(b.v.x > 0.5);
+    CHECK(event_impact_speed(r, 0, TableShape{}) == doctest::Approx(a_at.v.x).epsilon(1e-15));
+    CHECK(event_impact_speed(r, 1, TableShape{}) == doctest::Approx(b.v.x).epsilon(1e-15));
+    // By then ball 1 has passed its speed on to ball 2, which leaves it behind.
+    CHECK(event_impact_speed(r, 2, TableShape{}) == 0.0);
+
+    // A pot earlier at the instant leaves the ball still.
+    r.events = {{0.5, EventKind::pocket, 0, -1, 1, Motion::rolling, Motion::pocketed},
+                {0.5, EventKind::ball_ball, 0, 1, -1, Motion::pocketed, Motion::pocketed}};
+    CHECK(event_impact_speed(r, 1, TableShape{}) == 0.0);
+}
+
+TEST_CASE("record query impl: at t = 0 a ball an event touched enters as the strike left it") {
+    // The cue ball frozen to a red: the record's first segment for each is after their contact.
+    SimInput in = straight_pot();
+    in.start.balls[1] = at_rest(0.0, 0.2 + 2.0 * kR);
+    const ShotRecord r = simulate(in, file_table(), file_params());
+    const int hit = find_event(r, EventKind::ball_ball, 0);
+    REQUIRE(hit > 0);
+    REQUIRE(r.events[static_cast<std::size_t>(hit)].t == 0.0);
+    CHECK(event_impact_speed(r, static_cast<std::size_t>(hit), file_table()) ==
+          doctest::Approx(r.strike.v.y).epsilon(1e-12));
 }
 
 TEST_CASE("record query impl: ball_line reads the velocity into the cushion along its normal") {

@@ -2,6 +2,8 @@
 
 #include <cmath>
 #include <exception>
+#include <mutex>
+#include <set>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -22,6 +24,12 @@ using namespace godot;
 namespace {
 
 constexpr std::size_t kMaxPathPoints = 2048;
+// Bounds on a refused shot's inputs as logged, so a runaway Array can't flood the session.
+constexpr int64_t kMaxLoggedItems = 32;
+constexpr int kMaxLoggedDepth = 6;
+// The guides query every frame; a bad input held there logs its refusal once, and only so many
+// distinct refusals are logged in a session.
+constexpr std::size_t kMaxRefusalsLogged = 64;
 
 std::string to_std(const String &text) {
     const CharString utf8 = text.utf8();
@@ -68,6 +76,69 @@ std::string variant_text(const Variant &v) {
                                                                                            : v.stringify());
 }
 
+// Any Variant as JSON, non-finite numbers and other types as their text.
+nlohmann::json variant_json(const Variant &v, int depth) {
+    switch (v.get_type()) {
+        case Variant::NIL: return nullptr;
+        case Variant::BOOL: return bool(v);
+        case Variant::INT: return int64_t(v);
+        case Variant::FLOAT: {
+            const double d = v;
+            return std::isfinite(d) ? nlohmann::json(d) : nlohmann::json(variant_text(v));
+        }
+        case Variant::ARRAY: {
+            const Array a = v;
+            if (depth >= kMaxLoggedDepth) return "Array of " + std::to_string(a.size()) + ", nested too deep";
+            nlohmann::json out = nlohmann::json::array();
+            for (int64_t i = 0; i < a.size() && i < kMaxLoggedItems; ++i) out.push_back(variant_json(a[i], depth + 1));
+            if (a.size() > kMaxLoggedItems) {
+                out.push_back("and " + std::to_string(a.size() - kMaxLoggedItems) + " more");
+            }
+            return out;
+        }
+        case Variant::DICTIONARY: {
+            const Dictionary d = v;
+            if (depth >= kMaxLoggedDepth) return "Dictionary of " + std::to_string(d.size()) + ", nested too deep";
+            const Array keys = d.keys();
+            nlohmann::json out = nlohmann::json::object();
+            for (int64_t i = 0; i < keys.size() && i < kMaxLoggedItems; ++i) {
+                out[variant_text(keys[i])] = variant_json(d[keys[i]], depth + 1);
+            }
+            if (keys.size() > kMaxLoggedItems) {
+                out["..."] = "and " + std::to_string(keys.size() - kMaxLoggedItems) + " more";
+            }
+            return out;
+        }
+        default: return variant_text(v);
+    }
+}
+
+void query_refused(const char *what, const std::string &reason) {
+    static std::mutex mutex;
+    static std::set<std::pair<std::string, std::string>> logged;
+    {
+        const std::lock_guard<std::mutex> lock(mutex);
+        if (logged.size() >= kMaxRefusalsLogged || !logged.emplace(what, reason).second) return;
+    }
+    ofs::log::warn("physics", "physics.query_refused", {{"what", what}, {"reason", reason}});
+}
+
+void caught(const char *function, const std::string &message) {
+    ofs::log::error("app", "app.error", {{"kind", "exception"}, {"message", message}, {"function", function}});
+}
+
+// No exception may unwind into Godot: `failed` gets its message and returns in body's place.
+template <typename Body, typename Failed>
+auto guarded(Body &&body, Failed &&failed) -> decltype(body()) {
+    try {
+        return body();
+    } catch (const std::exception &e) {
+        return failed(std::string(e.what()));
+    } catch (...) {
+        return failed(std::string("an exception that isn't a std::exception"));
+    }
+}
+
 bool read_number(const Dictionary &d, const char *key, const std::string &where, double &out, std::string &why) {
     if (!d.has(key)) {
         why = where + ": missing \"" + key + "\"";
@@ -102,6 +173,8 @@ bool parse_balls(const Array &balls, const ofs::phys::TableShape &table, ofs::ph
                  std::string &why) {
     out.balls.clear();
     out.balls.reserve(size_t(balls.size()));
+    // Each (ball, index) once, which also caps the list at the 22 balls of a full table.
+    std::set<std::pair<int, int>> seen;
     for (int64_t i = 0; i < balls.size(); ++i) {
         const std::string where = "balls[" + std::to_string(i) + "]";
         if (balls[i].get_type() != Variant::DICTIONARY) {
@@ -128,6 +201,10 @@ bool parse_balls(const Array &balls, const ofs::phys::TableShape &table, ofs::ph
             return false;
         }
         b.index = int(index);
+        if (!seen.emplace(int(b.ball), b.index).second) {
+            why = where + ": " + variant_text(name) + " " + std::to_string(index) + " is already in the list";
+            return false;
+        }
         if (!read_number(d, "x", where, b.r.x, why) || !read_number(d, "y", where, b.r.y, why)) return false;
         if (d.has("pocket")) {
             int64_t pocket = -1;
@@ -157,8 +234,8 @@ bool parse_strike(const Dictionary &d, bool aim_only, ofs::phys::CueStrike &out,
            read_number(d, "speed_m_s", where, out.speed_m_s, why);
 }
 
-bool check_cue_ball(const ofs::phys::TableState &s, int cue_ball, std::string &why) {
-    if (cue_ball < 0 || size_t(cue_ball) >= s.balls.size()) {
+bool check_cue_ball(const ofs::phys::TableState &s, int64_t cue_ball, std::string &why) {
+    if (cue_ball < 0 || uint64_t(cue_ball) >= s.balls.size()) {
         why = "cue_ball " + std::to_string(cue_ball) + " is out of range (" + std::to_string(s.balls.size()) +
               " balls)";
         return false;
@@ -287,62 +364,90 @@ int OfsShotRecord::ball_count() const { return int(record_.final_state.balls.siz
 String OfsShotRecord::shot_id() const { return shot_id_; }
 
 PackedFloat64Array OfsShotRecord::state_at(double t) const {
-    // !(t > 0) also catches NaN.
-    const double at = !(t > 0.0) ? 0.0 : std::min(t, record_.t_end);
-    const size_t n = record_.final_state.balls.size();
-    PackedFloat64Array out;
-    out.resize(int64_t(n * kStride));
-    double *w = out.ptrw();
-    for (size_t i = 0; i < n; ++i) {
-        const ofs::phys::BallState b = i < record_.segments.size() && !record_.segments[i].empty()
-                                           ? record_.ball_at(int(i), at)
-                                           : record_.final_state.balls[i];
-        double *s = w + i * kStride;
-        s[0] = b.r.x;
-        s[1] = b.r.y;
-        s[2] = b.v.x;
-        s[3] = b.v.y;
-        s[4] = b.w.x;
-        s[5] = b.w.y;
-        s[6] = b.w.z;
-        s[7] = double(b.motion);
-        s[8] = double(b.pocket);
-    }
-    return out;
+    return guarded(
+        [&] {
+            // !(t > 0) also catches NaN.
+            const double at = !(t > 0.0) ? 0.0 : std::min(t, record_.t_end);
+            const size_t n = record_.final_state.balls.size();
+            PackedFloat64Array out;
+            out.resize(int64_t(n * kStride));
+            double *w = out.ptrw();
+            for (size_t i = 0; i < n; ++i) {
+                const ofs::phys::BallState b = i < record_.segments.size() && !record_.segments[i].empty()
+                                                   ? record_.ball_at(int(i), at)
+                                                   : record_.final_state.balls[i];
+                double *s = w + i * kStride;
+                s[0] = b.r.x;
+                s[1] = b.r.y;
+                s[2] = b.v.x;
+                s[3] = b.v.y;
+                s[4] = b.w.x;
+                s[5] = b.w.y;
+                s[6] = b.w.z;
+                s[7] = double(b.motion);
+                s[8] = double(b.pocket);
+            }
+            return out;
+        },
+        [&](const std::string &message) {
+            caught("OfsShotRecord.state_at",
+                   "shot " + to_std(shot_id_) + " at t=" + std::to_string(t) + ": " + message);
+            return PackedFloat64Array();
+        });
 }
 
 Array OfsShotRecord::events() const {
     if (events_built_) return events_;
-    Array out;
-    const ofs::phys::TableShape empty;
-    const ofs::phys::TableShape &table = table_ ? *table_ : empty;
-    for (size_t i = 0; i < record_.events.size(); ++i) {
-        const ofs::phys::ShotEvent &e = record_.events[i];
-        Dictionary d;
-        d["t"] = e.t;
-        d["kind"] = from_std(ofs::phys::event_kind_name(e.kind));
-        d["a"] = int64_t(e.a);
-        d["b"] = int64_t(e.b);
-        d["body"] = int64_t(e.body);
-        d["from"] = from_std(ofs::phys::motion_name(e.from));
-        d["to"] = from_std(ofs::phys::motion_name(e.to));
-        d["speed"] = ofs::phys::event_impact_speed(record_, i, table);
-        d.make_read_only();
-        out.push_back(d);
-    }
-    out.make_read_only();
-    events_ = out;
-    events_built_ = true;
-    return events_;
+    return guarded(
+        [&] {
+            Array out;
+            const ofs::phys::TableShape empty;
+            const ofs::phys::TableShape &table = table_ ? *table_ : empty;
+            for (size_t i = 0; i < record_.events.size(); ++i) {
+                const ofs::phys::ShotEvent &e = record_.events[i];
+                Dictionary d;
+                d["t"] = e.t;
+                d["kind"] = from_std(ofs::phys::event_kind_name(e.kind));
+                d["a"] = int64_t(e.a);
+                d["b"] = int64_t(e.b);
+                d["body"] = int64_t(e.body);
+                d["from"] = from_std(ofs::phys::motion_name(e.from));
+                d["to"] = from_std(ofs::phys::motion_name(e.to));
+                d["speed"] = ofs::phys::event_impact_speed(record_, i, table);
+                d.make_read_only();
+                out.push_back(d);
+            }
+            out.make_read_only();
+            events_ = out;
+            events_built_ = true;
+            return events_;
+        },
+        [&](const std::string &message) {
+            caught("OfsShotRecord.events", "shot " + to_std(shot_id_) + ": " + message);
+            return Array();
+        });
 }
 
-PackedVector2Array OfsShotRecord::path(int ball, double max_step_s) const {
-    const std::vector<ofs::table::Vec2> points = ofs::phys::sample_path(record_, ball, max_step_s, kMaxPathPoints);
-    PackedVector2Array out;
-    out.resize(int64_t(points.size()));
-    Vector2 *w = out.ptrw();
-    for (size_t i = 0; i < points.size(); ++i) w[i] = Vector2(real_t(points[i].x), real_t(points[i].y));
-    return out;
+PackedVector2Array OfsShotRecord::path(int64_t ball, double max_step_s) const {
+    if (ball < 0 || uint64_t(ball) >= record_.segments.size()) {
+        query_refused("path", "ball " + std::to_string(ball) + " is out of range (" +
+                                  std::to_string(record_.segments.size()) + " balls)");
+        return {};
+    }
+    return guarded(
+        [&] {
+            const std::vector<ofs::table::Vec2> points =
+                ofs::phys::sample_path(record_, int(ball), max_step_s, kMaxPathPoints);
+            PackedVector2Array out;
+            out.resize(int64_t(points.size()));
+            Vector2 *w = out.ptrw();
+            for (size_t i = 0; i < points.size(); ++i) w[i] = Vector2(real_t(points[i].x), real_t(points[i].y));
+            return out;
+        },
+        [&](const std::string &message) {
+            caught("OfsShotRecord.path", "shot " + to_std(shot_id_) + " ball " + std::to_string(ball) + ": " + message);
+            return PackedVector2Array();
+        });
 }
 
 Dictionary OfsShotRecord::strike_outcome() const {
@@ -402,6 +507,7 @@ void OfsPhysics::_bind_methods() {
     ClassDB::bind_method(D_METHOD("simulate", "balls", "cue_ball", "strike", "seed", "context"), &OfsPhysics::simulate);
     ClassDB::bind_method(D_METHOD("predict", "balls", "cue_ball", "strike"), &OfsPhysics::predict);
     ClassDB::bind_method(D_METHOD("min_cue_elevation", "balls", "cue_ball", "strike"), &OfsPhysics::min_cue_elevation);
+    ClassDB::bind_method(D_METHOD("last_error"), &OfsPhysics::last_error);
     ClassDB::bind_method(D_METHOD("table_shape"), &OfsPhysics::table_shape);
     ClassDB::bind_method(D_METHOD("params_values"), &OfsPhysics::params_values);
     ClassDB::bind_method(D_METHOD("opening_rack", "seed"), &OfsPhysics::opening_rack);
@@ -471,58 +577,96 @@ bool OfsPhysics::is_ready() const { return ready_; }
 String OfsPhysics::params_hash() const { return params_hash_; }
 String OfsPhysics::table_hash() const { return table_hash_; }
 
-Ref<OfsShotRecord> OfsPhysics::run(const Array &balls, int cue_ball, const Dictionary &strike, int64_t seed,
+Ref<OfsShotRecord> OfsPhysics::run(const Array &balls, int64_t cue_ball, const Dictionary &strike, int64_t seed,
                                     const Dictionary *context) {
     const String shot_id = context ? context_text(*context, "shot_id") : String();
-    std::string why;
-    ofs::phys::SimInput in;
-    if (!ready_) {
-        why = "physics is not configured";
-    } else if (parse_balls(balls, *table_, in.start, why) && check_cue_ball(in.start, cue_ball, why)) {
-        parse_strike(strike, false, in.strike, why);
-    }
-    if (!why.empty()) {
-        if (context) ofs::log::warn("shot", "shot.rejected", {{"shot_id", to_std(shot_id)}, {"reason", why}});
-        return {};
-    }
-    in.cue_ball = cue_ball;
-    in.has_strike = true;
-    in.seed = static_cast<uint64_t>(seed);
-    in.params_hash = to_std(params_hash_);
-    in.table_hash = to_std(table_hash_);
+    const auto refuse = [&](const std::string &why) {
+        last_error_ = from_std(why);
+        if (context) {
+            ofs::log::warn("shot", "shot.rejected",
+                           {{"shot_id", to_std(shot_id)},
+                            {"reason", why},
+                            {"balls", variant_json(balls, 0)},
+                            {"cue_ball", cue_ball},
+                            {"strike", variant_json(strike, 0)}});
+        } else {
+            query_refused("predict", why);
+        }
+        return Ref<OfsShotRecord>();
+    };
+    return guarded(
+        [&] {
+            std::string why;
+            ofs::phys::SimInput in;
+            if (!ready_) {
+                why = "physics is not configured";
+            } else if (parse_balls(balls, *table_, in.start, why) && check_cue_ball(in.start, cue_ball, why)) {
+                parse_strike(strike, false, in.strike, why);
+            }
+            if (!why.empty()) return refuse(why);
+            in.cue_ball = int(cue_ball);
+            in.has_strike = true;
+            in.seed = static_cast<uint64_t>(seed);
+            in.params_hash = to_std(params_hash_);
+            in.table_hash = to_std(table_hash_);
 
-    ofs::phys::ShotRecord record = ofs::phys::simulate(in, *table_, params_);
-    if (context) {
-        const nlohmann::json logged = {{"shot_id", to_std(shot_id)},
-                                       {"mode", to_std(context_text(*context, "mode"))},
-                                       {"strike_mode", to_std(context_text(*context, "strike_mode"))}};
-        ofs::phys::log_shot(in, params_, record, logged);
-    }
-    Ref<OfsShotRecord> out;
-    out.instantiate();
-    out->set_record(std::move(record), table_, shot_id);
-    return out;
+            ofs::phys::ShotRecord record = ofs::phys::simulate(in, *table_, params_);
+            if (context) {
+                const nlohmann::json logged = {{"shot_id", to_std(shot_id)},
+                                               {"mode", to_std(context_text(*context, "mode"))},
+                                               {"strike_mode", to_std(context_text(*context, "strike_mode"))}};
+                ofs::phys::log_shot(in, params_, record, logged);
+            }
+            Ref<OfsShotRecord> out;
+            out.instantiate();
+            out->set_record(std::move(record), table_, shot_id);
+            last_error_ = String();
+            return out;
+        },
+        [&](const std::string &message) {
+            if (context) return refuse("exception: " + message);
+            last_error_ = from_std("exception: " + message);
+            caught("OfsPhysics.predict", message);
+            return Ref<OfsShotRecord>();
+        });
 }
 
-Ref<OfsShotRecord> OfsPhysics::simulate(const Array &balls, int cue_ball, const Dictionary &strike, int64_t seed,
+Ref<OfsShotRecord> OfsPhysics::simulate(const Array &balls, int64_t cue_ball, const Dictionary &strike, int64_t seed,
                                         const Dictionary &context) {
     return run(balls, cue_ball, strike, seed, &context);
 }
 
-Ref<OfsShotRecord> OfsPhysics::predict(const Array &balls, int cue_ball, const Dictionary &strike) {
+Ref<OfsShotRecord> OfsPhysics::predict(const Array &balls, int64_t cue_ball, const Dictionary &strike) {
     return run(balls, cue_ball, strike, 0, nullptr);
 }
 
-double OfsPhysics::min_cue_elevation(const Array &balls, int cue_ball, const Dictionary &strike) const {
-    if (!ready_) return 0.0;
-    ofs::phys::TableState s;
-    ofs::phys::CueStrike c;
-    std::string why;
-    if (!parse_balls(balls, *table_, s, why) || !check_cue_ball(s, cue_ball, why) || !parse_strike(strike, true, c, why)) {
-        return 0.0;
-    }
-    return ofs::phys::min_cue_elevation(s, cue_ball, c, *table_, params_);
+double OfsPhysics::min_cue_elevation(const Array &balls, int64_t cue_ball, const Dictionary &strike) const {
+    return guarded(
+        [&] {
+            std::string why;
+            ofs::phys::TableState s;
+            ofs::phys::CueStrike c;
+            if (!ready_) {
+                why = "physics is not configured";
+            } else if (parse_balls(balls, *table_, s, why) && check_cue_ball(s, cue_ball, why)) {
+                parse_strike(strike, true, c, why);
+            }
+            if (!why.empty()) {
+                last_error_ = from_std(why);
+                query_refused("min_cue_elevation", why);
+                return 0.0;
+            }
+            last_error_ = String();
+            return ofs::phys::min_cue_elevation(s, int(cue_ball), c, *table_, params_);
+        },
+        [&](const std::string &message) {
+            last_error_ = from_std("exception: " + message);
+            caught("OfsPhysics.min_cue_elevation", message);
+            return 0.0;
+        });
 }
+
+String OfsPhysics::last_error() const { return last_error_; }
 
 Dictionary OfsPhysics::table_shape() const {
     return ready_ ? table_shape_.duplicate(true) : Dictionary();
