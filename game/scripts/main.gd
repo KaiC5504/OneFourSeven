@@ -339,6 +339,7 @@ func _refresh() -> void:
 	var cue_xy := _cue_xy()
 	if not _playing:
 		_update_elevation_min()
+	_rig.set_cue_elevation(0.0 if _free.edit_mode else setup.effective_elevation())
 	_rig.follow(cue_xy, setup.aim_rad)
 	if not _playing:
 		if _free.edit_mode:
