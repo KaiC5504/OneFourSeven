@@ -6,9 +6,17 @@ signal changed(hash: String)
 
 const EMBEDDED_PATH := "res://data/table_params.json"
 
+## (json_text, key) -> json_text[key] as JSON text with integers intact, "" when there is none.
+## Tests swap it out; OfsPhysics.member_json is the real one.
+var extract_member: Callable = func(json_text: String, key: String) -> String:
+	return OfsPhysics.member_json(json_text, key)
+
 var _table_params: Dictionary = {}
 var _hash := ""
 var _text := ""
+var _pending_params: Dictionary = {}
+var _pending_hash := ""
+var _pending_text := ""
 
 
 func _ready() -> void:
@@ -41,34 +49,48 @@ func current_text() -> String:
 
 ## The hash of parameters received but not yet applied; "" when none are waiting.
 func pending_hash() -> String:
-	return ""
+	return _pending_hash
 
 
 ## Applies waiting parameters at a shot boundary (spec 16.10: at the next shot, never mid-shot),
 ## logging params.applied with the shot's id and emitting changed. False when none were waiting.
-func commit_pending(_shot_id: String) -> bool:
-	return false
+func commit_pending(shot_id: String) -> bool:
+	if _pending_hash.is_empty():
+		return false
+	var old_hash := _hash
+	_table_params = _pending_params
+	_text = _pending_text
+	_hash = _pending_hash
+	_pending_params = {}
+	_pending_text = ""
+	_pending_hash = ""
+	Link.applied_params_hash = _hash
+	Log.info("params", "params.applied", {"source": "devlink", "old_hash": old_hash, "new_hash": _hash, "shot_id": shot_id})
+	changed.emit(_hash)
+	return true
 
 
-## json_text is the "files" object of a /params answer; hash is the server's hash of it.
-## M0 has no shots, so the new set applies at once.
+## json_text is the "files" object of a /params answer; hash is the server's hash of it. The set
+## waits for commit_pending; a newer one replaces it.
 func apply_remote(json_text: String, hash: String) -> void:
+	if hash == _hash or hash == _pending_hash:
+		return
+	var text: String = extract_member.call(json_text, "table_params")
 	# A JSON instance, unlike JSON.parse_string, doesn't push an engine error on bad input.
 	var json := JSON.new()
-	var parsed: Variant = json.data if json.parse(json_text) == OK else null
-	if not parsed is Dictionary:
-		_warn("params: devlink sent parameters that are not a JSON object (hash %s)" % hash)
+	if text.is_empty():
+		if json.parse(json_text) != OK or not json.data is Dictionary:
+			_warn("params: devlink sent parameters that are not a JSON object (hash %s)" % hash)
+		else:
+			_warn("params: devlink parameters have no table_params object (hash %s)" % hash)
 		return
-	var files: Dictionary = parsed
-	if not files.get("table_params") is Dictionary:
+	if json.parse(text) != OK or not json.data is Dictionary:
 		_warn("params: devlink parameters have no table_params object (hash %s)" % hash)
 		return
-	var old_hash := _hash
-	_table_params = files["table_params"]
-	_hash = hash
-	Log.info("params", "params.applied", {"source": "devlink", "old_hash": old_hash, "new_hash": hash})
-	Link.applied_params_hash = hash
-	changed.emit(hash)
+	_pending_params = json.data
+	_pending_text = text
+	_pending_hash = hash
+	Log.info("params", "params.pending", {"hash": hash, "current_hash": _hash})
 
 
 func _warn(message: String) -> void:

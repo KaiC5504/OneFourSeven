@@ -347,3 +347,46 @@ func test_perf_second_has_every_schema_field() -> void:
 	check(data["frames_drawn"] is int, "frames_drawn is an integer")
 	check(data["idle"] is bool, "idle is a boolean")
 	check(data["footprint_mb"] is float, "footprint_mb is a number")
+
+
+const SUMMARY_KEYS: Array[String] = ["fps", "frame_ms_avg", "frame_ms_p95", "frame_ms_max", "dropped_frames",
+		"thermal_state", "footprint_mb", "idle"]
+
+
+func test_last_summary_before_the_first_second() -> void:
+	var perf := PerfScript.new()
+	var s := perf.last_summary()
+	check_eq(s.keys().size(), SUMMARY_KEYS.size(), "field count")
+	for key: String in SUMMARY_KEYS:
+		check(s.has(key), "has " + key)
+	check_eq(s["fps"], 0.0, "no fps yet")
+	check_eq(s["thermal_state"], "unknown", "thermal state")
+	check_eq(s["footprint_mb"], -1.0, "footprint unknown")
+	perf.free()
+
+
+func test_summary_keeps_the_overlay_fields_of_perf_second() -> void:
+	var second := Perf.second_data(Time.get_ticks_usec())
+	var s := PerfScript.summary_of(second)
+	check_eq(s.keys().size(), SUMMARY_KEYS.size(), "only the overlay's fields")
+	for key: String in SUMMARY_KEYS:
+		check_eq(s[key], second[key], key)
+
+
+func test_last_summary_updates_when_perf_second_is_logged() -> void:
+	var saved := _engine_state()
+	var perf := PerfScript.new()
+	perf._ready()
+	perf._window.add(12.0)
+	perf._window.add(40.0)
+	perf._window_start_usec = Time.get_ticks_usec() - 1_100_000
+	perf._process(0.0)
+	var s := perf.last_summary()
+	check(s["frame_ms_max"] >= 40.0, "the logged second's max: %s" % s["frame_ms_max"])
+	check(s["fps"] >= 0.0, "fps")
+	check(s["idle"] is bool, "idle")
+	check(s["thermal_state"] is String, "thermal state")
+	s["fps"] = -5.0
+	check(perf.last_summary()["fps"] != -5.0, "a copy, not Perf's own")
+	perf.free()
+	_restore(saved)

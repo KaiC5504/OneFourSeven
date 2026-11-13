@@ -82,6 +82,8 @@ var _last_frame_idle := true
 var _throttle := false
 var _cap_idle_fps := false
 var _active_max_fps := 0
+var _last_summary := {"fps": 0.0, "frame_ms_avg": 0.0, "frame_ms_p95": 0.0, "frame_ms_max": 0.0,
+		"dropped_frames": 0, "thermal_state": "unknown", "footprint_mb": -1.0, "idle": true}
 
 
 static func target_ms_for(refresh_rate: float) -> float:
@@ -164,7 +166,9 @@ func _process(_delta: float) -> void:
 	if ms > HITCH_MS:
 		_log_hitch(ms, now)
 	if now - _window_start_usec >= 1_000_000:
-		Log.info("perf", "perf.second", second_data(now))
+		var data := second_data(now)
+		Log.info("perf", "perf.second", data)
+		_last_summary = summary_of(data)
 		_start_window(now)
 	_update_idle(now)
 	_last_frame_idle = _idle
@@ -194,6 +198,19 @@ func is_idle() -> bool:
 
 func held_count() -> int:
 	return _held.size()
+
+
+## The last full second's numbers, as logged in perf.second (the debug overlay shows them).
+func last_summary() -> Dictionary:
+	return _last_summary.duplicate()
+
+
+static func summary_of(second: Dictionary) -> Dictionary:
+	var summary := {}
+	for key: String in ["fps", "frame_ms_avg", "frame_ms_p95", "frame_ms_max", "dropped_frames",
+			"thermal_state", "footprint_mb", "idle"]:
+		summary[key] = second[key]
+	return summary
 
 
 func second_data(now: int) -> Dictionary:

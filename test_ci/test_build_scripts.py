@@ -540,8 +540,22 @@ class RunDebug(unittest.TestCase):
         self.assertIn("--config Debug", shown[2])
         self.assertIn("--headless --path", shown[3])
         self.assertTrue(shown[3].endswith("--import"))
-        self.assertEqual(["godot", "--path", str(run_debug.GAME), "--windowed", "--", "--demo-screen=table"],
+        self.assertEqual(["godot", "--path", str(run_debug.GAME), "--windowed", "--", "--mute", "--demo-screen=table"],
                          call.call_args.args[0])
+
+    def test_sound_leaves_the_game_unmuted(self):
+        with tempfile.TemporaryDirectory() as temp, \
+                mock.patch.object(run_debug.gate, "run", return_value=(True, "")), \
+                mock.patch.object(run_debug.gate, "cmake_generator", return_value=[]), \
+                mock.patch.object(run_debug.godot_tools, "find_godot", return_value=Path("godot")), \
+                mock.patch.object(run_debug, "IMPORT_STAMP", Path(temp) / "stamp"), \
+                mock.patch.object(run_debug.subprocess, "call", return_value=0) as call, \
+                mock.patch("sys.stdout", io.StringIO()):
+            self.assertEqual(0, run_debug.main(["--sound", "--", "--demo-screen=table"]))
+            self.assertEqual(["godot", "--path", str(run_debug.GAME), "--windowed", "--", "--demo-screen=table"],
+                             call.call_args.args[0])
+            self.assertEqual(0, run_debug.main(["--sound"]))
+            self.assertEqual(["godot", "--path", str(run_debug.GAME), "--windowed"], call.call_args.args[0])
 
     def test_anything_before_the_separator_is_refused(self):
         with mock.patch("sys.stderr", io.StringIO()):
