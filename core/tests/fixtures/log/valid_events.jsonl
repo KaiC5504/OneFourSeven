@@ -38,3 +38,4 @@
 {"ts":1793633431.75,"session":"20261102-153012-a1b2c3","build":"12","platform":"ios","subsystem":"audio","level":"warn","event":"audio.error","data":{"reason":"file not found","sound":"click_03"}}
 {"ts":1793633431.875,"session":"20261102-153012-a1b2c3","build":"12","platform":"ios","subsystem":"audio","level":"info","event":"haptics.unavailable","data":{"reason":"not a handheld device"}}
 {"ts":1793633432.0,"session":"20261102-153012-a1b2c3","build":"12","platform":"ios","subsystem":"harness","level":"info","event":"harness.channel","data":{"port":47147,"state":"listening"}}
+{"ts":1793633432.125,"session":"20261102-153012-a1b2c3","build":"12","platform":"ios","subsystem":"params","level":"warn","event":"params.refused","data":{"current_hash":"8efc364b3052045e","hash":"5d1f0c2b9a7e4413","shot_id":"20261102-153012-a1b2c3-4"}}

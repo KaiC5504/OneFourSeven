@@ -20,6 +20,7 @@ func test_defaults_without_a_file() -> void:
 		check_eq(loaded[0]["level"], "info", "level")
 		check_eq(loaded[0]["data"]["problems"], [], "no problems")
 		check_eq(loaded[0]["data"]["path"], store.path, "path")
+		_check_values(loaded[0]["data"], SettingsStore.DEFAULTS, "every default logged")
 	_cleanup(store)
 
 
@@ -98,6 +99,7 @@ func test_round_trip_through_the_file() -> void:
 	var loaded := _logged("settings.loaded")
 	if not loaded.is_empty():
 		check_eq(loaded[0]["data"]["problems"], [], "no problems")
+		_check_values(loaded[0]["data"], store.all(), "the values read logged")
 	again.free()
 	_cleanup(store)
 
@@ -119,6 +121,7 @@ func test_bad_values_in_the_file_take_defaults() -> void:
 	if not loaded.is_empty():
 		check_eq(loaded[0]["level"], "warn", "warn when values were refused")
 		check_eq((loaded[0]["data"]["problems"] as Array).size(), 4, "four problems: " + str(loaded[0]["data"]["problems"]))
+		_check_values(loaded[0]["data"], store.all(), "the values in effect, defaults for the refused ones")
 	_cleanup(store)
 
 
@@ -137,6 +140,7 @@ func test_corrupt_file_kept_as_bad_and_defaults_used() -> void:
 	if not loaded.is_empty():
 		check_eq(loaded[0]["level"], "warn", "warn")
 		check_eq((loaded[0]["data"]["problems"] as Array).size(), 2, "the parse error and the copy")
+		_check_values(loaded[0]["data"], SettingsStore.DEFAULTS, "the defaults in effect")
 	_write(store.path, "[1, 2]")
 	store.load_settings()
 	check_eq(store.all(), SettingsStore.DEFAULTS, "an array is corrupt too")
@@ -157,6 +161,18 @@ func test_save_failure_logs_app_error() -> void:
 		check(String(errors[0]["data"]["message"]).contains("Settings not saved"), "message")
 	store.path = store.path.get_base_dir().get_base_dir().path_join("settings.json")
 	_cleanup(store)
+
+
+# JSON reads every number as a float, so compare numbers as floats.
+func _check_values(data: Dictionary, expected: Dictionary, what: String) -> void:
+	var logged: Variant = data.get("values")
+	check(logged is Dictionary and (logged as Dictionary).size() == expected.size(), "%s: %s" % [what, str(logged)])
+	if not logged is Dictionary:
+		return
+	for key: String in expected:
+		var want: Variant = expected[key]
+		var got: Variant = (logged as Dictionary).get(key)
+		check_eq(float(got) if want is int and (got is int or got is float) else got, float(want) if want is int else want, "%s: %s" % [what, key])
 
 
 func _store() -> SettingsStore:

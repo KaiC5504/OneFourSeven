@@ -1,7 +1,7 @@
 extends Node
 ## Physics autoload: the one OfsPhysics the game plays with (spec 5). Configured from Params at
-## start, and again whenever Params applies new parameters, which happens only at a shot
-## boundary (Params.commit_pending).
+## start, and again when Params.commit_pending offers new parameters at a shot boundary
+## (try_params); Params applies them only once this has taken them.
 
 const TABLE_SHAPE_PATH := "res://data/table_shape.json"
 
@@ -14,20 +14,24 @@ var _values: Dictionary = {}
 
 func _ready() -> void:
 	_rng.randomize()
-	_configure()
-	Params.changed.connect(_on_params_changed)
+	_configure(Params.current_text(), Params.current_hash())
 
 
-## Configures the binding from Params and the embedded table shape. A refusal keeps the previous
-## configuration (or none) and logs app.error besides the binding's physics.configured.
-func _configure() -> bool:
+## Reconfigures with new parameters and the embedded table shape; false, keeping the previous
+## configuration, when the binding refuses them (Params.commit_pending logs params.refused).
+func try_params(params_text: String, params_hash: String) -> bool:
+	return _configure(params_text, params_hash)
+
+
+## Configures the binding with the given parameters and the embedded table shape. A refusal keeps
+## the previous configuration (or none) and logs app.error besides the binding's physics.configured.
+func _configure(params_text: String, params_hash: String) -> bool:
 	var table_text := FileAccess.get_file_as_string(TABLE_SHAPE_PATH)
 	if table_text.is_empty():
 		_refused("%s is missing or empty (%s); run scripts/sync_data.py" % [TABLE_SHAPE_PATH,
 				error_string(FileAccess.get_open_error())])
 		return false
-	var params_hash: String = Params.current_hash()
-	if not sim.configure(Params.current_text(), params_hash, table_text):
+	if not sim.configure(params_text, params_hash, table_text):
 		_refused("parameters %s or the table shape were refused (see physics.configured); still on %s" % [
 				params_hash, sim.params_hash() if sim.is_ready() else "no configuration"])
 		return false
@@ -64,7 +68,15 @@ func min_cue_elevation(balls: Array[Dictionary], cue_ball: int, strike: Dictiona
 	return sim.min_cue_elevation(balls, cue_ball, strike)
 
 
-## OfsPhysics.table_shape(): empty until configured.
+## Why the last simulate, predict or min_cue_elevation was refused; "" after a success.
+func last_error() -> String:
+	# Extensions built before OfsPhysics.last_error existed still load.
+	if sim.has_method("last_error"):
+		return sim.call("last_error")
+	return ""
+
+
+## Empty until configured.
 func table_shape() -> Dictionary:
 	return sim.table_shape()
 
@@ -83,10 +95,6 @@ func param(name: String, fallback: float) -> float:
 	if value is float or value is int:
 		return float(value)
 	return fallback
-
-
-func _on_params_changed(_hash: String) -> void:
-	_configure()
 
 
 func _refused(message: String) -> void:

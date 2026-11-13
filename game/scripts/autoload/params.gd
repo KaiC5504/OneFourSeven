@@ -11,6 +11,11 @@ const EMBEDDED_PATH := "res://data/table_params.json"
 var extract_member: Callable = func(json_text: String, key: String) -> String:
 	return OfsPhysics.member_json(json_text, key)
 
+## (table_params_text, hash) -> true once physics runs on them; false when it refuses them and
+## keeps what it had. Tests swap it out; Physics.try_params is the real one.
+var configure_physics: Callable = func(text: String, params_hash: String) -> bool:
+	return Physics.try_params(text, params_hash)
+
 var _table_params: Dictionary = {}
 var _hash := ""
 var _text := ""
@@ -53,17 +58,26 @@ func pending_hash() -> String:
 
 
 ## Applies waiting parameters at a shot boundary (spec 16.10: at the next shot, never mid-shot),
-## logging params.applied with the shot's id and emitting changed. False when none were waiting.
+## logging params.applied with the shot's id and emitting changed. Physics takes them first: a
+## set it refuses is dropped and logged as params.refused, and everything stays on the parameters
+## in use, Link.applied_params_hash included, so the PC sees they never applied. False when
+## nothing was applied.
 func commit_pending(shot_id: String) -> bool:
 	if _pending_hash.is_empty():
 		return false
-	var old_hash := _hash
-	_table_params = _pending_params
-	_text = _pending_text
-	_hash = _pending_hash
+	var params := _pending_params
+	var text := _pending_text
+	var new_hash := _pending_hash
 	_pending_params = {}
 	_pending_text = ""
 	_pending_hash = ""
+	if not configure_physics.call(text, new_hash):
+		Log.warn("params", "params.refused", {"hash": new_hash, "current_hash": _hash, "shot_id": shot_id})
+		return false
+	var old_hash := _hash
+	_table_params = params
+	_text = text
+	_hash = new_hash
 	Link.applied_params_hash = _hash
 	Log.info("params", "params.applied", {"source": "devlink", "old_hash": old_hash, "new_hash": _hash, "shot_id": shot_id})
 	changed.emit(_hash)

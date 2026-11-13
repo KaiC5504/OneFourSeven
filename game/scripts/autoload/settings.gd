@@ -1,6 +1,5 @@
 extends Node
-## Settings autoload (spec 15): every player setting, saved to user://settings.json. M2 has the
-## ones the feel build needs; M5 adds the full settings screen.
+## Settings autoload (spec 15): every player setting, saved to user://settings.json.
 
 signal changed(key: String, value: Variant)
 
@@ -71,7 +70,7 @@ func all() -> Dictionary:
 func load_settings() -> void:
 	_values = DEFAULTS.duplicate()
 	if not FileAccess.file_exists(path):
-		Log.info("settings", "settings.loaded", {"path": path, "version": VERSION, "problems": []})
+		_log_loaded(VERSION, [])
 		return
 	var text := FileAccess.get_file_as_string(path)
 	var open_error := FileAccess.get_open_error()
@@ -106,11 +105,7 @@ func load_settings() -> void:
 			problems.append("%s: %s; using the default %s" % [key, reason, JSON.stringify(DEFAULTS[key])])
 			continue
 		_values[key] = normalised(key, values[raw_key])
-	var data := {"path": path, "version": version, "problems": problems}
-	if problems.is_empty():
-		Log.info("settings", "settings.loaded", data)
-	else:
-		Log.warn("settings", "settings.loaded", data)
+	_log_loaded(version, problems)
 
 
 ## Why `value` can't be stored under `key`, or "" when it can.
@@ -178,10 +173,19 @@ func _set_aside(reason: String) -> void:
 	var err := DirAccess.copy_absolute(path, bad)
 	var problems: Array[String] = [reason]
 	problems.append("kept as %s" % bad if err == OK else "couldn't keep a copy as %s: %s" % [bad, error_string(err)])
-	Log.warn("settings", "settings.loaded", {"path": path, "version": VERSION, "problems": problems})
+	_log_loaded(VERSION, problems)
 	# Without the copy, overwriting would lose the only evidence of what went wrong.
 	if err == OK:
 		_save()
+
+
+## settings.loaded with every value in effect, at warn when anything was refused.
+func _log_loaded(version: int, problems: Array[String]) -> void:
+	var data := {"path": path, "version": version, "problems": problems, "values": _values.duplicate()}
+	if problems.is_empty():
+		Log.info("settings", "settings.loaded", data)
+	else:
+		Log.warn("settings", "settings.loaded", data)
 
 
 ## Writes a temporary file and renames it over the old one, so a crash mid-write never leaves a

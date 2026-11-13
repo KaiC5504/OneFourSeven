@@ -346,13 +346,14 @@ func test_autoload_ids_seeds_and_reconfigure() -> void:
 		check(Physics.new_seed() >= 0, "non-negative seed")
 	check(Physics.new_seed() != Physics.new_seed(), "seeds differ")
 	_mark_log()
-	Params.changed.emit(Params.current_hash())
+	check(Physics.try_params(Params.current_text(), Params.current_hash()), "try_params takes the parameters in use")
 	var configured := _logged("physics.configured")
-	check_eq(configured.size(), 1, "Params.changed reconfigures")
+	check_eq(configured.size(), 1, "try_params reconfigures")
 	if not configured.is_empty():
 		check_eq(configured[0]["ok"], true, "with the same parameters")
 	var record := Physics.simulate(_straight_pot_balls(), 0, _strike(PI / 2.0, 1.5), _context("autoload"))
 	check(record != null and record.shot_id() == "autoload", "Physics.simulate")
+	check_eq(Physics.last_error(), "", "Physics.last_error is empty after a shot")
 
 
 func _configured() -> OfsPhysics:

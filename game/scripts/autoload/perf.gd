@@ -74,6 +74,10 @@ var _window_start_drawn := 0
 var _last_usec := 0
 var _start_usec := 0
 var _last_input_usec := -1
+# Frames processed since start; the first is 1.
+var _frame := 0
+# "startup" or "resume" until the frame after one ends, then "".
+var _first_frame := "startup"
 # "touch <index>" and "mouse <button>" for each one down now.
 var _held := {}
 var _active := {}
@@ -134,6 +138,7 @@ func _notification(what: int) -> void:
 	if what == NOTIFICATION_APPLICATION_RESUMED or what == NOTIFICATION_APPLICATION_FOCUS_IN:
 		if _window != null:
 			_start_window(Time.get_ticks_usec())
+			_first_frame = "resume"
 	# A release that happens while the app is away may never arrive, and a touch left held would
 	# keep the game drawing at full rate for good.
 	if what == NOTIFICATION_APPLICATION_FOCUS_OUT:
@@ -157,14 +162,17 @@ func _on_window_input(event: InputEvent) -> void:
 # the very hitches this is here to catch.
 func _process(_delta: float) -> void:
 	var now := Time.get_ticks_usec()
-	var ms := (now - _last_usec) / 1000.0
+	var frame_start := _last_usec
+	var ms := (now - frame_start) / 1000.0
 	_last_usec = now
+	_frame += 1
 	# A throttled idle loop is paced by low-processor mode's sleep and the idle cap, not the
 	# display, and draws nothing that could be dropped. That includes the frame the first input
 	# ends, which waited out the idle state it started in.
 	_window.add(ms, not (_throttle and (_idle or _last_frame_idle)))
 	if ms > HITCH_MS:
-		_log_hitch(ms, now)
+		Log.warn("perf", "perf.hitch", hitch_data(ms, frame_start))
+	_first_frame = ""
 	if now - _window_start_usec >= 1_000_000:
 		var data := second_data(now)
 		Log.info("perf", "perf.second", data)
@@ -273,13 +281,43 @@ func _apply_idle() -> void:
 		Engine.max_fps = _active_max_fps
 
 
-func _log_hitch(ms: float, now: int) -> void:
-	var scene := get_tree().current_scene
-	var activity := "idle" if _idle else "active"
-	if now - _start_usec < STARTUP_SECONDS * 1_000_000:
-		activity = "startup"
-	Log.warn("perf", "perf.hitch", {
+## perf.hitch's fields for a frame of ms that began at frame_start (usec). The frame's start
+## decides startup: a first frame longer than STARTUP_SECONDS ends after it.
+func hitch_data(ms: float, frame_start: int) -> Dictionary:
+	var scene := get_tree().current_scene if is_inside_tree() else null
+	var active: Array[String] = []
+	for reason: StringName in _active:
+		active.append(String(reason))
+	active.sort()
+	var held: Array[String] = []
+	for key: String in _held:
+		held.append(key)
+	held.sort()
+	return {
 		"frame_ms": ms,
 		"scene": scene.scene_file_path.get_file().get_basename() if scene else "",
-		"activity": activity,
-	})
+		"activity": activity_for(frame_start - _start_usec, _first_frame, _idle, active, held),
+		"active": active,
+		"held": held,
+		"idle": _idle,
+		"frame": _frame,
+		"first_frame": _first_frame,
+		"since_start_s": (frame_start - _start_usec) / 1e6,
+		"input_age_s": (frame_start - _last_input_usec) / 1e6 if _last_input_usec >= 0 else -1.0,
+	}
+
+
+## What a hitch interrupted: startup, resume, idle, or what kept the game active (the set_active
+## reasons, "held" for a touch or button down, "input" for recent input alone).
+static func activity_for(since_start_usec: int, first_frame: String, idle: bool, active: Array[String],
+		held: Array[String]) -> String:
+	if since_start_usec < STARTUP_SECONDS * 1_000_000:
+		return "startup"
+	if first_frame == "resume":
+		return "resume"
+	if idle:
+		return "idle"
+	var parts := PackedStringArray(active)
+	if not held.is_empty():
+		parts.append("held")
+	return ", ".join(parts) if not parts.is_empty() else "input"

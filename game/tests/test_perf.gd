@@ -390,3 +390,71 @@ func test_last_summary_updates_when_perf_second_is_logged() -> void:
 	check(perf.last_summary()["fps"] != -5.0, "a copy, not Perf's own")
 	perf.free()
 	_restore(saved)
+
+
+func test_activity_names_what_was_running() -> void:
+	var none: Array[String] = []
+	var running: Array[String] = ["camera", "shot"]
+	var touch: Array[String] = ["touch 0"]
+	check_eq(PerfScript.activity_for(0, "startup", true, none, none), "startup", "the first frame")
+	check_eq(PerfScript.activity_for(2_999_999, "", false, running, none), "startup", "a frame that began in the startup seconds")
+	check_eq(PerfScript.activity_for(10_000_000, "resume", true, none, none), "resume", "the first frame after a resume")
+	check_eq(PerfScript.activity_for(10_000_000, "", true, none, none), "idle", "idle")
+	check_eq(PerfScript.activity_for(10_000_000, "", false, running, touch), "camera, shot, held", "the active reasons and a touch")
+	check_eq(PerfScript.activity_for(10_000_000, "", false, none, none), "input", "recent input alone")
+
+
+# The perf.hitch lines from index before whose frame took about ms; real hitches in the test run
+# can't match a made-up frame time.
+func _hitches(before: int, ms: float) -> Array[Dictionary]:
+	var found: Array[Dictionary] = []
+	var lines := _log_lines_with("\"event\":\"perf.hitch\"")
+	for i in range(before, lines.size()):
+		var data: Dictionary = (JSON.parse_string(lines[i]) as Dictionary)["data"]
+		if absf(float(data["frame_ms"]) - ms) < 20.0:
+			found.append(data)
+	return found
+
+
+func test_a_hitch_says_what_was_running() -> void:
+	var saved := _engine_state()
+	var perf := PerfScript.new()
+	perf._ready()
+	perf.set_active(&"shot", true)
+	perf.set_active(&"camera", true)
+	perf._on_window_input(_touch(0, true))
+	var before := _log_lines_with("\"event\":\"perf.hitch\"").size()
+	# A first frame longer than the startup seconds, as the phone logged, is still startup.
+	var now := Time.get_ticks_usec()
+	perf._start_usec = now - 3_400_000
+	perf._last_usec = perf._start_usec
+	perf._process(0.0)
+	var first := _hitches(before, 3400.0)
+	check_eq(first.size(), 1, "one hitch for the long first frame")
+	if first.size() == 1:
+		check_eq(first[0]["activity"], "startup", "startup although it ended after the startup seconds")
+		check_eq(first[0]["first_frame"], "startup", "the first frame after startup")
+		check_eq(int(first[0]["frame"]), 1, "frame 1")
+		check_eq(first[0]["active"], ["camera", "shot"], "the set_active reasons")
+		check_eq(first[0]["held"], ["touch 0"], "the touch held")
+		check_eq(first[0]["idle"], false, "not idle")
+		check_near(float(first[0]["since_start_s"]), 0.0, 1e-6, "at the start")
+	perf._start_usec = Time.get_ticks_usec() - 10_000_000
+	perf._last_usec = Time.get_ticks_usec() - 120_000
+	perf._last_input_usec = perf._last_usec - 500_000
+	perf._process(0.0)
+	var later := _hitches(before, 120.0)
+	check_eq(later.size(), 1, "one hitch mid-shot")
+	if later.size() == 1:
+		check_eq(later[0]["activity"], "camera, shot, held", "what kept the game active")
+		check_eq(later[0]["first_frame"], "", "not a first frame")
+		check_eq(int(later[0]["frame"]), 2, "frame 2")
+		check_near(float(later[0]["input_age_s"]), 0.5, 1e-6, "input half a second before the frame began")
+	perf.notification(Node.NOTIFICATION_APPLICATION_RESUMED)
+	perf._last_usec = Time.get_ticks_usec() - 260_000
+	perf._process(0.0)
+	var resumed := _hitches(before, 260.0)
+	check(resumed.size() == 1 and resumed[0]["activity"] == "resume" and resumed[0]["first_frame"] == "resume",
+			"the first frame after a resume: %s" % [resumed])
+	perf.free()
+	_restore(saved)
