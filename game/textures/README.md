@@ -53,7 +53,7 @@ is off. The cushions use the same material.
 | Files | `rail_albedo.jpg`, `rail_normal.jpg`, `rail_roughness.jpg` |
 | Source | Poly Haven Dark Wood (mahogany), its albedo contrast softened to 55 % so the figure reads as one polished board rather than rosewood |
 | Tile | **2.0 m** (the scan's real size); grain along U |
-| StandardMaterial3D | `roughness` 0.6 (about 0.38 with the map); `normal_scale` 0.3; `clearcoat_enabled`, `clearcoat` 1.0, `clearcoat_roughness` 0.08 |
+| StandardMaterial3D | `roughness` 0.6 (about 0.38 with the map); `normal_scale` 0.3; `clearcoat_enabled`, `clearcoat` 0.35, `clearcoat_roughness` 0.3 (a satin lacquer: the mirror finish of 1.0 / 0.08 showed the canopy as a hard white streak) |
 
 A tinted Sapele veneer was tried and looked like painted brown; the figure in Dark Wood is what makes it
 read as wood.
@@ -84,44 +84,52 @@ own visual layer (the preview uses layer 2) for the probe and the ball highlight
 
 ## Stage: environment, light and the canopy
 
-TV snooker is a dark arena with a bright rectangular canopy over the table. The balls show three
-things: the canopy as a crisp white rectangle near the top, the green cloth around their lower half,
-and a dim room elsewhere. This is the setup that gets all three in the Mobile renderer:
+TV snooker is a dark arena with a light over the table. The game keeps its reflections faint and soft
+(KaiC found a crisp canopy rectangle on the balls unreal): the balls and rails show a soft glow from
+the canopy, the balls the green cloth round their lower halves, and the dark arena elsewhere. This is
+what `game/scripts/view/stage.gd` builds:
 
 1. **WorldEnvironment**: `background_mode` Sky, a PanoramaSkyMaterial with `env/studio_small_04_1k.hdr`
-   (a dark studio), `energy_multiplier` 0.35, Sky `radiance_size` 256; ambient source Sky, energy
-   0.6; reflected light source Sky; tonemap Filmic, exposure 1.0.
+   (a dark studio), `energy_multiplier` 0.35, Sky `radiance_size` 128; ambient source Sky, energy
+   0.6; reflected light source Sky; tonemap Filmic, exposure 1.0. The studio lights the scene and is
+   what the cue reflects; the probe leaves it out.
 2. **Each Camera3D** gets its own `environment`: a duplicate of the world's with `background_mode`
-   Color, (0.02, 0.022, 0.025). The camera sees the plain dark backdrop; the reflection probe renders
-   with the world's environment and so captures the dim room.
+   Color, (0.02, 0.022, 0.025), the plain dark backdrop.
 3. **Key light**: DirectionalLight3D straight down, `light_energy` 0.7, `light_angular_distance` 25
-   (the canopy's size seen from the cloth: soft contact shadows), `light_specular` 0 (the highlights
-   come from the canopy), shadows on, orthogonal, `directional_shadow_max_distance` 6.
-4. **Canopy**: an emissive plane, 1.0 m x 2.4 m, 1.0 m above the cloth, facing down, emission energy
-   6, on a visual layer only the probe sees (the preview uses layer 20 and leaves it out of every
-   camera's `cull_mask`).
+   (the canopy's size seen from the cloth: soft contact shadows), `light_specular` 0.25 (the faint
+   highlight dot on the balls), shadows on, orthogonal, its range fitted to the camera's view.
+4. **Canopy**: an emissive plane, 1.0 m x 1.6 m, 1.0 m above the cloth, facing down, emission energy
+   0.4 through a radial gradient that fades to black at its edges, on a visual layer only the probe
+   sees (layer 20, left out of every camera's `cull_mask`). Above about 0.5 the probe clips it (the
+   Mobile renderer stores probes with little range) and the glow turns into a flat shape with hard
+   edges.
 5. **ReflectionProbe** over the table: a box 0.2 m wider than the playing area on each side, from
-   5 cm below the cloth to just above the canopy, `origin_offset` at ball-centre height,
-   `box_projection` on, `update_mode` Once, `cull_mask` = the table's layer + the canopy's (not the
-   balls: a ball in its own probe reflects itself as a dark blob). Two things are needed for it to work:
+   5 cm below the cloth to just above the canopy, `origin_offset` at ball-centre height, `update_mode`
+   Once, `cull_mask` = the table's layer + the canopy's (not the balls: a ball in its own probe
+   reflects itself as a dark blob), `reflection_mask` = the table's and the balls' layers (not the
+   cue, which mirrored the cloth: green ebony, olive brass). Also:
+   - `interior` on, so the capture leaves out the studio's bright panels, and project.godot's
+     `rendering/environment/defaults/default_clear_color` set to the backdrop: an interior probe
+     clears to it, and Godot's default grey made the rails milky.
+   - `box_projection` off. On, it cut the canopy's glow into hard-edged shards on balls near the
+     cushions.
    - `blend_distance` 0.02. The default 1 m is wider than the box is tall and fades the probe to
      almost nothing at ball height.
-   - **Capture again** about 0.5 s after the table is built (set `update_mode` to Once again), and after
-     any material change. The first capture can miss meshes whose shaders are still compiling: in some
-     runs the cloth came out black in it and the balls had black lower halves.
-   - With the probe, the preview prints `7 RIDs of type "Texture" were leaked` when it quits (it
-     doesn't without the probe). It comes after the session log closes, so it never shows there.
-6. **Ball highlight**: an AreaLight3D the canopy's size at the canopy, facing down, `light_cull_mask` =
-   the balls' layer only, `area_normalize_energy` off, `light_energy` 0.05, `light_specular` 100, no
-   shadow. The probe alone leaves the canopy grey on a black ball (the Mobile renderer stores probes with
-   too little range for a 4 % reflection of a lamp to reach white, even at emission 25); the area
-   light's specular is analytic and gives the crisp white rectangle. Its diffuse is negligible.
+   - **Two captures**: one in the first frame drawn, and again once the renderer has gone a few
+     frames without compiling a pipeline (Stage.SETTLED_FRAMES), since the first can miss meshes still
+     compiling (in some runs the cloth came out black and the balls had black lower halves).
+     Call `capture_reflections()` again after any material change.
+   - With the probe, the game prints `7 RIDs of type "Texture" were leaked` when it quits (it
+     doesn't without the probe), from the engine's reflection
+     atlas teardown. It comes after the session log closes, so it never shows there.
+6. **No ball highlight light.** An AreaLight3D the canopy's size lighting only the balls gave a
+   crisp white rectangle; `materials_preview.gd` still has it (`ball_highlight`), the game doesn't.
 
 ### What was tried for the canopy
 
 | | Canopy on the balls | Cloth on the balls | Verdict |
 | --- | --- | --- | --- |
-| ReflectionProbe + emissive plane | yes (grey on black, hence step 6) | **yes** | use it |
+| ReflectionProbe + emissive plane | yes (soft, with the gradient and low energy) | **yes** | use it |
 | Canopy painted into the sky (sky shader, `stage.canopy = "sky"` in the preview) | yes | no: lower halves reflect the room | fallback if probes cost too much |
 | AreaLight3D as the only light | yes, crisp | no | its shadows don't render in the Mobile renderer |
 | HDRI on a dome only the probe sees | the canopy went missing from the capture | yes | dropped for step 2 |
@@ -129,14 +137,13 @@ and a dim room elsewhere. This is the setup that gets all three in the Mobile re
 ### Phone vs these screenshots
 
 The PC screenshots use the Mobile renderer but not the `.mobile` project-setting overrides, and two of
-those matter here (project.godot, not changed by this work):
+those matter here:
 
 - `rendering/reflections/reflection_atlas/reflection_size.mobile` is 128 (PC 256): the probe is
-  blurrier on the phone. The canopy rectangle comes from the area light, so mostly the cloth's
-  reflection softens. 256 is worth trying.
-- `rendering/lights_and_shadows/directional_shadow/soft_shadow_filter_quality.mobile` is 0, Hard (PC
-  2): the angular-distance soft shadows still work but are grainier. Check on the phone; 1 or 2 if it
-  shows.
+  blurrier on the phone, which suits the soft glow and costs a quarter of the capture.
+  `reflection_count` is 4 (Godot's 64 allocated a 268 MB cube array on the phone for one probe).
+- `rendering/lights_and_shadows/directional_shadow/soft_shadow_filter_quality.mobile` is 2, as on the
+  PC (Godot's mobile default, 0, made the angular-distance soft shadows grainy).
 
 ## Import settings
 

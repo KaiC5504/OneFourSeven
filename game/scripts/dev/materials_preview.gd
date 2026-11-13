@@ -86,6 +86,7 @@ const SPEC := {
 		"background": Color(0.02, 0.022, 0.025),
 		"light_energy": 0.7,
 		# Specular of the canopy-sized area light that lights only the balls; 0 turns it off.
+		# Not what Stage ships; see Stage.KEY_SPECULAR.
 		"ball_highlight": 100.0,
 		# "probe": an emissive canopy only a ReflectionProbe sees; "sky": the canopy painted into
 		# the sky the balls reflect; "none".
@@ -185,6 +186,7 @@ func _build_stage() -> void:
 		# The Mobile renderer's probe range is too low for the canopy to read white on a black
 		# ball, so an area light the canopy's size adds it analytically, on the balls only.
 		# Mostly specular: the sun already lights them.
+		# Not what Stage ships; see Stage.KEY_SPECULAR.
 		var area := AreaLight3D.new()
 		area.position = Vector3(0, height, 0)
 		area.rotation.x = -PI / 2

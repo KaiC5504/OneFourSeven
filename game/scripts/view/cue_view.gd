@@ -19,6 +19,10 @@ const TIP_LENGTH := 0.008
 const FERRULE_END := 0.026
 const BUTT_START := 1.0
 const STRIKE_HOLD := 0.25
+## The cue dissolves where it comes this close to the camera (a dither, so it stays opaque), so the
+## butt never fills the view as a dark wedge when a low or zoomed-in camera sits over it.
+const NEAR_HIDDEN_M := 0.05
+const NEAR_SOLID_M := 0.15
 
 var _mesh_instance: MeshInstance3D
 var _ball_radius := BALL_RADIUS_FALLBACK
@@ -81,7 +85,6 @@ static func pose(cue_xy: Vector2, aim_rad: float, elevation_rad: float, tip: Vec
 	return Transform3D(Basis(right, up, -forward), contact - forward * (GAP + backswing_m))
 
 
-## The tip's face in world space.
 func tip_position() -> Vector3:
 	return global_position
 
@@ -120,7 +123,9 @@ func _ensure_mesh() -> void:
 	var dome := PackedVector2Array([Vector2(0.0, 0.0), Vector2(0.0004, 0.0022), Vector2(0.0012, 0.0036),
 			Vector2(0.0025, 0.0045), Vector2(0.004, _radius_at(0.004)), Vector2(TIP_LENGTH, _radius_at(TIP_LENGTH))])
 	_lathe(mesh, dome, _material(Color(0.2, 0.36, 0.62), 0.95, 0.0))
-	_lathe(mesh, _taper(TIP_LENGTH, FERRULE_END, 2), _material(Color(0.8, 0.62, 0.32), 0.3, 1.0))
+	# Mostly diffuse: the cue is out of the table's probe, and a full metal shows only the dim
+	# studio it reflects, nearly black.
+	_lathe(mesh, _taper(TIP_LENGTH, FERRULE_END, 2), _material(Color(0.8, 0.62, 0.32), 0.4, 0.3))
 	_lathe(mesh, _taper(FERRULE_END, BUTT_START, 12), _wood_material("ash", 0.7, 0.6, 0.2))
 	var butt := _taper(BUTT_START, LENGTH - 0.004, 8)
 	var end_radius := _radius_at(LENGTH)
@@ -189,6 +194,9 @@ static func _material(colour: Color, roughness: float, metallic: float, clearcoa
 	m.albedo_color = colour
 	m.roughness = roughness
 	m.metallic = metallic
+	m.distance_fade_mode = BaseMaterial3D.DISTANCE_FADE_PIXEL_DITHER
+	m.distance_fade_min_distance = NEAR_HIDDEN_M
+	m.distance_fade_max_distance = NEAR_SOLID_M
 	if clearcoat > 0.0:
 		m.clearcoat_enabled = true
 		m.clearcoat = clearcoat
