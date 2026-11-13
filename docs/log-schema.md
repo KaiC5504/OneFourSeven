@@ -20,7 +20,7 @@ Every line is one JSON object:
 | --- | --- | --- | --- |
 | `app.start` | info | once, as soon as the Log autoload is ready | `version`, `build_number`, `git_sha`, `core_version`, `godot_version`, `os`, `os_version`, `device_model`, `renderer`, `screen_size` [w, h] px, `safe_area` [x, y, w, h] px, `refresh_rate` Hz, `locale`, `debug_build`, `launch_args`, `settings` |
 | `app.lifecycle` | info | foreground, background, focus lost/gained, quit (`state`) | `state` |
-| `app.error` | warn/error | every engine error and warning, GDScript error, C++ assertion | `kind` (`error`, `warning`, `script`, `shader`, `message`, `assert`, `log` for the logger's own failures), `message`, `file`, `line`, `function`, `stack` (array of `file:line function` strings) |
+| `app.error` | warn/error | every engine error and warning, GDScript error, C++ assertion | `kind` (`error`, `warning`, `script`, `shader`, `message`, `assert`, `log` for the logger's own failures, `exception` for a C++ exception the physics binding caught), `message`, `file`, `line`, `function`, `stack` (array of `file:line function` strings) |
 | `perf.second` | info | once a second while the app runs | `fps`, `frame_ms_avg`, `frame_ms_p95`, `frame_ms_max`, `dropped_frames` (frames over 1.5x the target interval), `static_memory_mb`, `thermal_state` (`nominal`, `fair`, `serious`, `critical`, `unknown`), `idle` |
 | `perf.hitch` | warn | any frame over 50 ms | `frame_ms`, `scene`, `activity` (what was running: `startup`, `idle`, `loading`, ...) |
 | `table.loaded` | info | the table and balls are built | `balls`, `layout` (`opening`), `params_hash` |
@@ -90,9 +90,10 @@ New subsystems: `input`, `ui`, `audio`, `settings`, `freetable`. A played shot l
 | --- | --- | --- | --- |
 | `shot.input` | info | the player strikes, before the simulation | `shot_id`, `mode` (`free_table`), `strike_mode` (`stroke`, `power_bar`), `aim_rad`, `wander_rad`, `tip_x`, `tip_y`, `elevation_requested_rad`, `elevation_min_rad`, `speed_m_s`, `power`, `guide_level`, `stroke_samples` (`[t_s, x, y]` in the stroke area's canvas units), `fine_tune_samples` (`[t_s, delta_rad]`) |
 | `shot.simulated` + | | | `context` (`shot_id`, `mode`, `strike_mode`) when the game played it |
-| `shot.rejected` | warn | the binding refused a shot (not configured, malformed balls or strike) | `shot_id`, `reason` |
+| `shot.rejected` | warn | the binding refused a shot (not configured, malformed balls or strike, a ball listed twice, the core threw) | `shot_id`, `reason`, and to reproduce it `balls`, `cue_ball`, `strike` as the caller passed them (non-finite numbers and other types as text; at most 32 items per Array or Dictionary) |
 | `shot.playback` | info/warn | a shot finished playing (warn when frames dropped) | `shot_id`, `t_end`, `wall_s`, `frames`, `dropped_frames`, `frame_ms_max`, `events`, `speed`, `skipped` |
 | `physics.configured` | info/error | the binding took (or refused) parameters and table shape | `ok`, `params_hash`, `table_hash`, `problems` |
+| `physics.query_refused` | warn | `OfsPhysics.predict`, `min_cue_elevation` or `OfsShotRecord.path` refused its input (not configured, malformed, out of range); once per distinct `what` and `reason` in a session, at most 64 | `what` (`predict`, `min_cue_elevation`, `path`), `reason` |
 | `params.pending` | info | new parameters arrived while a shot was playing or being set up; they apply at the next shot | `hash`, `current_hash` |
 | `params.applied` + | | | `shot_id`: the first shot that used them |
 | `guide.predict_slow` | warn | a guide level 3 prediction took longer than its budget | `sim_us`, `budget_us`, `level` |

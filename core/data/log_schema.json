@@ -661,6 +661,18 @@
         "reason": {
           "type": "string",
           "required": true
+        },
+        "balls": {
+          "type": "array",
+          "required": false
+        },
+        "cue_ball": {
+          "type": "integer",
+          "required": false
+        },
+        "strike": {
+          "type": "object",
+          "required": false
         }
       }
     },
@@ -731,6 +743,22 @@
         "problems": {
           "type": "array",
           "required": false
+        }
+      }
+    },
+    "physics.query_refused": {
+      "subsystem": "physics",
+      "levels": [
+        "warn"
+      ],
+      "fields": {
+        "what": {
+          "type": "string",
+          "required": true
+        },
+        "reason": {
+          "type": "string",
+          "required": true
         }
       }
     },
