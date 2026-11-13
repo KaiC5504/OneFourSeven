@@ -358,3 +358,51 @@ func test_refused_prediction_is_logged_once_and_draws_nothing() -> void:
 	check_eq(FileAccess.get_file_as_string(OfsLog.file_path()).count("guides: no level 3 prediction"), before + 1, "one app.error")
 	check_eq(((guides.get_node("Paths") as MeshInstance3D).mesh as ArrayMesh).get_surface_count(), 0, "no paths")
 	guides.free()
+
+
+func test_a_table_version_spares_comparing_the_balls() -> void:
+	var predictor := _predictor(FakeRecord.new())
+	var guides := _guides(predictor)
+	var balls := _balls([Vector2(-1.0, 0.0), Vector2(0.0, 0.0)])
+	var setup := ShotSetup.new()
+	guides.show_for(balls, 0, setup, 3, 7)
+	balls[1]["x"] = 0.2
+	predictor.clock.now += 1.0
+	guides.show_for(balls, 0, setup, 3, 7)
+	check_eq(predictor.calls.size(), 1, "the same version is the same table")
+	predictor.clock.now += 1.0
+	guides.show_for(balls, 0, setup, 3, 8)
+	check_eq(predictor.calls.size(), 2, "a new version predicts again")
+	check_near(float(predictor.calls[-1]["balls"][1]["x"]), 0.2, 1e-12, "with the table as it is")
+	guides.free()
+
+
+func test_the_pace_label_clears_the_balls_beside_the_cue_ball() -> void:
+	var predictor := _predictor(FakeRecord.new())
+	var guides := _guides(predictor)
+	var label: Label3D = guides.get_node("PaceLabel")
+	var setup := ShotSetup.new()
+	# Aiming along +x, the player's right is -y in core, +x in Godot.
+	guides.show_for(_balls([Vector2(-1.0, 0.0), Vector2(1.0, 0.5)]), 0, setup, 3)
+	check_eq(label.horizontal_alignment, HORIZONTAL_ALIGNMENT_LEFT, "nothing beside it: on the right")
+	check(label.position.x > 0.0, "right of the cue ball")
+	predictor.clock.now += 1.0
+	guides.show_for(_balls([Vector2(-1.0, 0.0), Vector2(-1.0, -0.15)]), 0, setup, 3)
+	check(label.position.x < 0.0 and label.horizontal_alignment == HORIZONTAL_ALIGNMENT_RIGHT,
+			"a ball on the right: the label goes left")
+	predictor.clock.now += 1.0
+	guides.show_for(_balls([Vector2(-1.0, 0.0), Vector2(-1.0, -0.15), Vector2(-1.0, 0.15)]), 0, setup, 3)
+	check(label.position.y < 0.0 and label.horizontal_alignment == HORIZONTAL_ALIGNMENT_CENTER,
+			"balls either side: under the cue ball, got %s" % label.position)
+	guides.free()
+
+
+func test_the_ghost_ring_is_a_tube_round_the_ghost_ball() -> void:
+	var guides := _guides(_predictor(FakeRecord.new()))
+	guides.show_for(_balls([Vector2(-1.0, 0.0), Vector2(0.0, 0.0)]), 0, ShotSetup.new(), 1)
+	var ring := (guides.get_node("GhostRing") as MeshInstance3D).mesh as TorusMesh
+	check(ring != null, "a torus, as thick from any angle")
+	if ring != null:
+		check_near((ring.inner_radius + ring.outer_radius) / 2.0, R, 1e-6, "round the ghost ball")
+		check_near(ring.outer_radius - ring.inner_radius, 2.0 * Guides.RING_TUBE_RADIUS, 1e-6, "the tube's thickness")
+	guides.free()

@@ -14,6 +14,7 @@ const SAFE_AREA_POLL_SECONDS := 1.0
 ## The shot controls while a shot plays: dimmed, and their touches go to the table (a tap skips).
 const PLAYING_ALPHA := 0.35
 const SELECTION_COLOUR := Color(1.0, 0.82, 0.3, 0.9)
+const STROKE_FRAME_COLOUR := Color(1.0, 1.0, 1.0, 0.42)
 ## Edit mode: where a new ball goes when its own spot is taken, rings of this many ball widths out.
 const FREE_SPOT_RINGS := 40
 
@@ -114,6 +115,7 @@ func _ready() -> void:
 
 	_build_selection()
 	_build_notice()
+	_build_stroke_frame()
 	_spin.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
 	_spin.grow_horizontal = Control.GROW_DIRECTION_END
 	_spin.grow_vertical = Control.GROW_DIRECTION_BEGIN
@@ -188,8 +190,6 @@ func skip_shot() -> void:
 		_player.skip_to_end()
 
 
-# The shot (spec 8.3, 16.10).
-
 ## Logs, simulates and starts playing the shot set up; its id, or "" when none could start.
 ## strike_mode is what the logs call the way it was struck: stroke, power_bar or harness.
 func _strike(strike_mode: String) -> String:
@@ -198,22 +198,18 @@ func _strike(strike_mode: String) -> String:
 	var shot_id := Physics.new_shot_id()
 	Params.commit_pending(shot_id)
 	_update_elevation_min()
-	var fields := setup.log_fields()
-	fields["shot_id"] = shot_id
-	fields["mode"] = MODE
-	fields["strike_mode"] = strike_mode
-	fields["guide_level"] = _guide_level()
-	Log.info("shot", "shot.input", fields)
-	_free.shot_started(setup.snapshot(), shot_id)
+	Log.info("shot", "shot.input", _shot_input_fields(shot_id, strike_mode))
 	var record := Physics.simulate(_free.balls, _free.cue_ball, setup.to_strike(),
 			{"shot_id": shot_id, "mode": MODE, "strike_mode": strike_mode})
 	if record == null:
 		# The binding has logged shot.rejected with the reason.
 		setup.stroke_samples.clear()
+		setup.fine_tune_samples.clear()
 		setup.wander_rad = 0.0
 		_show_notice("That shot couldn't be played")
 		_queue_refresh()
 		return ""
+	_free.shot_started(setup.snapshot(), shot_id)
 	_record = record
 	_shot_id = shot_id
 	_skip_requested = false
@@ -226,11 +222,28 @@ func _strike(strike_mode: String) -> String:
 	_rig.hold(true)
 	_spin.collapse()
 	_stroke.cancel_stroke("shot started")
+	# Their touches are ignored while it plays, so a thumb still down would never lift.
+	_wheel.cancel_press("shot started")
+	_elevation.cancel_press("shot started")
+	_power.cancel_press("shot started")
 	_set_playing(true)
 	_overlay.set_shot_times(record.sim_us(), _guides.last_predict_us())
 	# A shot with no motion finishes inside play(), so everything above is in place first.
 	_player.play(ShotPlayback.from_record(record), shot_id)
 	return shot_id
+
+
+## The logger truncates a long line from its last values, so the identity fields go first and the
+## gesture samples last.
+func _shot_input_fields(shot_id: String, strike_mode: String) -> Dictionary:
+	var fields := {"shot_id": shot_id, "mode": MODE, "guide_level": _guide_level(), "strike_mode": strike_mode}
+	var known := setup.log_fields()
+	for key: String in known:
+		if not fields.has(key) and not key.ends_with("_samples"):
+			fields[key] = known[key]
+	fields["fine_tune_samples"] = known["fine_tune_samples"]
+	fields["stroke_samples"] = known["stroke_samples"]
+	return fields
 
 
 func _on_frame(state: PackedFloat64Array, t: float, dt: float) -> void:
@@ -297,8 +310,6 @@ static func _potted(record: OfsShotRecord) -> Array:
 	return potted
 
 
-# Aiming: the cue, camera, guides and obstruction follow the setup and the table.
-
 func _on_setup_changed(_what: StringName) -> void:
 	_queue_refresh()
 
@@ -337,7 +348,7 @@ func _refresh() -> void:
 			_cue.show_cue(true)
 			_cue.set_pose(cue_xy, setup.aim_rad, setup.effective_elevation(), Vector2(setup.tip_x, setup.tip_y),
 					_backswing_m)
-			_guides.show_for(_free.balls, _free.cue_ball, setup, _guide_level())
+			_guides.show_for(_free.balls, _free.cue_ball, setup, _guide_level(), _free.version())
 	# Last, so the elevation minimum's own change signal doesn't queue another pass.
 	_refresh_queued = false
 
@@ -357,6 +368,7 @@ func _guide_level() -> int:
 
 func _on_camera_moved() -> void:
 	_stage.fit_shadows(_rig.camera())
+	_guides.place_pace_label()
 
 
 func _on_setting_changed(key: String, value: Variant) -> void:
@@ -368,9 +380,8 @@ func _on_setting_changed(key: String, value: Variant) -> void:
 			_queue_refresh()
 
 
-# The free table: history, setups and edit mode.
-
 func _on_table_changed(balls: Array[Dictionary], _cue_ball: int, reason: StringName) -> void:
+	_abort_drag()
 	_balls.sync(balls)
 	if reason != &"edit" or _selected >= balls.size():
 		_selected = -1
@@ -397,6 +408,9 @@ func _history(action: String) -> void:
 			snapshot = _free.redo()
 	_audio.stop_all()
 	if snapshot.is_empty():
+		if action == "redo" and _free.can_retake():
+			# Redone to the latest shot's result: spin as that shot left it.
+			setup.after_shot(bool(Settings.get_value("reset_spin_after_shot")))
 		return
 	setup.restore(snapshot)
 	# The strike mode is a setting, not part of the shot.
@@ -411,9 +425,9 @@ func _choose_setup(setup_name: String) -> void:
 
 
 func _on_edit_mode_changed(on: bool) -> void:
+	_abort_drag()
 	_bar.set_edit_mode(on)
 	_aim.enabled = not on and not _playing
-	_dragged = -1
 	_selected = -1
 	_spin.collapse()
 	_show_controls()
@@ -469,6 +483,18 @@ func _on_drag_ended(at: Vector2) -> void:
 		_balls.sync(_free.balls)
 		_place_selection()
 		_show_notice("A ball can't go there")
+
+
+## Puts a ball being dragged back where FreeTable has it and ends the gesture, so a drag never
+## outlives edit mode or the table it started on.
+func _abort_drag() -> void:
+	if _dragged < 0:
+		return
+	_dragged = -1
+	_balls.sync(_free.balls)
+	_place_selection()
+	_gestures.set_enabled(false)
+	_gestures.set_enabled(true)
 
 
 func _select(index: int) -> void:
@@ -572,8 +598,6 @@ func _place_selection() -> void:
 		_selection.visible = shown
 
 
-# The HUD.
-
 func _build_notice() -> void:
 	var panel := StyleBoxFlat.new()
 	panel.bg_color = Color(0.05, 0.06, 0.065, 0.78)
@@ -589,6 +613,33 @@ func _build_notice() -> void:
 	_notice_timer.one_shot = true
 	_notice_timer.timeout.connect(func() -> void: _notice.visible = false)
 	add_child(_notice_timer)
+
+
+## An outline and a name over the stroke area, which on its own was too faint to find.
+func _build_stroke_frame() -> void:
+	var outline := StyleBoxFlat.new()
+	outline.draw_center = false
+	outline.border_color = STROKE_FRAME_COLOUR
+	outline.set_border_width_all(3)
+	outline.set_corner_radius_all(24)
+	var frame := Panel.new()
+	frame.name = "Frame"
+	frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	frame.add_theme_stylebox_override("panel", outline)
+	frame.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_stroke.add_child(frame)
+	var label := Label.new()
+	label.name = "Name"
+	label.text = "stroke"
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.add_theme_color_override("font_color", STROKE_FRAME_COLOUR)
+	label.add_theme_font_size_override("font_size", 26)
+	label.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
+	label.offset_left = -80.0
+	label.offset_right = 80.0
+	label.offset_top = 56.0
+	_stroke.add_child(label)
 
 
 ## A line at the top of the screen for a moment: no pop-up, nothing to dismiss (spec 11.2).
@@ -607,7 +658,7 @@ func _layout() -> void:
 	var canvas := get_viewport().get_visible_rect().size
 	var safe := HudScript.safe_rect(Rect2(DisplayServer.get_display_safe_area()),
 			Rect2(Vector2(window.position), Vector2(window.size)), canvas)
-	var rects := HudScript.layout(safe, _bar.size)
+	var rects := HudScript.layout(safe, _bar.size, canvas)
 	_put(_wheel, rects["wheel"])
 	_put(_stroke, rects["stroke"])
 	_put(_power, rects["power"])
@@ -620,6 +671,7 @@ func _layout() -> void:
 		_spin.offset_top = bottom
 		_spin.offset_bottom = bottom
 	_palette.place_in(rects["bottom"])
+	_overlay.clear_right = safe.end.x - (rects["stroke"] as Rect2).position.x
 	var notice_at := Vector2(safe.get_center().x - _notice.size.x / 2.0, safe.position.y + HudScript.EDGE).round()
 	if _notice.position != notice_at:
 		_notice.position = notice_at
@@ -633,10 +685,7 @@ static func _put(control: Control, rect: Rect2) -> void:
 		control.size = rect.size
 
 
-# The harness's hooks (spec 16.5; docs/harness.md). Debug builds only: Harness calls them through
-# get_tree().current_scene.
-
-## balls: a ball list (OfsPhysics); false when the position isn't legal.
+## Harness hook; debug builds only, called through get_tree().current_scene.
 func harness_load_position(balls: Array, cue_ball: int) -> bool:
 	if _playing:
 		_harness_refused("load_position", "a shot is playing (%s)" % _shot_id)
@@ -655,12 +704,33 @@ func harness_play_shot(strike: Dictionary) -> String:
 	if _playing or _free.edit_mode:
 		_harness_refused("play_shot", "a shot is playing (%s)" % _shot_id if _playing else "edit mode is on")
 		return ""
+	_warn_out_of_range(strike)
+	var speed := float(strike["speed_m_s"])
 	setup.set_aim(float(strike["aim_rad"]))
 	setup.set_tip(float(strike["tip_x"]), float(strike["tip_y"]))
 	setup.set_elevation(float(strike["elevation_rad"]))
-	setup.set_speed(float(strike["speed_m_s"]))
+	setup.set_speed(speed, PowerBar.power_for_speed(speed, Physics.param("max_cue_speed_m_s", 10.0)))
 	setup.wander_rad = 0.0
 	return _strike(HARNESS_STRIKE)
+
+
+## A strike the controls couldn't set still plays as given, with a warning.
+func _warn_out_of_range(strike: Dictionary) -> void:
+	var problems: Array[String] = []
+	var tip := Vector2(float(strike["tip_x"]), float(strike["tip_y"])).length()
+	if tip > 1.0:
+		problems.append("tip offset %.4f is beyond 1, the ball's edge" % tip)
+	var speed := float(strike["speed_m_s"])
+	var max_speed := Physics.param("max_cue_speed_m_s", 10.0)
+	if speed > max_speed:
+		problems.append("speed %.4f m/s is above max_cue_speed_m_s %.4f" % [speed, max_speed])
+	var elevation := float(strike["elevation_rad"])
+	var max_elevation := Physics.param("max_elevation_rad", deg_to_rad(80.0))
+	if elevation < 0.0 or elevation > max_elevation:
+		problems.append("elevation %.4f rad is outside 0 to max_elevation_rad %.4f" % [elevation, max_elevation])
+	if not problems.is_empty():
+		Log.warn("harness", "harness.command", {"command": "play_shot", "args": [strike], "ok": true,
+				"result": {"warnings": problems}})
 
 
 ## True while a shot is playing or a ball is still dropping into a pocket.

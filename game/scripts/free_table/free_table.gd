@@ -18,6 +18,9 @@ const COLOURS: Array[String] = ["yellow", "green", "brown", "blue", "pink", "bla
 const RED_COUNT := 15
 ## Clearance beyond touching that a placed ball needs from every other ball.
 const CLEARANCE := 1e-6
+## The fixtures put a ball touching a cushion at exactly half the table less the radius, which
+## rounding can push a hair past it.
+const OUTSIDE_SLACK := 1e-9
 
 var balls: Array[Dictionary] = []
 var cue_ball := 0
@@ -31,6 +34,7 @@ var _index := -1
 var _edit_entry := -1
 ## {snapshot, shot_id} between shot_started and shot_finished.
 var _pending_shot := {}
+var _version := 0
 
 
 ## "full_rack" (the physics rack with seeded micro-gaps, spec 7.7) or "empty" (the cue ball
@@ -71,10 +75,13 @@ func load_setup(setup_name: String, rack_seed: int = -1) -> bool:
 
 
 ## A position from elsewhere (the harness): replaces the table and resets history to that one
-## state. False, with the table unchanged, when the list is malformed (ball_list_problems).
-## Touching or overlapping balls are taken as given.
+## state. False, with the table unchanged, when the list is malformed (ball_list_problems) or a
+## ball is outside the cushions. Touching or overlapping balls are taken as given: the physics
+## fixtures freeze balls together.
 func set_balls(new_balls: Array[Dictionary], new_cue_ball: int) -> bool:
 	var problems := ball_list_problems(new_balls, new_cue_ball)
+	if problems.is_empty():
+		problems = off_table_problems(new_balls)
 	if not problems.is_empty():
 		Log.warn("app", "app.error", {"kind": "message", "message":
 				"FreeTable.set_balls refused: " + "; ".join(problems)})
@@ -179,6 +186,11 @@ func history_index() -> int:
 
 func history_size() -> int:
 	return _history.size()
+
+
+## Goes up whenever `balls` is replaced, so a view can tell a changed table without comparing it.
+func version() -> int:
+	return _version
 
 
 func set_edit_mode(on: bool) -> void:
@@ -302,12 +314,26 @@ static func ball_list_problems(list: Array, cue_index: int) -> Array[String]:
 	return problems
 
 
-static func _illegal_reason(list: Array[Dictionary], x: float, y: float, ignore: int) -> String:
+## Each ball of a well-formed list that isn't on the cloth inside the cushion noses.
+static func off_table_problems(list: Array) -> Array[String]:
+	var problems: Array[String] = []
+	for i in list.size():
+		var b: Dictionary = list[i]
+		if _outside_cushions(float(b["x"]), float(b["y"]), OUTSIDE_SLACK):
+			problems.append("entry %d (%s) at [%.6f, %.6f] is outside the cushions" % [i, _ball_label(b), float(b["x"]), float(b["y"])])
+	return problems
+
+
+static func _outside_cushions(x: float, y: float, slack: float = 0.0) -> bool:
 	var dims := OfsTable.dimensions()
 	var r := float(dims["ball_radius"])
-	if absf(x) > float(dims["playing_length"]) / 2.0 - r or absf(y) > float(dims["playing_width"]) / 2.0 - r:
+	return absf(x) > float(dims["playing_length"]) / 2.0 - r + slack or absf(y) > float(dims["playing_width"]) / 2.0 - r + slack
+
+
+static func _illegal_reason(list: Array[Dictionary], x: float, y: float, ignore: int) -> String:
+	if _outside_cushions(x, y):
 		return "outside the cushions"
-	var min_distance := 2.0 * r + CLEARANCE
+	var min_distance := 2.0 * float(OfsTable.dimensions()["ball_radius"]) + CLEARANCE
 	for i in list.size():
 		if i == ignore:
 			continue
@@ -361,6 +387,7 @@ func _show(reason: StringName) -> void:
 	var entry := _history[_index]
 	balls = _copy_balls(entry["balls"])
 	cue_ball = int(entry["cue_ball"])
+	_version += 1
 	state_changed.emit(balls, cue_ball, reason)
 	history_changed.emit(can_undo(), can_redo(), can_retake())
 

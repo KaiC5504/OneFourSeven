@@ -16,6 +16,14 @@ const FONT_SIZE := 22
 const MIN_POINTS := 11.0
 const NONE := "-"
 
+## Canvas units at the safe area's right edge the block keeps clear of: the free table's stroke
+## column, so the overlay never hides a control.
+var clear_right := 0.0:
+	set(value):
+		if value != clear_right:
+			clear_right = value
+			_place()
+
 var _label: Label
 var _timer: Timer
 var _sim_us := -1.0
@@ -149,8 +157,8 @@ func _place() -> void:
 			get_viewport_rect().size, DisplayServer.screen_get_scale())
 
 
-## Top-right inside the safe area, for a safe area and window in screen pixels and the canvas size
-## in canvas units. Writes only what changed.
+## Top-right inside the safe area, left of clear_right, for a safe area and window in screen pixels
+## and the canvas size in canvas units. Writes only what changed.
 func place_in(safe_area: Rect2, window_rect: Rect2, canvas_size: Vector2, screen_scale: float) -> void:
 	var font_size := font_size_for(screen_scale, window_rect.size.y / maxf(canvas_size.y, 1.0))
 	if _label.get_theme_font_size("font_size") != font_size:
@@ -159,6 +167,6 @@ func place_in(safe_area: Rect2, window_rect: Rect2, canvas_size: Vector2, screen
 	if _label.size != block:
 		_label.size = block
 	var safe := safe_rect(safe_area, window_rect, canvas_size)
-	var origin := Vector2(safe.end.x - MARGIN.x - block.x, safe.position.y + MARGIN.y)
+	var origin := Vector2(safe.end.x - clear_right - MARGIN.x - block.x, safe.position.y + MARGIN.y)
 	if _label.position != origin:
 		_label.position = origin

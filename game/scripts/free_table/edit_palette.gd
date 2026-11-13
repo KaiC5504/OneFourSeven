@@ -58,7 +58,8 @@ func _build() -> void:
 	theme = SettingsPanel.make_theme()
 	_panel = PanelContainer.new()
 	var style := StyleBoxFlat.new()
-	style.bg_color = Color(0.05, 0.06, 0.065, 0.62)
+	# Nearly opaque: the row sits over the D and baulk line, which showed through.
+	style.bg_color = Color(0.05, 0.06, 0.065, 0.94)
 	style.set_corner_radius_all(22)
 	style.set_content_margin_all(8.0)
 	_panel.add_theme_stylebox_override("panel", style)

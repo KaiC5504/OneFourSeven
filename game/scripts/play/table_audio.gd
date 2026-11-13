@@ -83,10 +83,13 @@ func _ready() -> void:
 	if dims.has("ball_radius"):
 		_height = float(dims["ball_radius"])
 	use_table_shape(Physics.table_shape())
+	set_process(false)
 
 
+# Runs only while the roll sounds or fades: on_frame starts it, silence stops it.
 func _process(delta: float) -> void:
 	if _roll == null:
+		set_process(false)
 		return
 	var target := db_to_linear(_roll_target_db) if _roll_target_db > SILENT_DB else 0.0
 	_roll_amp += (target - _roll_amp) * (1.0 - exp(-delta / ROLL_SMOOTH_S))
@@ -94,6 +97,7 @@ func _process(delta: float) -> void:
 		_roll_amp = 0.0
 		if _roll.playing:
 			_roll.stop()
+		set_process(false)
 		return
 	_roll.volume_db = linear_to_db(_roll_amp)
 	if not _roll.playing and _roll.stream != null:
@@ -165,6 +169,7 @@ func on_frame(state: PackedFloat64Array, _t: float, _dt: float) -> void:
 		_roll_target_db = SILENT_DB
 		return
 	_roll_target_db = roll_db_for(top) + linear_to_db(volume)
+	set_process(true)
 	_roll.pitch_scale = 0.85 + 0.3 * clampf(top / ROLL_FULL_SPEED, 0.0, 1.0)
 	var base := fastest * ShotPlayback.STRIDE
 	_roll.position = TableSpace.core_to_godot(state[base + ShotPlayback.X], state[base + ShotPlayback.Y], _height)
@@ -178,6 +183,7 @@ func stop_all() -> void:
 	_roll_amp = 0.0
 	if _roll != null:
 		_roll.stop()
+	set_process(false)
 
 
 ## The sound an event makes ("" for none): strike is "tip", or "miscue" after begin_shot said so.
@@ -220,7 +226,6 @@ func roll_level_db() -> float:
 	return _roll_target_db
 
 
-## Voices sounding now.
 func active_voices() -> int:
 	var now := Time.get_ticks_usec()
 	var count := 0
