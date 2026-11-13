@@ -109,3 +109,16 @@ x86_64-only and the Mac has no Rosetta.
   miscue and hard-hit cushion loss are starting guesses.
   Before the next TestFlight build: `testflight.yml` changed in M1, so `testflight.py start
   --dry-run` first.
+- M2 built (2026-11-13, the feel build): the free table is playable on Windows and the iPhone.
+  Physics binding (`OfsPhysics`, every played shot replays exactly), controls (drag aim, 0.01°
+  fine-tune wheel, spin widget, elevation with the cue obstruction, finger stroke and power bar,
+  guides 0-3, Windows mouse mapping), behind-the-cue camera with pinch and tilt that rises above a
+  raised cue, free table with edit, retake, undo and redo, generated table sounds, haptics, the
+  debug harness channel and overlay, live parameters at the next shot. CC0 table textures (Poly
+  Haven, ambientCG). On this PC: idle draws nothing (~1.5% of a core); a 10 m/s break-off plays at
+  240 fps with no dropped frames. Progress record: `docs/m2-progress.md`.
+  KaiC's decisions: opens into the free table; six-dot cue ball, soft ball highlight; finger stroke
+  by default; spin reset is a setting; builds for him go to the iPhone through the Mac, not
+  TestFlight. Open for his feel session: stroke curve (6000 units/s fastest push, exponent 1.5),
+  the phone's first-launch hitch (was 3.4 s; probe atlas cut, shader baker not yet on), haptics
+  crispness (Godot's continuous events; Core Haptics plugin if mushy), plus the M1 notes above.

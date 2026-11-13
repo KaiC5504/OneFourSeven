@@ -94,3 +94,14 @@ Contracts: cancel_press() stubs on FineTuneWheel, ElevationControl, PowerBar; CI
 simulator's ASTC warning; export filters include data/positions and exclude dev scenes.
 Agents: binding (C++), controls (input/*), flow (main, hud, guides, free table, play), autoloads
 (harness, params, physics, perf, settings), look (views, camera, the cue wedge, reflections).
+- Fix round merged: controls 943a809 (cancel_press, focus loss, release outside, power-bar speed,
+  samples per stroke, amber only for raises ≥ 3°), binding d196641 (same-time impact speeds by
+  re-resolving, shot.rejected with balls, query_refused + last_error, duplicates, try/catch,
+  int64), autoloads 8a643c1 (params.refused, hitch reasons, settings values, harness modifiers),
+  flow c5042c4 (edit drag abort, layout: elevation top-right, wheel bottom-right, stroke outline
+  and label, overlay placement, pace label, ring, set_balls legality), look 248961c (camera above
+  a raised cue via set_cue_elevation, probe mask, dimmer canopy, no box projection, FOV 34°,
+  planning view frames the table, reflection atlas 4 probes, recapture after compiles settle).
+  Lead: wired set_cue_elevation in main._refresh; verified the forced 41° view and the opening view.
+- Open: shader baker (export preset) for the phone's first-launch compiles; leaked-RID warning at
+  exit (engine teardown); left-handed layout (M6); saved free-table setups (M5).
