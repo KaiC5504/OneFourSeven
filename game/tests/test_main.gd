@@ -12,8 +12,20 @@ const EXPECTED := {
 	"blue": Vector2(0.0, 0.0),
 	"pink": Vector2(0.89225, 0.0),
 	"black": Vector2(1.4605, 0.0),
-	"red_0": Vector2(0.89225 + 2.0 * RADIUS + 0.0005, 0.0),
+	"red_0": Vector2(0.89225 + 2.0 * RADIUS, 0.0),
 }
+# The physics rack leaves seeded micro-gaps of up to 0.1 mm between the reds (spec 7.7), which add
+# up across the pack.
+const RED_TOLERANCE := 1e-3
+# iPhone 17 Pro Max landscape: 2868x1320 px, 62 pt (186 px) side insets either way round, 21 pt
+# (63 px) home indicator; the canvas is 1912 x 880.
+const PHONE_SCREEN := Rect2(0, 0, 2868, 1320)
+const PHONE_CANVAS := Vector2(1912, 880)
+const PHONE_SAFE_AREAS: Array[Rect2] = [
+	Rect2(186, 0, 2868 - 372, 1320 - 63),
+	Rect2(186, 0, 2868 - 186, 1320 - 63),
+	Rect2(0, 0, 2868 - 186, 1320 - 63),
+]
 
 
 func _spawn() -> Node:
@@ -43,23 +55,42 @@ func test_balls_sit_at_documented_core_positions() -> void:
 		check(ball != null, "ball %s exists" % ball_name)
 		if ball == null:
 			continue
-		var core := TableSpace.godot_to_core(ball.position)
+		var xy: Array = ball.get_meta("core_xy")
 		var want: Vector2 = EXPECTED[ball_name]
-		check_near(core.x, want.x, 1e-5, "%s core x" % ball_name)
-		check_near(core.y, want.y, 1e-5, "%s core y" % ball_name)
+		var tolerance := RED_TOLERANCE if ball_name.begins_with("red") else 1e-6
+		check_near(xy[0], want.x, tolerance, "%s core x" % ball_name)
+		check_near(xy[1], want.y, tolerance, "%s core y" % ball_name)
+		var core := TableSpace.godot_to_core(ball.position)
+		check_near(core.x, xy[0], 1e-5, "%s node x follows core_xy" % ball_name)
+		check_near(core.y, xy[1], 1e-5, "%s node y follows core_xy" % ball_name)
 		check_near(ball.position.y, RADIUS, 1e-6, "%s rests on the cloth" % ball_name)
 	main.free()
 
 
-func test_camera_looks_from_baulk_towards_black() -> void:
+func test_balls_are_the_free_tables_full_rack() -> void:
+	var main: Node = await _spawn()
+	var table: FreeTable = main.get_node("FreeTable")
+	var balls := main.get_node("Balls").get_children()
+	check_eq(table.balls.size(), balls.size(), "a node per ball in the list")
+	for i in mini(balls.size(), table.balls.size()):
+		var xy: Array = balls[i].get_meta("core_xy")
+		check_eq([xy[0], xy[1]], [table.balls[i]["x"], table.balls[i]["y"]], "node %d at its list entry's doubles" % i)
+	check_eq(table.history_size(), 1, "the rack is the first history state")
+	main.free()
+
+
+func test_camera_looks_from_behind_the_cue_ball_towards_black() -> void:
 	var main: Node = await _spawn()
 	var camera: Camera3D = main.get_node("CameraRig/Camera3D")
-	check(camera.position.z > 1.7845, "camera behind the baulk cushion")
-	check(camera.position.y > 0.5, "camera elevated")
 	var black := main.get_node("Balls/black") as Node3D
 	var cue := main.get_node("Balls/cue") as Node3D
+	check(camera.global_position.z > cue.global_position.z, "camera behind the cue ball")
+	check(camera.global_position.y > 0.2, "camera above the table")
 	check(not camera.is_position_behind(black.global_position), "black in front of the camera")
 	check(not camera.is_position_behind(cue.global_position), "cue ball in front of the camera")
+	var cue_view: Node3D = main.get_node("Cue")
+	check(cue_view.visible, "the cue addresses the cue ball")
+	check(cue_view.global_position.distance_to(cue.global_position) < 0.05, "cue tip at the cue ball")
 	main.free()
 
 
@@ -76,20 +107,17 @@ func test_every_ball_has_a_contact_shadow_on_the_cloth() -> void:
 	main.free()
 
 
-func test_six_pockets_cut_into_the_table() -> void:
+func test_table_is_drawn_from_the_physics_outline() -> void:
 	var main: Node = await _spawn()
-	var top := main.get_node_or_null("Table/TableTop") as CSGCombiner3D
-	check(top != null, "CSG table top")
-	if top != null:
-		var holes := 0
-		var mouths := 0
-		for child in top.get_children():
-			if child.name.begins_with("PocketMouth"):
-				mouths += 1
-			elif child.name.begins_with("Pocket"):
-				holes += 1
-		check_eq(holes, 6, "pocket holes")
-		check_eq(mouths, 6, "pocket mouths")
+	check(main.get_node_or_null("Table/Mesh") is MeshInstance3D, "the table mesh")
+	var shape := Physics.table_shape()
+	var pockets := 0
+	for child in main.get_node("Table").get_children():
+		if child.name.begins_with("Pocket_"):
+			pockets += 1
+	check_eq(pockets, 6, "a marker per pocket")
+	check_eq(pockets, (shape.get("pockets", []) as Array).size(), "the outline's pockets")
+	check(main.get_node_or_null("Table/TableTop") == null, "no M0 CSG table left")
 	main.free()
 
 
@@ -97,10 +125,78 @@ func test_shadow_range_covers_the_whole_table() -> void:
 	var main: Node = await _spawn()
 	var camera: Camera3D = main.get_node("CameraRig/Camera3D")
 	var light: DirectionalLight3D = main.get_node("Stage/Light")
+	var bounds: AABB = (main.get_node("Table") as TableView).bounds()
+	check(bounds.has_volume(), "the table reports its bounds")
 	var forward := -camera.global_transform.basis.z
-	for corner: Vector3 in [Vector3(-1.1, 0.0, -2.0), Vector3(1.1, 0.0, -2.0)]:
-		check(light.directional_shadow_max_distance > (corner - camera.position).dot(forward), "far corner %s in shadow range" % corner)
+	for i in 8:
+		var corner := bounds.get_endpoint(i)
+		var depth := (corner - camera.global_position).dot(forward)
+		check(light.directional_shadow_max_distance >= minf(depth, Stage.MAX_SHADOW_DISTANCE),
+				"corner %s in shadow range" % corner)
 	main.free()
+
+
+func test_controls_follow_the_layout() -> void:
+	var main: Node = await _spawn()
+	var hud: Node = main.get_node("Hud")
+	var canvas: Vector2 = main.get_viewport().get_visible_rect().size
+	var window := main.get_window()
+	var safe: Rect2 = HudScript.safe_rect(Rect2(DisplayServer.get_display_safe_area()),
+			Rect2(Vector2(window.position), Vector2(window.size)), canvas)
+	var bar: FreeTableBar = hud.get_node("FreeTableBar")
+	var rects: Dictionary = HudScript.layout(safe, bar.size)
+	check_eq(Rect2(bar.position, bar.size), rects["bar"], "the bar places itself where the layout expects")
+	for pair: Array in [["FineTuneWheel", "wheel"], ["StrokeArea", "stroke"], ["PowerBar", "power"],
+			["ElevationControl", "elevation"]]:
+		var control: Control = hud.get_node(pair[0])
+		check_eq(control.get_rect(), rects[pair[1]], pair[0])
+	var spin: SpinWidget = hud.get_node("SpinWidget")
+	var corner: Vector2 = rects["spin_corner"]
+	check_eq(spin.get_rect(), Rect2(corner - Vector2(0.0, SpinWidget.COLLAPSED_SIZE), Vector2.ONE * SpinWidget.COLLAPSED_SIZE),
+			"spin widget collapsed in its corner")
+	spin.expand()
+	await tree.process_frame
+	check_eq(spin.get_rect().position + Vector2(0.0, spin.size.y), corner, "expanded, it grows up and right from the corner")
+	check_eq(spin.size, Vector2(SpinWidget.EXPANDED_SIZE, SpinWidget.EXPANDED_SIZE + SpinWidget.READOUT_HEIGHT), "expanded size")
+	check(spin.get_index() > hud.get_node("ElevationControl").get_index(), "expanded, it covers the elevation control")
+	check_eq((hud.get_node("FineTuneWheel") as Control).mouse_filter, Control.MOUSE_FILTER_STOP, "the wheel takes its own touches")
+	var stroke_mode: bool = Settings.get_value("strike_mode") == "stroke"
+	check_eq((hud.get_node("StrokeArea") as Control).visible, stroke_mode, "stroke area in stroke mode")
+	check_eq((hud.get_node("PowerBar") as Control).visible, not stroke_mode, "power bar in power-bar mode")
+	main.free()
+
+
+func test_layout_fits_the_phones_safe_area_either_way_round() -> void:
+	var probe := FreeTableBar.new()
+	var bar_size := probe.size
+	probe.free()
+	for safe_px in PHONE_SAFE_AREAS:
+		var safe: Rect2 = HudScript.safe_rect(safe_px, PHONE_SCREEN, PHONE_CANVAS)
+		var rects: Dictionary = HudScript.layout(safe, bar_size)
+		var corner: Vector2 = rects["spin_corner"]
+		var spin := Rect2(corner - Vector2(0.0, SpinWidget.COLLAPSED_SIZE), Vector2.ONE * SpinWidget.COLLAPSED_SIZE)
+		var expanded := Rect2(corner - Vector2(0.0, SpinWidget.EXPANDED_SIZE + SpinWidget.READOUT_HEIGHT),
+				Vector2(SpinWidget.EXPANDED_SIZE, SpinWidget.EXPANDED_SIZE + SpinWidget.READOUT_HEIGHT))
+		var placed := {"bar": rects["bar"], "wheel": rects["wheel"], "stroke": rects["stroke"],
+				"spin": spin, "elevation": rects["elevation"]}
+		for key: String in placed:
+			check(safe.encloses(placed[key]), "%s %s inside the safe area %s" % [key, placed[key], safe])
+		check(safe.encloses(rects["power"]), "power bar inside the safe area")
+		check(safe.encloses(expanded), "the expanded spin widget inside the safe area")
+		check((rects["stroke"] as Rect2).encloses(rects["power"]), "the power bar where the stroke area is")
+		var keys := placed.keys()
+		for i in keys.size():
+			for j in range(i + 1, keys.size()):
+				check(not (placed[keys[i]] as Rect2).intersects(placed[keys[j]]), "%s clear of %s" % [keys[i], keys[j]])
+		check(not expanded.intersects(rects["bar"]), "the expanded spin widget clears the bar")
+		check(not expanded.intersects(rects["stroke"]), "and the stroke area")
+		# The middle of the screen, where the table is, stays clear.
+		var middle := Rect2(PHONE_CANVAS.x * 0.3, 0.0, PHONE_CANVAS.x * 0.4, PHONE_CANVAS.y * 0.75)
+		for key: String in placed:
+			check(not (placed[key] as Rect2).intersects(middle), "%s clear of the table's middle" % key)
+		check(safe.end.x - (rects["wheel"] as Rect2).end.x <= HudScript.EDGE, "the wheel at the right edge")
+		check((rects["stroke"] as Rect2).size.y > safe.size.y * 0.9, "the stroke area runs the full height")
+		check((rects["bottom"] as Rect2).position.x > (rects["bar"] as Rect2).end.x, "the palette's row clears the bar")
 
 
 func test_link_label_text() -> void:

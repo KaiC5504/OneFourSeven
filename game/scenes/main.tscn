@@ -1,4 +1,4 @@
-[gd_scene load_steps=23 format=3]
+[gd_scene load_steps=24 format=3]
 
 [ext_resource type="Script" path="res://scripts/main.gd" id="1_main"]
 [ext_resource type="Script" path="res://scripts/hud.gd" id="2_hud"]
@@ -22,6 +22,7 @@
 [ext_resource type="Script" path="res://scripts/free_table/free_table_bar.gd" id="20_bar"]
 [ext_resource type="Script" path="res://scripts/ui/settings_panel.gd" id="21_settings"]
 [ext_resource type="Script" path="res://scripts/ui/debug_overlay.gd" id="22_overlay"]
+[ext_resource type="Script" path="res://scripts/free_table/edit_palette.gd" id="23_palette"]
 
 [node name="Main" type="Node3D"]
 script = ExtResource("1_main")
@@ -74,17 +75,16 @@ script = ExtResource("14_free")
 [node name="LinkLabel" type="Label" parent="Hud"]
 script = ExtResource("2_hud")
 
-[node name="SpinWidget" type="Control" parent="Hud"]
-script = ExtResource("15_spin")
-mouse_filter = 2
-
 [node name="ElevationControl" type="Control" parent="Hud"]
 script = ExtResource("16_elev")
 mouse_filter = 2
 
+[node name="SpinWidget" type="Control" parent="Hud"]
+script = ExtResource("15_spin")
+mouse_filter = 2
+
 [node name="FineTuneWheel" type="Control" parent="Hud"]
 script = ExtResource("17_wheel")
-mouse_filter = 2
 
 [node name="StrokeArea" type="Control" parent="Hud"]
 script = ExtResource("18_stroke")
@@ -93,6 +93,15 @@ mouse_filter = 2
 [node name="PowerBar" type="Control" parent="Hud"]
 script = ExtResource("19_power")
 mouse_filter = 2
+
+[node name="EditPalette" type="Control" parent="Hud"]
+visible = false
+script = ExtResource("23_palette")
+mouse_filter = 2
+
+[node name="Notice" type="Label" parent="Hud"]
+visible = false
+horizontal_alignment = 1
 
 [node name="FreeTableBar" type="Control" parent="Hud"]
 script = ExtResource("20_bar")
