@@ -63,6 +63,7 @@ if(OFS_BUILD_TESTS)
         tests/physics/test_repro.cpp
         tests/physics/test_rack.cpp
         tests/physics/test_record_query.cpp
+        tests/physics/test_record_query_impl.cpp
     )
     target_link_libraries(ofs_core_tests PRIVATE ofs_core)
     target_compile_definitions(ofs_core_tests PRIVATE
