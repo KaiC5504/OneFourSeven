@@ -12,6 +12,9 @@ Connect API key, a keychain of its own, no Apple ID) and One Four Seven's develo
 replaces the TestFlight install. Release by default, as TestFlight ships; --debug for the debug
 export. Its build number is the clock (yymmddHHMM), and the phone's report of what it has installed
 is printed, so a new build landing is checked, not assumed. The phone must be on the Mac's Wi-Fi.
+
+Nothing runs unless the Mac's sound is muted: a run that finds it unmuted stops before touching
+anything and leaves the volume as it is.
 """
 
 from __future__ import annotations
@@ -26,6 +29,13 @@ BUNDLE_ID = "com.kaichuan.onefourseven"
 
 PREPARE = r"""
 set -euo pipefail
+# KaiC: our runs must never make a sound on the Mac, which someone else also uses. Its sound is
+# left alone (not ours to change); a run only goes ahead while it is muted.
+muted=$(osascript -e 'output muted of (get volume settings)' 2>&1 || true)
+if [ "$muted" != true ]; then
+  echo "stopped: the Mac's sound is not muted (output muted: $muted); nothing was run"
+  exit 3
+fi
 export LANG=en_US.UTF-8 PATH="/opt/homebrew/bin:$HOME/.local/bin:$PATH"
 APP_DIR="$HOME/.mac-dev/onefourseven"
 LOGS="$APP_DIR/logs"

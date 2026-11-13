@@ -90,7 +90,8 @@ phone` builds the committed HEAD on the Mac (release; `--debug` for the debug ex
 to open it) and installs it on the iPhone over Wi-Fi in about 25 s once warm, replacing the
 TestFlight install; `build` stops before the install. It runs headless in the Mac's hidden
 `~/.mac-dev/onefourseven`, signed with the shared development certificate, no Apple ID. The phone
-must be on the Mac's Wi-Fi. Use it for feel checks and anything the phone must show; a TestFlight
+must be on the Mac's Wi-Fi. It stops before doing anything unless the Mac's sound is muted: our testing never
+makes a sound there, and its volume is not ours to change. Use it for feel checks and anything the phone must show; a TestFlight
 build only to ship. The Mac has no simulator path: Godot 4.7.1's simulator template is
 x86_64-only and the Mac has no Rosetta.
 
