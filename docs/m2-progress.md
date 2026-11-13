@@ -105,3 +105,11 @@ Agents: binding (C++), controls (input/*), flow (main, hud, guides, free table, 
   Lead: wired set_cue_elevation in main._refresh; verified the forced 41° view and the opening view.
 - Open: shader baker (export preset) for the phone's first-launch compiles; leaked-RID warning at
   exit (engine teardown); left-handed layout (M6); saved free-table setups (M5).
+- KaiC's first phone session (builds 2611132018, 2611132156; ~100 shots): UI too messy; balls
+  roll too fast; camera fixed after the shot; no way to see the whole table. Lead: cloth
+  roll_friction 0.010 -> 0.0127 (Mathavan's measured snooker value) served live from a tuning
+  root (devlink --root <scratchpad>/tune), not committed until he's happy. Redesign b51da35,
+  ae5fe65: spin ball bottom-left (direct drag), elevation above it, power cue on the right with
+  Push and Pull-and-release (power bar removed; saved power_bar migrates to pull), one menu
+  (Rack, Empty, Edit, Settings, link), icons for overview / Retake / Undo; camera follows the
+  shot and an overview button. Spec 8.2, 8.3, 8.5, 15 updated.

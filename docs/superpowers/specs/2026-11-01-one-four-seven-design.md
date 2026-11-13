@@ -369,8 +369,9 @@ same input layer (section 8.8).
 - Aim never snaps to balls or pockets. There is no hidden assistance.
 
 ### 8.2 Spin and elevation. **Owner:** widget plus elevation
-- A cue-ball widget in a corner. Tap it to enlarge, then drag the tip marker for top,
-  screw and side. The miscue limit is drawn as a ring.
+- A cue ball in the bottom-left corner, always the same size. **Owner (M2):** drag on it
+  directly for top, screw and side, with no enlarge step; a double tap returns to centre
+  ball. The miscue limit is drawn as a ring.
 - An elevation control next to it, from the minimum allowed by obstruction (section 7.3)
   up to near-vertical for masse. It shows when obstruction has forced the cue up.
 - Both reset to centre ball and minimum elevation after each shot. **Owner (M2):** a
@@ -381,8 +382,11 @@ same input layer (section 8.8).
   push speed over the last ~80 ms before release sets cue speed, through a tunable
   curve that gives fine control at low power. The cue on screen follows the finger's
   backswing. Dragging out of the stroke area cancels the stroke.
-- **Power bar:** set power on a slider with a non-linear scale for fine low-power
-  control, then tap Shoot.
+- **Pull and release** (**Owner**, M2, replacing the power bar): pull the cue back on the
+  power cue at the right edge; the pull distance sets the power through a curve that is
+  fine at low power, shown as it pulls. Release strikes. Sliding back to the start or out
+  sideways cancels.
+- Both strike modes use the same tall power cue on the right screen edge.
 - **Claude's call:** an optional setting, off by default, that adds a small aim error
   when the finger stroke wanders sideways, like a crooked cue action.
 - Maximum cue speed is tuned so a full-power shot matches a strong real break-off or
@@ -417,9 +421,10 @@ level 1.
 - **Pinch** zooms. A **two-finger vertical drag** tilts the camera from cue level (low)
   up to a high, nearly overhead angle. That high angle doubles as the planning view
   without adding a separate top-down mode.
-- After the strike, the camera holds steady so the player can watch the shot. The
-  builder may add a gentle auto-rise if owner testing wants it. Afterwards it returns
-  behind the cue ball for the next shot.
+- After the strike, the camera rises and follows the shot so every moving ball stays in
+  view (**Owner**, M2), then returns behind the cue ball for the next shot.
+- An overview button switches to the planning view of the whole table and back
+  (**Owner**, M2); the two-finger tilt reaches it too.
 - Replays get more camera angles (section 12.3).
 
 ### 8.6 Ball in hand
@@ -701,7 +706,7 @@ Saved to `user://` as versioned JSON, with a migration path:
 There is a "Reset stats" option with confirmation. A match in progress is never saved.
 
 ## 15. Settings
-- Strike mode: finger stroke (default, **Owner** M2) or power bar.
+- Strike mode: push (the finger stroke; default, **Owner** M2) or pull and release.
 - Guide lines: 0–3.
 - Fine-tune sensitivity; aim drag sensitivity.
 - Stroke wander adds error: on or off.
