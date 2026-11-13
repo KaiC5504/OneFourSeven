@@ -76,3 +76,11 @@ screens. After G merges: run_debug.py passes --mute unless --sound.
 ## Wave 2 (launched 2026-11-13 on the merged wave 1)
 J integrator works in the main checkout (the only builder left; saves a godot-cpp build).
 The CC0 asset agent runs in parallel (textures, env, its preview); J wires its materials when it lands.
+- J integrator (8b393f9..3d61753): free table playable; CC0 materials wired; balls with a soft
+  highlight (KaiC disliked the hard canopy reflection: area light removed); mobile reflection
+  atlas 256, soft-low shadows. 390 Godot tests; 8/8 shots replay. Open: leaked-RID warning at exit,
+  level 3 pace label overlapping balls, -DemoPosition export filter on iOS, cut_half_ball pot window
+  0.0015 rad (feel check).
+
+## Check round (launched on 3d61753, dev pushed: CI 43396383322 Windows, 43396383307 iOS)
+C++ binding, GDScript/flow, logging + replay, test gaps, spec, comments, screens, Windows run.
