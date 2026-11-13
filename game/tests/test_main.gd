@@ -268,6 +268,8 @@ func test_layout_fits_the_phones_safe_area_either_way_round() -> void:
 		check(not expanded.intersects(rects["bar"]), "the expanded spin widget clears the bar")
 		check(not expanded.intersects(rects["stroke"]), "and the stroke area")
 		check(not expanded.intersects(rects["elevation"]), "and the elevation control")
+		check_eq((rects["elevation"] as Rect2).end.x + HudScript.GAP, corner.x,
+				"the elevation left of the spin widget, so its expanded inset is 0")
 		# The middle of the screen, where the table is, stays clear.
 		var middle := Rect2(PHONE_CANVAS.x * 0.3, 0.0, PHONE_CANVAS.x * 0.4, PHONE_CANVAS.y * 0.75)
 		for key: String in placed:

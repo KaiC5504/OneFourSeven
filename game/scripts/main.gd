@@ -223,9 +223,9 @@ func _strike(strike_mode: String) -> String:
 	_spin.collapse()
 	_stroke.cancel_stroke("shot started")
 	# Their touches are ignored while it plays, so a thumb still down would never lift.
-	_wheel.cancel_press()
-	_elevation.cancel_press()
-	_power.cancel_press()
+	_wheel.cancel_press("shot started")
+	_elevation.cancel_press("shot started")
+	_power.cancel_press("shot started")
 	_set_playing(true)
 	_overlay.set_shot_times(record.sim_us(), _guides.last_predict_us())
 	# A shot with no motion finishes inside play(), so everything above is in place first.
@@ -670,6 +670,11 @@ func _layout() -> void:
 		_spin.offset_right = corner.x
 		_spin.offset_top = bottom
 		_spin.offset_bottom = bottom
+	# Through get/set until the controls agent's SpinWidget.expanded_inset is merged in.
+	var inset: float = (rects["elevation"] as Rect2).end.x + HudScript.GAP - corner.x
+	var current: Variant = _spin.get("expanded_inset")
+	if current != null and float(current) != inset:
+		_spin.set("expanded_inset", inset)
 	_palette.place_in(rects["bottom"])
 	_overlay.clear_right = safe.end.x - (rects["stroke"] as Rect2).position.x
 	var notice_at := Vector2(safe.get_center().x - _notice.size.x / 2.0, safe.position.y + HudScript.EDGE).round()

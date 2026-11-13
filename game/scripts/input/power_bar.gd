@@ -44,7 +44,7 @@ func _ready() -> void:
 
 ## Ends a press in progress as if the finger had lifted, without acting on it: a shot
 ## starting, or the app losing focus, may swallow the real release.
-func cancel_press() -> void:
+func cancel_press(_reason: String = "") -> void:
 	pass
 
 
