@@ -145,6 +145,7 @@ func test_controls_follow_the_layout() -> void:
 			Rect2(Vector2(window.position), Vector2(window.size)), canvas)
 	var bar: FreeTableBar = hud.get_node("FreeTableBar")
 	var rects: Dictionary = HudScript.layout(safe, bar.size)
+	check_eq(bar.size, (bar.get_child(0) as Control).get_combined_minimum_size(), "the bar's size is what it draws")
 	check_eq(Rect2(bar.position, bar.size), rects["bar"], "the bar places itself where the layout expects")
 	for pair: Array in [["FineTuneWheel", "wheel"], ["StrokeArea", "stroke"], ["PowerBar", "power"],
 			["ElevationControl", "elevation"]]:
@@ -167,7 +168,9 @@ func test_controls_follow_the_layout() -> void:
 
 
 func test_layout_fits_the_phones_safe_area_either_way_round() -> void:
+	# The bar measures itself once its theme applies, in the tree.
 	var probe := FreeTableBar.new()
+	tree.root.add_child(probe)
 	var bar_size := probe.size
 	probe.free()
 	for safe_px in PHONE_SAFE_AREAS:

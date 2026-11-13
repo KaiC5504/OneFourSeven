@@ -54,6 +54,9 @@ func _init() -> void:
 
 
 func _ready() -> void:
+	# Before the bar is in the tree its panel has no theme, so _init measured it without the
+	# panel's margins and separations.
+	_fit()
 	get_viewport().size_changed.connect(_auto_place)
 	var poll := Timer.new()
 	poll.wait_time = SAFE_AREA_POLL_SECONDS
