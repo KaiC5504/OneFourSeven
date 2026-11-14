@@ -683,12 +683,12 @@ off by default.
   red dots, as on TV-style practice balls; the colours stay plain.
 - **Ball finish:** **Owner (M2):** a faint, soft highlight; a crisp canopy reflection read
   as unreal.
-- **Pockets (Owner, M2):** the cushions curve into each pocket along the physics jaws, the
-  slate's edge rounded at the fall. Each hole is lined in dark leather that turns black and
-  reads deep from any angle. A cream leather fitting, slightly domed, caps the rail behind
-  every pocket: over the rounded rail corner at the corners, a band round the back of the
-  hole at the middles. The rail's outer edge runs straight past the middles. The rails are
-  dark polished mahogany.
+- **Pockets (Owner, M2), as tournament tables seen from above:** each cushion runs straight
+  to the pocket and turns in at its knuckle, the slate's edge rounded at the fall. A light
+  crochet net hangs in every hole, darkening to its opening, so the hole reads shallow, not a
+  pit. A cream leather horseshoe wraps the back of each corner hole, the wooden rails running
+  on to a mitred, rounded corner; at the middles a smaller fitting sits behind the hole and the
+  rail's outer edge runs straight past. The rails are warm, dark mahogany.
 - **Assets:** built procedurally in code or Godot, or from CC0 (public-domain) sources,
   with licences recorded (section 18).
 
