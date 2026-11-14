@@ -56,6 +56,7 @@ Every line is one JSON object:
 | `physics.anomaly` | warn | the simulator hit a guard or found something impossible | `kind`, `t` (seconds into the shot), `balls` (indices), `detail`, `bundle` |
 | `params.invalid` | error | a parameter in `table_params.json` was refused; that field keeps its default | `key`, `value`, `reason` |
 | `table.invalid` | error | the table shape file was refused; `problems` lists every fault found | `hash`, `problems` |
+| `table.view` | info/warn | once each time the table is built: which table is drawn | `table` (`model`: the bought table, `res://licensed/table.gltf`; `procedural`: the one drawn from the physics outline), `reason` (`found` for the model; for the procedural table `no_model`: the file isn't in the build, as in CI and TestFlight; `forced`; `headless`: a run that draws nothing; and at warn, when the file is there and didn't come up, `load_failed`, `part_missing` or `texture_missing`), `detail` (warn only: what was wrong with the file and what to run) |
 
 `physics.anomaly` kinds: `event_guard` (max_events reached), `zero_time_chain` (too many
 simultaneous events in a row), `time_cap` (still moving at time_cap_s), `solver_fallback` (a

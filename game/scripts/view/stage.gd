@@ -4,7 +4,8 @@ extends Node3D
 ## light over the table. The cameras see a plain dark backdrop; the balls and rails show a faint glow
 ## from the canopy, the balls the green cloth round their lower halves, and the dark arena elsewhere.
 ## Children: Light (the key light, straight down with soft contact shadows), WorldEnvironment, and
-## once set up the Canopy and the Reflections probe.
+## once set up the Canopy, the Reflections probe, the Floor the table stands on and, when the bought
+## model is in the project (res://licensed/lamp.gltf), its Lamp over the table.
 ##
 ## The reflection probe captures the table and the canopy twice (capture_reflections): in the
 ## first frame drawn, and again once the renderer has stopped compiling pipelines. Whatever moves
@@ -16,6 +17,9 @@ const TABLE_LAYER := 1
 const BALL_LAYER := 1 << 1
 ## The cue, the guides and anything else that moves.
 const MOVING_LAYER := 1 << 2
+## What stands round the table: the lamp and the floor. The cameras see it;
+## the probe leaves it out and doesn't light it.
+const SCENERY_LAYER := 1 << 3
 ## The canopy, which only the probe sees.
 const PROBE_ONLY_LAYER := 1 << 19
 ## What the probe lights. The cue moves through the box and would mirror the cloth: green ebony and
@@ -25,8 +29,8 @@ const PROBE_RECEIVERS := TABLE_LAYER | BALL_LAYER
 const BACKDROP := Color(0.02, 0.022, 0.025)
 const HDRI_PATH := "res://env/studio_small_04_1k.hdr"
 const SKY_ENERGY := 0.35
-const AMBIENT_ENERGY := 0.6
-const KEY_ENERGY := 0.7
+const AMBIENT_ENERGY := 0.7
+const KEY_ENERGY := 0.55
 ## The canopy's size seen from the cloth: soft contact shadows.
 const KEY_ANGULAR_DISTANCE := 25.0
 ## The canopy glows brightest in its middle and fades to nothing at its edges, so the balls and the
@@ -46,15 +50,89 @@ const PROBE_BLEND := 0.02
 const SETTLED_FRAMES := 3
 const RECAPTURE_LATEST_FRAMES := 120
 ## A faint, soft highlight on the balls. The README's canopy-sized area light read as a hard white rectangle.
-const KEY_SPECULAR := 0.25
+const KEY_SPECULAR := 0.32
 # A full-size table with its rails, before TableView reports the real bounds.
 const DEFAULT_BOUNDS := AABB(Vector3(-1.1, -0.7, -1.95), Vector3(2.2, 0.75, 3.9))
 const PLAYING_FALLBACK := Vector2(3.569, 1.778)
 const BALL_RADIUS_FALLBACK := 0.02625
 const MIN_SHADOW_DISTANCE := 1.0
 const MAX_SHADOW_DISTANCE := 12.0
+## The floor under the bought table's legs, below the cloth (game/licensed/fit.json, bed_z); the
+## procedural table's frame comes down to it too.
+const FLOOR_Y := -0.8208
+## The floor is lit round the table and fades into the backdrop between these distances from the
+## table's centre, so it has no edge and no horizon.
+const FLOOR_FADE_FROM := 2.5
+const FLOOR_FADE_TO := 7.0
+const FLOOR_SIZE := 16.0
+const FLOOR_COLOUR := Color(0.16, 0.15, 0.14)
+## The table's shadow on the floor is drawn by the floor itself, from the table's outline: as soft
+## as the canopy's size makes it at that depth (the Mobile renderer's shadow maps have one fixed,
+## narrow blur), and the shadow range stays fitted to the table top. Under the table the floor keeps
+## FLOOR_SHADE of its light, and the shadow's edge is FLOOR_PENUMBRA wide.
+const FLOOR_SHADE := 0.22
+const FLOOR_PENUMBRA := 0.36
+const LAMP_PATH := "res://licensed/lamp.gltf"
+const LAMP_PART := "Lamp"
+## The lamp hangs from 0.79 m above the cloth. A camera below LAMP_SHOWN_BELOW sees all of it; it
+## fades as the camera rises and is gone by LAMP_GONE_ABOVE, still under the lamp, so it never comes
+## between a camera and the table.
+const LAMP_SHOWN_BELOW := 0.55
+const LAMP_GONE_ABOVE := 0.70
+const LAMP_METAL := "PoolTableLightsShader"
+const LAMP_SHADE := "PoolTableLightsGlassShader"
+## The fit turned the shades' glass into plain opaque paint; as lit glass they are pale and glow a
+## little from the bulbs inside.
+const SHADE_COLOUR := Color(0.86, 0.84, 0.78)
+const SHADE_GLOW := Color(1.0, 0.93, 0.8)
+const SHADE_GLOW_ENERGY := 0.2
+const SHADE_ROUGHNESS := 0.35
+const BULB_ENERGY := 3.0
+## The bar and fittings are brass in the model's textures, but fully metallic: all they would show
+## is the dark arena. Part metal, their own colour takes the key light.
+const LAMP_METALLIC := 0.3
+## Seen from the table the brass is lit from below, by the cloth, which no light here stands for:
+## a faint glow of its own instead (added to the bulbs' emission, so scaled by BULB_ENERGY).
+const BRASS_BOUNCE := Color(0.012, 0.011, 0.006)
+const FLOOR_SHADER := """
+shader_type spatial;
+render_mode cull_back, shadows_disabled;
+uniform vec3 colour : source_color;
+uniform vec3 backdrop : source_color;
+uniform float fade_from;
+uniform float fade_to;
+uniform vec2 table_centre;
+uniform vec2 table_half;
+uniform float shade;
+uniform float penumbra;
+varying vec2 at;
+
+void vertex() {
+	at = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xz;
+}
+
+void fragment() {
+	float gone = smoothstep(fade_from, fade_to, length(at));
+	vec2 past = abs(at - table_centre) - table_half;
+	float outside = length(max(past, vec2(0.0))) + min(max(past.x, past.y), 0.0);
+	float lit = mix(shade, 1.0, smoothstep(-0.5 * penumbra, 0.5 * penumbra, outside));
+	ALBEDO = colour * lit * (1.0 - gone);
+	ROUGHNESS = 1.0;
+	SPECULAR = 0.0;
+	// A grain under one step of the screen, or the slow fade shows as rings.
+	float grain = fract(sin(dot(FRAGCOORD.xy, vec2(12.9898, 78.233))) * 43758.5453) - 0.5;
+	EMISSION = backdrop * gone + vec3(grain * 0.0012);
+}
+"""
+
+## Whether setup() hangs the lamp when its file is there. Off by itself in a headless run, which
+## draws nothing (as TableView.Source.AUTO).
+var lamp_enabled := DisplayServer.get_name() != "headless"
+var lamp_path := LAMP_PATH
 
 var _bounds := DEFAULT_BOUNDS
+var _lamp: MeshInstance3D
+var _floor_material: ShaderMaterial
 var _backdrop: Environment
 var _probe: ReflectionProbe
 var _capturing := false
@@ -109,6 +187,8 @@ func setup() -> void:
 	RenderingServer.directional_soft_shadow_filter_set_quality(RenderingServer.SHADOW_QUALITY_SOFT_LOW)
 
 	_add_canopy()
+	_add_floor()
+	_add_lamp()
 
 
 ## The camera sees the plain backdrop, and everything but the canopy.
@@ -116,6 +196,8 @@ func dress_camera(camera: Camera3D) -> void:
 	if _backdrop != null:
 		camera.environment = _backdrop
 	camera.cull_mask &= ~PROBE_ONLY_LAYER
+	if camera.is_inside_tree():
+		_fade_lamp(camera.global_position.y)
 
 
 ## Captures the table and canopy into the balls' reflections in the next frame drawn, and again
@@ -136,17 +218,29 @@ func capture_reflections() -> void:
 	set_process(true)
 
 
-## The table's extent in world space (TableView.bounds()); fit_shadows covers all of it.
+## The table's extent in world space (TableView.bounds()): fit_shadows covers all of it, and the
+## floor draws its shadow.
 func set_table_bounds(bounds: AABB) -> void:
 	_bounds = bounds if bounds.has_volume() else DEFAULT_BOUNDS
+	_shade_floor()
 
 
-## Fits the shadow range to what `camera` sees of the table; call when the camera moves.
+func _shade_floor() -> void:
+	if _floor_material == null:
+		return
+	var centre := _bounds.get_center()
+	_floor_material.set_shader_parameter("table_centre", Vector2(centre.x, centre.z))
+	_floor_material.set_shader_parameter("table_half", Vector2(_bounds.size.x, _bounds.size.z) / 2.0)
+
+
+## Fits the shadow range to what `camera` sees of the table, and shows or hides the lamp for where
+## the camera stands; call when the camera moves.
 func fit_shadows(camera: Camera3D) -> void:
 	var light := get_node_or_null("Light") as DirectionalLight3D
 	if light == null or camera == null:
 		return
 	var eye := camera.global_position
+	_fade_lamp(eye.y)
 	var forward := -camera.global_transform.basis.z
 	var farthest := 0.0
 	for i in 8:
@@ -195,12 +289,106 @@ func _exit_tree() -> void:
 		Perf.set_active(&"reflection_capture", false)
 
 
+## How much of the lamp a camera `height` above the cloth sees: 1 all of it, 0 none.
+static func lamp_shown(height: float) -> float:
+	return 1.0 - smoothstep(LAMP_SHOWN_BELOW, LAMP_GONE_ABOVE, height)
+
+
+func _fade_lamp(height: float) -> void:
+	if _lamp == null:
+		return
+	var shown := lamp_shown(height)
+	_lamp.visible = shown > 0.0
+	_lamp.transparency = 1.0 - shown
+
+
+func _drop(child: String) -> void:
+	var node := get_node_or_null(child)
+	if node != null:
+		remove_child(node)
+		node.queue_free()
+
+
+## A plain dark floor for the table to stand on, with the table's soft shadow.
+func _add_floor() -> void:
+	_drop("Floor")
+	var ground := MeshInstance3D.new()
+	ground.name = "Floor"
+	var plane := PlaneMesh.new()
+	plane.size = Vector2(FLOOR_SIZE, FLOOR_SIZE)
+	ground.mesh = plane
+	ground.position = Vector3(0.0, FLOOR_Y, 0.0)
+	ground.layers = SCENERY_LAYER
+	ground.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var shader := Shader.new()
+	shader.code = FLOOR_SHADER
+	var material := ShaderMaterial.new()
+	material.shader = shader
+	material.set_shader_parameter("colour", FLOOR_COLOUR)
+	material.set_shader_parameter("backdrop", BACKDROP)
+	material.set_shader_parameter("fade_from", FLOOR_FADE_FROM)
+	material.set_shader_parameter("fade_to", FLOOR_FADE_TO)
+	material.set_shader_parameter("shade", FLOOR_SHADE)
+	material.set_shader_parameter("penumbra", FLOOR_PENUMBRA)
+	ground.material_override = material
+	add_child(ground)
+	_floor_material = material
+	_shade_floor()
+
+
+## Hangs the bought lamp over the table when it is in the project. It lights nothing and casts no
+## shadow: the key light and the canopy stand for it.
+func _add_lamp() -> void:
+	_drop("Lamp")
+	_lamp = null
+	if not lamp_enabled or not ResourceLoader.exists(lamp_path):
+		return
+	var scene := load(lamp_path) as PackedScene
+	var model: Node = scene.instantiate() if scene != null else null
+	var lamp: MeshInstance3D = model.get_node_or_null(LAMP_PART) as MeshInstance3D if model != null else null
+	if lamp == null:
+		var wrong := "isn't a scene Godot can load; import the project again"
+		if model != null:
+			wrong = "has no mesh named %s; run tools/fit_table.py again" % LAMP_PART
+			model.free()
+		Log.warn("app", "app.error", {"kind": "message", "file": lamp_path,
+				"message": "stage: no lamp over the table: %s %s" % [lamp_path, wrong]})
+		return
+	model.remove_child(lamp)
+	model.free()
+	lamp.owner = null
+	lamp.layers = SCENERY_LAYER
+	lamp.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	for surface in lamp.mesh.get_surface_count():
+		var material := lamp.mesh.surface_get_material(surface) as BaseMaterial3D
+		if material == null:
+			continue
+		# The imported materials are shared with every other load of the scene: tune copies.
+		material = material.duplicate()
+		material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+		match material.resource_name:
+			LAMP_METAL:
+				material.emission_energy_multiplier = BULB_ENERGY
+				material.emission_operator = BaseMaterial3D.EMISSION_OP_ADD
+				material.emission = BRASS_BOUNCE
+				material.metallic = LAMP_METALLIC
+			LAMP_SHADE:
+				material.albedo_texture = null
+				material.vertex_color_use_as_albedo = false
+				material.albedo_color = SHADE_COLOUR
+				material.roughness_texture = null
+				material.roughness = SHADE_ROUGHNESS
+				material.emission_enabled = true
+				material.emission = SHADE_GLOW
+				material.emission_energy_multiplier = SHADE_GLOW_ENERGY
+		lamp.set_surface_override_material(surface, material)
+	_lamp = lamp
+	add_child(lamp)
+
+
 func _add_canopy() -> void:
 	for old: String in ["Canopy", "Reflections"]:
-		var node := get_node_or_null(old)
-		if node != null:
-			remove_child(node)
-			node.queue_free()
+		_drop(old)
 	var dims := OfsTable.dimensions()
 	var playing := Vector2(float(dims.get("playing_length", PLAYING_FALLBACK.x)),
 			float(dims.get("playing_width", PLAYING_FALLBACK.y)))
