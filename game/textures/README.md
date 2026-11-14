@@ -39,7 +39,7 @@ All maps are 1024 x 1024 JPG.
 | Files | `cloth_albedo.jpg` (neutral grey, mean 0.8), `cloth_normal.jpg`, `cloth_roughness.jpg` |
 | Source | ambientCG Fabric 034, a wool felt scan. The albedo is its luminance with the contrast cut to 35 %, so it only adds a faint mottle; the green is `albedo_color` |
 | Tile | **0.12 m** square (the scan gives no size; chosen by eye: at 0.25 m and above it reads as carpet or felt, at 0.12 m as fine baize) |
-| StandardMaterial3D | `albedo_color` sRGB (0.11, 0.42, 0.16); `roughness` 0.85 (about 0.7 with the map); `normal_scale` 0.3; `rim_enabled`, `rim` 0.25, `rim_tint` 0.6; no clear-coat |
+| StandardMaterial3D | `albedo_color` sRGB (0.11, 0.42, 0.16) in the preview; the table (`table_view.gd`) uses (0.09, 0.46, 0.13), with the cushions a shade darker through their vertex colour (0.93); `roughness` 0.85 (about 0.7 with the map); `normal_scale` 0.3; `rim_enabled`, `rim` 0.25, `rim_tint` 0.6; no clear-coat |
 
 Under the stage below the cloth renders at about sRGB (42-66, 120-129, 52-73), a TV tournament green. The soft
 sheen near the camera comes from the roughness picking up the canopy in the reflection probe; rim adds
@@ -54,9 +54,11 @@ is off. The cushions use the same material.
 | Source | Poly Haven Dark Wood (mahogany), its albedo contrast softened to 55 % so the figure reads as one polished board rather than rosewood |
 | Tile | **2.0 m** (the scan's real size); grain along U |
 | StandardMaterial3D | `roughness` 0.6 (about 0.38 with the map); `normal_scale` 0.3; `clearcoat_enabled`, `clearcoat` 0.35, `clearcoat_roughness` 0.3 (a satin lacquer: the mirror finish of 1.0 / 0.08 showed the canopy as a hard white streak) |
+| On the table | `albedo_color` sRGB (0.86, 0.78, 0.7), a slight warm darkening of the scan, which is already mahogany (mean sRGB 94, 44, 24); `clearcoat` 0.2, `metallic_specular` 0.3. Renders about sRGB (109, 60, 49) from overhead and (90, 36, 19) from the long-lens TV camera 30 degrees down. The earlier tint (0.66, 0.5, 0.32) with the preview's sheen read mauve from above and near black from far down the table |
 
 A tinted Sapele veneer was tried and looked like painted brown; the figure in Dark Wood is what makes it
-read as wood.
+read as wood. Each rail's grain runs along it, so it turns at the 45 degree mitres behind the corner
+pockets, where the table also draws a fine dark joint (vertex colour 0.3).
 
 ### Pocket leathers (`leather/`)
 
@@ -66,6 +68,20 @@ read as wood.
 | Source | ambientCG Leather 030, albedo darkened to 45 % (dark brown, nearly black under the canopy) |
 | Tile | **0.45 m** (the source's "ca. 45 cm") |
 | StandardMaterial3D | `roughness` 1.0 (the map averages 0.48, so it has a soft sheen); `normal_scale` 1.0 |
+| Fittings on the table | the corner horseshoes and the middle fittings: the scan's normal (`normal_scale` 0.6) and roughness (`roughness` 0.9) without its albedo, `albedo_color` cream sRGB (0.78, 0.7, 0.55), shaded from 0.72 at the edges to 1.0 on the padded crown through the vertex colour; `clearcoat` 0.25, `clearcoat_roughness` 0.4. The dark albedo is only the materials preview's now: the holes are no longer lined |
+
+### Pocket nets (generated, no file)
+
+`table_view.gd` (`_net_maps`) draws the crochet net when the table is first built, in about 4 ms on
+this PC: a 64 x 64 albedo and normal map, two diamonds of round cord across a **0.025 m** tile (each
+diamond about 12 mm), a knot where the cords cross and the cords swelling three times per diamond
+side like crochet stitches. Cord sRGB (0.94, 0.91, 0.84), the gaps (0.2, 0.18, 0.16) for the dark
+under the table; the normal map (OpenGL style) comes from the cords' heights. Roughness is
+`cloth/cloth_roughness.jpg` with `roughness` 1.0 and `metallic_specular` 0.2: matt cotton. The net's
+vertex colour shades it from 1.0 at the rim to 0.36 low down and near black (0.012) at the opening at
+its bottom, and its normals lean up like a shallow bowl's (`NET_TILT`), so the key light from straight
+above reaches into it. Its texture keeps a whole number of tiles round each hole and its diamonds
+shrink down the net as fast as round it.
 
 ### Cue (`cue/`)
 
