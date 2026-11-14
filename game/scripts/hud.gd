@@ -42,14 +42,15 @@ static func safe_rect(safe_area: Rect2, window_rect: Rect2, canvas_size: Vector2
 ##   side (housing "right", or "" when unknown): then its centre line is on the safe edge, which
 ##   keeps the drawn cue clear of the island;
 ## - "wheel": the fine-tune wheel beside the cue, low, where the right thumb rests, so a last
-##   nudge of the aim runs straight into the stroke;
+##   nudge of the aim runs straight into the stroke; with_wheel false (Settings "fine_tune_wheel"
+##   off) leaves it empty at the cue's edge, and the break's band runs up to the cue;
 ## - "bottom": edit mode's row, along the bottom (the shot controls are hidden then);
 ## - "break": the band the running break's pill (spec 8.5) is centred in, at the bottom of the safe
 ##   area between the spin ball and the wheel: above the home indicator, and between the full-table view's
 ##   near pockets.
 ## canvas, when given, lets the bottom controls use the margin the phone's home indicator leaves
 ## below the safe area, which keeps the spin ball below the green at the opening view.
-static func layout(safe: Rect2, bar_size: Vector2, canvas := Vector2.ZERO, housing := "") -> Dictionary:
+static func layout(safe: Rect2, bar_size: Vector2, canvas := Vector2.ZERO, housing := "", with_wheel := true) -> Dictionary:
 	var top := safe.position.y + EDGE
 	var below_safe := maxf(canvas.y - safe.end.y, 0.0)
 	var bottom := safe.end.y - maxf(EDGE - below_safe, 0.0)
@@ -68,6 +69,8 @@ static func layout(safe: Rect2, bar_size: Vector2, canvas := Vector2.ZERO, housi
 		cue_line = minf(cue_line, safe.end.x)
 	var cue := Rect2(Vector2(cue_line - CUE_WIDTH / 2.0, top).round(), Vector2(CUE_WIDTH, bottom - top).round())
 	var wheel := Rect2(Vector2(cue.position.x - GAP - WHEEL_SIZE.x, bottom - WHEEL_SIZE.y).round(), WHEEL_SIZE)
+	if not with_wheel:
+		wheel = Rect2(Vector2(cue.position.x, bottom), Vector2.ZERO)
 	var edit_row := Rect2(Vector2(safe.position.x + EDGE, top), Vector2(safe.size.x - 2.0 * EDGE, bottom - top))
 	var break_band := Rect2(Vector2(spin.end.x + GAP, bottom - BREAK_HEIGHT).round(),
 			Vector2(maxf(wheel.position.x - GAP - spin.end.x - GAP, 0.0), BREAK_HEIGHT).round())

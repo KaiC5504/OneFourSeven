@@ -147,3 +147,12 @@ x86_64-only and the Mac has no Rosetta.
   90 MB more memory); iPhone-logged shots replay on Windows with the same events but times up to 22 ns
   apart on 10 m/s break-offs (libm rounding), over `ofs_sim_cli replay`'s 1 ns limit; a private way
   to give CI the bought files, so TestFlight shows the table too.
+- After KaiC's first session on that build (2026-11-15; main fast-forwarded to it first): a tilt now
+  takes the camera off a raised cue and down to 4 degrees under it, the cue drawn faint when the
+  camera is level with it or below (`CueView.clear_of`), until the next shot; a ball played at a
+  pocket that stays out (within 0.2 m of the drop circle, `ShotCycle.attempt`) gets the same pocket
+  camera as a pot, so the cut doesn't give the result away; "Fine-tune sensitivity" scales the drag
+  on a ball ("Aim sensitivity" the rest) and a new touch starts the aim from rest (the drag slop no
+  longer jumps it). The fine-tune wheel is off by a setting with no row in the panel
+  (`fine_tune_wheel`): delete it, its tests and spec text once KaiC confirms the drag is fine
+  enough, or turn the default back on.

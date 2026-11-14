@@ -10,6 +10,10 @@ extends Node3D
 ##
 ## With the bought table model's cue in res://licensed (BOUGHT_PATH) that one is shown, at this
 ## cue's length and butt diameter; without it, the cue built here.
+##
+## A camera level with a raised cue or under it (CameraRig: a tilt took it off the cue) would see
+## the cue lying up the screen across the aim line and the object ball; clear_of() draws it faint
+## for such a camera.
 
 const LENGTH := 1.45
 const TIP_DIAMETER := 0.0095
@@ -26,6 +30,12 @@ const STRIKE_HOLD := 0.25
 ## butt never fills the view as a dark wedge when a low or zoomed-in camera sits over it.
 const NEAR_HIDDEN_M := 0.05
 const NEAR_SOLID_M := 0.15
+## How the cue is drawn for a camera no higher than GHOST_BELOW_M above its axis, where it would
+## cover what is aimed at; solid again from SOLID_ABOVE_M, about where the lowest tilt sits over a
+## level cue.
+const GHOST_ALPHA := 0.16
+const GHOST_BELOW_M := 0.012
+const SOLID_ABOVE_M := 0.03
 ## How metallic the ferrule is drawn. The cue is out of the table's probe, and a full metal shows
 ## only the dim studio it reflects, nearly black.
 const FERRULE_METALLIC := 0.3
@@ -33,6 +43,8 @@ const BOUGHT_PATH := "res://licensed/cue.gltf"
 const BOUGHT_NODE := "Cue"
 
 var _mesh_instance: MeshInstance3D
+var _materials: Array[BaseMaterial3D] = []
+var _ghost := 0.0
 var _ball_radius := BALL_RADIUS_FALLBACK
 var _cue_xy := Vector2.ZERO
 var _aim := 0.0
@@ -75,6 +87,37 @@ func show_cue(on: bool) -> void:
 	if on:
 		_stop_strike()
 	visible = on
+
+
+## Fades the cue for a camera at `eye` (world space): see ghost_for.
+func clear_of(eye: Vector3) -> void:
+	set_ghost(ghost_for(global_transform, eye))
+
+
+## How faint (0 solid to 1, GHOST_ALPHA) the cue at `cue` (its node's transform) is drawn for a
+## camera at `eye`: by how far above the cue's axis the eye stands, or, from behind the butt, how
+## far above it the eye's line to the tip passes the butt.
+static func ghost_for(cue: Transform3D, eye: Vector3) -> float:
+	var local := cue.affine_inverse() * eye
+	if local.z <= 0.0:
+		return 0.0
+	var above := local.y * minf(1.0, LENGTH / local.z)
+	return 1.0 - smoothstep(GHOST_BELOW_M, SOLID_ABOVE_M, above)
+
+
+func set_ghost(amount: float) -> void:
+	amount = clampf(amount, 0.0, 1.0)
+	if is_equal_approx(amount, _ghost):
+		return
+	_ghost = amount
+	for material in _materials:
+		# Opaque again when solid: a blended cue would sort against the guides and lose its depth.
+		material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA if amount > 0.0 else BaseMaterial3D.TRANSPARENCY_DISABLED
+		material.albedo_color.a = lerpf(1.0, GHOST_ALPHA, amount)
+
+
+func ghost() -> float:
+	return _ghost
 
 
 ## Where the tip's face is for a pose, in the parent's space (the table's, Godot axes).
@@ -133,6 +176,14 @@ func _ensure_mesh() -> void:
 	_mesh_instance.layers = Stage.MOVING_LAYER
 	if not _show_bought(_mesh_instance):
 		_mesh_instance.mesh = _own_mesh()
+	_materials.clear()
+	if _mesh_instance.material_override is BaseMaterial3D:
+		_materials.append(_mesh_instance.material_override)
+	else:
+		for surface in _mesh_instance.mesh.get_surface_count():
+			var material := _mesh_instance.mesh.surface_get_material(surface) as BaseMaterial3D
+			if material != null:
+				_materials.append(material)
 	add_child(_mesh_instance)
 
 

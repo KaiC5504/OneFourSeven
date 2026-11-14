@@ -51,8 +51,9 @@ func test_drag_fine_tune_and_stroke_play_a_shot_that_retake_undo_and_redo_walk_b
 	var start_aim := setup.aim_rad
 
 	_table_drag(TABLE_POINT, Vector2(-AIM_DRAG, 0.0), 10)
-	var expected_aim := start_aim + AIM_DRAG * aim.rad_per_px()
+	var expected_aim := start_aim + (AIM_DRAG - Gestures.DRAG_SLOP) * aim.rad_per_px()
 	check_near(setup.aim_rad, expected_aim, 1e-9, "the drag turned the aim")
+	Settings.set_value("fine_tune_wheel", true)
 	var wheel: Control = main.get_node("Hud/FineTuneWheel")
 	_vertical_drag(wheel.get_global_rect().get_center(), -FineTuneWheel.PX_PER_STEP, FINE_TUNE_STEPS)
 	expected_aim += deg_to_rad(FINE_TUNE_STEPS * FineTuneWheel.STEP_DEG)
@@ -494,7 +495,7 @@ func test_turning_edit_off_mid_drag_puts_the_ball_back() -> void:
 	check_eq(_logged("freetable.edit").size(), 0, "and edits nothing")
 	var start_aim: float = main.setup.aim_rad
 	_table_drag(TABLE_POINT, Vector2(-AIM_DRAG, 0.0), 10)
-	check_near(main.setup.aim_rad, start_aim + AIM_DRAG * aim.rad_per_px(), 1e-9, "a fresh drag aims")
+	check_near(main.setup.aim_rad, start_aim + (AIM_DRAG - Gestures.DRAG_SLOP) * aim.rad_per_px(), 1e-9, "a fresh drag aims")
 	_finish(main)
 
 
@@ -526,6 +527,7 @@ func test_undo_mid_drag_puts_the_ball_back() -> void:
 
 func test_the_wheel_held_through_a_shot_turns_again_after_it() -> void:
 	var main: MainScript = await _spawn()
+	Settings.set_value("fine_tune_wheel", true)
 	var setup: ShotSetup = main.setup
 	var wheel: FineTuneWheel = main.get_node("Hud/FineTuneWheel")
 	var at := wheel.get_global_rect().get_center()

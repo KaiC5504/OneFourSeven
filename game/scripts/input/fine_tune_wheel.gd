@@ -1,6 +1,7 @@
 class_name FineTuneWheel
 extends Control
-## The fine-tune thumb wheel (spec 8.1), slim, beside the power cue. Every PX_PER_STEP canvas units
+## The fine-tune thumb wheel (spec 8.1), slim, beside the power cue; shown when Settings
+## "fine_tune_wheel" is on. Every PX_PER_STEP canvas units
 ## of vertical drag, divided by Settings "fine_tune_sensitivity", turn the aim one STEP_DEG step:
 ## dragging up turns the aim anticlockwise seen from above (to the player's left, +aim_rad). Each
 ## change is recorded with ShotSetup.add_fine_tune_sample.

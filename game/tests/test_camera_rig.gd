@@ -240,6 +240,54 @@ func test_a_raised_cue_lifts_the_camera_above_it() -> void:
 	rig.free()
 
 
+func _pitch_of(rig: CameraRig) -> float:
+	return rad_to_deg(asin(-_forward(rig).y))
+
+
+func test_a_tilt_takes_the_camera_off_a_raised_cue_and_down_to_cue_level() -> void:
+	# KaiC: he must always be able to look down along the balls, whatever the cue is doing.
+	var rig := _rig()
+	var cue := Vector2(-1.758, 0.2)
+	rig.follow(cue, 0.0)
+	var level := rig.transform
+	var elevation := deg_to_rad(29.0)
+	rig.set_cue_elevation(elevation)
+	rig._process(CameraRig.BLEND_S)
+	var lifted := 29.0 + CameraRig.ABOVE_CUE_DEG
+	check_near(_pitch_of(rig), lifted, 1e-3, "lifted over the cue")
+	rig.tilt(-2.0 / CameraRig.TILT_DEG_PER_PX)
+	check_near(_pitch_of(rig), lifted - 2.0, 1e-3, "the tilt lowers it from where it is, with no dead travel")
+	check_eq(rig.pitch_deg(), CameraRig.DEFAULT_PITCH_DEG, "the framing still the tilt's own")
+	rig.tilt(-(lifted - 2.0 - CameraRig.DEFAULT_PITCH_DEG) / CameraRig.TILT_DEG_PER_PX)
+	check(rig.transform.is_equal_approx(level), "down to where it stood with the cue level")
+	rig.tilt(-1000.0)
+	check_near(_pitch_of(rig), CameraRig.PITCH_MIN_DEG, 1e-3, "and on down to cue level, under the cue")
+	check(CameraRig.PITCH_MIN_DEG <= 5.0, "almost horizontal: %.1f degrees" % CameraRig.PITCH_MIN_DEG)
+	var low := rig.transform
+	rig.set_cue_elevation(deg_to_rad(45.0))
+	rig._process(CameraRig.BLEND_S)
+	check(rig.transform.is_equal_approx(low), "the cue's angle no longer moves it")
+	rig.tilt(5.0 / CameraRig.TILT_DEG_PER_PX)
+	check_near(_pitch_of(rig), CameraRig.PITCH_MIN_DEG + 5.0, 1e-3, "it comes back up with the fingers")
+	rig.reset_view()
+	rig._process(CameraRig.BLEND_S)
+	check_near(_pitch_of(rig), 45.0 + CameraRig.ABOVE_CUE_DEG, 1e-3, "the next shot starts over the cue again")
+	rig.free()
+
+
+func test_a_tilt_up_from_a_lifted_camera_moves_at_once() -> void:
+	var rig := _rig()
+	rig.follow(Vector2(-1.758, 0.2), 0.0)
+	rig.set_cue_elevation(deg_to_rad(29.0))
+	rig._process(CameraRig.BLEND_S)
+	var lifted := 29.0 + CameraRig.ABOVE_CUE_DEG
+	rig.tilt(3.0 / CameraRig.TILT_DEG_PER_PX)
+	check_near(_pitch_of(rig), lifted + 3.0, 1e-3, "up from where it is")
+	rig.tilt(1000.0)
+	check_near(_pitch_of(rig), CameraRig.PITCH_MAX_DEG, 0.5, "to the planning view")
+	rig.free()
+
+
 func test_a_raised_cue_never_comes_near_the_camera() -> void:
 	var rig := _rig()
 	var cues: Array[Vector2] = [Vector2(-1.758, 0.2), Vector2(0.4, -0.3), Vector2(1.7, 0.85)]

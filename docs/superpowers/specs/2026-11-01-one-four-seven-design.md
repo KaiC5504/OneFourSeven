@@ -383,10 +383,14 @@ same input layer (section 8.8).
 - Dragging anywhere on the table area swings the cue around the cue ball. Sensitivity
   scales with camera zoom, so zoomed in means finer control. **Owner (M2):** while the aim
   line meets a ball, the drag turns the aim a quarter as fast, for the last adjustments of
-  a pot; elsewhere it swings at full speed.
-- A **fine-tune control** (a thumb wheel along the right screen edge, or a similar
-  control the builder may choose) turns the aim in very small steps, about 0.01°, for
-  thin cuts. Its sensitivity is in settings.
+  a pot; elsewhere it swings at full speed. **Owner (2026-11-15):** "Fine-tune sensitivity"
+  in Settings scales the drag on a ball ("Aim sensitivity" the swing elsewhere), and the
+  aim starts from rest under a new touch, so a correction can be as small as the finger
+  makes it.
+- A **fine-tune control** (a thumb wheel beside the cue) turns the aim in very small
+  steps, about 0.01°, for thin cuts, at the same sensitivity. **Owner (2026-11-15):** it
+  is off unless "Fine-tune wheel" in Settings is on, and goes if the drag on a ball
+  proves fine enough.
 - Aim never snaps to balls or pockets, and never moves by itself. There is no hidden
   assistance.
 
@@ -447,7 +451,10 @@ level 1.
   changes.
 - **Pinch** zooms. A **two-finger vertical drag** tilts the camera from cue level (low)
   up to a high, nearly overhead angle. That high angle doubles as the planning view
-  without adding a separate top-down mode.
+  without adding a separate top-down mode. A raised cue lifts the camera above it, but
+  the tilt always wins (**Owner**, 2026-11-15): tilting takes the camera off the cue,
+  down to cue level under it if asked, like eyes down at the balls, and the cue is then
+  drawn faint so it doesn't cover the aim. The next shot starts over the cue again.
 - **Owner (M2), the full-table view:** while a shot plays the camera shows the whole table
   as the mobile game he plays does (measured from his recording of it): from well back at
   the black end (the black at the bottom of the screen, baulk at the top), about 30 degrees down on a long lens (17.5 degrees) so the far end stays
@@ -468,9 +475,15 @@ level 1.
     Either turns as little as it must to keep the ball in the frame all the way in. The
     ball's value (red 1 up to black 7) floats up out of the pocket. The pocket view
     holds until 0.7 s after the drop, and for at least a second, then cuts to the
-    full-table view. A shot that pots nothing, only the cue ball, or a ball too late,
-    cuts to the full-table view 0.1 s after the strike; so does every shot when "Pocket
-    camera" in Settings is off.
+    full-table view.
+  - **The attempt (Owner, 2026-11-15):** the cut must not give away whether the pot goes
+    in. When nothing drops but the struck ball, before it meets another ball, comes
+    within 0.2 m of a pocket's drop circle (and nearer than it started), the view cuts to
+    that pocket's camera exactly as for a pot and holds until 0.7 s after the ball is
+    nearest the pocket.
+  - A shot not played at a pocket, one that pots only the cue ball, or a ball that drops
+    or arrives too late, cuts to the full-table view 0.1 s after the strike; so does
+    every shot when "Pocket camera" in Settings is off.
   - **The settle:** the full-table view holds until every ball stops, and for at least
     0.8 s.
   - **The return:** the aim turns to the easiest clear pot (a colour after a red, a red

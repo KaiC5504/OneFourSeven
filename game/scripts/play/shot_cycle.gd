@@ -6,7 +6,9 @@ extends RefCounted
 ## plan() reads the simulated shot before it plays. The camera stays where it is behind the cue ball
 ## until CUT_T, then cuts: when an object ball drops within POCKET_CAM_MAX_T, to a camera behind
 ## that pocket, held until HOLD_AFTER_DROP_S after the drop and at least MIN_POCKET_S, and from
-## there to the full-table view; otherwise straight to the full-table view. That holds, still,
+## there to the full-table view; otherwise straight to the full-table view. A ball played at a
+## pocket that stays out (attempt()) gets the same pocket camera, timed from when it is nearest the
+## pocket, so the cut doesn't give away whether the pot goes in (KaiC). That holds, still,
 ## until the balls stop and at least MIN_TV_HOLD_S; main.gd then turns the aim and releases the
 ## rig, whose swoop back behind the cue ball is the cycle's only camera move. The times are from
 ## KaiC's recording of the reference game.
@@ -29,6 +31,15 @@ const APPROACH_S := 0.5
 ## How many places along the watched ball's run, from the cut to the drop, the pocket camera is
 ## asked to keep in its frame.
 const TRACK_POINTS := 8
+## A shot that pots nothing was played at a pocket when the struck ball comes this near the
+## pocket's drop circle (a ball's centre meeting the cushion two balls short of a corner's jaw is
+## about 0.16 m from it), and this much nearer than it started, so a ball knocked away from a
+## pocket it lay beside doesn't count.
+const ATTEMPT_NEAR_M := 0.2
+const ATTEMPT_APPROACH_M := 0.05
+## Past this far out again the ball has left the pocket; coming back later is not the attempt.
+const ATTEMPT_LEFT_M := 0.3
+const ATTEMPT_STEP_S := 1.0 / 60.0
 const VALUES := {"red": 1, "yellow": 2, "green": 3, "brown": 4, "blue": 5, "pink": 6, "black": 7}
 ## Events in which a ball meets something; transitions and nap don't move it off its line.
 const CONTACT_KINDS: Array[String] = ["strike", "ball_ball", "ball_line", "ball_arc"]
@@ -58,10 +69,12 @@ func _init(rig: CameraRig = null) -> void:
 
 ## The camera sequence and the pots of a shot about to play. balls and cue_ball are the table it
 ## starts from (the state's ball order); pockets as OfsPhysics.table_shape() gives them. Returns
-## {"sequence": "pocket" or "broadcast", "reason" ("" for pocket, else "no pot", "cue ball only",
-## "late pot", "setting off", or "no pocket" with "problem" saying why), "pots": [{index, ball, label, pocket, t, value}] the object balls
-## in drop order, "cue_potted"}, and for the drop the sequence is about (the first object ball's,
-## else the cue ball's): "ball" (label), "index", "pocket", "drop_t", "from" (where it came in
+## {"sequence": "pocket" or "broadcast", "reason" ("" for the pocket camera on a pot and "near miss"
+## on an attempt that stays out, else "no pot", "cue ball only", "late pot", "setting off", or "no
+## pocket" with "problem" saying why), "pots": [{index, ball, label, pocket, t, value}] the object
+## balls in drop order, "cue_potted"}, and for the ball the sequence is about (the first object
+## ball to drop, else the attempt's, else the cue ball's drop): "ball" (label), "index", "pocket",
+## "drop_t" (or "near_t" for an attempt, when it is nearest the pocket), "from" (where it came in
 ## from, core metres), "track" (where it is from the cut to then, latest first), "drop_centre",
 ## "middle".
 static func plan(playback: ShotPlayback, balls: Array[Dictionary], cue_ball: int, pocket_camera: bool,
@@ -85,6 +98,7 @@ static func plan(playback: ShotPlayback, balls: Array[Dictionary], cue_ball: int
 		pots.append(drop)
 	var out := {"sequence": "broadcast", "reason": "", "pots": pots, "cue_potted": not cue_drop.is_empty()}
 	var about := {}
+	var tried := attempt(playback, cue_ball, pockets) if pots.is_empty() and pocket_camera else {}
 	if not pots.is_empty():
 		about = pots[0]
 		if float(about["t"]) > POCKET_CAM_MAX_T:
@@ -93,6 +107,12 @@ static func plan(playback: ShotPlayback, balls: Array[Dictionary], cue_ball: int
 			out["reason"] = "setting off"
 		else:
 			out["sequence"] = "pocket"
+	elif not tried.is_empty():
+		about = tried
+		var at: Dictionary = balls[int(tried["index"])] if int(tried["index"]) < balls.size() else {}
+		about["label"] = label_of(at) if not at.is_empty() else "ball %d" % int(tried["index"])
+		out["sequence"] = "pocket"
+		out["reason"] = "near miss"
 	elif not cue_drop.is_empty():
 		about = cue_drop.duplicate()
 		about["label"] = "cue"
@@ -106,7 +126,7 @@ static func plan(playback: ShotPlayback, balls: Array[Dictionary], cue_ball: int
 	out["ball"] = about["label"]
 	out["index"] = index
 	out["pocket"] = about["pocket"]
-	out["drop_t"] = drop_t
+	out["drop_t" if tried.is_empty() else "near_t"] = drop_t
 	var pocket: Dictionary = {}
 	if int(about["pocket"]) >= 0 and int(about["pocket"]) < pockets.size():
 		pocket = pockets[int(about["pocket"])]
@@ -123,6 +143,76 @@ static func plan(playback: ShotPlayback, balls: Array[Dictionary], cue_ball: int
 	out["from"] = approach_from(playback, index, drop_t)
 	out["track"] = track_of(playback, index, cut_time(out), drop_t)
 	return out
+
+
+## The pocket a shot was played at: the first ball the cue ball hits, before it meets another ball,
+## coming within ATTEMPT_NEAR_M of a pocket's drop circle and ATTEMPT_APPROACH_M nearer than it
+## started, by POCKET_CAM_MAX_T (later, like a late pot, is watched from the full table). {} when
+## there is none, else {"index", "pocket", "t"}: the ball, the first such pocket, and when the ball
+## is nearest it on that visit.
+static func attempt(playback: ShotPlayback, cue_ball: int, pockets: Array) -> Dictionary:
+	var target := -1
+	var from_t := 0.0
+	var to_t := playback.duration()
+	for e: Dictionary in playback.events():
+		if String(e.get("kind", "")) != "ball_ball":
+			continue
+		var a := int(e.get("a", -1))
+		var b := int(e.get("b", -1))
+		if target < 0:
+			if a == cue_ball or b == cue_ball:
+				target = b if a == cue_ball else a
+				from_t = float(e.get("t", 0.0))
+		elif a == target or b == target:
+			to_t = float(e.get("t", 0.0))
+			break
+	if target < 0:
+		return {}
+	var centres := PackedVector2Array()
+	var radii := PackedFloat64Array()
+	for pocket: Variant in pockets:
+		var centre: Variant = (pocket as Dictionary).get("drop_centre") if pocket is Dictionary else null
+		var usable := centre is Array and (centre as Array).size() >= 2
+		centres.append(Vector2(float(centre[0]), float(centre[1])) if usable else Vector2(INF, INF))
+		radii.append(float((pocket as Dictionary).get("drop_radius", 0.0)) if usable else 0.0)
+	var count := centres.size()
+	var started := PackedFloat64Array()
+	var nearest := PackedFloat64Array()
+	var nearest_t := PackedFloat64Array()
+	var left := PackedByteArray()
+	started.resize(count)
+	nearest.resize(count)
+	nearest_t.resize(count)
+	left.resize(count)
+	nearest.fill(INF)
+	# One step past the limit, so a ball still closing in at the limit reads as late.
+	to_t = minf(to_t, POCKET_CAM_MAX_T + 2.0 * ATTEMPT_STEP_S)
+	var o := target * ShotPlayback.STRIDE
+	var steps := maxi(ceili((to_t - from_t) / ATTEMPT_STEP_S), 1)
+	for k in steps + 1:
+		var t := minf(from_t + k * ATTEMPT_STEP_S, to_t)
+		var state := playback.state_at(t)
+		if o + ShotPlayback.Y >= state.size():
+			return {}
+		var at := Vector2(state[o + ShotPlayback.X], state[o + ShotPlayback.Y])
+		for p in count:
+			var gap := at.distance_to(centres[p]) - radii[p]
+			if k == 0:
+				started[p] = gap
+			if left[p] != 0:
+				continue
+			if gap <= ATTEMPT_NEAR_M:
+				if gap < nearest[p]:
+					nearest[p] = gap
+					nearest_t[p] = t
+			elif gap > ATTEMPT_LEFT_M and nearest[p] < INF:
+				left[p] = 1
+	var best := -1
+	for p in count:
+		var played_at := nearest[p] < INF and started[p] - nearest[p] >= ATTEMPT_APPROACH_M and nearest_t[p] <= POCKET_CAM_MAX_T
+		if played_at and (best < 0 or nearest_t[p] < nearest_t[best]):
+			best = p
+	return {} if best < 0 else {"index": target, "pocket": best, "t": nearest_t[best]}
 
 
 ## Where ball `index` was APPROACH_S before dropping at drop_t, or when it was first hit if later.
@@ -158,12 +248,17 @@ static func track_of(playback: ShotPlayback, index: int, from_t: float, to_t: fl
 static func cut_time(shot_plan: Dictionary) -> float:
 	if shot_plan.get("sequence") != "pocket":
 		return CUT_T
-	return clampf(float(shot_plan.get("drop_t", CUT_T)) - CUT_LEAD_S, 0.0, CUT_T)
+	return clampf(watched_until(shot_plan, CUT_T) - CUT_LEAD_S, 0.0, CUT_T)
 
 
 ## When the pocket camera of a "pocket" plan gives way to the full-table view.
 static func pocket_leave_time(shot_plan: Dictionary) -> float:
-	return maxf(float(shot_plan.get("drop_t", 0.0)) + HOLD_AFTER_DROP_S, cut_time(shot_plan) + MIN_POCKET_S)
+	return maxf(watched_until(shot_plan, 0.0) + HOLD_AFTER_DROP_S, cut_time(shot_plan) + MIN_POCKET_S)
+
+
+## When the ball a plan is about drops, or on an attempt that stays out is nearest its pocket.
+static func watched_until(shot_plan: Dictionary, otherwise: float) -> float:
+	return float(shot_plan.get("drop_t", shot_plan.get("near_t", otherwise)))
 
 
 static func label_of(ball: Dictionary) -> String:

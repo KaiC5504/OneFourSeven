@@ -279,7 +279,7 @@ func _strike(strike_mode: String) -> String:
 func _start_cycle(playback: ShotPlayback, shot_id: String) -> void:
 	_plan = ShotCycle.plan(playback, _free.balls, _free.cue_ball, bool(Settings.get_value("pocket_camera")), _pockets)
 	var fields := {"shot_id": shot_id, "sequence": _plan["sequence"]}
-	for key: String in ["ball", "pocket", "drop_t"]:
+	for key: String in ["ball", "pocket", "drop_t", "near_t"]:
 		if _plan.has(key):
 			fields[key] = _plan[key]
 	if not String(_plan["reason"]).is_empty():
@@ -472,6 +472,7 @@ func _refresh() -> void:
 			_cue.show_cue(true)
 			_cue.set_pose(cue_xy, setup.aim_rad, setup.effective_elevation(), Vector2(setup.tip_x, setup.tip_y),
 					_backswing_m)
+			_cue.clear_of(_rig.camera().global_position)
 			_guides.show_for(_free.balls, _free.cue_ball, setup, _guide_level(), _free.version())
 	# Last, so the elevation minimum's own change signal doesn't queue another pass.
 	_refresh_queued = false
@@ -512,6 +513,7 @@ func _update_aim_enabled() -> void:
 
 func _on_camera_moved() -> void:
 	_stage.fit_shadows(_rig.camera())
+	_cue.clear_of(_rig.camera().global_position)
 	_guides.place_pace_label()
 
 
@@ -522,6 +524,11 @@ func _on_setting_changed(key: String, value: Variant) -> void:
 			_show_controls()
 		"guide_level":
 			_queue_refresh()
+		"fine_tune_wheel":
+			if not bool(value):
+				_wheel.cancel_press("wheel turned off")
+			_show_controls()
+			_layout()
 
 
 func _on_table_changed(balls: Array[Dictionary], _cue_ball: int, reason: StringName) -> void:
@@ -590,7 +597,7 @@ func _show_controls() -> void:
 	var pull := setup.strike_mode == ShotSetup.PULL
 	_spin.visible = not editing
 	_elevation.visible = not editing
-	_wheel.visible = not editing
+	_wheel.visible = not editing and bool(Settings.get_value("fine_tune_wheel"))
 	_stroke.visible = not editing and not pull
 	_pull.visible = not editing and pull
 	_palette.visible = editing
@@ -836,7 +843,8 @@ func _layout() -> void:
 	var safe := HudScript.safe_rect(Rect2(DisplayServer.get_display_safe_area()),
 			Rect2(Vector2(window.position), Vector2(window.size)), canvas)
 	var housing := OfsDevice.housing_side()
-	var rects := HudScript.layout(safe, _bar.row_rect().size, canvas, housing)
+	var with_wheel := bool(Settings.get_value("fine_tune_wheel"))
+	var rects := HudScript.layout(safe, _bar.row_rect().size, canvas, housing, with_wheel)
 	if housing != _housing:
 		_housing = housing
 		Log.info("ui", "ui.layout", {"housing": housing, "safe": [safe.position.x, safe.position.y, safe.size.x,
@@ -854,7 +862,8 @@ func _layout() -> void:
 	_overlay.clear_right = safe.end.x - (rects["cue"] as Rect2).position.x
 	var controls: Array[Rect2] = []
 	for key: String in ["bar", "spin", "elevation", "cue", "wheel"]:
-		controls.append(rects[key])
+		if key != "wheel" or with_wheel:
+			controls.append(rects[key])
 	_rig.keep_clear(controls)
 	var notice_at := Vector2(safe.get_center().x - _notice.size.x / 2.0, safe.position.y + HudScript.EDGE).round()
 	if _notice.position != notice_at:

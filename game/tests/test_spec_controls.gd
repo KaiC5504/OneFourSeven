@@ -243,10 +243,13 @@ func test_drag_aim_never_snaps_through_a_ball_direction() -> void:
 			break
 		pos += Vector2(1.0, 0.0)
 		gestures.feed(_motion(pos, Vector2(1.0, 0.0), MOUSE_BUTTON_MASK_LEFT))
-	var out := float(reported[0])
+	# The move that made the touch a drag turns nothing (AimControl): the aim follows the drag from
+	# the edge of the slop.
+	var slop := Gestures.DRAG_SLOP
+	var out := float(reported[0]) - slop
 	var turned := setup.aim_rad - on_ball
 	check(out > 0.0, "the first move was reported")
-	check(absf(turned) > 0.0, "the first move turned the aim")
+	check(absf(turned) > 0.0, "the drag turned the aim")
 	var sign := signf(turned) if turned != 0.0 else 1.0
 	check_near(turned, sign * rate * out, 1e-12, "aim = start + drag sum")
 	var crossed := false
@@ -254,7 +257,7 @@ func test_drag_aim_never_snaps_through_a_ball_direction() -> void:
 	for _i: int in 200:
 		pos += Vector2(-1.0, 0.0)
 		gestures.feed(_motion(pos, Vector2(-1.0, 0.0), MOUSE_BUTTON_MASK_LEFT))
-		var total := float(reported[0])
+		var total := float(reported[0]) - slop
 		check_near(setup.aim_rad, on_ball + sign * rate * total, 1e-12, "aim = start + drag sum at %f" % total)
 		if total == 0.0:
 			crossed = true

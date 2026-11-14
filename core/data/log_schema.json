@@ -1133,6 +1133,10 @@
           "type": "number",
           "required": false
         },
+        "near_t": {
+          "type": "number",
+          "required": false
+        },
         "reason": {
           "type": "string",
           "required": false

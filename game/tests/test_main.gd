@@ -182,12 +182,22 @@ func test_controls_follow_the_layout() -> void:
 	var safe: Rect2 = HudScript.safe_rect(Rect2(DisplayServer.get_display_safe_area()),
 			Rect2(Vector2(window.position), Vector2(window.size)), canvas)
 	var bar: FreeTableBar = hud.get_node("FreeTableBar")
-	var rects: Dictionary = HudScript.layout(safe, bar.row_rect().size, canvas)
+	var rects: Dictionary = HudScript.layout(safe, bar.row_rect().size, canvas, "", false)
 	check_eq(bar.row_rect(), rects["bar"], "the bar's row where the layout expects")
+	var wheel := hud.get_node("FineTuneWheel") as Control
 	for control_name: String in PLACED:
-		check_eq((hud.get_node(control_name) as Control).get_rect(), rects[PLACED[control_name]], control_name)
+		if control_name != "FineTuneWheel":
+			check_eq((hud.get_node(control_name) as Control).get_rect(), rects[PLACED[control_name]], control_name)
 	check_eq((hud.get_node("SpinWidget") as Control).size, Vector2.ONE * SpinWidget.SIZE, "the spin ball's own size")
-	check_eq((hud.get_node("FineTuneWheel") as Control).mouse_filter, Control.MOUSE_FILTER_STOP, "the wheel takes its own touches")
+	check(not wheel.visible, "no fine-tune wheel unless its setting is on")
+	check_eq((rects["wheel"] as Rect2).size, Vector2.ZERO, "and no room kept for it")
+	Settings.set_value("fine_tune_wheel", true)
+	rects = HudScript.layout(safe, bar.row_rect().size, canvas)
+	check(wheel.visible, "the setting shows the wheel")
+	check_eq(wheel.get_rect(), rects["wheel"], "where the layout expects")
+	check_eq(wheel.mouse_filter, Control.MOUSE_FILTER_STOP, "the wheel takes its own touches")
+	Settings.set_value("fine_tune_wheel", Settings.DEFAULTS["fine_tune_wheel"])
+	check(not wheel.visible, "and off hides it again")
 	var push_mode: bool = Settings.get_value("strike_mode") == "stroke"
 	check_eq((hud.get_node("StrokeCue") as Control).visible, push_mode, "the push cue in Push mode")
 	check_eq((hud.get_node("PullCue") as Control).visible, not push_mode, "the pull cue in Pull mode")

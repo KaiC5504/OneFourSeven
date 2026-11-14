@@ -13,6 +13,9 @@ extends Node3D
 ## A raised cue lifts the camera to at least ABOVE_CUE_DEG above the cue's own angle, so the cue
 ## comes down to the ball from below the eye as a player sees it over the butt, and its butt passes
 ## under the camera instead of through the view. The lift changes the angle only, not the framing.
+## A tilt while it is lifted takes the camera off the cue: it moves from where it is, down to
+## PITCH_MIN_DEG under the cue if the fingers ask (the cue fades out of the way, CueView.clear_of),
+## and no longer follows the cue's angle until the view is reset for the next shot.
 ##
 ## Finger-driven changes (aim drags, pinch, tilt, the elevation control) apply at once. A follow()
 ## that moves the cue ball more than JUMP_M or the aim more than JUMP_RAD, or an elevation change of
@@ -132,6 +135,10 @@ const FALLBACK_POCKETS: Array[Vector3] = [Vector3(1.8157, 0.9202, 0.042), Vector
 enum ShotView { BROADCAST, STILL, POCKET }
 
 var _pitch_deg := DEFAULT_PITCH_DEG
+## A tilt took the camera off a raised cue: the lift is no longer the cue's but what the fingers
+## left of it, in degrees above _pitch_deg.
+var _off_cue := false
+var _own_lift_deg := 0.0
 var _zoom := 1.0
 var _held := false
 ## What the camera shows while held.
@@ -283,7 +290,7 @@ func far_distance(aim_rad: float) -> float:
 
 
 ## The cue's elevation as drawn (ShotSetup.effective_elevation()), in radians: a raised cue lifts
-## the camera above it.
+## the camera above it, until a tilt takes it off the cue.
 func set_cue_elevation(elevation_rad: float) -> void:
 	if not is_finite(elevation_rad):
 		return
@@ -319,7 +326,18 @@ func tilt(relative_px: float) -> void:
 	if _held:
 		return
 	_leave_overview()
-	set_pitch_deg(_pitch_deg + relative_px * TILT_DEG_PER_PX)
+	var change := relative_px * TILT_DEG_PER_PX
+	if not _off_cue:
+		var lift := pitch_for(_target_elevation) - _pitch_deg
+		if lift > 0.0:
+			_off_cue = true
+			_own_lift_deg = lift
+	if _off_cue and change < 0.0:
+		# Down through what is left of the lift first, so the framing stays the tilt's own.
+		var from_lift := minf(-change, _own_lift_deg)
+		_own_lift_deg -= from_lift
+		change += from_lift
+	set_pitch_deg(_pitch_deg + change)
 
 
 ## relative_px: a one-finger drag's horizontal movement in canvas units. Walks the broadcast view
@@ -373,7 +391,10 @@ func reset_view() -> void:
 	if _overview:
 		_overview = false
 		overview_changed.emit(false)
-	if _pitch_deg == DEFAULT_PITCH_DEG and _zoom == 1.0 and not was_overview:
+	var was_off_cue := _off_cue
+	_off_cue = false
+	_own_lift_deg = 0.0
+	if _pitch_deg == DEFAULT_PITCH_DEG and _zoom == 1.0 and not was_overview and not was_off_cue:
 		return
 	_pitch_deg = DEFAULT_PITCH_DEG
 	_zoom = 1.0
@@ -583,8 +604,10 @@ func _broadcast_bounds(basis: Basis, yaw_rad: float) -> PackedFloat64Array:
 
 
 ## The camera's pitch in degrees with the cue raised to elevation_rad: the tilt, or higher over a
-## raised cue.
+## raised cue; once a tilt has taken it off the cue, the tilt and what that left of the lift.
 func pitch_for(elevation_rad: float) -> float:
+	if _off_cue:
+		return minf(_pitch_deg + _own_lift_deg, PITCH_MAX_DEG)
 	if elevation_rad <= 0.0:
 		return _pitch_deg
 	return clampf(rad_to_deg(elevation_rad) + ABOVE_CUE_DEG, _pitch_deg, PITCH_MAX_DEG)

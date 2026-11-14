@@ -157,6 +157,90 @@ func test_each_reason_for_the_broadcast_view() -> void:
 	check(String(plan.get("problem", "")).contains("pocket 7"), "says which: %s" % plan.get("problem"))
 
 
+## The red (ball 1) hit at contact_t and running from (1.0, 0.3) towards `pocket`, stopping at
+## arrive_t with its centre `short_m` outside the drop circle. Nothing drops.
+func _miss(pocket: int, contact_t: float, arrive_t: float, short_m: float) -> ScriptedPlayback:
+	var playback := ScriptedPlayback.new()
+	playback.scripted_events = [{"t": 0.0, "kind": "strike", "a": 0, "b": -1, "body": -1},
+			{"t": contact_t, "kind": "ball_ball", "a": 0, "b": 1, "body": -1}]
+	var from := Vector2(1.0, 0.3)
+	var centre := _centre(pocket)
+	var stop := centre + (from - centre).normalized() * (float(_pockets()[pocket]["drop_radius"]) + short_m)
+	playback.runs[1] = [from, stop, contact_t, arrive_t]
+	return playback
+
+
+func test_a_ball_played_at_a_pocket_that_stays_out_gets_the_same_pocket_camera() -> void:
+	# KaiC: the cut must not tell him whether the pot goes in.
+	var top_left := _pocket("top_left")
+	var plan := ShotCycle.plan(_miss(top_left, 0.4, 1.6, 0.06), _balls(), 0, true, _pockets())
+	check_eq([plan["sequence"], plan["reason"]], ["pocket", "near miss"], "the pocket camera, for a miss")
+	check_eq([plan["ball"], plan["index"], plan["pocket"]], ["red 3", 1, top_left], "the struck red, at the pocket it was played at")
+	check(not plan.has("drop_t") and (plan["pots"] as Array).is_empty() and not plan["cue_potted"], "nothing dropped")
+	check_near(plan["near_t"], 1.6, ShotCycle.ATTEMPT_STEP_S, "timed from when it is nearest the pocket")
+	check((plan["drop_centre"] as Vector2).is_equal_approx(_centre(top_left)) and not plan["middle"], "that pocket's camera")
+	check((plan["from"] as Vector2).distance_to(_centre(top_left)) > 0.1 and (plan["track"] as PackedVector2Array).size() == ShotCycle.TRACK_POINTS,
+			"with the ball's way in to frame")
+	var potted := ShotCycle.plan(_pot(top_left, 0.4, 1.6), _balls(), 0, true, _pockets())
+	check_eq(ShotCycle.cut_time(plan), ShotCycle.cut_time(potted), "cut to at the same moment as a pot")
+	check_near(ShotCycle.pocket_leave_time(plan), ShotCycle.pocket_leave_time(potted), ShotCycle.ATTEMPT_STEP_S,
+			"and left as long after the ball arrives")
+
+	var rig := _rig()
+	rig.follow(Vector2(-1.0, 0.1), 0.3)
+	var cycle := ShotCycle.new(rig)
+	var pose := rig.pocket_pose(plan["drop_centre"], plan["from"], plan["middle"], plan["track"])
+	cycle.start(plan, pose)
+	cycle.update(ShotCycle.CUT_T + 0.001)
+	check(rig.view_name() == "pocket" and rig.transform.is_equal_approx(pose), "the cut goes to the pocket")
+	cycle.update(float(plan["near_t"]) + ShotCycle.HOLD_AFTER_DROP_S - 0.02)
+	check_eq(rig.view_name(), "pocket", "held while the ball comes up short")
+	cycle.update(float(plan["near_t"]) + ShotCycle.HOLD_AFTER_DROP_S + 0.02)
+	check(rig.view_name() == "shot" and rig.is_broadcast(), "then the full table")
+	check_eq(cycle.end_shot()["break"], 0, "and no break from it")
+	rig.free()
+
+	var middle := _pocket("middle_left")
+	plan = ShotCycle.plan(_miss(middle, 0.3, 1.0, 0.15), _balls(), 0, true, _pockets())
+	check_eq([plan["sequence"], plan["pocket"], plan["middle"]], ["pocket", middle, true], "a middle pocket's too")
+
+	var in_off := _miss(top_left, 0.4, 1.6, 0.06)
+	in_off.scripted_events.append({"t": 2.5, "kind": "pocket", "a": 0, "b": -1, "body": _pocket("top_right")})
+	plan = ShotCycle.plan(in_off, _balls(), 0, true, _pockets())
+	check_eq([plan["sequence"], plan["ball"], plan["cue_potted"]], ["pocket", "red 3", true], "an in-off after it still shows the attempt")
+
+
+func test_a_shot_not_played_at_a_pocket_still_cuts_to_the_full_table() -> void:
+	var top_left := _pocket("top_left")
+	var wide := ShotCycle.plan(_miss(top_left, 0.4, 1.6, ShotCycle.ATTEMPT_NEAR_M + 0.05), _balls(), 0, true, _pockets())
+	check_eq([wide["sequence"], wide["reason"]], ["broadcast", "no pot"], "a ball stopping well short")
+
+	var away := ScriptedPlayback.new()
+	away.scripted_events = [{"t": 0.0, "kind": "strike", "a": 0, "b": -1, "body": -1},
+			{"t": 0.4, "kind": "ball_ball", "a": 0, "b": 1, "body": -1}]
+	var centre := _centre(top_left)
+	var beside := centre + (Vector2.ZERO - centre).normalized() * (float(_pockets()[top_left]["drop_radius"]) + 0.1)
+	away.runs[1] = [beside, Vector2(0.2, 0.1), 0.4, 1.6]
+	var plan := ShotCycle.plan(away, _balls(), 0, true, _pockets())
+	check_eq(plan["sequence"], "broadcast", "a ball knocked away from the pocket it lay beside")
+
+	var blocked := _miss(top_left, 0.4, 1.6, 0.06)
+	blocked.scripted_events.append({"t": 0.8, "kind": "ball_ball", "a": 1, "b": 2, "body": -1})
+	plan = ShotCycle.plan(blocked, _balls(), 0, true, _pockets())
+	check_eq(plan["sequence"], "broadcast", "a ball that meets another on the way")
+
+	plan = ShotCycle.plan(_miss(top_left, 0.4, ShotCycle.POCKET_CAM_MAX_T + 0.5, 0.06), _balls(), 0, true, _pockets())
+	check_eq(plan["sequence"], "broadcast", "a ball that gets there too late, like a late pot")
+
+	plan = ShotCycle.plan(_miss(top_left, 0.4, 1.6, 0.06), _balls(), 0, false, _pockets())
+	check_eq([plan["sequence"], plan["reason"]], ["broadcast", "no pot"], "the setting off")
+
+	var no_hit := ScriptedPlayback.new()
+	no_hit.scripted_events = [{"t": 0.0, "kind": "strike", "a": 0, "b": -1, "body": -1}]
+	no_hit.runs[0] = [Vector2(-1.0, 0.0), _centre(top_left), 0.0, 2.0]
+	check(ShotCycle.attempt(no_hit, 0, _pockets()).is_empty(), "the cue ball alone running at a pocket")
+
+
 func test_the_first_object_ball_is_the_one_watched_and_every_pot_scores() -> void:
 	var playback := _pot(_pocket("top_left"), 0.4, 1.6)
 	playback.scripted_events.insert(2, {"t": 0.9, "kind": "pocket", "a": 0, "b": -1, "body": _pocket("middle_left")})

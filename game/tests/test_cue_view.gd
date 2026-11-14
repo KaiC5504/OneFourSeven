@@ -108,6 +108,43 @@ func test_the_cue_dissolves_before_the_camera_clips_it() -> void:
 	cue.free()
 
 
+func test_the_cue_is_drawn_faint_for_a_camera_level_with_it_or_under_it() -> void:
+	var cue := _cue()
+	var elevation := deg_to_rad(29.0)
+	cue.set_pose(CUE_XY, 0.0, elevation, Vector2.ZERO, 0.0)
+	var pose := cue.global_transform
+	var back := pose.basis.z
+	var up := pose.basis.y
+	var one_metre_back := pose.origin + back
+	check_eq(CueView.ghost_for(pose, one_metre_back + up * 0.3), 0.0, "solid from well above it")
+	check_near(CueView.ghost_for(pose, one_metre_back + up * CueView.SOLID_ABOVE_M), 0.0, 1e-6, "and from just above")
+	check_near(CueView.ghost_for(pose, one_metre_back + up * CueView.GHOST_BELOW_M), 1.0, 1e-6, "faint level with it")
+	check_eq(CueView.ghost_for(pose, one_metre_back - up * 0.4), 1.0, "and from under it")
+	var between := CueView.ghost_for(pose, one_metre_back + up * (CueView.GHOST_BELOW_M + CueView.SOLID_ABOVE_M) / 2.0)
+	check(between > 0.0 and between < 1.0, "fading between: %f" % between)
+	check_eq(CueView.ghost_for(pose, pose.origin - back * 0.5 - up * 0.2), 0.0, "solid from beyond the tip")
+	# From behind the butt it is the line to the tip passing the butt that counts.
+	var behind := pose.origin + back * (2.0 * CueView.LENGTH)
+	check_near(CueView.ghost_for(pose, behind + up * (1.9 * CueView.SOLID_ABOVE_M)), 1.0 - smoothstep(CueView.GHOST_BELOW_M,
+			CueView.SOLID_ABOVE_M, 0.95 * CueView.SOLID_ABOVE_M), 1e-5, "half as high over the butt from twice as far")
+
+	var instance := cue.get_node("Mesh") as MeshInstance3D
+	var materials: Array[BaseMaterial3D] = []
+	for i in instance.mesh.get_surface_count():
+		materials.append(instance.get_active_material(i) as BaseMaterial3D)
+	cue.clear_of(one_metre_back - up * 0.4)
+	check_eq(cue.ghost(), 1.0, "under it")
+	for material in materials:
+		check_eq(material.transparency, BaseMaterial3D.TRANSPARENCY_ALPHA, "blended")
+		check_near(material.albedo_color.a, CueView.GHOST_ALPHA, 1e-6, "and faint")
+	cue.clear_of(one_metre_back + up * 0.3)
+	check_eq(cue.ghost(), 0.0, "above it")
+	for material in materials:
+		check_eq(material.transparency, BaseMaterial3D.TRANSPARENCY_DISABLED, "opaque again")
+		check_near(material.albedo_color.a, 1.0, 1e-6, "and solid")
+	cue.free()
+
+
 func test_show_and_strike() -> void:
 	var cue := _cue()
 	cue.set_pose(CUE_XY, 0.0, 0.1, Vector2.ZERO, 0.1)

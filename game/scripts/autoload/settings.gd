@@ -14,6 +14,9 @@ const DEFAULTS := {
 	"guide_level": 1,
 	"aim_sensitivity": 1.0,
 	"fine_tune_sensitivity": 1.0,
+	# Off since the drag itself turns finely on a ball (AimControl), and not in the settings panel,
+	# which has no room for it: here until KaiC says whether the wheel goes for good.
+	"fine_tune_wheel": false,
 	"stroke_wander": false,
 	"reset_spin_after_shot": true,
 	"volume": 0.8,
