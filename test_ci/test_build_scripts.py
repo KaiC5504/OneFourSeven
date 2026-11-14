@@ -557,6 +557,21 @@ class RunDebug(unittest.TestCase):
             self.assertEqual(0, run_debug.main(["--sound"]))
             self.assertEqual(["godot", "--path", str(run_debug.GAME), "--windowed"], call.call_args.args[0])
 
+    def test_background_and_unattended_runs_stay_off_the_screen(self):
+        with tempfile.TemporaryDirectory() as temp,                 mock.patch.object(run_debug.gate, "run", return_value=(True, "")),                 mock.patch.object(run_debug.gate, "cmake_generator", return_value=[]),                 mock.patch.object(run_debug.godot_tools, "find_godot", return_value=Path("godot")),                 mock.patch.object(run_debug, "IMPORT_STAMP", Path(temp) / "stamp"),                 mock.patch.object(run_debug.subprocess, "call", return_value=0) as shown,                 mock.patch.object(run_debug.background, "run", return_value=5) as hidden,                 mock.patch("sys.stdout", io.StringIO()):
+            self.assertEqual(5, run_debug.main(["--background", "--", "--demo-screen=table"]))
+            self.assertEqual(["godot", "--path", str(run_debug.GAME), "--windowed", "--", "--mute", "--demo-screen=table"],
+                             hidden.call_args.args[0])
+            self.assertEqual(5, run_debug.main(["--sound", "--background"]))
+            self.assertEqual(["godot", "--path", str(run_debug.GAME), "--windowed"], hidden.call_args.args[0])
+            self.assertEqual(5, run_debug.main(["--", "--screenshot=shot.png"]))
+            self.assertEqual(5, run_debug.main(["--", "--dump-state=state.json"]))
+            self.assertEqual(4, hidden.call_count)
+            shown.assert_not_called()
+            # A game argument that merely looks like the flag is the game's.
+            self.assertEqual(0, run_debug.main(["--", "--background"]))
+            shown.assert_called_once()
+
     def test_anything_before_the_separator_is_refused(self):
         with mock.patch("sys.stderr", io.StringIO()):
             self.assertEqual(2, run_debug.main(["--demo-screen=table"]))

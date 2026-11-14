@@ -4,7 +4,12 @@ when anything changed, then start the game in a window.
 
     python scripts/run_debug.py                            # the table, phone link on, muted
     python scripts/run_debug.py --sound                    # with sound
+    python scripts/run_debug.py --background               # no window on the screen (scripts/background.py)
     python scripts/run_debug.py -- --demo-screen=table     # everything after -- goes to the game
+
+A run that takes a screenshot or dumps the state and quits (--screenshot=, --dump-state=) is
+always in the background. Agents and scripts pass --background for every other run too: the
+owner's screen and keyboard are his.
 
 The game starts with --mute so agent runs stay silent; --sound, before --, leaves it out. The
 game picks up parameters live from `uv run tools/devlink.py` running in another terminal, which
@@ -18,6 +23,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import background
 import gate
 import godot_tools
 
@@ -48,13 +54,25 @@ def import_needed() -> bool:
     return False
 
 
+OWN_FLAGS = ("--sound", "--background")
+# Game arguments that run without anyone at the window.
+UNATTENDED = ("--screenshot=", "--dump-state=")
+
+
 def game_args_for(argv: list[str]) -> list[str] | None:
     """The game's user arguments for run_debug's own, or None when they aren't understood."""
-    sound = argv[:1] == ["--sound"]
-    rest = argv[1:] if sound else argv
+    own = []
+    while argv[len(own):len(own) + 1] and argv[len(own)] in OWN_FLAGS:
+        own.append(argv[len(own)])
+    rest = argv[len(own):]
     if rest and rest[0] != "--":
         return None
-    return ([] if sound else ["--mute"]) + rest[1:]
+    return ([] if "--sound" in own else ["--mute"]) + rest[1:]
+
+
+def in_background(argv: list[str]) -> bool:
+    before = argv[:argv.index("--")] if "--" in argv else argv
+    return "--background" in before or any(a.startswith(UNATTENDED) for a in argv)
 
 
 def main(argv: list[str]) -> int:
@@ -72,6 +90,8 @@ def main(argv: list[str]) -> int:
         IMPORT_STAMP.touch()
     command = [godot, "--path", str(GAME), "--windowed"] + (["--", *game_args] if game_args else [])
     print("$ " + " ".join(command), flush=True)
+    if in_background(argv):
+        return background.run(command, str(ROOT))
     return subprocess.call(command, cwd=ROOT)
 
 

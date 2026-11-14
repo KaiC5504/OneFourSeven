@@ -22,3 +22,5 @@ build-*.log
 
 # Bought assets (licences forbid sharing the files); never commit
 /licensed/
+
+/game/licensed/

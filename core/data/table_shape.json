@@ -1,18 +1,20 @@
 {
   "schema_version": 1,
-  "_note": "The cushion and pocket outline (spec 6.3, 7.5, 7.6; physics/table_shape.hpp). Metres, core frame (origin at the table centre, +x to the top cushion, +y to the left seen from baulk); angles in radians from +x towards +y, an arc covering [angle_start, angle_end] anticlockwise (angle_start in [-pi, pi), angle_end may pass pi). 'dimensions' are the design numbers, each with its source in 'docs'; 'lines', 'arcs' and 'pockets' are built from them as 'construction' says, and the table shape tests check that they still match. Change a dimension only with its source.",
-  "construction": "Cushion noses ('kind': 'nose') run along the playing area's edges. At each pocket each nose ends in a jaw: a circular arc of the pocket's jaw radius, tangent to the nose and to a straight facing ('kind': 'facing') that runs into the pocket to rail_width_m behind the nose. Corner facings diverge from the pocket's diagonal axis by corner_facing_angle_rad towards the table and are the gap apart where they cross the line through the corner point square to the axis (the fall); middle facings run square to the cushion, the gap apart. Each pocket's drop circle has half the gap as radius and sits on the pocket's axis with its near edge drop_set_back_m behind the fall: for a middle pocket the line through the points where the jaws meet their facings, for a corner pocket the line through the corner point square to the axis.",
+  "_note": "The cushion and pocket outline (spec 6.3, 7.5, 7.6; physics/table_shape.hpp). Metres, core frame (origin at the table centre, +x to the top cushion, +y to the left seen from baulk); angles in radians from +x towards +y, an arc covering [angle_start, angle_end] anticlockwise (angle_start in [-pi, pi), angle_end may pass pi). 'dimensions' are the design numbers, each with its source in 'docs'; 'lines', 'arcs' and 'pockets' are built from them as 'construction' says, by tools/make_table_shape.py, and the table shape tests check that they still match. Change a dimension only with its source.",
+  "construction": "Cushion noses ('kind': 'nose') run along the playing area's edges. At each pocket each nose ends in a jaw: a circular arc of jaw_radius_m, tangent to the nose, that turns away from the table through jaw_sweep_rad to the cushion's tip. A corner jaw starts corner_jaw_start_m short of the corner point (where the two nose lines cross); a middle jaw starts middle_jaw_start_m from the pocket's centre line. From each tip a straight facing ('kind': 'facing') runs on along the jaw's tangent until it is level with the far edge of the drop circle, measured along the pocket's axis (the diagonal through the corner point; square to the cushion for a middle pocket). Each drop circle is the hole in the bed: its centre sits on the pocket's axis, corner_drop_centre_m beyond the corner point or middle_drop_centre_m behind the nose line, with the matching drop radius.",
   "dimensions": {
     "playing_length_m": 3.569,
     "playing_width_m": 1.778,
-    "corner_gap_m": 0.084,
-    "corner_jaw_radius_m": 0.0254,
-    "corner_facing_angle_rad": 0.12217304763960307,
-    "middle_gap_m": 0.088,
-    "middle_jaw_radius_m": 0.0635,
-    "drop_set_back_m": 0.002,
-    "rail_width_m": 0.14,
-    "rail_height_m": 0.04
+    "jaw_radius_m": 0.10105,
+    "jaw_sweep_rad": 0.98494,
+    "corner_jaw_start_m": 0.09996,
+    "middle_jaw_start_m": 0.13075,
+    "corner_drop_centre_m": 0.05899,
+    "corner_drop_radius_m": 0.05484,
+    "middle_drop_centre_m": 0.0504,
+    "middle_drop_radius_m": 0.04839,
+    "rail_width_m": 0.1177,
+    "rail_height_m": 0.0445
   },
   "docs": {
     "playing_length_m": {
@@ -25,103 +27,113 @@
       "source": "WPBSA Official Rules (2022) section 1: 1778 mm between the cushion faces; table_geometry.hpp",
       "note": "The side cushion noses lie at y = +-width/2."
     },
-    "corner_gap_m": {
+    "jaw_radius_m": {
       "unit": "m",
-      "source": "Approximation; the WPBSA templates are not public (spec 6.3). An unofficial template drawing gives 3.313 in (84.2 mm) for the corner opening at the fall of the slate (forums.azbilliards.com, '6X12 Snooker pocket dimension Euro', 2013); pooltool (Apache-2.0) SnookerTableSpecs.corner_pocket_width = 83 mm; Wikipedia 'Billiard table' gives about 86 mm with tournament pockets slightly smaller; billiardguides.com gives 3.25-3.5 in.",
-      "note": "Narrowest distance between the two jaws, perpendicular to the pocket's axis (pooltool's definition: between the facings). 84 mm leaves a 52.5 mm ball 31.5 mm to spare: tournament tight."
+      "source": "Measured on the bought table model (Studio-Lab 'Snooker Table', Fab) as fitted to this playing area by tools/fit_table.py: game/licensed/fit.json, outline.corner_side_jaw.radius (the corner and middle jaws agree to 0.01 mm; the arc fits the cushion nose to 0.12 mm).",
+      "note": "Every jaw is this arc at the cushion's nose height, tangent to the nose line and turning away from the table. The model's cushions curve into the pockets on this long radius; the owner chose its pockets over the tight 1 in knuckles this file had (2026-11-15)."
     },
-    "corner_jaw_radius_m": {
-      "unit": "m",
-      "source": "Owner's look check (M2, 2026-11-15, spec 6.3) against tournament tables seen from above (Masters 2023 TV corner view; Riley Aristocrat): the cushion runs straight into the corner pocket and turns in at a tight knuckle; 1 in. Was pooltool's (Apache-2.0) SnookerTableSpecs.corner_jaw_radius = 4 in, whose long sweep read as a curved cushion.",
-      "note": "Each corner jaw is this circular arc, tangent to its cushion nose and to its facing. With the 7 degree facings the knuckles sit 76 mm from the corner point along each nose, 108 mm apart (about two balls); they were 143 mm apart."
+    "jaw_sweep_rad": {
+      "unit": "rad",
+      "source": "Measured on the bought table model (Studio-Lab 'Snooker Table', Fab) as fitted to this playing area by tools/fit_table.py: game/licensed/fit.json, outline.corner_side_jaw.sweep_rad.",
+      "note": "How far each jaw turns before the cushion ends: 56.4 degrees, leaving the tip 45.2 mm behind the nose line. The facing carries on along the tangent, so a corner pocket widens behind its tips."
     },
-    "middle_gap_m": {
+    "corner_jaw_start_m": {
       "unit": "m",
-      "source": "Approximation (templates not public). pooltool SnookerTableSpecs.side_pocket_width = 87 mm, 4 mm wider than its corner; 'corner pockets about 3.5 in, middle pockets slightly wider' (cueballchronicles.com, snooker table dimensions guide).",
-      "note": "Corner gap + 4 mm, as in pooltool. Narrowest distance between the facings, which run square to the cushion (pooltool side_pocket_angle = 0)."
+      "source": "Measured on the bought table model (Studio-Lab 'Snooker Table', Fab) as fitted to this playing area by tools/fit_table.py: game/licensed/fit.json, half_length - outline.corner_side_jaw.start. The model as bought has 87 mm; fit_table.py draws each corner cushion back 13 mm (CORNER_PULL) for the owner's rule that pots must not get harder with the new table (2026-11-15).",
+      "note": "Where a corner jaw leaves the nose line, short of the corner point. As bought, the model's corner mouth leaves a 52.5 mm ball 14 mm of play; drawn back, it leaves 31 mm, the play of the 84 mm tournament gap this file had before."
     },
-    "middle_jaw_radius_m": {
+    "middle_jaw_start_m": {
       "unit": "m",
-      "source": "pooltool (Apache-2.0) SnookerTableSpecs.side_jaw_radius = 2.5 in",
-      "note": "A quarter circle from the cushion nose round to the facing, so the middle pocket's narrowest point sits this far behind the nose line: the middle pockets are set back (spec 6.3)."
+      "source": "Measured on the bought table model (Studio-Lab 'Snooker Table', Fab) as fitted to this playing area by tools/fit_table.py: game/licensed/fit.json, -outline.middle_jaw.start.",
+      "note": "Where a middle jaw leaves the nose line, from the pocket's centre line. The tips end 93 mm apart."
     },
-    "drop_set_back_m": {
+    "corner_drop_centre_m": {
       "unit": "m",
-      "source": "Modelling choice (spec 7.6): a ball drops once its centre passes the fall, taken as the line through the jaws' narrowest points.",
-      "note": "Each drop circle's near edge sits this far behind that line, on the pocket's axis, so a ball whose centre is exactly on the fall stays up. The circle's radius is half the pocket's gap. Tunable with the owner's pocket check."
+      "source": "Measured on the bought table model (Studio-Lab 'Snooker Table', Fab) as fitted to this playing area by tools/fit_table.py: game/licensed/fit.json, outline.corner_fall.centre, taken along the diagonal from the corner point.",
+      "note": "The centre of the hole cut in the bed at a corner. With the radius below, the fall begins 4 mm beyond the corner point."
+    },
+    "corner_drop_radius_m": {
+      "unit": "m",
+      "source": "Measured on the bought table model (Studio-Lab 'Snooker Table', Fab) as fitted to this playing area by tools/fit_table.py: game/licensed/fit.json, outline.corner_fall.radius (the bed's cut, fitted to 0.4 mm).",
+      "note": "A ball drops once its centre is over the hole (spec 7.6)."
+    },
+    "middle_drop_centre_m": {
+      "unit": "m",
+      "source": "Measured on the bought table model (Studio-Lab 'Snooker Table', Fab) as fitted to this playing area by tools/fit_table.py: game/licensed/fit.json, outline.middle_fall.centre, behind the cushion nose line.",
+      "note": "The centre of the hole cut in the bed at a middle pocket. The fall begins 2 mm behind the nose line: the middle pockets are no longer set back."
+    },
+    "middle_drop_radius_m": {
+      "unit": "m",
+      "source": "Measured on the bought table model (Studio-Lab 'Snooker Table', Fab) as fitted to this playing area by tools/fit_table.py: game/licensed/fit.json, outline.middle_fall.radius (the bed's cut, fitted to 0.2 mm).",
+      "note": "A ball drops once its centre is over the hole (spec 7.6)."
     },
     "rail_width_m": {
       "unit": "m",
-      "source": "Overall size of full-size tournament tables minus the WPBSA playing area: Xingpai S106 3850 x 2060 mm (listing, mudah.my), Predator 12 ft table 151.6 x 81.1 in (predatorcues.com room-size guide); (3850 - 3569) / 2 = 140.5 mm, (2060 - 1778) / 2 = 141 mm.",
-      "note": "Cushion nose to the rail's outer edge, for the cue obstruction (spec 7.3). The facings end here."
+      "source": "Measured on the bought table model (Studio-Lab 'Snooker Table', Fab) as fitted to this playing area by tools/fit_table.py: game/licensed/fit.json, outline.rail_outer_x - half_width.",
+      "note": "Cushion nose to the rail's outer edge, for the cue obstruction (spec 7.3)."
     },
     "rail_height_m": {
       "unit": "m",
-      "source": "Estimate: the cushion's contact line is at 7R/5 = 36.75 mm (Mathavan et al. 2010) and the cushion top with the wooden rail sits a few mm above it.",
-      "note": "Rail top above the cloth, for the cue obstruction (spec 7.3). The cue agent and the tuner confirm it against forced-elevation shots near a cushion."
-    },
-    "corner_facing_angle_rad": {
-      "unit": "rad",
-      "source": "Owner's look check (M2, 2026-11-15): real corner facings close in towards the fall, as in the tournament photos; 7 degrees, the angle of pool's common 142 degree corner facing (142 - 135). The WPBSA templates are not public (spec 6.3).",
-      "note": "How far each corner facing turns from the pocket's axis, opening towards the table: the mouth is wider at the knuckles than at the fall, and the throat behind the fall keeps narrowing. 0 gives parallel facings."
+      "source": "Measured on the bought table model (Studio-Lab 'Snooker Table', Fab) as fitted to this playing area by tools/fit_table.py: game/licensed/fit.json, outline.rail_top.",
+      "note": "Rail top above the cloth, for the cue obstruction (spec 7.3). The cushion's nose is 33 mm above the cloth in the model; the physics keeps its own contact height."
     }
   },
-  "rail_height_m": 0.04,
-  "rail_width_m": 0.14,
+  "rail_height_m": 0.0445,
+  "rail_width_m": 0.1177,
   "pockets": [
     {
       "name": "top_left",
       "corner": true,
       "drop_centre": [
-        1.815612698372208,
-        0.9201126983722081
+        1.8262122290221945,
+        0.9307122290221944
       ],
-      "drop_radius": 0.042
+      "drop_radius": 0.05484
     },
     {
       "name": "top_right",
       "corner": true,
       "drop_centre": [
-        1.815612698372208,
-        -0.9201126983722081
+        1.8262122290221945,
+        -0.9307122290221944
       ],
-      "drop_radius": 0.042
+      "drop_radius": 0.05484
     },
     {
       "name": "middle_left",
       "corner": false,
       "drop_centre": [
         0.0,
-        0.9985
+        0.9394
       ],
-      "drop_radius": 0.044
+      "drop_radius": 0.04839
     },
     {
       "name": "middle_right",
       "corner": false,
       "drop_centre": [
         0.0,
-        -0.9985
+        -0.9394
       ],
-      "drop_radius": 0.044
+      "drop_radius": 0.04839
     },
     {
       "name": "bottom_left",
       "corner": true,
       "drop_centre": [
-        -1.815612698372208,
-        0.9201126983722081
+        -1.8262122290221945,
+        0.9307122290221944
       ],
-      "drop_radius": 0.042
+      "drop_radius": 0.05484
     },
     {
       "name": "bottom_right",
       "corner": true,
       "drop_centre": [
-        -1.815612698372208,
-        -0.9201126983722081
+        -1.8262122290221945,
+        -0.9307122290221944
       ],
-      "drop_radius": 0.042
+      "drop_radius": 0.05484
     }
   ],
   "lines": [
@@ -130,11 +142,11 @@
       "kind": "nose",
       "p1": [
         1.7845,
-        -0.8125432666914463
+        -0.78904
       ],
       "p2": [
         1.7845,
-        0.8125432666914463
+        0.78904
       ],
       "normal": [
         -1.0,
@@ -146,11 +158,11 @@
       "kind": "nose",
       "p1": [
         -1.7845,
-        0.8125432666914463
+        0.78904
       ],
       "p2": [
         -1.7845,
-        -0.8125432666914463
+        -0.78904
       ],
       "normal": [
         1.0,
@@ -161,11 +173,11 @@
       "name": "left_top",
       "kind": "nose",
       "p1": [
-        0.1075,
+        0.13075,
         0.889
       ],
       "p2": [
-        1.708043266691446,
+        1.68454,
         0.889
       ],
       "normal": [
@@ -177,11 +189,11 @@
       "name": "left_baulk",
       "kind": "nose",
       "p1": [
-        -1.708043266691446,
+        -1.68454,
         0.889
       ],
       "p2": [
-        -0.1075,
+        -0.13075,
         0.889
       ],
       "normal": [
@@ -193,11 +205,11 @@
       "name": "right_top",
       "kind": "nose",
       "p1": [
-        1.708043266691446,
+        1.68454,
         -0.889
       ],
       "p2": [
-        0.1075,
+        0.13075,
         -0.889
       ],
       "normal": [
@@ -209,11 +221,11 @@
       "name": "right_baulk",
       "kind": "nose",
       "p1": [
-        -0.1075,
+        -0.13075,
         -0.889
       ],
       "p2": [
-        -1.708043266691446,
+        -1.68454,
         -0.889
       ],
       "normal": [
@@ -225,192 +237,192 @@
       "name": "top_left_facing_left",
       "kind": "facing",
       "p1": [
-        1.7236810681647177,
-        0.8943845268583892
+        1.7687387925768898,
+        0.9341781302568646
       ],
       "p2": [
-        1.8959810165760347,
-        1.029
+        1.8212170993597463,
+        1.0132628304451738
       ],
       "normal": [
-        0.6156614753256582,
-        -0.7880107536067218
+        0.8332389171389393,
+        -0.5529131097786775
       ]
     },
     {
       "name": "top_left_facing_top",
       "kind": "facing",
       "p1": [
-        1.7898845268583894,
-        0.828181068164718
+        1.8296781302568648,
+        0.8732387925768897
       ],
       "p2": [
-        1.9245,
-        1.0004810165760347
+        1.908762830445174,
+        0.9257170993597462
       ],
       "normal": [
-        -0.7880107536067218,
-        0.6156614753256582
+        -0.5529131097786775,
+        0.8332389171389393
       ]
     },
     {
       "name": "top_right_facing_right",
       "kind": "facing",
       "p1": [
-        1.7236810681647177,
-        -0.8943845268583892
+        1.7687387925768898,
+        -0.9341781302568646
       ],
       "p2": [
-        1.8959810165760347,
-        -1.029
+        1.8212170993597463,
+        -1.0132628304451738
       ],
       "normal": [
-        0.6156614753256582,
-        0.7880107536067218
+        0.8332389171389393,
+        0.5529131097786775
       ]
     },
     {
       "name": "top_right_facing_top",
       "kind": "facing",
       "p1": [
-        1.7898845268583894,
-        -0.828181068164718
+        1.8296781302568648,
+        -0.8732387925768897
       ],
       "p2": [
-        1.9245,
-        -1.0004810165760347
+        1.908762830445174,
+        -0.9257170993597462
       ],
       "normal": [
-        -0.7880107536067218,
-        -0.6156614753256582
+        -0.5529131097786775,
+        -0.8332389171389393
       ]
     },
     {
       "name": "middle_left_facing_top",
       "kind": "facing",
       "p1": [
-        0.044,
-        0.9525
+        0.0465512074231102,
+        0.9341781302568646
       ],
       "p2": [
-        0.044,
-        1.029
+        0.010975930019469948,
+        0.9877900000000004
       ],
       "normal": [
-        -1.0,
-        0.0
+        -0.8332389171389393,
+        -0.5529131097786775
       ]
     },
     {
       "name": "middle_left_facing_baulk",
       "kind": "facing",
       "p1": [
-        -0.044,
-        0.9525
+        -0.0465512074231102,
+        0.9341781302568646
       ],
       "p2": [
-        -0.044,
-        1.029
+        -0.010975930019469948,
+        0.9877900000000004
       ],
       "normal": [
-        1.0,
-        0.0
+        0.8332389171389393,
+        -0.5529131097786775
       ]
     },
     {
       "name": "middle_right_facing_top",
       "kind": "facing",
       "p1": [
-        0.044,
-        -0.9525
+        0.0465512074231102,
+        -0.9341781302568646
       ],
       "p2": [
-        0.044,
-        -1.029
+        0.010975930019469948,
+        -0.9877900000000004
       ],
       "normal": [
-        -1.0,
-        -0.0
+        -0.8332389171389393,
+        0.5529131097786775
       ]
     },
     {
       "name": "middle_right_facing_baulk",
       "kind": "facing",
       "p1": [
-        -0.044,
-        -0.9525
+        -0.0465512074231102,
+        -0.9341781302568646
       ],
       "p2": [
-        -0.044,
-        -1.029
+        -0.010975930019469948,
+        -0.9877900000000004
       ],
       "normal": [
-        1.0,
-        -0.0
+        0.8332389171389393,
+        0.5529131097786775
       ]
     },
     {
       "name": "bottom_left_facing_left",
       "kind": "facing",
       "p1": [
-        -1.7236810681647177,
-        0.8943845268583892
+        -1.7687387925768898,
+        0.9341781302568646
       ],
       "p2": [
-        -1.8959810165760347,
-        1.029
+        -1.8212170993597463,
+        1.0132628304451738
       ],
       "normal": [
-        -0.6156614753256582,
-        -0.7880107536067218
+        -0.8332389171389393,
+        -0.5529131097786775
       ]
     },
     {
       "name": "bottom_left_facing_baulk",
       "kind": "facing",
       "p1": [
-        -1.7898845268583894,
-        0.828181068164718
+        -1.8296781302568648,
+        0.8732387925768897
       ],
       "p2": [
-        -1.9245,
-        1.0004810165760347
+        -1.908762830445174,
+        0.9257170993597462
       ],
       "normal": [
-        0.7880107536067218,
-        0.6156614753256582
+        0.5529131097786775,
+        0.8332389171389393
       ]
     },
     {
       "name": "bottom_right_facing_right",
       "kind": "facing",
       "p1": [
-        -1.7236810681647177,
-        -0.8943845268583892
+        -1.7687387925768898,
+        -0.9341781302568646
       ],
       "p2": [
-        -1.8959810165760347,
-        -1.029
+        -1.8212170993597463,
+        -1.0132628304451738
       ],
       "normal": [
-        -0.6156614753256582,
-        0.7880107536067218
+        -0.8332389171389393,
+        0.5529131097786775
       ]
     },
     {
       "name": "bottom_right_facing_baulk",
       "kind": "facing",
       "p1": [
-        -1.7898845268583894,
-        -0.828181068164718
+        -1.8296781302568648,
+        -0.8732387925768897
       ],
       "p2": [
-        -1.9245,
-        -1.0004810165760347
+        -1.908762830445174,
+        -0.9257170993597462
       ],
       "normal": [
-        0.7880107536067218,
-        -0.6156614753256582
+        0.5529131097786775,
+        -0.8332389171389393
       ]
     }
   ],
@@ -419,133 +431,133 @@
       "name": "top_left_jaw_left",
       "pocket": "top_left",
       "centre": [
-        1.708043266691446,
-        0.9144
+        1.68454,
+        0.99005
       ],
-      "radius": 0.0254,
+      "radius": 0.10105,
       "angle_start": -1.5707963267948966,
-      "angle_end": -0.9075712110370546
+      "angle_end": -0.5858563267948965
     },
     {
       "name": "top_left_jaw_top",
       "pocket": "top_left",
       "centre": [
-        1.8099,
-        0.8125432666914463
+        1.88555,
+        0.78904
       ],
-      "radius": 0.0254,
-      "angle_start": 2.478367537831945,
+      "radius": 0.10105,
+      "angle_start": 2.156652653589793,
       "angle_end": 3.141592653589793
     },
     {
       "name": "top_right_jaw_right",
       "pocket": "top_right",
       "centre": [
-        1.708043266691446,
-        -0.9144
+        1.68454,
+        -0.99005
       ],
-      "radius": 0.0254,
-      "angle_start": 0.9075712110370546,
+      "radius": 0.10105,
+      "angle_start": 0.5858563267948966,
       "angle_end": 1.5707963267948966
     },
     {
       "name": "top_right_jaw_top",
       "pocket": "top_right",
       "centre": [
-        1.8099,
-        -0.8125432666914463
+        1.88555,
+        -0.78904
       ],
-      "radius": 0.0254,
+      "radius": 0.10105,
       "angle_start": -3.141592653589793,
-      "angle_end": -2.478367537831945
+      "angle_end": -2.156652653589793
     },
     {
       "name": "middle_left_jaw_top",
       "pocket": "middle_left",
       "centre": [
-        0.1075,
-        0.9525
+        0.13075,
+        0.99005
       ],
-      "radius": 0.0635,
-      "angle_start": -3.141592653589793,
+      "radius": 0.10105,
+      "angle_start": -2.5557363267948965,
       "angle_end": -1.5707963267948966
     },
     {
       "name": "middle_left_jaw_baulk",
       "pocket": "middle_left",
       "centre": [
-        -0.1075,
-        0.9525
+        -0.13075,
+        0.99005
       ],
-      "radius": 0.0635,
+      "radius": 0.10105,
       "angle_start": -1.5707963267948966,
-      "angle_end": 0.0
+      "angle_end": -0.5858563267948965
     },
     {
       "name": "middle_right_jaw_top",
       "pocket": "middle_right",
       "centre": [
-        0.1075,
-        -0.9525
+        0.13075,
+        -0.99005
       ],
-      "radius": 0.0635,
+      "radius": 0.10105,
       "angle_start": 1.5707963267948966,
-      "angle_end": 3.141592653589793
+      "angle_end": 2.5557363267948965
     },
     {
       "name": "middle_right_jaw_baulk",
       "pocket": "middle_right",
       "centre": [
-        -0.1075,
-        -0.9525
+        -0.13075,
+        -0.99005
       ],
-      "radius": 0.0635,
-      "angle_start": 0.0,
+      "radius": 0.10105,
+      "angle_start": 0.5858563267948966,
       "angle_end": 1.5707963267948966
     },
     {
       "name": "bottom_left_jaw_left",
       "pocket": "bottom_left",
       "centre": [
-        -1.708043266691446,
-        0.9144
+        -1.68454,
+        0.99005
       ],
-      "radius": 0.0254,
-      "angle_start": -2.2340214425527387,
+      "radius": 0.10105,
+      "angle_start": -2.5557363267948965,
       "angle_end": -1.5707963267948966
     },
     {
       "name": "bottom_left_jaw_baulk",
       "pocket": "bottom_left",
       "centre": [
-        -1.8099,
-        0.8125432666914463
+        -1.88555,
+        0.78904
       ],
-      "radius": 0.0254,
+      "radius": 0.10105,
       "angle_start": 0.0,
-      "angle_end": 0.663225115757848
+      "angle_end": 0.98494
     },
     {
       "name": "bottom_right_jaw_right",
       "pocket": "bottom_right",
       "centre": [
-        -1.708043266691446,
-        -0.9144
+        -1.68454,
+        -0.99005
       ],
-      "radius": 0.0254,
+      "radius": 0.10105,
       "angle_start": 1.5707963267948966,
-      "angle_end": 2.2340214425527387
+      "angle_end": 2.5557363267948965
     },
     {
       "name": "bottom_right_jaw_baulk",
       "pocket": "bottom_right",
       "centre": [
-        -1.8099,
-        -0.8125432666914463
+        -1.88555,
+        -0.78904
       ],
-      "radius": 0.0254,
-      "angle_start": -0.663225115757848,
-      "angle_end": 0.0
+      "radius": 0.10105,
+      "angle_start": -0.9849399999999999,
+      "angle_end": 1.1102230246251565e-16
     }
   ]
 }
