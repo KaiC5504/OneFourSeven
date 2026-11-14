@@ -19,3 +19,6 @@ game/data/*.json
 game/data/positions/
 build-*.log
 .claude/worktrees/
+
+# Bought assets (licences forbid sharing the files); never commit
+/licensed/
