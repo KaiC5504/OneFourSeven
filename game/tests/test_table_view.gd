@@ -84,33 +84,114 @@ func test_one_pocket_marker_at_each_drop_centre() -> void:
 	table.free()
 
 
-func test_each_pocket_is_a_leather_hole_round_its_drop_centre() -> void:
+func test_each_pocket_is_a_deep_dark_hole_round_its_drop_centre() -> void:
 	var shape := _shape()
 	var table := _build(shape)
 	var mesh := _mesh(table)
 	if mesh == null:
 		table.free()
 		return
-	check_eq(mesh.get_surface_count(), 4, "cloth, wood, leather and markings surfaces")
-	var leather: PackedVector3Array = mesh.surface_get_arrays(TableView.SURFACE_LEATHER)[Mesh.ARRAY_VERTEX]
+	var lining_arrays := mesh.surface_get_arrays(TableView.SURFACE_LEATHER)
+	var lining: PackedVector3Array = lining_arrays[Mesh.ARRAY_VERTEX]
+	var shades: PackedColorArray = lining_arrays[Mesh.ARRAY_COLOR]
 	var cloth: PackedVector3Array = mesh.surface_get_arrays(TableView.SURFACE_CLOTH)[Mesh.ARRAY_VERTEX]
 	for pocket: Dictionary in shape["pockets"]:
 		var centre := _v2(pocket["drop_centre"])
 		var reach := float(pocket["drop_radius"]) + 0.003
 		var below := 0
 		var deepest := 0.0
-		for v in leather:
+		var bottom_shade := 1.0
+		for i in lining.size():
+			var v := lining[i]
 			if TableSpace.godot_to_core(v).distance_to(centre) <= reach and v.y < -0.01:
 				below += 1
-				deepest = minf(deepest, v.y)
-		check(below > 40, "%s has a leather drop below the cloth (%d vertices)" % [pocket["name"], below])
-		check(deepest < -0.05, "%s is deep enough to swallow a ball: %f" % [pocket["name"], deepest])
+				if v.y < deepest - 1e-6:
+					deepest = v.y
+					bottom_shade = shades[i].v
+				elif absf(v.y - deepest) <= 1e-6:
+					bottom_shade = maxf(bottom_shade, shades[i].v)
+		check(below > 40, "%s has a lined hole below the cloth (%d vertices)" % [pocket["name"], below])
+		# A potted ball sinks this far before it's hidden; the hole must still be round it.
+		check(deepest < -BallsView.DROP_DEPTH - 0.02, "%s goes deeper than a potted ball sinks: %f" % [pocket["name"], deepest])
+		check(bottom_shade < 0.05, "%s is black at the bottom: %f" % [pocket["name"], bottom_shade])
 		# No cloth at the cloth's level inside the hole.
 		var inside := 0
 		for v in cloth:
 			if absf(v.y) < 1e-6 and TableSpace.godot_to_core(v).distance_to(centre) < float(pocket["drop_radius"]) - 0.002:
 				inside += 1
 		check_eq(inside, 0, "%s cloth vertices inside the hole" % pocket["name"])
+	table.free()
+
+
+func test_the_table_is_one_mesh_of_five_surfaces() -> void:
+	var table := _build(_shape())
+	var mesh := _mesh(table)
+	var drawn := 0
+	for child in table.get_children():
+		if child is GeometryInstance3D:
+			drawn += 1
+	check_eq(drawn, 1, "one mesh instance")
+	if mesh != null:
+		check(mesh.get_surface_count() <= 5, "at most five draw calls: %d" % mesh.get_surface_count())
+		check_eq(mesh.get_surface_count(), TableView.SURFACE_FITTINGS + 1, "cloth, wood, lining, markings and fittings")
+	table.free()
+
+
+func test_each_pocket_has_a_fitting_behind_the_cushions_inside_the_rail() -> void:
+	var shape := _shape()
+	var table := _build(shape)
+	var mesh := _mesh(table)
+	if mesh == null:
+		table.free()
+		return
+	var dims := OfsTable.dimensions()
+	var half := Vector2(float(dims["playing_length"]), float(dims["playing_width"])) / 2.0
+	var rail_width := float(shape["rail_width"])
+	var rail_height := float(shape["rail_height"])
+	var fittings: PackedVector3Array = mesh.surface_get_arrays(TableView.SURFACE_FITTINGS)[Mesh.ARRAY_VERTEX]
+	var in_play := 0
+	var outside := 0
+	var highest := -INF
+	for v in fittings:
+		var p := TableSpace.godot_to_core(v)
+		if absf(p.x) < half.x - 1e-6 and absf(p.y) < half.y - 1e-6:
+			in_play += 1
+		if absf(p.x) > half.x + rail_width + 1e-6 or absf(p.y) > half.y + rail_width + 1e-6:
+			outside += 1
+		highest = maxf(highest, v.y)
+	check_eq(in_play, 0, "fitting vertices in front of the cushion noses")
+	check_eq(outside, 0, "fitting vertices outside the rail's outer edge")
+	check(highest > rail_height and highest < rail_height + 0.01, "the fittings sit just proud of the rail: %f" % highest)
+	for pocket: Dictionary in shape["pockets"]:
+		var centre := _v2(pocket["drop_centre"])
+		var near := 0
+		var on_edge := 0
+		for v in fittings:
+			var p := TableSpace.godot_to_core(v)
+			if p.distance_to(centre) < 0.2:
+				near += 1
+				if absf(absf(p.y) - (half.y + rail_width)) < 1e-6 or absf(absf(p.x) - (half.x + rail_width)) < 1e-6:
+					on_edge += 1
+		check(near > 100, "%s has its fitting (%d vertices)" % [pocket["name"], near])
+		check(on_edge > 0, "%s's fitting wraps over the rail's outer edge" % pocket["name"])
+	table.free()
+
+
+func test_the_rails_outer_edge_runs_straight_past_the_middles() -> void:
+	var shape := _shape()
+	var table := _build(shape)
+	var mesh := _mesh(table)
+	if mesh == null:
+		table.free()
+		return
+	var half_width := float(OfsTable.dimensions()["playing_width"]) / 2.0 + float(shape["rail_width"])
+	check_near(table.bounds().end.x, half_width, 1e-4, "the left rail's outer edge")
+	check_near(-table.bounds().position.x, half_width, 1e-4, "the right rail's outer edge")
+	for surface: int in [TableView.SURFACE_WOOD, TableView.SURFACE_FITTINGS, TableView.SURFACE_LEATHER]:
+		var widest := 0.0
+		for v: Vector3 in mesh.surface_get_arrays(surface)[Mesh.ARRAY_VERTEX]:
+			widest = maxf(widest, absf(TableSpace.godot_to_core(v).y))
+		check(widest <= half_width + 1e-6, "surface %d stays inside the side rails: %f" % [surface, widest])
 	table.free()
 
 
