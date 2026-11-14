@@ -429,10 +429,14 @@ level 1.
 - **Pinch** zooms. A **two-finger vertical drag** tilts the camera from cue level (low)
   up to a high, nearly overhead angle. That high angle doubles as the planning view
   without adding a separate top-down mode.
-- After the strike, the camera rises and follows the shot so every moving ball stays in
-  view (**Owner**, M2), then returns behind the cue ball for the next shot.
-- An overview button switches to the planning view of the whole table and back
-  (**Owner**, M2); the two-finger tilt reaches it too.
+- **Owner (M2), the TV view:** when a shot is struck, the camera rises smoothly, in about
+  a second, to the main TV camera's view: high and well back at the end behind the shot,
+  about 55 degrees down, the whole table in frame and clear of the controls. It holds
+  there steadily while the balls run, then eases back behind the cue ball for the next
+  shot.
+- An overview button shows the same view (**Owner**, M2). A one-finger drag walks round
+  the table, keeping it all in view, and pinch zooms; a drag during a shot walks round
+  too. The button again, or a tilt, returns behind the cue ball.
 - Replays get more camera angles (section 12.3).
 
 ### 8.6 Ball in hand
@@ -675,6 +679,12 @@ off by default.
   red dots, as on TV-style practice balls; the colours stay plain.
 - **Ball finish:** **Owner (M2):** a faint, soft highlight; a crisp canopy reflection read
   as unreal.
+- **Pockets (Owner, M2):** the cushions curve into each pocket along the physics jaws, the
+  slate's edge rounded at the fall. Each hole is lined in dark leather that turns black and
+  reads deep from any angle. A cream leather fitting, slightly domed, caps the rail behind
+  every pocket: over the rounded rail corner at the corners, a band round the back of the
+  hole at the middles. The rail's outer edge runs straight past the middles. The rails are
+  dark polished mahogany.
 - **Assets:** built procedurally in code or Godot, or from CC0 (public-domain) sources,
   with licences recorded (section 18).
 
