@@ -352,10 +352,13 @@ const PHONE_SAFE_AREAS: Array[Rect2] = [
 ## A blend's frame at 60 fps: the most the eye may move and the view may turn.
 const STEP_MAX_M := 0.2
 const TURN_MAX_DEG := 3.0
-## The swoop back is shorter (RETURN_S) and swings round the cue ball, so it moves further a frame;
-## smooth still means no frame much over the smoothstep's peak of 1.5 times the average.
-const RETURN_STEP_MAX_M := 0.35
-const PEAK_OVER_MEAN := 1.75
+## The swoop back is shorter (RETURN_S) and swings round the cue ball from the full-table camera, up
+## to half way round for an aim towards baulk, so it moves and turns further a frame. It closes in
+## ahead of its turn, so its fastest frame is about twice the average; smooth still means none much
+## over that.
+const RETURN_STEP_MAX_M := 0.7
+const RETURN_TURN_MAX_DEG := 6.0
+const PEAK_OVER_MEAN := 2.3
 ## The bottom of main.gd's notice line ("Drag to walk round the table"): 16 down, about 60 deep.
 const NOTICE_BOTTOM := 80.0
 
@@ -431,43 +434,49 @@ func _near_rail_width(rig: CameraRig, pose: Transform3D, bounds: AABB, yaw: floa
 
 
 func test_the_broadcast_view_shows_every_pocket_and_cushion_end_clear_of_the_controls() -> void:
-	# KaiC: "Make the table bigger", from a TV frame whose near rail spans about 65 % of its width.
+	# KaiC's reference game, measured from his recording: about 30 degrees down on a long lens, the
+	# table upright, about 80 % of the screen's height and centred.
 	var rig := _loose_rig()
 	var bounds := _table_bounds()
 	rig.set_table_bounds(bounds)
 	var markers := _markers()
 	check_eq(markers.size(), 6 + 12, "six pockets and six cushions' ends")
-	check(CameraRig.BROADCAST_PITCH_DEG >= 25.0 and CameraRig.BROADCAST_PITCH_DEG <= 35.0, "the TV camera's low angle")
+	check(CameraRig.BROADCAST_PITCH_DEG >= 25.0 and CameraRig.BROADCAST_PITCH_DEG <= 35.0, "the reference game's angle")
+	check(CameraRig.FULL_TABLE_HEIGHT >= 0.78 and CameraRig.FULL_TABLE_HEIGHT <= 0.84, "about 80 % of the height")
 	for controls: Array[Rect2] in _control_layouts():
 		rig.keep_clear(controls)
 		for yaw: float in [0.0, PI]:
 			var pose := rig.broadcast_pose(yaw)
-			var tops: Array[float] = []
 			for marker: Array in markers:
 				var at := rig.project(pose, marker[1], CameraRig.BROADCAST_FOV_DEG)
-				tops.append(at.y)
 				check(_on_canvas(at), "%s on screen at %s (yaw %.2f)" % [marker[0], at, yaw])
 				var under := _under(at, controls)
 				check(under.is_empty(), "%s at %s not under the control %s (yaw %.2f)" % [marker[0], at, under, yaw])
 				check(at.y > NOTICE_BOTTOM, "%s at %s below the notice line (yaw %.2f)" % [marker[0], at, yaw])
 			_rail_corners_in_view(rig, pose, "yaw %.2f" % yaw, bounds)
 			var forward := -pose.basis.z
-			check_near(rad_to_deg(asin(-forward.y)), CameraRig.BROADCAST_PITCH_DEG, 1e-4, "looking down at the TV angle")
+			check_near(rad_to_deg(asin(-forward.y)), CameraRig.BROADCAST_PITCH_DEG, 1e-4, "looking down at the reference angle")
 			check_near(_core_dir(forward).dot(Vector2(cos(yaw), sin(yaw))), 1.0, 1e-9, "along the table")
+			var outline := Rect2(rig.project(pose, Vector3(bounds.position.x, bounds.end.y, bounds.position.z), CameraRig.BROADCAST_FOV_DEG), Vector2.ZERO)
+			for i in 8:
+				var corner := bounds.get_endpoint(i)
+				outline = outline.expand(rig.project(pose, Vector3(corner.x, bounds.end.y, corner.z), CameraRig.BROADCAST_FOV_DEG))
+			check_near(outline.size.y, CANVAS.y * CameraRig.FULL_TABLE_HEIGHT, 1.0,
+					"the table FULL_TABLE_HEIGHT of the screen's height (yaw %.2f, %s)" % [yaw, controls])
+			check(outline.get_center().distance_to(CANVAS / 2.0) < 1.0, "centred: %s (yaw %.2f, %s)" % [outline.get_center(), yaw, controls])
 			var near_rail := _near_rail_width(rig, pose, bounds, yaw)
-			# On the long lens the table fills the height first.
-			check(near_rail > CANVAS.x * 0.5 and near_rail < CANVAS.x * 0.7,
-					"the near rail over half the width: %.0f (yaw %.2f, %s)" % [near_rail, yaw, controls])
+			# The reference game's near cushion is 46 % of the width; ours has wider rails outside it.
+			check(near_rail > CANVAS.x * 0.42 and near_rail < CANVAS.x * 0.58,
+					"the near rail about half the width: %.0f (yaw %.2f, %s)" % [near_rail, yaw, controls])
 			var near_end := TableSpace.core_to_godot(-1.7845 * cos(yaw), 0.0)
 			var far_end := TableSpace.core_to_godot(1.7845 * cos(yaw), 0.0)
 			var side := Vector3(0.889, 0.0, 0.0)
 			var near_width := rig.project(pose, near_end + side, CameraRig.BROADCAST_FOV_DEG).distance_to(rig.project(pose, near_end - side, CameraRig.BROADCAST_FOV_DEG))
 			var far_width := rig.project(pose, far_end + side, CameraRig.BROADCAST_FOV_DEG).distance_to(rig.project(pose, far_end - side, CameraRig.BROADCAST_FOV_DEG))
-			# TV's long lens: the far end about 0.7 of the near, where the aiming lens made it 0.4.
-			check(far_width < near_width * 0.85 and far_width > near_width * 0.55,
-					"the far end narrower, but not by much: %.0f vs %.0f" % [far_width, near_width])
+			# The reference game's long lens: the far cushion 0.66 of the near.
+			check(far_width < near_width * 0.72 and far_width > near_width * 0.6,
+					"the far end narrower, as the reference game's: %.0f vs %.0f" % [far_width, near_width])
 			check(rig.project(pose, near_end, CameraRig.BROADCAST_FOV_DEG).y > rig.project(pose, far_end, CameraRig.BROADCAST_FOV_DEG).y, "the near cushion at the bottom")
-			check(tops.max() - tops.min() > CANVAS.y * 0.7, "the table fills the height: %.0f" % [tops.max() - tops.min()])
 	rig.free()
 
 
@@ -499,11 +508,11 @@ func test_the_walk_round_fits_the_table_clear_of_the_controls_at_every_yaw() -> 
 				var at := rig.project(pose, Vector3(corner.x, bounds.end.y, corner.z), CameraRig.BROADCAST_FOV_DEG)
 				if not _on_canvas(at):
 					faults.append("rail corner %s at %s (yaw %d)" % [corner, at, k])
-			# A degree round is about 7 cm along the walk. A fit springing in or out, as one did with a
+			# A degree round is about 8 cm along the walk. A fit springing in or out, as one did with a
 			# pocket slipping round a control's corner, moves the eye several times that in one step.
 			var reach := Vector2(pose.origin.x, pose.origin.z).length() - Vector2(last.origin.x, last.origin.z).length()
 			var rise := pose.origin.y - last.origin.y
-			if absf(reach) > 0.1 or absf(rise) > 0.1:
+			if absf(reach) > 0.13 or absf(rise) > 0.13:
 				jumps.append("yaw %d: %.3f m out, %.3f m up" % [k, reach, rise])
 			if k == 90:
 				var left := rig.project(pose, Vector3(bounds.end.x, bounds.end.y, bounds.end.z), CameraRig.BROADCAST_FOV_DEG)
@@ -516,24 +525,23 @@ func test_the_walk_round_fits_the_table_clear_of_the_controls_at_every_yaw() -> 
 	rig.free()
 
 
-func test_the_broadcast_end_is_behind_the_shot() -> void:
+func test_a_shots_full_table_view_stands_at_baulk() -> void:
 	var rig := _rig()
-	for entry: Array in [[0.3, 0.0], [-1.2, 0.0], [2.5, PI], [-2.0, PI], [PI / 2.0 + 0.05, PI]]:
-		var aim: float = entry[0]
+	for aim: float in [0.3, -1.2, 2.5, -2.0, PI / 2.0 + 0.05]:
 		rig.follow(Vector2(-0.5, 0.2), aim)
 		rig._process(CameraRig.BLEND_S)
+		var behind := rig.transform
 		rig.hold(true)
-		rig._process(CameraRig.BLEND_S)
-		check(not rig.is_easing(), "settled")
-		check(rig.transform.is_equal_approx(rig.broadcast_pose(entry[1])), "the broadcast view for aim %.2f" % aim)
+		check(not rig.is_easing() and rig.transform.is_equal_approx(behind), "aim %.2f: held where it was" % aim)
+		rig.show_broadcast()
+		check(not rig.is_easing(), "aim %.2f: cut, not blended" % aim)
+		check(rig.transform.is_equal_approx(rig.broadcast_pose(CameraRig.FULL_TABLE_YAW)), "aim %.2f: the full-table view" % aim)
 		var eye := _eye_xy(rig)
-		if entry[1] == 0.0:
-			check(eye.x < -1.95, "aiming towards the black: the baulk end (%s)" % eye)
-		else:
-			check(eye.x > 1.95, "aiming towards baulk: the black end (%s)" % eye)
+		check(eye.x < -1.95 and absf(eye.y) < 1e-6, "aim %.2f: from baulk, whichever way the shot went (%s)" % [aim, eye])
+		check(_core_dir(-rig.transform.basis.z).dot(Vector2(1.0, 0.0)) > 1.0 - 1e-9, "aim %.2f: looking up the table at the black" % aim)
 		check(_height(rig) > 1.0, "looking down from above the table: %.2f m" % _height(rig))
 		rig.follow(Vector2(0.6, -0.2), aim + 1.0)
-		check(rig.transform.is_equal_approx(rig.broadcast_pose(entry[1])), "steady while the shot plays")
+		check(rig.transform.is_equal_approx(rig.broadcast_pose(CameraRig.FULL_TABLE_YAW)), "steady while the shot plays")
 		rig.hold(false)
 		rig._process(CameraRig.BLEND_S)
 	rig.free()
@@ -566,13 +574,20 @@ func _check_smooth(run: Array, what: String, duration_s: float = CameraRig.BLEND
 	var mid := steps.size() / 2
 	if duration_s == CameraRig.BLEND_S:
 		check(steps.max() < STEP_MAX_M, "%s: at most %.3f m a frame" % [what, steps.max()])
+		check(turns.max() < TURN_MAX_DEG, "%s: at most %.2f° a frame" % [what, turns.max()])
 	else:
 		var mean := 0.0
 		for step in steps:
 			mean += step / steps.size()
 		check(steps.max() < RETURN_STEP_MAX_M and steps.max() < PEAK_OVER_MEAN * mean + 0.005,
 				"%s: at most %.3f m a frame, %.3f on average" % [what, steps.max(), mean])
-	check(turns.max() < TURN_MAX_DEG, "%s: at most %.2f° a frame" % [what, turns.max()])
+		check(turns.max() < RETURN_TURN_MAX_DEG, "%s: at most %.2f° a frame" % [what, turns.max()])
+		# No jerk: from one frame to the next the speed never changes by more than a small part of
+		# its peak, the first and last frames included (from rest, and to rest).
+		var kick := maxf(steps[0], steps[-1])
+		for i in steps.size() - 1:
+			kick = maxf(kick, absf(steps[i + 1] - steps[i]))
+		check(kick < steps.max() * 0.2, "%s: no jerk, the speed changes by at most %.4f m a frame (peak %.4f)" % [what, kick, steps.max()])
 	for k in 3:
 		check(steps[k] < steps[mid] and steps[-1 - k] < steps[mid], "%s: slow at both ends (%.4f, %.4f vs %.4f mid)"
 				% [what, steps[k], steps[-1 - k], steps[mid]])
@@ -581,11 +596,11 @@ func _check_smooth(run: Array, what: String, duration_s: float = CameraRig.BLEND
 	check_eq(run[2], [] as Array[String], "%s: never under the cloth's or rails' clearance" % what)
 
 
-func test_the_shot_blends_up_to_the_broadcast_view_and_back_down_smoothly() -> void:
+func test_a_shot_cuts_to_the_full_table_and_swoops_back_down_smoothly() -> void:
 	var rig := _rig()
-	# Low behind the cue ball, zoomed in, near a cushion: the hardest starts.
+	# Low behind the cue ball, zoomed in, near a cushion, aiming up and down the table: the hardest ends.
 	var starts: Array = [[Vector2(-1.05, -0.146), 0.02], [Vector2(1.70, 0.8), PI - 0.2], [Vector2(0.0, -0.85), PI / 2.0],
-			[Vector2(-1.7, 0.0), 0.0], [Vector2(0.9, 0.3), -2.0]]
+			[Vector2(-1.7, 0.0), 0.0], [Vector2(0.9, 0.3), -2.0], [Vector2(1.2, -0.4), PI], [Vector2(-1.6, 0.7), PI]]
 	for pitch: float in [CameraRig.PITCH_MIN_DEG, CameraRig.DEFAULT_PITCH_DEG]:
 		for zoom: float in [CameraRig.ZOOM_MIN, 1.0]:
 			rig.set_pitch_deg(pitch)
@@ -595,57 +610,151 @@ func test_the_shot_blends_up_to_the_broadcast_view_and_back_down_smoothly() -> v
 				rig._process(CameraRig.BLEND_S)
 				var what := "cue %s aim %.2f pitch %.0f zoom %.2f" % [start[0], start[1], pitch, zoom]
 				rig.hold(true)
-				_check_smooth(_run_blend(rig, 120), "up, " + what)
-				check(rig.transform.is_equal_approx(rig.broadcast_pose(CameraRig.end_behind(start[1]))),
-						"at the broadcast view, " + what)
+				rig.show_broadcast()
+				check(not rig.is_easing() and not _camera_active(), "cut, nothing to blend: " + what)
+				check(rig.transform.is_equal_approx(rig.broadcast_pose(CameraRig.FULL_TABLE_YAW)), "at the full-table view, " + what)
+				check_eq(rig.camera().fov, CameraRig.BROADCAST_FOV_DEG, "on its long lens, " + what)
 				rig.hold(false)
 				_check_smooth(_run_blend(rig, 120), "down, " + what, CameraRig.RETURN_S)
 				check(rig.transform.is_equal_approx(rig.pose_for(start[0], start[1])), "behind the cue ball again, " + what)
+				check_eq(rig.camera().fov, CameraRig.FOV_DEG, "on the aiming lens again, " + what)
 	check(not _camera_active(), "settled")
 	rig.free()
 
 
-func test_a_shot_finished_mid_blend_turns_back_without_a_jump() -> void:
+func test_an_overview_left_mid_blend_turns_back_without_a_jump() -> void:
 	var rig := _rig()
 	for frames_up: int in [6, 18, 30, 50]:
 		rig.follow(Vector2(-1.05, -0.146), 0.1)
 		rig._process(CameraRig.BLEND_S)
-		rig.hold(true)
+		rig.set_overview(true)
 		var last := rig.transform.origin
 		var before := 0.0
 		for i in frames_up:
 			rig._process(1.0 / 60.0)
 			before = rig.transform.origin.distance_to(last)
 			last = rig.transform.origin
-		# The aim stays as struck; the cue ball has run on.
-		rig.follow(Vector2(0.4, 0.3), 0.1)
-		rig.hold(false)
+		rig.set_overview(false)
 		var run := _run_blend(rig, 120)
 		var steps: Array[float] = run[0]
 		check(absf(steps[0] - before) < 0.012,
 				"after %d frames: the first step back %.4f m, the last one up %.4f m" % [frames_up, steps[0], before])
-		check(steps.max() < RETURN_STEP_MAX_M, "after %d frames: at most %.3f m a frame" % [frames_up, steps.max()])
+		check(steps.max() < STEP_MAX_M, "after %d frames: at most %.3f m a frame" % [frames_up, steps.max()])
 		var turns: Array[float] = run[1]
 		check(turns.max() < TURN_MAX_DEG, "after %d frames: turning gently, at most %.2f° a frame" % [frames_up, turns.max()])
 		check_eq(run[2], [] as Array[String], "after %d frames: clear of the cloth and rails" % frames_up)
-		check(not rig.is_easing() and rig.transform.is_equal_approx(rig.pose_for(Vector2(0.4, 0.3), 0.1)),
-				"after %d frames: behind the cue ball where it stopped" % frames_up)
+		check(not rig.is_easing() and rig.transform.is_equal_approx(rig.pose_for(Vector2(-1.05, -0.146), 0.1)),
+				"after %d frames: behind the cue ball again" % frames_up)
+	rig.free()
+
+
+func test_a_shot_holds_the_camera_where_it_is_until_the_cut() -> void:
+	var rig := _rig()
+	rig.follow(Vector2(-1.0, 0.0), 0.0)
+	# From the overview: the camera stays there, on its long lens, whatever else changes.
+	rig.set_overview(true)
+	rig._process(CameraRig.BLEND_S)
+	var at := rig.transform
+	rig.hold(true)
+	check(not rig.is_overview() and not rig.is_easing() and not _camera_active(), "held, and the game can idle")
+	rig.set_table_bounds(_table_bounds())
+	rig.set_pitch_deg(40.0)
+	rig.follow(Vector2(0.3, 0.3), 1.0)
+	rig._process(0.5)
+	check(rig.transform.is_equal_approx(at) and rig.camera().fov == CameraRig.BROADCAST_FOV_DEG, "exactly where it was")
+	check_eq(rig.view_name(), "shot", "the shot has it")
+	rig.show_pocket(rig.pocket_pose(Vector2(1.8156, 0.9201), Vector2(1.3, 0.5), false))
+	check(rig.view_name() == "pocket" and rig.camera().fov == CameraRig.POCKET_FOV_DEG and not rig.is_easing(), "until the cut")
+	rig.show_broadcast()
+	check(rig.transform.is_equal_approx(rig.broadcast_pose(CameraRig.FULL_TABLE_YAW)) and rig.camera().fov == CameraRig.BROADCAST_FOV_DEG,
+			"and the next")
+	rig.hold(false)
+	_check_smooth(_run_blend(rig, 120), "back from the full table", CameraRig.RETURN_S)
+	rig.free()
+
+
+func test_a_shot_struck_during_the_swoop_lets_it_land_first() -> void:
+	var rig := _rig()
+	rig.follow(Vector2(-1.0, 0.0), 0.0)
+	rig.hold(true)
+	rig.show_broadcast()
+	var landing := Vector2(0.5, 0.3)
+	rig.follow(landing, 2.0)
+	rig.hold(false)
+	for i in 20:
+		rig._process(1.0 / 60.0)
+	check(rig.is_easing(), "part way down the swoop")
+	var last := rig.transform.origin
+	rig._process(1.0 / 60.0)
+	var before := rig.transform.origin.distance_to(last)
+	last = rig.transform.origin
+	rig.hold(true)
+	# The struck cue ball's new place is only remembered.
+	rig.follow(Vector2(1.0, -0.4), 2.0)
+	rig._process(1.0 / 60.0)
+	var after := rig.transform.origin.distance_to(last)
+	check(rig.is_easing() and absf(after - before) < before * 0.25, "the swoop runs on, not stopped in mid air: %.4f then %.4f m" % [before, after])
+	var run := _run_blend(rig, 120)
+	check_eq(run[2], [] as Array[String], "clear of the cloth and rails")
+	check(not rig.is_easing() and rig.transform.is_equal_approx(rig.pose_for(landing, 2.0)), "and lands where it was going")
+	check_eq(rig.camera().fov, CameraRig.FOV_DEG, "on the aiming lens")
+	rig._process(0.5)
+	check(rig.transform.is_equal_approx(rig.pose_for(landing, 2.0)), "then holds there for the shot")
+	rig.show_broadcast()
+	check(rig.transform.is_equal_approx(rig.broadcast_pose(CameraRig.FULL_TABLE_YAW)), "until the cut")
+	rig.hold(false)
+	rig._process(CameraRig.RETURN_S)
+	check(rig.transform.is_equal_approx(rig.pose_for(Vector2(1.0, -0.4), 2.0)), "and back behind the cue ball where it stopped")
+	rig.free()
+
+
+func test_a_skipped_shot_swoops_back_from_wherever_the_camera_is() -> void:
+	var rig := _rig()
+	rig.set_table_bounds(_table_bounds())
+	var corner := Vector2(1.8156, 0.9201)
+	# Before the first cut, and from the pocket camera.
+	for at_pocket: bool in [false, true]:
+		rig.follow(Vector2(0.9, 0.3), 0.6)
+		rig._process(CameraRig.BLEND_S)
+		rig.hold(true)
+		if at_pocket:
+			rig.show_pocket(rig.pocket_pose(corner, Vector2(1.3, 0.5), false))
+			check_eq(rig.view_name(), "pocket", "at the pocket")
+		# The aim stays as struck; the cue ball has run on.
+		rig.follow(Vector2(0.4, 0.3), 0.6)
+		rig.hold(false)
+		var what := "from the pocket" if at_pocket else "from behind the cue ball"
+		check(rig.view_name() == "aim" and rig.is_easing(), "%s: swooping back" % what)
+		var run := _run_blend(rig, 120)
+		var steps: Array[float] = run[0]
+		var turns: Array[float] = run[1]
+		check(absf(steps.size() - CameraRig.RETURN_S * 60.0) <= 3.0, "%s: RETURN_S long, %d frames" % [what, steps.size()])
+		# From the pocket the view turns right round on the spot.
+		check(steps.max() < RETURN_STEP_MAX_M and turns.max() < 6.5,
+				"%s: at most %.3f m and %.2f° a frame" % [what, steps.max(), turns.max()])
+		check(steps[0] <= steps.max() * 0.2 + 1e-6 and steps[-1] <= steps.max() * 0.2 + 1e-6, "%s: from rest to rest" % what)
+		check_eq(run[2], [] as Array[String], "%s: clear of the cloth and rails" % what)
+		check(not rig.is_easing() and rig.transform.is_equal_approx(rig.pose_for(Vector2(0.4, 0.3), 0.6)),
+				"%s: behind the cue ball where it stopped" % what)
+		check_eq(rig.camera().fov, CameraRig.FOV_DEG, "%s: on the aiming lens" % what)
 	rig.free()
 
 
 func test_hold_ignores_pinch_and_tilt_and_follow_waits_for_the_release() -> void:
 	var rig := _rig()
 	rig.follow(Vector2(-1.0, 0.0), 0.0)
+	var behind := rig.transform
 	rig.hold(true)
-	check(rig.is_easing() and _camera_active(), "blending to the broadcast view keeps the game drawing")
+	check(not rig.is_easing() and not _camera_active(), "held still: nothing blends, the game can idle")
 	rig.follow(Vector2(0.6, 0.2), 1.0)
 	rig.pinch(2.0)
 	rig.tilt(100.0)
 	check_eq(rig.zoom_scale(), 1.0, "pinch ignored while held")
 	check_eq(rig.pitch_deg(), CameraRig.DEFAULT_PITCH_DEG, "tilt ignored while held")
-	rig._process(CameraRig.BLEND_S)
-	check(rig.transform.is_equal_approx(rig.broadcast_pose(0.0)), "the broadcast view behind the shot")
-	check(not _camera_active(), "held still there, the game can idle")
+	check(rig.transform.is_equal_approx(behind), "still where the shot was struck from")
+	rig.show_broadcast()
+	check(rig.transform.is_equal_approx(rig.broadcast_pose(0.0)), "the full-table view from baulk")
+	check(not rig.is_easing() and not _camera_active(), "cut to and held still there")
 	rig.hold(false)
 	check(rig.is_easing(), "returns behind the cue ball with a blend")
 	rig._process(CameraRig.BLEND_S)

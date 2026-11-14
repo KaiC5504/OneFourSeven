@@ -639,10 +639,10 @@ func test_guides_key_on_the_table_version() -> void:
 
 
 func test_the_broadcast_view_keeps_every_ball_of_a_long_pot_on_screen() -> void:
-	# KaiC: "after the potting the ball just show this angle to see where the ball goes", the TV
-	# camera at the end behind the shot, steady, eased into from behind the cue ball and back.
+	# KaiC: "after the potting the ball just show this angle to see where the ball goes": the
+	# full-table camera at baulk, steady, cut to from behind the cue ball as his reference game does.
 	var main: MainScript = await _spawn()
-	# The pot would cut to the pocket camera (test_shot_cycle.gd); this is the TV view's own test.
+	# The pot would cut to the pocket camera (test_shot_cycle.gd); this is the full-table view's own test.
 	Settings.set_value("pocket_camera", false)
 	var rig: CameraRig = main.get_node("CameraRig")
 	var camera := rig.camera()
@@ -659,24 +659,30 @@ func test_the_broadcast_view_keeps_every_ball_of_a_long_pot_on_screen() -> void:
 	var ghost := red - (pocket - red).normalized() * 2.0 * r
 	main.harness_play_shot({"aim_rad": (ghost - cue).angle(), "tip_x": 0.0, "tip_y": 0.0, "elevation_rad": 0.0,
 			"speed_m_s": 4.0})
-	check(main.is_playing() and rig.view_name() == "shot", "the broadcast view for the shot")
-	var broadcast := rig.broadcast_pose(0.0)
+	check(main.is_playing() and rig.view_name() == "shot", "the shot holds the camera")
+	var behind_the_cue := rig.transform
+	var broadcast := rig.broadcast_pose(CameraRig.FULL_TABLE_YAW)
 	var view := main.get_viewport().get_visible_rect()
 	var dt := 1.0 / 60.0
 	var off_screen: Array[String] = []
-	var largest_step := 0.0
+	var moves := 0
+	var blended := false
 	var moved_after := 0.0
 	var last_eye := camera.global_position
 	var frames := 0
-	var settled := int(ceil(CameraRig.BLEND_S * 60.0)) + 2
+	var settled := int(ceil(ShotCycle.CUT_T * 60.0)) + 1
 	while player.is_playing() and frames < 1200:
 		player.advance(dt)
 		rig._process(dt)
 		frames += 1
+		blended = blended or rig.is_easing()
 		var step := camera.global_position.distance_to(last_eye)
-		largest_step = maxf(largest_step, step)
+		if step > 0.0:
+			moves += 1
 		if frames > settled:
 			moved_after = maxf(moved_after, step)
+		elif frames < settled - 2:
+			check(rig.transform.is_equal_approx(behind_the_cue), "still behind the cue ball for the stroke (frame %d)" % frames)
 		last_eye = camera.global_position
 		if main._record == null:
 			break
@@ -689,10 +695,10 @@ func test_the_broadcast_view_keeps_every_ball_of_a_long_pot_on_screen() -> void:
 			if camera.is_position_behind(at) or not view.has_point(camera.unproject_position(at)):
 				off_screen.append("ball %d at t %.2f" % [o / ShotPlayback.STRIDE, player.time()])
 		if frames == settled:
-			check(rig.transform.is_equal_approx(broadcast), "at the broadcast view from baulk once blended")
+			check(rig.transform.is_equal_approx(broadcast), "at the full-table view from baulk %.2f s after the strike" % (frames * dt))
 	check(frames > settled + 30, "the shot ran: %d frames" % frames)
 	check_eq(off_screen, [] as Array[String], "every moving ball stays on screen in every frame")
-	check(largest_step < 0.2, "eased, no jump: %.3f m in one frame" % largest_step)
+	check(moves == 1 and not blended, "one cut and no blend: the camera moved %d times" % moves)
 	check_eq(moved_after, 0.0, "steady once there, not chasing the balls")
 	var potted := false
 	for ball: Dictionary in (main._last_shot["potted"] as Array):
@@ -700,7 +706,7 @@ func test_the_broadcast_view_keeps_every_ball_of_a_long_pot_on_screen() -> void:
 	check(potted, "the red went in: %s" % [main._last_shot])
 	await _until_idle(main)
 	check(rig.view_name() == "aim" and rig.is_easing(), "on its way back behind the cue ball")
-	rig._process(CameraRig.BLEND_S)
+	rig._process(CameraRig.RETURN_S)
 	check(not Perf._active.has(&"camera"), "the camera lets the game idle again")
 	var behind := rig.pose_for(main._cue_xy(), main.setup.aim_rad, main.setup.effective_elevation())
 	check(rig.transform.is_equal_approx(behind), "behind the cue ball for the next shot")
@@ -753,8 +759,8 @@ func test_a_drag_during_a_shot_walks_round_the_broadcast_view() -> void:
 			{"ball": "red", "index": 0, "x": 1.2, "y": 0.6}], 0), "the position")
 	await tree.process_frame
 	main.harness_play_shot({"aim_rad": 0.0, "tip_x": 0.0, "tip_y": 0.0, "elevation_rad": 0.0, "speed_m_s": 1.0})
-	rig._process(CameraRig.BLEND_S)
-	player.advance(0.1)
+	player.advance(ShotCycle.CUT_T + 0.05)
+	check(rig.is_broadcast() and not rig.is_easing(), "cut to the full table")
 	var forward := -rig.transform.basis.z
 	_table_drag(TABLE_POINT, Vector2(200.0, 0.0), 10)
 	check(main.is_playing(), "a drag doesn't skip the shot")
@@ -835,6 +841,7 @@ func test_a_pot_cuts_to_the_pocket_scores_and_swoops_back_onto_the_next_ball() -
 	var views := {}
 	var pill_at_drop := ""
 	var popped_at := -1.0
+	var full_table_at := -1.0
 	var frames := 0
 	while main.is_playing() and frames < 1200:
 		_step_shot(main, DT)
@@ -846,6 +853,9 @@ func test_a_pot_cuts_to_the_pocket_scores_and_swoops_back_onto_the_next_ball() -
 		if popped_at < 0.0 and popups.count() > 0:
 			popped_at = t
 			pill_at_drop = pill.text if pill.visible else ""
+		if main.is_playing() and rig.is_easing():
+			failures.append("at %.2f s the camera is blending; a shot only cuts" % t)
+			break
 		if view == "pocket" and t > ShotCycle.CUT_T + DT and t < drop_t:
 			check(rig.transform.is_equal_approx(Transform3D(Basis.from_euler(Vector3(cameras[0]["pose"][3], cameras[0]["pose"][4], 0.0)),
 					Vector3(cameras[0]["pose"][0], cameras[0]["pose"][1], cameras[0]["pose"][2]))), "at the logged pose")
@@ -855,7 +865,13 @@ func test_a_pot_cuts_to_the_pocket_scores_and_swoops_back_onto_the_next_ball() -
 			if view != "pocket":
 				failures.append("at %.2f s the view is %s, not the pocket" % [t, view])
 				break
+		if full_table_at < 0.0 and rig.is_broadcast():
+			full_table_at = t
+			check(rig.transform.is_equal_approx(rig.broadcast_pose(CameraRig.FULL_TABLE_YAW)), "cut straight to the full table from baulk")
 	check_near(views.get("pocket", -1.0), ShotCycle.CUT_T, DT * 1.5, "cut to the pocket")
+	check_near(full_table_at, maxf(drop_t + ShotCycle.HOLD_AFTER_DROP_S, ShotCycle.CUT_T + ShotCycle.MIN_POCKET_S), DT * 1.5,
+			"cut on to the full table 0.7 s after the drop")
+	check(t >= full_table_at + ShotCycle.MIN_TV_HOLD_S - DT, "which held %.2f s before the settle" % (t - full_table_at))
 	check_near(popped_at, drop_t, DT * 1.5, "the 1 floats up at the drop")
 	check_eq(pill_at_drop, "Break 1", "and the break counts it")
 	check(not main.is_playing(), "settled after %d frames" % frames)
@@ -912,7 +928,7 @@ func test_a_tap_skips_the_pocket_camera_and_still_scores() -> void:
 	_finish(main)
 
 
-func test_a_drag_at_the_pocket_walks_round_the_tv_view() -> void:
+func test_a_drag_at_the_pocket_walks_round_the_full_table_view() -> void:
 	var main: MainScript = await _spawn()
 	var rig: CameraRig = main.get_node("CameraRig")
 	var player: ShotPlayer = main.get_node("ShotPlayer")
@@ -924,16 +940,16 @@ func test_a_drag_at_the_pocket_walks_round_the_tv_view() -> void:
 	check_eq(main.harness_state()["camera"]["view"], "pocket", "and the dump says so")
 	_table_drag(TABLE_POINT, Vector2(200.0, 0.0), 10)
 	check(main.is_playing(), "a drag doesn't skip the shot")
-	check(rig.view_name() == "shot" and rig.is_broadcast(), "up to the TV view to walk round")
-	rig._process(ShotCycle.RISE_S)
-	var walked := rig.broadcast_pose(CameraRig.end_behind(strike["aim_rad"]))
-	check(not rig.transform.is_equal_approx(walked), "walked round from the TV view behind the shot")
+	check(rig.view_name() == "shot" and rig.is_broadcast() and not rig.is_easing(), "cut to the full table to walk round")
+	check(not rig.transform.is_equal_approx(rig.broadcast_pose(CameraRig.FULL_TABLE_YAW)), "walked round from the view at baulk")
+	check_near(_turned(-rig.broadcast_pose(CameraRig.FULL_TABLE_YAW).basis.z, -rig.transform.basis.z),
+			200.0 * CameraRig.ORBIT_RAD_PER_PX, 1e-4, "by the drag")
 	main.skip_shot()
 	await _until_idle(main)
 	_finish(main)
 
 
-func test_aim_next_ball_off_keeps_the_aim_and_pocket_camera_off_rises_at_once() -> void:
+func test_aim_next_ball_off_keeps_the_aim_and_pocket_camera_off_cuts_to_the_full_table() -> void:
 	var main: MainScript = await _spawn()
 	Settings.set_value("aim_next_ball", false)
 	Settings.set_value("pocket_camera", false)
@@ -945,7 +961,10 @@ func test_aim_next_ball_off_keeps_the_aim_and_pocket_camera_off_rises_at_once() 
 	var strike := _load_pot(main)
 	await tree.process_frame
 	main.harness_play_shot(strike)
-	check(rig.view_name() == "shot" and rig.is_easing(), "rising to the TV view at the strike")
+	check(rig.view_name() == "shot" and not rig.is_easing(), "held still for the stroke")
+	(main.get_node("ShotPlayer") as ShotPlayer).advance(ShotCycle.CUT_T + 0.05)
+	check(rig.is_broadcast() and not rig.is_easing() and rig.transform.is_equal_approx(rig.broadcast_pose(CameraRig.FULL_TABLE_YAW)),
+			"then cut to the full table, not the pocket")
 	var cameras := _logged("shot.camera")
 	check(cameras.size() == 1 and cameras[0]["sequence"] == "broadcast" and cameras[0]["reason"] == "setting off"
 			and not cameras[0].has("pose"), "logged why: %s" % [cameras])

@@ -3,29 +3,37 @@ extends RefCounted
 ## The shot cycle (spec 8.5), as in the mobile game KaiC plays: what the camera does from the strike
 ## until it swoops back behind the cue ball, and the running break.
 ##
-## plan() reads the simulated shot before it plays. When an object ball drops within
-## POCKET_CAM_MAX_T, the camera stays behind the cue ball until CUT_T, cuts to a camera behind that
-## pocket, holds until HOLD_AFTER_DROP_S after the drop, then rises to the TV view over RISE_S.
-## Otherwise it rises to the TV view at the strike (CameraRig.BLEND_S). Either way the TV view holds
-## until the balls stop and at least MIN_TV_HOLD_S; main.gd then turns the aim and releases the rig.
+## plan() reads the simulated shot before it plays. The camera stays where it is behind the cue ball
+## until CUT_T, then cuts: when an object ball drops within POCKET_CAM_MAX_T, to a camera behind
+## that pocket, held until HOLD_AFTER_DROP_S after the drop and at least MIN_POCKET_S, and from
+## there to the full-table view; otherwise straight to the full-table view. That holds, still,
+## until the balls stop and at least MIN_TV_HOLD_S; main.gd then turns the aim and releases the
+## rig, whose swoop back behind the cue ball is the cycle's only camera move. The times are from
+## KaiC's recording of the reference game.
 ##
 ## Times are the cycle's: shot playback time while the shot plays, carried on in real time after
-## it ends (a pocket hold or a rise can outlast the last ball).
+## it ends (a pocket hold can outlast the last ball).
 
 const POCKET_CAM_MAX_T := 4.0
-## Just after the tip has met the cue ball: the stroke is seen, then the pot.
-const CUT_T := 0.2
+## Just after the tip has met the cue ball: the stroke is seen, then the cut.
+const CUT_T := 0.1
+## A ball that drops sooner than CUT_T after the strike is still seen going in: the cut to its
+## pocket comes this long before the drop.
+const CUT_LEAD_S := 0.05
 const HOLD_AFTER_DROP_S := 0.7
-const RISE_S := 1.0
-const MIN_TV_HOLD_S := 0.4
+const MIN_POCKET_S := 1.0
+const MIN_TV_HOLD_S := 0.8
 ## The ball's way into the pocket is taken from where it was this long before the drop, or where it
 ## was first hit if that was later.
 const APPROACH_S := 0.5
+## How many places along the watched ball's run, from the cut to the drop, the pocket camera is
+## asked to keep in its frame.
+const TRACK_POINTS := 8
 const VALUES := {"red": 1, "yellow": 2, "green": 3, "brown": 4, "blue": 5, "pink": 6, "black": 7}
 ## Events in which a ball meets something; transitions and nap don't move it off its line.
 const CONTACT_KINDS: Array[String] = ["strike", "ball_ball", "ball_line", "ball_arc"]
 
-enum Phase { IDLE, STILL, POCKET, RISE, TV }
+enum Phase { IDLE, STILL, POCKET, TV }
 
 ## The running break, and the kind ("red" or "colour") of the last object ball potted in it, or "".
 var break_total := 0
@@ -37,8 +45,11 @@ var _rig: CameraRig
 var _plan := {}
 var _pocket_pose := Transform3D.IDENTITY
 var _phase := Phase.IDLE
-## When the TV view is (or will be) reached, cycle time.
-var _tv_at := 0.0
+## Cycle times: the first cut, the cut from the pocket to the full-table view, and when the
+## full-table view came on.
+var _cut_at := 0.0
+var _leave_at := 0.0
+var _tv_at := INF
 
 
 func _init(rig: CameraRig = null) -> void:
@@ -51,7 +62,8 @@ func _init(rig: CameraRig = null) -> void:
 ## "late pot", "setting off", or "no pocket" with "problem" saying why), "pots": [{index, ball, label, pocket, t, value}] the object balls
 ## in drop order, "cue_potted"}, and for the drop the sequence is about (the first object ball's,
 ## else the cue ball's): "ball" (label), "index", "pocket", "drop_t", "from" (where it came in
-## from, core metres), "drop_centre", "middle".
+## from, core metres), "track" (where it is from the cut to then, latest first), "drop_centre",
+## "middle".
 static func plan(playback: ShotPlayback, balls: Array[Dictionary], cue_ball: int, pocket_camera: bool,
 		pockets: Array) -> Dictionary:
 	var pots: Array[Dictionary] = []
@@ -109,6 +121,7 @@ static func plan(playback: ShotPlayback, balls: Array[Dictionary], cue_ball: int
 	out["drop_centre"] = Vector2(float(centre[0]), float(centre[1]))
 	out["middle"] = not bool(pocket.get("corner", true))
 	out["from"] = approach_from(playback, index, drop_t)
+	out["track"] = track_of(playback, index, cut_time(out), drop_t)
 	return out
 
 
@@ -129,6 +142,30 @@ static func approach_from(playback: ShotPlayback, index: int, drop_t: float) -> 
 	return Vector2(state[o + ShotPlayback.X], state[o + ShotPlayback.Y])
 
 
+## Where ball `index` is at TRACK_POINTS times from from_t to to_t, the latest first.
+static func track_of(playback: ShotPlayback, index: int, from_t: float, to_t: float) -> PackedVector2Array:
+	var track := PackedVector2Array()
+	var o := index * ShotPlayback.STRIDE
+	for k in TRACK_POINTS:
+		var state := playback.state_at(lerpf(to_t, from_t, float(k) / (TRACK_POINTS - 1)))
+		if o + ShotPlayback.Y < state.size():
+			track.append(Vector2(state[o + ShotPlayback.X], state[o + ShotPlayback.Y]))
+	return track
+
+
+## When the camera first cuts on a shot's plan: CUT_T, or sooner to catch a drop that comes before
+## it.
+static func cut_time(shot_plan: Dictionary) -> float:
+	if shot_plan.get("sequence") != "pocket":
+		return CUT_T
+	return clampf(float(shot_plan.get("drop_t", CUT_T)) - CUT_LEAD_S, 0.0, CUT_T)
+
+
+## When the pocket camera of a "pocket" plan gives way to the full-table view.
+static func pocket_leave_time(shot_plan: Dictionary) -> float:
+	return maxf(float(shot_plan.get("drop_t", 0.0)) + HOLD_AFTER_DROP_S, cut_time(shot_plan) + MIN_POCKET_S)
+
+
 static func label_of(ball: Dictionary) -> String:
 	return "red %d" % int(ball.get("index", 0)) if ball.get("ball") == "red" else String(ball.get("ball", ""))
 
@@ -145,51 +182,47 @@ func start(shot_plan: Dictionary, pocket_pose := Transform3D.IDENTITY) -> void:
 	_plan = shot_plan
 	_pocket_pose = pocket_pose
 	shown_break = break_total
-	if shot_plan.get("sequence") == "pocket":
-		_phase = Phase.STILL
-		_tv_at = INF
-		if _rig != null:
-			_rig.hold(true, true)
-	else:
-		_phase = Phase.RISE
-		_tv_at = CameraRig.BLEND_S
-		if _rig != null:
-			_rig.hold(true)
+	_phase = Phase.STILL
+	_cut_at = cut_time(shot_plan)
+	_leave_at = pocket_leave_time(shot_plan)
+	_tv_at = INF
+	if _rig != null:
+		_rig.hold(true)
 
 
-
-## Moves the camera on to where the cycle is at time t.
+## Cuts the camera on to where the cycle is at time t.
 func update(t: float) -> void:
-	if _phase == Phase.STILL and t >= CUT_T:
-		_phase = Phase.POCKET
-		if _rig != null:
-			_rig.show_pocket(_pocket_pose)
-	if _phase == Phase.POCKET and t >= float(_plan.get("drop_t", 0.0)) + HOLD_AFTER_DROP_S:
-		_rise(t)
-	if _phase == Phase.RISE and t >= _tv_at:
-		_phase = Phase.TV
+	if _phase == Phase.STILL and t >= _cut_at:
+		if _plan.get("sequence") == "pocket":
+			_phase = Phase.POCKET
+			if _rig != null:
+				_rig.show_pocket(_pocket_pose)
+		else:
+			_full_table(t)
+	if _phase == Phase.POCKET and t >= _leave_at:
+		_full_table(t)
 
 
-## A drag before the TV view: up to it now, to walk round. True when the camera was still or at the
-## pocket.
+## A drag before the full-table view: cut to it now, to walk round. True when the camera was still
+## or at the pocket.
 func walk_round(t: float) -> bool:
 	if _phase != Phase.STILL and _phase != Phase.POCKET:
 		return false
-	_rise(t)
+	_full_table(t)
 	return true
 
 
-func _rise(t: float) -> void:
-	_phase = Phase.RISE
-	_tv_at = t + RISE_S
+func _full_table(t: float) -> void:
+	_phase = Phase.TV
+	_tv_at = t
 	if _rig != null:
-		_rig.show_broadcast(RISE_S)
+		_rig.show_broadcast()
 
 
-## True once the TV view has held MIN_TV_HOLD_S, or the cycle was cancelled; the balls' own stop is
-## the caller's to wait for.
+## True once the full-table view has been on for MIN_TV_HOLD_S, or the cycle was cancelled; the
+## balls' own stop is the caller's to wait for.
 func settle_ready(t: float) -> bool:
-	return _phase == Phase.IDLE or (_phase == Phase.TV or _phase == Phase.RISE) and t >= _tv_at + MIN_TV_HOLD_S
+	return _phase == Phase.IDLE or _phase == Phase.TV and t >= _tv_at + MIN_TV_HOLD_S
 
 
 ## A skip: no more of the sequence; the settle can come at once.
