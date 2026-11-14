@@ -44,10 +44,12 @@ BALL_RADIUS = 0.02625
 MODEL_BALL_RADIUS = 0.026
 
 # A 52.5 mm ball has 14 mm of play in the model's corner mouths against 31.5 mm on a
-# tournament table (an 84 mm gap). Each corner cushion and rail end is drawn back this far
-# along its own length, which opens the mouth by sqrt(2) times as much, and the pocket's own
-# pieces grow to stay butted against them.
-CORNER_PULL = 0.013
+# tournament table (an 84 mm gap), and the owner's rule is that pots must not get harder. Each
+# corner cushion and rail end is drawn back this far along its own length, which opens the
+# mouth by sqrt(2) times as much, and the pocket's own pieces grow to stay butted against them.
+# 16 mm (an 86 mm mouth) is where the pot widths measured by `ofs_sim_cli pots` stop falling
+# short of the old outline's from 30 degrees off the diagonal; 13 mm matched it only head-on.
+CORNER_PULL = 0.016
 CORNER_PIECE = 0.13  # the corner pieces scale about a point this far beyond the two rail ends
 
 # Stretches go where the table has no vertices, so only straight extrusions lengthen.
