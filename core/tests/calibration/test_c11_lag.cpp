@@ -42,7 +42,7 @@ double tp_b6_lag_speed(double mu_r, double e_c, double mu_s, double g, double d_
 
 }  // namespace
 
-TEST_CASE("C11 table speed: the lag needs a realistic cue-ball speed for fast cloth") {
+TEST_CASE("C11 table speed: the lag on the owner's cloth, against the published fast-cloth range") {
     const PhysicsParams& p = params();
     const nlohmann::json fx = read_json(fixture_path("reference/table_speed_published.json"));
     REQUIRE_MESSAGE(!fx.is_null(), "missing core/tests/fixtures/reference/table_speed_published.json");
@@ -93,13 +93,37 @@ TEST_CASE("C11 table speed: the lag needs a realistic cue-ball speed for fast cl
     CAPTURE(p.roll_friction);
     INFO("cue speed for the lag with a centre-ball hit: " << (ball_per_cue > 0.0 ? v_lag / ball_per_cue : 0.0)
                                                          << " m/s (ball speed per cue speed " << ball_per_cue << ")");
-    CHECK_MESSAGE((v_lag >= v_min && v_lag <= v_max),
-                  "lag needs a cue-ball speed of " << v_lag << " m/s; TP B.6's lag model on this table gives " << v_min
-                                                   << " to " << v_max << " m/s for effective slopes " << slope_fast
-                                                   << " (fast carom cloth) to " << slope_slow
-                                                   << " (competition pool cloth), Jewett via the Alciatore cloth "
-                                                      "speed FAQ; tune roll_friction");
-    CHECK_MESSAGE((slope >= slope_fast && slope <= slope_slow),
-                  "last length took " << T << " s: effective slope " << slope << ", published fast cloth "
-                                      << slope_fast << " to " << slope_slow << " (Jewett's lag timing)");
+    if (!fx.contains("owner_tuned")) {
+        CHECK_MESSAGE((v_lag >= v_min && v_lag <= v_max),
+                      "lag needs a cue-ball speed of " << v_lag << " m/s; TP B.6's lag model on this table gives "
+                                                       << v_min << " to " << v_max << " m/s for effective slopes "
+                                                       << slope_fast << " (fast carom cloth) to " << slope_slow
+                                                       << " (competition pool cloth), Jewett via the Alciatore "
+                                                          "cloth speed FAQ; tune roll_friction");
+        CHECK_MESSAGE((slope >= slope_fast && slope <= slope_slow),
+                      "last length took " << T << " s: effective slope " << slope << ", published fast cloth "
+                                          << slope_fast << " to " << slope_slow << " (Jewett's lag timing)");
+        return;
+    }
+    // KaiC set the cloth's pace and the cushions' bounce by feel in his phone sessions of 2026-11-13
+    // to 15 (roll_friction 0.010 to 0.015, cushion_restitution 0.98 to 0.85). His table is slower
+    // than the published fast-cloth range, which stays above as the reference; the lag is held to
+    // what his table does (the fixture's owner_tuned).
+    const nlohmann::json& owner = fx["owner_tuned"];
+    const double owner_speed = owner["lag_speed_m_s"].get<double>();
+    const double owner_slope = owner["effective_slope"].get<double>();
+    const double band = owner["tolerance_rel"].get<double>();
+    MESSAGE("lag " << v_lag << " m/s against the published " << v_min << " to " << v_max << " ("
+                   << (v_lag / (v_lag > v_max ? v_max : v_min) - 1.0) * 100.0 << "% from its nearer end); last length "
+                   << T << " s, effective slope " << slope << " against " << slope_fast << " to " << slope_slow << " ("
+                   << (slope / (slope > slope_slow ? slope_slow : slope_fast) - 1.0) * 100.0 << "%)");
+    const std::string whose = owner["session"].get<std::string>();
+    CHECK_MESSAGE(std::abs(v_lag - owner_speed) <= band * owner_speed,
+                  "lag needs a cue-ball speed of " << v_lag << " m/s; the owner's table (" << whose << ") needs "
+                                                   << owner_speed << " within " << band * 100.0
+                                                   << "%. After a new owner tuning update owner_tuned in "
+                                                      "table_speed_published.json");
+    CHECK_MESSAGE(std::abs(slope - owner_slope) <= band * owner_slope,
+                  "last length took " << T << " s: effective slope " << slope << "; the owner's table (" << whose
+                                      << ") has " << owner_slope << " within " << band * 100.0 << "%");
 }

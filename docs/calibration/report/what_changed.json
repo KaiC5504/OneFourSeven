@@ -1,6 +1,6 @@
 {
-  "_note": "Read by tools/calibration_report.py for the report's 'What changed' section. Each entry names the parameters it changed as [from, to] (from null: a new parameter); the script checks each 'to' against core/data/table_params.json and lists any that no longer match. Update it with every tuning.",
-  "heading": "What changed in M1's tuning from the starting values",
+  "_note": "Read by tools/calibration_report.py for the report's 'What changed' section. Each entry names the parameters it changed as [from, to] (from null: a new parameter); the script checks each parameter's latest 'to' against core/data/table_params.json and lists any that no longer match. Update it with every tuning.",
+  "heading": "What changed from the starting values: M1's tuning to the published sources, then the owner's feel sessions",
   "changes": [
     {
       "what": "Ball-ball friction",
@@ -25,7 +25,17 @@
     {
       "what": "Cushion restitution on hard hits",
       "params": {"cushion_restitution_slope_per_m_s": [0.0, 0.16], "cushion_restitution_min": [null, 0.7]},
-      "why": "the slope is a least-squares fit to Mathavan's measured rebounds above 2.5 m/s (Proc. IMechE 2010, Fig. 7b); the floor is Alciatore's typical rail restitution (TP B.6), reached at 4.25 m/s into the cushion."
+      "why": "the slope is a least-squares fit to Mathavan's measured rebounds above 2.5 m/s (Proc. IMechE 2010, Fig. 7b); the floor is Alciatore's typical rail restitution (TP B.6)."
+    },
+    {
+      "what": "The cloth's pace, by the owner's feel",
+      "params": {"roll_friction": [0.01, 0.015]},
+      "why": "KaiC's feel sessions on the iPhone, 2026-11-13 to 15, tuned live over the phone link. Slower than the published fast-cloth range the lag target (C11) was built from, and a little slower than the one snooker measurement (0.0127); C11 now holds the lag to his table and shows the published range beside it."
+    },
+    {
+      "what": "The cushions' bounce, by the owner's feel",
+      "params": {"cushion_restitution": [0.98, 0.85]},
+      "why": "the same sessions. Mathavan, Jackson & Parkin fitted 0.98 to their measured rebounds; with 0.85 a ball rolling straight in keeps 80% of its speed instead of 91%, and hard hits reach the 0.7 floor at 3.4 m/s into the cushion instead of 4.25. C7 and C8 check the model at his value; the paper's rebounds stay in the cushion reference and are checked with the paper's value."
     }
   ]
 }
