@@ -718,25 +718,39 @@ off by default.
 
 ### 13.1 Visual style. **Owner:** clean and minimal
 - **Scene:** a realistic table on a plain, softly lit dark backdrop, with no room, crowd
-  or arena. The camera framing keeps the focus on the table.
+  or arena. The camera framing keeps the focus on the table. **Owner (2026-11-15):** the
+  table stands on a plain dark floor that takes its soft shadow and fades into the backdrop,
+  and the bought table's lamp hangs over it: all there for a camera at table height, faded
+  out as the camera rises (gone above 0.70 m, still below the lamp), so it never comes
+  between a camera and the table.
+- **Table. Owner (2026-11-15):** the bought table model (Studio-Lab "Snooker Table",
+  section 18), all of it: bed, cushions, rails, pocket leathers and nets, legs and frame,
+  the cue and rest racks under it, the chalk and the lamp, with its own textures. It is
+  fitted to the full-size playing area (`tools/fit_table.py`) and the physics outline is
+  measured from it (6.3), so what is seen is what the balls hit. The game draws its own
+  baulk line, D and spots on its bed. A build without the model's files (CI, and TestFlight
+  builds made there) draws a procedural table from the same outline: correct and tidy
+  rather than pretty.
 - **Materials:** realistic PBR (physically based) materials for the cloth (subtle nap
   texture), wooden rails, cushions, leather pockets, balls with clear-coat reflections,
   and the cue.
-- **Lighting:** soft contact shadows under the balls from a single overhead table light.
+- **Lighting:** soft contact shadows under the balls from a single overhead table light,
+  tuned to the bought table: the cloth reads as tournament green, the wood dark and rich,
+  the leathers cream.
 - **Spin shown on the balls:** spin is visible on the cue ball. **Owner (M2):** six small
   red dots, as on TV-style practice balls; the colours stay plain.
 - **Ball finish:** **Owner (M2):** a faint, soft highlight; a crisp canopy reflection read
   as unreal.
-- **Pockets (Owner, M2), as tournament tables seen from above:** each cushion runs straight
-  to the pocket and turns in at its knuckle, the slate's edge rounded at the fall. A light
-  crochet net hangs in every hole, darkening to its opening, so the hole reads shallow, not a
-  pit. At the corners the green cushion runs down each angled facing to the hole, and a slim
-  cream band (about 18 mm from above) hugs the back of the hole, the wooden rails running on
-  to a mitred, rounded corner. At the middles the wood curves round into the jaws, the cloth
-  slopes down into the hole, and a smaller round fitting sits behind it. The facings sit in
-  shade under the cushion nose. The rails are warm, dark mahogany.
+- **Pockets (Owner, 2026-11-15), the bought table's:** each cushion curves into the pocket
+  on a long radius and ends at its tip; cream leather wraps the back of the pocket over the
+  rail, and a see-through net hangs in the hole from a brass ring. The procedural table draws
+  the same outline: the cushions round their jaws to the tips, a slim cream band standing on
+  the two facings and round the back of the hole, the hole in the bed the physics' drop
+  circle, and in it a light crochet net bag, darkening to its opening, so the hole reads
+  shallow, not a pit. (The M2 pockets, drawn as tournament tables seen from above with tight
+  1 in knuckles, went with the outline they were drawn from.)
 - **Assets:** built procedurally in code or Godot, or from CC0 (public-domain) sources,
-  with licences recorded (section 18).
+  plus the one bought table model, with licences recorded (section 18).
 
 ### 13.2 Sound. **Owner:** table sounds plus haptics, no music or voice
 - **Sounds:** ball–ball clicks, cushion hits, pocket drops and rattles, cue-tip strike,
@@ -997,6 +1011,10 @@ changed and a numbered play checklist.
   `tools/make_sounds.py` until M6. No assets with attribution or
   non-commercial clauses unless the owner agrees. Every external asset is listed in
   `THIRD_PARTY.md` with its source and licence.
+- **Owner (2026-11-15):** one bought asset, Studio-Lab's "Snooker Table" (Fab standard
+  licence: use in the game allowed, sharing the files not). Its files are never in the repo
+  or in CI; they live in the gitignored `licensed/` and `game/licensed/` on the owner's
+  machines, and a build without them draws the procedural table (13.1).
 - No trademarks: no WPBSA/World Snooker branding, real player names or real venues.
   Using the rules is fine.
 

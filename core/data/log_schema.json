@@ -612,6 +612,27 @@
         }
       }
     },
+    "table.view": {
+      "subsystem": "table",
+      "levels": [
+        "info",
+        "warn"
+      ],
+      "fields": {
+        "table": {
+          "type": "string",
+          "required": true
+        },
+        "reason": {
+          "type": "string",
+          "required": true
+        },
+        "detail": {
+          "type": "string",
+          "required": false
+        }
+      }
+    },
     "shot.input": {
       "subsystem": "shot",
       "levels": [
