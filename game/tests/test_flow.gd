@@ -66,7 +66,7 @@ func test_drag_fine_tune_and_stroke_play_a_shot_that_retake_undo_and_redo_walk_b
 	_stroke(main, push)
 	var struck := setup.snapshot()
 	check(main.is_playing(), "the stroke struck")
-	check(rig.is_held(), "the camera holds still for the shot")
+	check(rig.is_held(), "the camera shows the shot")
 	check(not aim.enabled, "no aiming while it plays")
 	check(not guides.get_node("AimLine").visible, "guides hidden while it plays")
 	var inputs := _logged("shot.input")
@@ -637,8 +637,9 @@ func test_guides_key_on_the_table_version() -> void:
 	_finish(main)
 
 
-func test_the_camera_follows_a_long_pot_down_the_table() -> void:
-	# KaiC: "after a shot my camera is fixed, I can't see where the ball goes" (spec 8.5's auto-rise).
+func test_the_broadcast_view_keeps_every_ball_of_a_long_pot_on_screen() -> void:
+	# KaiC: "after the potting the ball just show this angle to see where the ball goes", the TV
+	# camera at the end behind the shot, steady, eased into from behind the cue ball and back.
 	var main: MainScript = await _spawn()
 	var rig: CameraRig = main.get_node("CameraRig")
 	var camera := rig.camera()
@@ -653,25 +654,26 @@ func test_the_camera_follows_a_long_pot_down_the_table() -> void:
 			{"ball": "red", "index": 0, "x": red.x, "y": red.y}], 0), "the position")
 	await tree.process_frame
 	var ghost := red - (pocket - red).normalized() * 2.0 * r
-	var start_pitch := rig.pitch_deg()
 	main.harness_play_shot({"aim_rad": (ghost - cue).angle(), "tip_x": 0.0, "tip_y": 0.0, "elevation_rad": 0.0,
 			"speed_m_s": 4.0})
-	check(main.is_playing() and rig.is_watching(), "the camera watches the shot")
+	check(main.is_playing() and rig.view_name() == "shot", "the broadcast view for the shot")
+	var broadcast := rig.broadcast_pose(0.0)
 	var view := main.get_viewport().get_visible_rect()
 	var dt := 1.0 / 60.0
 	var off_screen: Array[String] = []
 	var largest_step := 0.0
-	var risen_by := -1.0
+	var moved_after := 0.0
 	var last_eye := camera.global_position
 	var frames := 0
 	while player.is_playing() and frames < 1200:
 		player.advance(dt)
 		rig._process(dt)
 		frames += 1
-		largest_step = maxf(largest_step, camera.global_position.distance_to(last_eye))
+		var step := camera.global_position.distance_to(last_eye)
+		largest_step = maxf(largest_step, step)
+		if frames > 62:
+			moved_after = maxf(moved_after, step)
 		last_eye = camera.global_position
-		if frames == 36:
-			risen_by = rad_to_deg(asin(-(-camera.global_basis.z).y))
 		if main._record == null:
 			break
 		var state: PackedFloat64Array = main._record.state_at(player.time())
@@ -682,46 +684,83 @@ func test_the_camera_follows_a_long_pot_down_the_table() -> void:
 			var at := TableSpace.core_to_godot(state[o + ShotPlayback.X], state[o + ShotPlayback.Y], r)
 			if camera.is_position_behind(at) or not view.has_point(camera.unproject_position(at)):
 				off_screen.append("ball %d at t %.2f" % [o / ShotPlayback.STRIDE, player.time()])
-	check(frames > 60, "the shot ran: %d frames" % frames)
-	check_eq(off_screen, [] as Array[String], "every moving ball stays on screen")
-	check(risen_by > start_pitch + 20.0, "risen within 0.6 s: %.1f° from %.1f°" % [risen_by, start_pitch])
-	check(largest_step < 0.35, "glides, no jump: %.3f m in one frame" % largest_step)
+		if frames == 62:
+			check(rig.transform.is_equal_approx(broadcast), "at the broadcast view from baulk after a second")
+	check(frames > 90, "the shot ran: %d frames" % frames)
+	check_eq(off_screen, [] as Array[String], "every moving ball stays on screen in every frame")
+	check(largest_step < 0.2, "eased, no jump: %.3f m in one frame" % largest_step)
+	check_eq(moved_after, 0.0, "steady once there, not chasing the balls")
 	var potted := false
 	for ball: Dictionary in (main._last_shot["potted"] as Array):
 		potted = potted or ball["ball"] == "red"
 	check(potted, "the red went in: %s" % [main._last_shot])
 	await _until_idle(main)
-	check(not rig.is_watching(), "done watching")
-	check(rig.is_easing(), "on its way back behind the cue ball")
-	rig._process(1.0)
+	check(rig.view_name() == "aim" and rig.is_easing(), "on its way back behind the cue ball")
+	rig._process(CameraRig.BLEND_S)
 	check(not Perf._active.has(&"camera"), "the camera lets the game idle again")
 	var behind := rig.pose_for(main._cue_xy(), main.setup.aim_rad, main.setup.effective_elevation())
 	check(rig.transform.is_equal_approx(behind), "behind the cue ball for the next shot")
 	_finish(main)
 
 
-func test_the_overview_button_shows_the_whole_table_and_back() -> void:
+func test_the_overview_button_shows_the_broadcast_view_to_walk_round() -> void:
 	var main: MainScript = await _spawn()
 	var rig: CameraRig = main.get_node("CameraRig")
 	var bar: FreeTableBar = main.get_node("Hud/FreeTableBar")
 	var notice: Label = main.get_node("Hud/Notice")
+	var aim: AimControl = main.get_node("AimControl")
 	var pitch := rig.pitch_deg()
+	var start_aim := main.setup.aim_rad
 	bar.button("overview").button_pressed = true
 	check(rig.is_overview(), "the overview")
-	check_eq(rig.pitch_deg(), CameraRig.PITCH_MAX_DEG, "the planning view's tilt")
-	check(notice.visible and notice.text == MainScript.TILT_HINT, "a one-line hint about the tilt")
-	rig._process(1.0)
-	check(rig.transform.is_equal_approx(rig.pose_for(main._cue_xy(), main.setup.aim_rad, main.setup.effective_elevation())),
-			"eased there")
+	check(not aim.enabled, "drags walk round instead of aiming")
+	check(notice.visible and notice.text == MainScript.OVERVIEW_HINT, "a one-line hint about walking round")
+	rig._process(CameraRig.BLEND_S)
+	check(rig.transform.is_equal_approx(rig.broadcast_pose(CameraRig.end_behind(start_aim))), "blended there")
+	var forward := -rig.transform.basis.z
+	_table_drag(TABLE_POINT, Vector2(-400.0, 0.0), 20)
+	check_eq(main.setup.aim_rad, start_aim, "the aim unchanged")
+	check_near(_turned(forward, -rig.transform.basis.z), 400.0 * CameraRig.ORBIT_RAD_PER_PX, 1e-4, "walked round")
 	bar.button("overview").button_pressed = false
-	check(not rig.is_overview(), "back")
-	check_eq(rig.pitch_deg(), pitch, "to the tilt before")
+	check(not rig.is_overview() and aim.enabled, "back to aiming")
+	rig._process(CameraRig.BLEND_S)
+	check_eq(rig.pitch_deg(), pitch, "at the tilt before")
+	check(rig.transform.is_equal_approx(rig.pose_for(main._cue_xy(), start_aim, main.setup.effective_elevation())),
+			"behind the cue ball")
 	notice.visible = false
 	bar.button("overview").button_pressed = true
 	check(not notice.visible, "the hint only once")
 	rig.tilt(-50.0)
 	check(not bar.button("overview").button_pressed, "a tilt leaves the overview and the button shows it")
 	_finish(main)
+
+
+func test_a_drag_during_a_shot_walks_round_the_broadcast_view() -> void:
+	var main: MainScript = await _spawn()
+	var rig: CameraRig = main.get_node("CameraRig")
+	var player: ShotPlayer = main.get_node("ShotPlayer")
+	check(main.harness_load_position([{"ball": "cue", "index": 0, "x": -1.0, "y": 0.0},
+			{"ball": "red", "index": 0, "x": 1.2, "y": 0.6}], 0), "the position")
+	await tree.process_frame
+	main.harness_play_shot({"aim_rad": 0.0, "tip_x": 0.0, "tip_y": 0.0, "elevation_rad": 0.0, "speed_m_s": 1.0})
+	rig._process(CameraRig.BLEND_S)
+	player.advance(0.1)
+	var forward := -rig.transform.basis.z
+	_table_drag(TABLE_POINT, Vector2(200.0, 0.0), 10)
+	check(main.is_playing(), "a drag doesn't skip the shot")
+	check_near(_turned(forward, -rig.transform.basis.z), 200.0 * CameraRig.ORBIT_RAD_PER_PX, 1e-4, "walked round")
+	check_eq(main.setup.aim_rad, 0.0, "the aim unchanged")
+	main.skip_shot()
+	await _until_idle(main)
+	rig._process(CameraRig.BLEND_S)
+	check(rig.transform.is_equal_approx(rig.pose_for(main._cue_xy(), main.setup.aim_rad, main.setup.effective_elevation())),
+			"behind the cue ball after it")
+	_finish(main)
+
+
+## How far a view direction turned round the vertical, in radians.
+func _turned(from: Vector3, to: Vector3) -> float:
+	return absf(Vector2(from.x, from.z).angle_to(Vector2(to.x, to.z)))
 
 
 ## The warnings harness_play_shot logged since _mark_log.

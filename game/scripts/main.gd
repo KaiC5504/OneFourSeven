@@ -16,13 +16,7 @@ const PLAYING_ALPHA := 0.35
 const SELECTION_COLOUR := Color(1.0, 0.82, 0.3, 0.9)
 ## Edit mode: where a new ball goes when its own spot is taken, rings of this many ball widths out.
 const FREE_SPOT_RINGS := 40
-## The camera watching a shot: a new framing this often (shot time), of where the moving balls are
-## from now to WATCH_AHEAD_S on, sampled every WATCH_STEP_S. Looking ahead keeps a fast ball in view
-## while the camera glides after it.
-const WATCH_EVERY_S := 0.25
-const WATCH_AHEAD_S := 0.9
-const WATCH_STEP_S := 0.15
-const TILT_HINT := "Two fingers up or down tilt the view"
+const OVERVIEW_HINT := "Drag to walk round the table"
 
 var setup := ShotSetup.new()
 
@@ -35,8 +29,7 @@ var _skip_requested := false
 var _settling := false
 var _last_shot := {}
 var _refresh_queued := false
-var _next_watch_t := 0.0
-var _tilt_hint_shown := false
+var _overview_hint_shown := false
 # The sensor housing's side the controls were last laid out for; "unset" logs the first layout.
 var _housing := "unset"
 ## Edit mode: list positions of the ball under the finger and of the selected ball, or -1.
@@ -79,6 +72,7 @@ func _ready() -> void:
 	_table.build(shape, OfsTable.dimensions())
 	_stage.set_table_bounds(_table.bounds())
 	_stage.dress_camera(_rig.camera())
+	_rig.set_table_bounds(_table.bounds())
 	_stage.capture_reflections()
 	_balls.set_pockets(shape.get("pockets", []))
 	_rig.moved.connect(_on_camera_moved)
@@ -122,7 +116,7 @@ func _ready() -> void:
 	_bar.setup_chosen.connect(_choose_setup)
 	_bar.settings_pressed.connect(_settings_panel.open)
 	_bar.overview_toggled.connect(_on_overview_toggled)
-	_rig.overview_changed.connect(_bar.set_overview)
+	_rig.overview_changed.connect(_on_overview_changed)
 	_palette.add_pressed.connect(_add_ball)
 	_palette.remove_pressed.connect(_remove_selected)
 	Settings.changed.connect(_on_setting_changed)
@@ -231,8 +225,6 @@ func _strike(strike_mode: String) -> String:
 	_guides.hide_all()
 	_rig.hold(true)
 	_bar.close_menu()
-	_next_watch_t = 0.0
-	_watch_shot(0.0)
 	_stroke.cancel_stroke("shot started")
 	# Their touches are ignored while it plays, so a thumb still down would never lift.
 	_spin.cancel_press("shot started")
@@ -262,26 +254,6 @@ func _shot_input_fields(shot_id: String, strike_mode: String) -> Dictionary:
 func _on_frame(state: PackedFloat64Array, t: float, dt: float) -> void:
 	_balls.apply_state(state, dt)
 	_audio.on_frame(state, t, dt)
-	if t >= _next_watch_t:
-		_watch_shot(t)
-
-
-## Hands the camera where the rolling and sliding balls are from t to WATCH_AHEAD_S later; once
-## nothing moves it keeps its last framing.
-func _watch_shot(t: float) -> void:
-	_next_watch_t = t + WATCH_EVERY_S
-	if _record == null:
-		return
-	var points := PackedVector2Array()
-	var s := t
-	while s <= t + WATCH_AHEAD_S + 1e-9:
-		var state := _record.state_at(s)
-		for o in range(0, state.size() - ShotPlayback.STRIDE + 1, ShotPlayback.STRIDE):
-			var motion := int(state[o + ShotPlayback.MOTION])
-			if motion == ShotPlayback.SLIDING or motion == ShotPlayback.ROLLING:
-				points.append(Vector2(state[o + ShotPlayback.X], state[o + ShotPlayback.Y]))
-		s += WATCH_STEP_S
-	_rig.watch(points)
 
 
 func _on_event(event: Dictionary, state: PackedFloat64Array) -> void:
@@ -323,7 +295,7 @@ func _settle() -> void:
 
 func _set_playing(on: bool) -> void:
 	_playing = on
-	_aim.enabled = not on and not _free.edit_mode
+	_update_aim_enabled()
 	for control: Control in [_spin, _elevation, _wheel, _stroke, _pull]:
 		control.mouse_filter = Control.MOUSE_FILTER_IGNORE if on else Control.MOUSE_FILTER_STOP
 		control.modulate.a = PLAYING_ALPHA if on else 1.0
@@ -406,9 +378,19 @@ func _on_overview_toggled(on: bool) -> void:
 		_bar.set_overview(_rig.is_overview())
 		return
 	_rig.set_overview(on)
-	if on and not _tilt_hint_shown:
-		_tilt_hint_shown = true
-		_show_notice(TILT_HINT)
+	if on and not _overview_hint_shown:
+		_overview_hint_shown = true
+		_show_notice(OVERVIEW_HINT)
+
+
+func _on_overview_changed(on: bool) -> void:
+	_bar.set_overview(on)
+	_update_aim_enabled()
+
+
+# In the overview a drag walks round the table instead of turning the aim.
+func _update_aim_enabled() -> void:
+	_aim.enabled = not _playing and not _free.edit_mode and not _rig.is_overview()
 
 
 func _on_camera_moved() -> void:
@@ -472,7 +454,7 @@ func _choose_setup(setup_name: String) -> void:
 func _on_edit_mode_changed(on: bool) -> void:
 	_abort_drag()
 	_bar.set_edit_mode(on)
-	_aim.enabled = not on and not _playing
+	_update_aim_enabled()
 	_selected = -1
 	_spin.cancel_press("edit mode")
 	_show_controls()
@@ -508,8 +490,9 @@ func _on_drag_started(at: Vector2) -> void:
 		_select(_dragged)
 
 
-func _on_drag_moved(at: Vector2, _relative: Vector2) -> void:
+func _on_drag_moved(at: Vector2, relative: Vector2) -> void:
 	if _dragged < 0:
+		_rig.orbit(relative.x)
 		return
 	var xy: Variant = TableSpace.screen_to_core(_rig.camera(), at, _balls.radius)
 	if xy != null:
@@ -689,6 +672,10 @@ func _layout() -> void:
 	_put(_spin, rects["spin"])
 	_palette.place_in(rects["bottom"])
 	_overlay.clear_right = safe.end.x - (rects["cue"] as Rect2).position.x
+	var controls: Array[Rect2] = []
+	for key: String in ["bar", "spin", "elevation", "cue", "wheel"]:
+		controls.append(rects[key])
+	_rig.keep_clear(controls)
 	var notice_at := Vector2(safe.get_center().x - _notice.size.x / 2.0, safe.position.y + HudScript.EDGE).round()
 	if _notice.position != notice_at:
 		_notice.position = notice_at
@@ -773,7 +760,7 @@ func harness_state() -> Dictionary:
 		"edit_mode": _free.edit_mode,
 		"history": {"index": _free.history_index(), "size": _free.history_size()},
 		"last_shot": _last_shot.duplicate(true),
-		"camera": {"pitch_deg": _rig.pitch_deg(), "zoom_scale": _rig.zoom_scale()},
+		"camera": {"pitch_deg": _rig.pitch_deg(), "zoom_scale": _rig.zoom_scale(), "view": _rig.view_name()},
 	}
 
 

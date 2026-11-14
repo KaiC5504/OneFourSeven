@@ -1,29 +1,31 @@
 class_name CameraRig
 extends Node3D
-## The camera behind the cue ball, looking along the aim (spec 8.5). Pinch zooms; a two-finger
-## vertical drag tilts it from cue level up to a nearly overhead planning view. While a shot plays
-## it holds still. Child: Camera3D.
+## The camera (spec 8.5): behind the cue ball while aiming, and the TV broadcast view of the whole
+## table while a shot plays and in the overview. Child: Camera3D.
 ##
-## The rig itself carries the pose; the camera sits at its origin. Up to PLAN_FROM_DEG the camera
-## looks at a point LOOK_AHEAD_M along the aim line, so the cue ball sits low in view with the line
-## ahead above it. From there to PITCH_MAX_DEG the framing pulls out to FAR_DISTANCE_M and the
-## point it looks at slides towards the table centre, so the high angle shows the whole table for
-## planning. Pinching scales the distance and the look-ahead together (a dolly towards the cue
-## ball); in the planning view zooming in also slides the view back towards the cue ball.
+## Aiming, the camera looks along the aim. Pinch zooms; a two-finger vertical drag tilts it from cue
+## level up to a nearly overhead planning view. Up to PLAN_FROM_DEG it looks at a point LOOK_AHEAD_M
+## along the aim line, so the cue ball sits low in view with the line ahead above it. From there to
+## PITCH_MAX_DEG the framing pulls out to FAR_DISTANCE_M and the point it looks at slides towards
+## the table centre. Pinching scales the distance and the look-ahead together (a dolly towards the
+## cue ball); in the planning view zooming in also slides the view back towards the cue ball.
 ##
 ## A raised cue lifts the camera to at least ABOVE_CUE_DEG above the cue's own angle, so the cue
 ## comes down to the ball from below the eye as a player sees it over the butt, and its butt passes
 ## under the camera instead of through the view. The lift changes the angle only, not the framing.
 ##
 ## Finger-driven changes (aim drags, pinch, tilt, the elevation control) apply at once. A follow()
-## that moves the cue ball more than JUMP_M or the aim more than JUMP_RAD, an elevation change of
-## more than ELEVATION_JUMP_RAD (the cue forced over a ball or the rail), or the first change after
-## a hold, eases there over EASE_S instead.
+## that moves the cue ball more than JUMP_M or the aim more than JUMP_RAD, or an elevation change of
+## more than ELEVATION_JUMP_RAD (the cue forced over a ball or the rail), eases there over EASE_S.
 ##
-## While a shot plays (held), watch() frames the moving balls (spec 8.5's auto-rise, which KaiC
-## asked for): the camera rises up and out behind the shot, along the aim it was struck on, and
-## glides after the action; it eases back behind the cue ball over RETURN_S when the hold ends.
-## set_overview() toggles the planning view (the highest tilt, whole table) and back.
+## The broadcast view is the main TV camera of a match (KaiC's reference, a World Grand Prix frame):
+## at one end, high and well back, BROADCAST_PITCH_DEG down, the whole table in frame clear of the
+## controls (keep_clear), the far end narrower. While a shot plays (held) it stands at the end
+## behind the shot, so the picture keeps the player's left and right, and stays there like the TV
+## camera rather than chasing the balls. set_overview() shows it too. In both, orbit() walks round
+## the table at that angle, refitting the distance to keep the whole table in view; in the overview
+## pinch zooms it. Moving between the aiming camera and the broadcast view blends the whole pose over
+## BLEND_S (see _step_blend).
 
 signal moved
 signal overview_changed(on: bool)
@@ -52,16 +54,25 @@ const JUMP_M := 0.05
 const JUMP_RAD := 0.5
 const ELEVATION_JUMP_RAD := 0.15
 const ABOVE_CUE_DEG := 12.0
-## Watching a shot: how quickly the camera closes on its framing (about 0.6 s to settle the
-## rise), the share of the half-view the balls may fill, the nearest it comes, and the pitches it
-## tries, lowest first.
-const WATCH_TAU_S := 0.2
-const WATCH_FILL := 0.78
-const WATCH_MIN_DISTANCE_M := 1.1
-const WATCH_PITCHES_DEG: Array[float] = [48.0, 62.0, 74.0]
-## The ease from the watching camera, or into and out of the overview, back to the aiming pose.
-const RETURN_S := 0.6
-## The phone's aspect, for a camera not in a viewport yet.
+const BROADCAST_PITCH_DEG := 55.0
+## The share of the half-view the table's outline may fill.
+const BROADCAST_FILL := 0.92
+## A drag across the whole screen walks about half way round.
+const ORBIT_RAD_PER_PX := 0.0016
+const OVERVIEW_ZOOM_MIN := 0.5
+const OVERVIEW_ZOOM_MAX := 1.5
+## Between the aiming camera and the broadcast view.
+const BLEND_S := 1.0
+## How far ahead of a straight line the height runs while blending: up first when rising, down last
+## when descending, so a camera low behind the cue ball clears the rails as it pulls back. Above
+## 0.1875 the height would overshoot its end.
+const BLEND_ARC := 0.18
+## Canvas units kept between the table's outline and a control.
+const CLEAR_MARGIN := 12.0
+## The furthest the broadcast view backs off to clear the controls before giving up.
+const MAX_PULL_BACK_M := 20.0
+## The phone's canvas, for a camera not in a viewport yet.
+const DEFAULT_CANVAS := Vector2(1912.0, 880.0)
 const DEFAULT_ASPECT := 1912.0 / 880.0
 ## Lowest camera height above the cloth over the playing area (a ball is 52.5 mm tall), and over
 ## or beyond the cushions and rails (rail tops are about 45 mm up).
@@ -74,6 +85,7 @@ const FALLBACK_BALL_RADIUS := 0.02625
 var _pitch_deg := DEFAULT_PITCH_DEG
 var _zoom := 1.0
 var _held := false
+var _overview := false
 var _has_pose := false
 var _shown_cue := Vector2.ZERO
 var _shown_aim := 0.0
@@ -84,21 +96,25 @@ var _target_elevation := 0.0
 var _from_cue := Vector2.ZERO
 var _from_aim := 0.0
 var _from_elevation := 0.0
-## 0 to 1 through an ease; negative when not easing.
+## 0 to 1 through an ease or a blend; negative when neither runs.
 var _ease := -1.0
 var _ease_s := EASE_S
-## Easing from a pose the parameters don't describe (watching, the overview): the transform the
-## ease blends from.
-var _blend_from := Transform3D.IDENTITY
+## A blend between views: where it started (the eye, and the view's direction as (yaw, pitch, 0)
+## in radians, see _turn), how fast each was changing, and the goal at the last step.
 var _blending := false
-var _watching := false
-var _watch_aim := 0.0
-var _watch := {}
-var _watch_target := {}
-var _overview := false
-# reset_view() while held: the release eases to the default view even if the cue ball didn't move.
-var _view_reset := false
-var _before_overview := Vector2(DEFAULT_PITCH_DEG, 1.0)
+var _from_eye := Vector3.ZERO
+var _from_turn := Vector3.ZERO
+var _from_eye_v := Vector3.ZERO
+var _from_turn_v := Vector3.ZERO
+var _goal_eye := Vector3.ZERO
+var _goal_turn := Vector3.ZERO
+## The broadcast view: the core direction it looks along, and the overview's zoom.
+var _yaw := 0.0
+var _view_zoom := 1.0
+var _outline := Stage.DEFAULT_BOUNDS
+var _keep_clear: Array[Rect2] = []
+var _clear_boxes: Array[PackedVector2Array] = []
+var _pull_back_warned := false
 var _half_size := FALLBACK_HALF_SIZE
 var _ball_radius := FALLBACK_BALL_RADIUS
 
@@ -123,25 +139,44 @@ func _ready() -> void:
 
 
 func _exit_tree() -> void:
-	if _ease >= 0.0 or _watching:
+	if _ease >= 0.0:
 		Perf.set_active(&"camera", false)
 
 
-## Puts the rig behind cue_xy (core metres) along aim_rad.
+## Puts the rig behind cue_xy (core metres) along aim_rad. While the broadcast view shows, it only
+## remembers where to come back to.
 func follow(cue_xy: Vector2, aim_rad: float) -> void:
 	_target_cue = cue_xy
 	_target_aim = aim_rad
-	if _held:
-		return
 	if not _has_pose:
 		_has_pose = true
 		_show(cue_xy, aim_rad, _target_elevation)
-	elif _ease >= 0.0:
+	elif _held or _overview or _ease >= 0.0:
 		pass
 	elif cue_xy.distance_to(_shown_cue) > JUMP_M or absf(angle_difference(_shown_aim, aim_rad)) > JUMP_RAD:
 		_start_ease()
 	else:
 		_show(cue_xy, aim_rad, _shown_elevation)
+
+
+## The table's outline (TableView.bounds(), Godot metres) the broadcast view fits.
+func set_table_bounds(bounds: AABB) -> void:
+	if bounds.has_volume():
+		_outline = bounds
+		_apply()
+
+
+## Canvas rectangles (the controls) the broadcast view keeps the table out from under.
+func keep_clear(rects: Array[Rect2]) -> void:
+	if rects == _keep_clear:
+		return
+	_keep_clear = rects.duplicate()
+	_clear_boxes.clear()
+	for rect in rects:
+		var grown := rect.grow(CLEAR_MARGIN)
+		_clear_boxes.append(PackedVector2Array([grown.position, Vector2(grown.end.x, grown.position.y), grown.end,
+				Vector2(grown.position.x, grown.end.y)]))
+	_apply()
 
 
 ## The planning view's distance looking along aim_rad: FAR_DISTANCE_M along the table, further
@@ -157,7 +192,7 @@ func set_cue_elevation(elevation_rad: float) -> void:
 	if not is_finite(elevation_rad):
 		return
 	_target_elevation = maxf(elevation_rad, 0.0)
-	if _held or not _has_pose or _ease >= 0.0:
+	if _held or _overview or not _has_pose or _ease >= 0.0:
 		if not _has_pose:
 			_shown_elevation = _target_elevation
 		return
@@ -171,15 +206,19 @@ func cue_elevation() -> float:
 	return _target_elevation
 
 
+## Zooms the aiming camera, or the overview. Ignored while a shot plays.
 func pinch(factor: float) -> void:
 	if _held or not (factor > 0.0):
 		return
-	_leave_overview()
-	_zoom = clampf(_zoom / factor, ZOOM_MIN, ZOOM_MAX)
+	if _overview:
+		_view_zoom = clampf(_view_zoom / factor, OVERVIEW_ZOOM_MIN, OVERVIEW_ZOOM_MAX)
+	else:
+		_zoom = clampf(_zoom / factor, ZOOM_MIN, ZOOM_MAX)
 	_apply()
 
 
-## relative_px: the two-finger drag's vertical movement in canvas units, down positive.
+## relative_px: the two-finger drag's vertical movement in canvas units, down positive. In the
+## overview it goes back behind the cue ball, tilted.
 func tilt(relative_px: float) -> void:
 	if _held:
 		return
@@ -187,21 +226,25 @@ func tilt(relative_px: float) -> void:
 	set_pitch_deg(_pitch_deg + relative_px * TILT_DEG_PER_PX)
 
 
-## The planning view (the highest tilt at the default zoom, the whole table) or back to the tilt
-## and zoom before it, eased. Ignored while held.
+## relative_px: a one-finger drag's horizontal movement in canvas units. Walks the broadcast view
+## round the table, the same way an aim drag swings the cue; nothing while aiming.
+func orbit(relative_px: float) -> void:
+	if not is_broadcast():
+		return
+	_yaw = wrapf(_yaw - relative_px * ORBIT_RAD_PER_PX, -PI, PI)
+	_apply()
+
+
+## The broadcast view from the end behind the aim, or back behind the cue ball, blended. Ignored
+## while a shot plays.
 func set_overview(on: bool) -> void:
 	if on == _overview or _held:
 		return
 	_overview = on
 	if on:
-		_before_overview = Vector2(_pitch_deg, _zoom)
-		_pitch_deg = PITCH_MAX_DEG
-		_zoom = 1.0
-	else:
-		_pitch_deg = _before_overview.x
-		_zoom = _before_overview.y
-	if _has_pose:
-		_start_ease(true)
+		_yaw = end_behind(_target_aim)
+		_view_zoom = 1.0
+	_start_blend()
 	overview_changed.emit(on)
 
 
@@ -209,24 +252,43 @@ func is_overview() -> bool:
 	return _overview
 
 
+## True while the broadcast view is the camera's goal: a shot playing or the overview.
+func is_broadcast() -> bool:
+	return _held or _overview
+
+
+## "aim", "shot" or "overview".
+func view_name() -> String:
+	if _held:
+		return "shot"
+	return "overview" if _overview else "aim"
+
+
+## The broadcast view's direction (core angle) for a shot along aim_rad: from baulk towards the
+## black when the aim heads that way, else from the black end towards baulk.
+static func end_behind(aim_rad: float) -> float:
+	return 0.0 if cos(aim_rad) > 0.0 else PI
+
+
 ## The default tilt and zoom, out of the overview, applied by the next follow() or release. Every
 ## shot starts from behind the cue ball, so a tilt left high can't strand the player overhead.
 func reset_view() -> void:
-	_leave_overview()
-	if _pitch_deg == DEFAULT_PITCH_DEG and _zoom == 1.0:
+	var was_overview := _overview
+	if _overview:
+		_overview = false
+		overview_changed.emit(false)
+	if _pitch_deg == DEFAULT_PITCH_DEG and _zoom == 1.0 and not was_overview:
 		return
 	_pitch_deg = DEFAULT_PITCH_DEG
 	_zoom = 1.0
-	if _held:
-		_view_reset = true
-	elif _has_pose:
-		_start_ease(true)
+	if not _held:
+		_start_blend()
 
 
-# A tilt or pinch takes the view as it is from there: no way back to the tilt before the overview.
 func _leave_overview() -> void:
 	if _overview:
 		_overview = false
+		_start_blend()
 		overview_changed.emit(false)
 
 
@@ -249,116 +311,20 @@ func set_pitch_deg(deg: float) -> void:
 	_apply()
 
 
-## While held, follow() only remembers where to go and pinch and tilt are ignored; releasing eases
-## to the last follow().
+## A shot playing: blends to the broadcast view from the end behind the shot and holds it; follow()
+## only remembers where to go and pinch and tilt are ignored. Releasing blends back behind the cue
+## ball at the last follow().
 func hold(on: bool) -> void:
 	if on == _held:
 		return
 	_held = on
 	if on:
-		_stop_ease()
-	elif _watching:
-		_watching = false
-		_start_ease(true)
-	elif _has_pose and (_view_reset or _target_cue != _shown_cue or _target_aim != _shown_aim
-			or _target_elevation != _shown_elevation):
-		_start_ease(_view_reset)
-	_view_reset = false
-
-
-## While held, frames these points (core metres, on the cloth: the moving balls now and a little
-## ahead) from above and behind, along the aim the shot was struck on, and glides there. The
-## first call rises from where the camera is. Ignored when not held.
-func watch(points: PackedVector2Array) -> void:
-	if not _held or not _has_pose or points.is_empty():
-		return
-	if not _watching:
-		_watching = true
-		_watch_aim = _shown_aim
-		_watch = _watch_from_transform()
-		Perf.set_active(&"camera", true)
-		set_process(true)
-	_watch_target = watch_framing(points, _watch_aim)
-
-
-func is_watching() -> bool:
-	return _watching
-
-
-## {focus, distance, pitch_deg}: from the lowest of WATCH_PITCHES_DEG not below the player's tilt,
-## the nearest framing with every point in view looking along aim_rad; the planning view when none
-## fits within FAR_DISTANCE_M.
-func watch_framing(points: PackedVector2Array, aim_rad: float) -> Dictionary:
-	var lo := Vector2(INF, INF)
-	var hi := Vector2(-INF, -INF)
-	for p in points:
-		lo = lo.min(p)
-		hi = hi.max(p)
-	var focus := (lo + hi) / 2.0
-	for pitch: float in WATCH_PITCHES_DEG:
-		if pitch < minf(_pitch_deg, WATCH_PITCHES_DEG[-1]):
-			continue
-		var distance := _fit_distance(points, focus, pitch, aim_rad)
-		if distance <= FAR_DISTANCE_M:
-			return {"focus": focus, "distance": distance, "pitch_deg": pitch}
-	return {"focus": Vector2.ZERO, "distance": FAR_DISTANCE_M, "pitch_deg": PITCH_MAX_DEG}
-
-
-## The rig's transform looking at focus from `distance` away along aim_rad, pitched down pitch_deg.
-func watch_pose(focus: Vector2, distance: float, pitch_deg: float, aim_rad: float) -> Transform3D:
-	var along := Vector2(cos(aim_rad), sin(aim_rad))
-	var pitch := deg_to_rad(pitch_deg)
-	var eye_xy := focus - along * distance * cos(pitch)
-	var height := maxf(_ball_radius + distance * sin(pitch), clearance_at(eye_xy))
-	var eye := TableSpace.core_to_godot(eye_xy.x, eye_xy.y, height)
-	var target := TableSpace.core_to_godot(focus.x, focus.y, _ball_radius)
-	return Transform3D(Basis.looking_at(target - eye, Vector3.UP), eye)
-
-
-func _fit_distance(points: PackedVector2Array, focus: Vector2, pitch_deg: float, aim_rad: float) -> float:
-	var near := WATCH_MIN_DISTANCE_M
-	if _fits(points, watch_pose(focus, near, pitch_deg, aim_rad)):
-		return near
-	var far := FAR_DISTANCE_M * 1.5
-	if not _fits(points, watch_pose(focus, far, pitch_deg, aim_rad)):
-		return INF
-	for i in 20:
-		var mid := (near + far) / 2.0
-		if _fits(points, watch_pose(focus, mid, pitch_deg, aim_rad)):
-			far = mid
-		else:
-			near = mid
-	return far
-
-
-func _fits(points: PackedVector2Array, pose: Transform3D) -> bool:
-	var to_camera := pose.affine_inverse()
-	var tan_v := tan(deg_to_rad(FOV_DEG) / 2.0) * WATCH_FILL
-	var tan_h := tan(deg_to_rad(FOV_DEG) / 2.0) * _aspect() * WATCH_FILL
-	for p in points:
-		var local := to_camera * TableSpace.core_to_godot(p.x, p.y, _ball_radius)
-		var depth := -local.z
-		if depth <= NEAR_M or absf(local.x) > tan_h * depth or absf(local.y) > tan_v * depth:
-			return false
-	return true
-
-
-func _aspect() -> float:
-	if is_inside_tree():
-		var view := get_viewport().get_visible_rect().size
-		if view.y > 0.0:
-			return view.x / view.y
-	return DEFAULT_ASPECT
-
-
-## The camera's present view as watch parameters: the point on the cloth it looks at.
-func _watch_from_transform() -> Dictionary:
-	var eye := transform.origin
-	var forward := -transform.basis.z
-	var down := clampf(-forward.y, 0.05, 1.0)
-	var t := maxf(eye.y - _ball_radius, 0.0) / down
-	var focus := TableSpace.godot_to_core(eye + forward * t)
-	return {"focus": Vector2(focus.x, focus.y), "distance": t, "pitch_deg": rad_to_deg(asin(down))}
+		if _overview:
+			_overview = false
+			overview_changed.emit(false)
+		_yaw = end_behind(_target_aim)
+		_view_zoom = 1.0
+	_start_blend()
 
 
 func is_held() -> bool:
@@ -396,6 +362,36 @@ func pose_for(cue_xy: Vector2, aim_rad: float, elevation_rad: float = 0.0) -> Tr
 	return Transform3D(Basis.looking_at(target - eye, Vector3.UP), eye)
 
 
+## The rig's transform for the broadcast view looking along yaw_rad (a core angle: 0 stands at
+## baulk looking towards the black), BROADCAST_PITCH_DEG down, at the distance that fits the
+## table's outline into BROADCAST_FILL of the view clear of the controls, times zoom.
+func broadcast_pose(yaw_rad: float, zoom: float = 1.0) -> Transform3D:
+	var pitch := deg_to_rad(BROADCAST_PITCH_DEG)
+	var level := TableSpace.core_to_godot(cos(yaw_rad), sin(yaw_rad))
+	var basis := Basis.looking_at(level * cos(pitch) + Vector3.DOWN * sin(pitch), Vector3.UP)
+	var forward := -basis.z
+	var tan_v := tan(deg_to_rad(FOV_DEG) / 2.0) * BROADCAST_FILL
+	var tan_h := tan_v * _aspect()
+	# For a fixed orientation each edge of the view is a plane through the eye, and a point is inside
+	# it when the eye is far enough along that plane's normal: a linear bound per point and edge.
+	# The eye that meets the top and bottom bounds (or the sides, whichever is further back)
+	# exactly, centred between the other pair, is the closest fit.
+	var top := -INF
+	var bottom := -INF
+	var right := -INF
+	var left := -INF
+	for p in _outline_corners():
+		top = maxf(top, p.dot(basis.y - forward * tan_v))
+		bottom = maxf(bottom, p.dot(-basis.y - forward * tan_v))
+		right = maxf(right, p.dot(basis.x - forward * tan_h))
+		left = maxf(left, p.dot(-basis.x - forward * tan_h))
+	var along := minf(-(top + bottom) / (2.0 * tan_v), -(right + left) / (2.0 * tan_h))
+	var eye := basis.x * (right - left) / 2.0 + basis.y * (top - bottom) / 2.0 + forward * along
+	eye -= forward * _pull_back_for_controls(eye, basis)
+	var to_cloth := (eye.y - _ball_radius) / -forward.y
+	return Transform3D(basis, eye + forward * to_cloth * (1.0 - zoom))
+
+
 ## The camera's pitch in degrees with the cue raised to elevation_rad: the tilt, or higher over a
 ## raised cue.
 func pitch_for(elevation_rad: float) -> float:
@@ -411,54 +407,171 @@ func clearance_at(xy: Vector2) -> float:
 	return RAIL_CLEARANCE_M
 
 
+## Where the camera at `pose` draws a Godot point on the canvas, for views not shown yet.
+func project(pose: Transform3D, point: Vector3) -> Vector2:
+	var canvas := _canvas()
+	var local := pose.affine_inverse() * point
+	var scale := canvas.y / 2.0 / tan(deg_to_rad(FOV_DEG) / 2.0) / maxf(-local.z, 1e-6)
+	return canvas / 2.0 + Vector2(local.x, -local.y) * scale
+
+
+## The table outline's top corners in order round it.
+func _outline_corners() -> PackedVector3Array:
+	var lo := _outline.position
+	var hi := _outline.end
+	return PackedVector3Array([Vector3(lo.x, hi.y, lo.z), Vector3(hi.x, hi.y, lo.z), Vector3(hi.x, hi.y, hi.z),
+			Vector3(lo.x, hi.y, hi.z)])
+
+
+## Metres to back the eye off along the view so the outline is clear of every keep_clear rectangle.
+## Backing off shrinks the table towards the middle of the view, where no control is.
+func _pull_back_for_controls(eye: Vector3, basis: Basis) -> float:
+	if not _covers_controls(Transform3D(basis, eye)):
+		return 0.0
+	var near := 0.0
+	var far := 0.25
+	while _covers_controls(Transform3D(basis, eye + basis.z * far)):
+		near = far
+		far *= 2.0
+		if far > MAX_PULL_BACK_M:
+			if not _pull_back_warned:
+				_pull_back_warned = true
+				Log.warn("app", "app.error", {"kind": "message", "message": "camera_rig: the broadcast view can't clear the controls %s within %.0f m (outline %s, canvas %s)"
+						% [_keep_clear, MAX_PULL_BACK_M, _outline, _canvas()]})
+			return MAX_PULL_BACK_M
+	for i in 14:
+		var mid := (near + far) / 2.0
+		if _covers_controls(Transform3D(basis, eye + basis.z * mid)):
+			near = mid
+		else:
+			far = mid
+	return far
+
+
+func _covers_controls(pose: Transform3D) -> bool:
+	if _clear_boxes.is_empty():
+		return false
+	var outline := PackedVector2Array()
+	for p in _outline_corners():
+		outline.append(project(pose, p))
+	for box in _clear_boxes:
+		if not Geometry2D.intersect_polygons(outline, box).is_empty():
+			return true
+	return false
+
+
+func _canvas() -> Vector2:
+	if is_inside_tree():
+		var view := get_viewport().get_visible_rect().size
+		if view.y > 0.0:
+			return view
+	return DEFAULT_CANVAS
+
+
+func _aspect() -> float:
+	var canvas := _canvas()
+	return canvas.x / canvas.y
+
+
+## A view's direction as (yaw, pitch, 0): the core angle it looks along and how far down, in
+## radians. Every pose here is level, so the two describe it whole.
+static func _turn(pose: Transform3D) -> Vector3:
+	var forward := -pose.basis.z
+	var level := TableSpace.godot_to_core(forward)
+	return Vector3(atan2(level.y, level.x), asin(clampf(-forward.y, -1.0, 1.0)), 0.0)
+
+
+static func _basis_for(turn: Vector3) -> Basis:
+	var pitch := clampf(turn.y, deg_to_rad(-80.0), deg_to_rad(85.0))
+	var level := TableSpace.core_to_godot(cos(turn.x), sin(turn.x))
+	return Basis.looking_at(level * cos(pitch) + Vector3.DOWN * sin(pitch), Vector3.UP)
+
+
+func _goal() -> Transform3D:
+	if is_broadcast():
+		return broadcast_pose(_yaw, _view_zoom)
+	return pose_for(_target_cue, _target_aim, _target_elevation)
+
+
 func _process(delta: float) -> void:
-	if _watching:
-		_step_watch(delta)
-		return
 	if _ease < 0.0:
 		set_process(false)
 		return
 	_ease = minf(_ease + delta / _ease_s, 1.0)
-	var k := smoothstep(0.0, 1.0, _ease)
-	var cue := _from_cue.lerp(_target_cue, k)
-	var aim := lerp_angle(_from_aim, _target_aim, k)
-	var elevation := lerpf(_from_elevation, _target_elevation, k)
 	if _blending:
-		_shown_cue = cue
-		_shown_aim = aim
-		_shown_elevation = elevation
-		var pose := _blend_from.interpolate_with(pose_for(cue, aim, elevation), k)
-		if not pose.is_equal_approx(transform):
-			transform = pose
-			moved.emit()
+		_step_blend()
 	else:
-		_show(cue, aim, elevation)
+		var k := smoothstep(0.0, 1.0, _ease)
+		_show(_from_cue.lerp(_target_cue, k), lerp_angle(_from_aim, _target_aim, k),
+				lerpf(_from_elevation, _target_elevation, k))
 	if _ease >= 1.0:
 		_stop_ease()
 
 
-# Each part closes on its target exponentially, so a new target every few frames never jerks.
-func _step_watch(delta: float) -> void:
-	if _watch_target.is_empty():
+# The eye and the view's yaw and pitch each run a cubic from where they were, at the speed they were
+# changing, to the goal at rest (with no starting speed, smoothstep), so a blend that replaces
+# another halfway keeps its speed. The goal is fetched every step, so aiming or walking round during
+# a blend carries into it. The height adds a bump that is zero, with zero slope, at both ends
+# (BLEND_ARC). Turning by angle rather than towards a point keeps the turn spread over the blend:
+# a low camera looking at a point just ahead would swing nearly all its pitch in the first rise.
+func _step_blend() -> void:
+	var s := _ease
+	var goal := _goal()
+	_goal_eye = goal.origin
+	_goal_turn = _turn(goal)
+	_goal_turn.x = _from_turn.x + angle_difference(_from_turn.x, _goal_turn.x)
+	if s >= 1.0:
+		if not is_broadcast():
+			_shown_cue = _target_cue
+			_shown_aim = _target_aim
+			_shown_elevation = _target_elevation
+		_place(goal)
 		return
-	var k := 1.0 - exp(-delta / WATCH_TAU_S)
-	_watch["focus"] = (_watch["focus"] as Vector2).lerp(_watch_target["focus"], k)
-	_watch["distance"] = lerpf(_watch["distance"], _watch_target["distance"], k)
-	_watch["pitch_deg"] = lerpf(_watch["pitch_deg"], _watch_target["pitch_deg"], k)
-	var pose := watch_pose(_watch["focus"], _watch["distance"], _watch["pitch_deg"], _watch_aim)
-	if not pose.is_equal_approx(transform):
-		transform = pose
-		moved.emit()
+	var k := smoothstep(0.0, 1.0, s)
+	var carry := s * (1.0 - s) * (1.0 - s) * _ease_s
+	var eye := _from_eye.lerp(_goal_eye, k) + _from_eye_v * carry
+	eye.y += absf(_goal_eye.y - _from_eye.y) * BLEND_ARC * 16.0 * s * s * (1.0 - s) * (1.0 - s)
+	eye.y = maxf(eye.y, clearance_at(TableSpace.godot_to_core(eye)))
+	var turn := _from_turn.lerp(_goal_turn, k) + _from_turn_v * carry
+	_place(Transform3D(_basis_for(turn), eye))
 
 
-## blend: start from the transform as it is, not the shown parameters, and take RETURN_S.
-func _start_ease(blend: bool = false) -> void:
+## The blend's eye and turn velocities now, per second; zero when no blend runs.
+func _blend_velocity() -> Array[Vector3]:
+	if not _blending or _ease < 0.0:
+		return [Vector3.ZERO, Vector3.ZERO]
+	var s := _ease
+	var dk := 6.0 * s * (1.0 - s) / _ease_s
+	var dcarry := (1.0 - s) * (1.0 - 3.0 * s)
+	var darc := absf(_goal_eye.y - _from_eye.y) * BLEND_ARC * 32.0 * s * (1.0 - s) * (1.0 - 2.0 * s) / _ease_s
+	return [(_goal_eye - _from_eye) * dk + _from_eye_v * dcarry + Vector3.UP * darc,
+			(_goal_turn - _from_turn) * dk + _from_turn_v * dcarry]
+
+
+func _start_blend() -> void:
+	if not _has_pose:
+		return
+	var velocity := _blend_velocity()
+	_from_eye = transform.origin
+	_from_turn = _turn(transform)
+	_from_eye_v = velocity[0]
+	_from_turn_v = velocity[1]
+	_goal_eye = _from_eye
+	_goal_turn = _from_turn
+	_blending = true
+	_ease_s = BLEND_S
+	if _ease < 0.0:
+		Perf.set_active(&"camera", true)
+	_ease = 0.0
+	set_process(true)
+
+
+func _start_ease() -> void:
 	_from_cue = _shown_cue
 	_from_aim = _shown_aim
 	_from_elevation = _shown_elevation
-	_blending = blend
-	_blend_from = transform
-	_ease_s = RETURN_S if blend else EASE_S
+	_blending = false
+	_ease_s = EASE_S
 	if _ease < 0.0:
 		Perf.set_active(&"camera", true)
 	_ease = 0.0
@@ -481,10 +594,14 @@ func _show(cue_xy: Vector2, aim_rad: float, elevation_rad: float) -> void:
 	_apply()
 
 
+# A blend fetches its goal itself each step.
 func _apply() -> void:
-	if not _has_pose or _watching:
+	if not _has_pose or _blending:
 		return
-	var pose := pose_for(_shown_cue, _shown_aim, _shown_elevation)
+	_place(broadcast_pose(_yaw, _view_zoom) if is_broadcast() else pose_for(_shown_cue, _shown_aim, _shown_elevation))
+
+
+func _place(pose: Transform3D) -> void:
 	if pose.is_equal_approx(transform):
 		return
 	transform = pose

@@ -10,12 +10,21 @@ func _rig() -> CameraRig:
 	return rig
 
 
+## Outside the tree, so it fits the phone's 1912 x 880 canvas whatever the test window is.
+func _loose_rig() -> CameraRig:
+	var rig := CameraRig.new()
+	var cam := Camera3D.new()
+	cam.name = "Camera3D"
+	rig.add_child(cam)
+	return rig
+
+
 func _eye_xy(rig: CameraRig) -> Vector2:
-	return TableSpace.godot_to_core(rig.camera().global_position)
+	return TableSpace.godot_to_core(rig.transform.origin)
 
 
 func _height(rig: CameraRig) -> float:
-	return rig.camera().global_position.y
+	return rig.transform.origin.y
 
 
 func _forward(rig: CameraRig) -> Vector3:
@@ -174,39 +183,6 @@ func test_aim_change_during_an_ease_ends_at_the_latest_target() -> void:
 	rig.free()
 
 
-func test_hold_freezes_then_eases_back() -> void:
-	var rig := _rig()
-	rig.follow(Vector2(-1.0, 0.0), 0.0)
-	var held := rig.transform
-	rig.hold(true)
-	rig.follow(Vector2(0.6, 0.2), 1.0)
-	rig.pinch(2.0)
-	rig.tilt(100.0)
-	check(rig.transform.is_equal_approx(held), "frozen")
-	check_eq(rig.zoom_scale(), 1.0, "pinch ignored while held")
-	check_eq(rig.pitch_deg(), CameraRig.DEFAULT_PITCH_DEG, "tilt ignored while held")
-	rig.hold(false)
-	check(rig.is_easing(), "returns behind the cue ball with an ease")
-	rig._process(1.0)
-	check(rig.transform.is_equal_approx(rig.pose_for(Vector2(0.6, 0.2), 1.0)), "behind the new position")
-	check(not _camera_active(), "settled")
-	rig.free()
-
-
-func test_hold_during_an_ease_stops_it() -> void:
-	var rig := _rig()
-	rig.follow(Vector2(-1.0, 0.0), 0.0)
-	rig.follow(Vector2(1.0, 0.0), 0.0)
-	rig._process(0.05)
-	rig.hold(true)
-	check(not rig.is_easing(), "stopped")
-	check(not _camera_active(), "Perf released")
-	rig.hold(false)
-	rig._process(1.0)
-	check(rig.transform.is_equal_approx(rig.pose_for(Vector2(1.0, 0.0), 0.0)), "finishes after the hold")
-	rig.free()
-
-
 func test_moved_is_emitted_when_the_camera_moves() -> void:
 	var rig := _rig()
 	var count := [0]
@@ -347,33 +323,6 @@ func test_the_planning_view_takes_in_the_whole_table_at_the_phones_aspect() -> v
 	rig.free()
 
 
-func test_overview_goes_to_the_planning_view_and_back() -> void:
-	var rig := _rig()
-	rig.follow(Vector2(-1.0, 0.0), 0.0)
-	rig.set_pitch_deg(30.0)
-	rig.set_zoom_scale(0.6)
-	var changes: Array[bool] = []
-	rig.overview_changed.connect(func(on: bool) -> void: changes.append(on))
-	rig.set_overview(true)
-	check(rig.is_overview() and rig.pitch_deg() == CameraRig.PITCH_MAX_DEG and rig.zoom_scale() == 1.0, "the planning view")
-	check(rig.is_easing() and _camera_active(), "eased into")
-	rig._process(1.0)
-	check(rig.transform.is_equal_approx(rig.pose_for(Vector2(-1.0, 0.0), 0.0)), "there")
-	check(not _camera_active(), "settled")
-	rig.set_overview(false)
-	check_near(rig.pitch_deg(), 30.0, 1e-9, "back to the tilt before")
-	check_near(rig.zoom_scale(), 0.6, 1e-6, "and the zoom")
-	rig._process(1.0)
-	rig.set_overview(true)
-	rig.tilt(-20.0)
-	check(not rig.is_overview(), "a tilt leaves it")
-	check_eq(changes, [true, false, true, false], "overview_changed each time")
-	rig.hold(true)
-	rig.set_overview(true)
-	check(not rig.is_overview(), "not while a shot holds the camera")
-	rig.free()
-
-
 func test_reset_view_returns_behind_the_cue_ball_after_a_shot() -> void:
 	var rig := _rig()
 	rig.follow(Vector2(-1.0, 0.0), 0.0)
@@ -390,33 +339,306 @@ func test_reset_view_returns_behind_the_cue_ball_after_a_shot() -> void:
 	rig.free()
 
 
-func test_watching_frames_the_points_and_glides() -> void:
+const HudScript := preload("res://scripts/hud.gd")
+const CANVAS := Vector2(1912.0, 880.0)
+# iPhone 17 Pro Max landscape, as test_main.gd has it: 62 pt side insets either way round and the
+# home indicator, on the same 1912 x 880 canvas.
+const PHONE_SCREEN := Rect2(0, 0, 2868, 1320)
+const PHONE_SAFE_AREAS: Array[Rect2] = [
+	Rect2(186, 0, 2868 - 372, 1320 - 63),
+	Rect2(186, 0, 2868 - 186, 1320 - 63),
+	Rect2(0, 0, 2868 - 186, 1320 - 63),
+]
+## A blend's frame at 60 fps: the most the eye may move and the view may turn.
+const STEP_MAX_M := 0.2
+const TURN_MAX_DEG := 3.0
+
+
+## The controls' rectangles: Windows (the whole canvas safe), then the phone either way round.
+func _control_layouts() -> Array:
+	var probe := FreeTableBar.new()
+	tree.root.add_child(probe)
+	var row := probe.row_rect().size
+	probe.free()
+	var safes: Array[Rect2] = [Rect2(Vector2.ZERO, CANVAS)]
+	for safe_px in PHONE_SAFE_AREAS:
+		safes.append(HudScript.safe_rect(safe_px, PHONE_SCREEN, CANVAS))
+	var layouts: Array = []
+	for safe in safes:
+		var rects: Dictionary = HudScript.layout(safe, row, CANVAS)
+		var controls: Array[Rect2] = []
+		for key: String in ["bar", "spin", "elevation", "cue", "wheel"]:
+			controls.append(rects[key])
+		layouts.append(controls)
+	return layouts
+
+
+## [name, Godot point]: each pocket's drop centre on the cloth and each cushion's two ends.
+func _markers() -> Array:
+	var shape := Physics.table_shape()
+	var found: Array = []
+	for pocket: Dictionary in shape.get("pockets", []):
+		var c: Array = pocket["drop_centre"]
+		found.append(["pocket %s" % pocket["name"], TableSpace.core_to_godot(float(c[0]), float(c[1]))])
+	for line: Dictionary in shape.get("lines", []):
+		if line["kind"] == "nose":
+			for end: String in ["p1", "p2"]:
+				var p: Array = line[end]
+				found.append(["cushion %s %s" % [line["name"], end],
+						TableSpace.core_to_godot(float(p[0]), float(p[1]), 0.037)])
+	return found
+
+
+func _on_canvas(at: Vector2) -> bool:
+	return Rect2(Vector2.ZERO, CANVAS).has_point(at)
+
+
+func _under(at: Vector2, controls: Array[Rect2]) -> String:
+	for rect in controls:
+		if rect.has_point(at):
+			return str(rect)
+	return ""
+
+
+func _rail_corners_in_view(rig: CameraRig, pose: Transform3D, what: String) -> void:
+	var bounds := Stage.DEFAULT_BOUNDS
+	for i in 8:
+		var corner := bounds.get_endpoint(i)
+		var at := rig.project(pose, Vector3(corner.x, bounds.end.y, corner.z))
+		check(_on_canvas(at), "%s: rail corner %s on screen at %s" % [what, corner, at])
+
+
+func test_the_broadcast_view_shows_every_pocket_and_cushion_end_clear_of_the_controls() -> void:
+	var rig := _loose_rig()
+	var markers := _markers()
+	check_eq(markers.size(), 6 + 12, "six pockets and six cushions' ends")
+	for controls: Array[Rect2] in _control_layouts():
+		rig.keep_clear(controls)
+		for yaw: float in [0.0, PI]:
+			var pose := rig.broadcast_pose(yaw)
+			var tops: Array[float] = []
+			for marker: Array in markers:
+				var at := rig.project(pose, marker[1])
+				tops.append(at.y)
+				check(_on_canvas(at), "%s on screen at %s (yaw %.2f)" % [marker[0], at, yaw])
+				var under := _under(at, controls)
+				check(under.is_empty(), "%s at %s not under the control %s (yaw %.2f)" % [marker[0], at, under, yaw])
+			_rail_corners_in_view(rig, pose, "yaw %.2f" % yaw)
+			var forward := -pose.basis.z
+			check_near(rad_to_deg(asin(-forward.y)), CameraRig.BROADCAST_PITCH_DEG, 1e-4, "looking down at the TV angle")
+			check_near(_core_dir(forward).dot(Vector2(cos(yaw), sin(yaw))), 1.0, 1e-9, "along the table")
+			var near_end := TableSpace.core_to_godot(-1.7845 * cos(yaw), 0.0)
+			var far_end := TableSpace.core_to_godot(1.7845 * cos(yaw), 0.0)
+			var side := Vector3(0.889, 0.0, 0.0)
+			var near_width := rig.project(pose, near_end + side).distance_to(rig.project(pose, near_end - side))
+			var far_width := rig.project(pose, far_end + side).distance_to(rig.project(pose, far_end - side))
+			check(far_width < near_width * 0.85, "the far end narrower: %.0f vs %.0f" % [far_width, near_width])
+			check(rig.project(pose, near_end).y > rig.project(pose, far_end).y, "the near cushion at the bottom")
+			check(tops.max() - tops.min() > CANVAS.y * 0.7, "the table fills the height: %.0f" % [tops.max() - tops.min()])
+	rig.free()
+
+
+func test_the_broadcast_end_is_behind_the_shot() -> void:
+	var rig := _rig()
+	for entry: Array in [[0.3, 0.0], [-1.2, 0.0], [2.5, PI], [-2.0, PI], [PI / 2.0 + 0.05, PI]]:
+		var aim: float = entry[0]
+		rig.follow(Vector2(-0.5, 0.2), aim)
+		rig._process(1.0)
+		rig.hold(true)
+		rig._process(CameraRig.BLEND_S)
+		check(not rig.is_easing(), "settled")
+		check(rig.transform.is_equal_approx(rig.broadcast_pose(entry[1])), "the broadcast view for aim %.2f" % aim)
+		var eye := _eye_xy(rig)
+		if entry[1] == 0.0:
+			check(eye.x < -1.95, "aiming towards the black: the baulk end (%s)" % eye)
+		else:
+			check(eye.x > 1.95, "aiming towards baulk: the black end (%s)" % eye)
+		check(_height(rig) > 2.5, "high up: %.2f m" % _height(rig))
+		rig.follow(Vector2(0.6, -0.2), aim + 1.0)
+		check(rig.transform.is_equal_approx(rig.broadcast_pose(entry[1])), "steady while the shot plays")
+		rig.hold(false)
+		rig._process(CameraRig.BLEND_S)
+	rig.free()
+
+
+## Steps a blend frame by frame at 60 fps until it settles: [eye steps, turn steps in degrees,
+## clearance failures].
+func _run_blend(rig: CameraRig, frames: int) -> Array:
+	var steps: Array[float] = []
+	var turns: Array[float] = []
+	var low: Array[String] = []
+	var last := rig.transform
+	for i in frames:
+		rig._process(1.0 / 60.0)
+		steps.append(rig.transform.origin.distance_to(last.origin))
+		turns.append(rad_to_deg((-rig.transform.basis.z).angle_to(-last.basis.z)))
+		last = rig.transform
+		var floor_m := rig.clearance_at(_eye_xy(rig))
+		if _height(rig) < floor_m - 1e-9:
+			low.append("frame %d: %.3f m at %s, under %.2f" % [i, _height(rig), _eye_xy(rig), floor_m])
+		if not rig.is_easing():
+			break
+	return [steps, turns, low]
+
+
+func _check_smooth(run: Array, what: String) -> void:
+	var steps: Array[float] = run[0]
+	var turns: Array[float] = run[1]
+	check(steps.size() >= 55 and steps.size() <= 62, "%s: about a second, %d frames" % [what, steps.size()])
+	var mid := steps.size() / 2
+	check(steps.max() < STEP_MAX_M, "%s: at most %.3f m a frame" % [what, steps.max()])
+	check(turns.max() < TURN_MAX_DEG, "%s: at most %.2f° a frame" % [what, turns.max()])
+	for k in 3:
+		check(steps[k] < steps[mid] and steps[-1 - k] < steps[mid], "%s: slow at both ends (%.4f, %.4f vs %.4f mid)"
+				% [what, steps[k], steps[-1 - k], steps[mid]])
+		check(turns[k] <= maxf(turns[mid], 0.05) and turns[-1 - k] <= maxf(turns[mid], 0.05),
+				"%s: turning slowly at both ends (%.3f, %.3f vs %.3f mid)" % [what, turns[k], turns[-1 - k], turns[mid]])
+	check_eq(run[2], [] as Array[String], "%s: never under the cloth's or rails' clearance" % what)
+
+
+func test_the_shot_blends_up_to_the_broadcast_view_and_back_down_smoothly() -> void:
+	var rig := _rig()
+	# Low behind the cue ball, zoomed in, near a cushion: the hardest starts.
+	var starts: Array = [[Vector2(-1.05, -0.146), 0.02], [Vector2(1.70, 0.8), PI - 0.2], [Vector2(0.0, -0.85), PI / 2.0],
+			[Vector2(-1.7, 0.0), 0.0], [Vector2(0.9, 0.3), -2.0]]
+	for pitch: float in [CameraRig.PITCH_MIN_DEG, CameraRig.DEFAULT_PITCH_DEG]:
+		for zoom: float in [CameraRig.ZOOM_MIN, 1.0]:
+			rig.set_pitch_deg(pitch)
+			rig.set_zoom_scale(zoom)
+			for start: Array in starts:
+				rig.follow(start[0], start[1])
+				rig._process(1.0)
+				var what := "cue %s aim %.2f pitch %.0f zoom %.2f" % [start[0], start[1], pitch, zoom]
+				rig.hold(true)
+				_check_smooth(_run_blend(rig, 120), "up, " + what)
+				check(rig.transform.is_equal_approx(rig.broadcast_pose(CameraRig.end_behind(start[1]))),
+						"at the broadcast view, " + what)
+				rig.hold(false)
+				_check_smooth(_run_blend(rig, 120), "down, " + what)
+				check(rig.transform.is_equal_approx(rig.pose_for(start[0], start[1])), "behind the cue ball again, " + what)
+	check(not _camera_active(), "settled")
+	rig.free()
+
+
+func test_a_shot_finished_mid_blend_turns_back_without_a_jump() -> void:
+	var rig := _rig()
+	for frames_up: int in [6, 18, 30, 50]:
+		rig.follow(Vector2(-1.05, -0.146), 0.1)
+		rig._process(1.0)
+		rig.hold(true)
+		var last := rig.transform.origin
+		var before := 0.0
+		for i in frames_up:
+			rig._process(1.0 / 60.0)
+			before = rig.transform.origin.distance_to(last)
+			last = rig.transform.origin
+		# The aim stays as struck; the cue ball has run on.
+		rig.follow(Vector2(0.4, 0.3), 0.1)
+		rig.hold(false)
+		var run := _run_blend(rig, 120)
+		var steps: Array[float] = run[0]
+		check(absf(steps[0] - before) < 0.012,
+				"after %d frames: the first step back %.4f m, the last one up %.4f m" % [frames_up, steps[0], before])
+		check(steps.max() < STEP_MAX_M, "after %d frames: at most %.3f m a frame" % [frames_up, steps.max()])
+		var turns: Array[float] = run[1]
+		check(turns.max() < TURN_MAX_DEG, "after %d frames: turning gently, at most %.2f° a frame" % [frames_up, turns.max()])
+		check_eq(run[2], [] as Array[String], "after %d frames: clear of the cloth and rails" % frames_up)
+		check(not rig.is_easing() and rig.transform.is_equal_approx(rig.pose_for(Vector2(0.4, 0.3), 0.1)),
+				"after %d frames: behind the cue ball where it stopped" % frames_up)
+	rig.free()
+
+
+func test_hold_ignores_pinch_and_tilt_and_follow_waits_for_the_release() -> void:
 	var rig := _rig()
 	rig.follow(Vector2(-1.0, 0.0), 0.0)
-	var points := PackedVector2Array([Vector2(-0.9, 0.1), Vector2(1.2, 0.6), Vector2(0.4, -0.5)])
-	rig.watch(points)
-	check(not rig.is_watching(), "only while held")
 	rig.hold(true)
-	rig.watch(points)
-	check(rig.is_watching() and _camera_active(), "watching keeps the game drawing")
-	var framing := rig.watch_framing(points, 0.0)
-	check(float(framing["pitch_deg"]) >= CameraRig.WATCH_PITCHES_DEG[0], "from above")
-	var pose := rig.watch_pose(framing["focus"], framing["distance"], framing["pitch_deg"], 0.0)
-	var to_camera := pose.affine_inverse()
-	var tan_v := tan(deg_to_rad(CameraRig.FOV_DEG / 2.0))
-	for p in points:
-		var local := to_camera * TableSpace.core_to_godot(p.x, p.y, 0.02625)
-		check(-local.z > 0.0 and absf(local.y) < tan_v * -local.z and absf(local.x) < tan_v * CameraRig.DEFAULT_ASPECT * -local.z,
-				"%s in the framing" % p)
-	check(pose.origin.distance_to(rig.transform.origin) > 0.5, "the camera starts where it was")
-	for i in 120:
-		rig._process(1.0 / 60.0)
-	check(rig.transform.origin.distance_to(pose.origin) < 0.01, "and glides to the framing")
-	var far := rig.watch_framing(PackedVector2Array([Vector2(-1.7, -0.85), Vector2(1.7, 0.85)]), 0.0)
-	check(float(far["distance"]) <= CameraRig.FAR_DISTANCE_M, "never further out than the planning view")
+	check(rig.is_easing() and _camera_active(), "blending to the broadcast view keeps the game drawing")
+	rig.follow(Vector2(0.6, 0.2), 1.0)
+	rig.pinch(2.0)
+	rig.tilt(100.0)
+	check_eq(rig.zoom_scale(), 1.0, "pinch ignored while held")
+	check_eq(rig.pitch_deg(), CameraRig.DEFAULT_PITCH_DEG, "tilt ignored while held")
+	rig._process(CameraRig.BLEND_S)
+	check(rig.transform.is_equal_approx(rig.broadcast_pose(0.0)), "the broadcast view behind the shot")
+	check(not _camera_active(), "held still there, the game can idle")
 	rig.hold(false)
-	check(not rig.is_watching() and rig.is_easing(), "back with an ease")
-	rig._process(CameraRig.RETURN_S)
-	check(rig.transform.is_equal_approx(rig.pose_for(Vector2(-1.0, 0.0), 0.0)), "behind the cue ball")
-	check(not _camera_active(), "and idle")
+	check(rig.is_easing(), "returns behind the cue ball with a blend")
+	rig._process(CameraRig.BLEND_S)
+	check(rig.transform.is_equal_approx(rig.pose_for(Vector2(0.6, 0.2), 1.0)), "behind the new position")
+	check(not _camera_active(), "settled")
+	rig.free()
+
+
+func test_a_drag_walks_round_the_table_in_the_overview() -> void:
+	var rig := _loose_rig()
+	var controls: Array[Rect2] = _control_layouts()[0]
+	rig.keep_clear(controls)
+	var cue := Vector2(-1.0, 0.1)
+	rig.follow(cue, 0.2)
+	rig.orbit(300.0)
+	check(rig.transform.is_equal_approx(rig.pose_for(cue, 0.2)), "no walking while aiming")
+	rig.set_overview(true)
+	rig._process(CameraRig.BLEND_S)
+	check(rig.transform.is_equal_approx(rig.broadcast_pose(0.0)), "the broadcast view from baulk")
+	var quarter := (PI / 2.0) / CameraRig.ORBIT_RAD_PER_PX
+	var start_eye := _eye_xy(rig)
+	for i in 30:
+		rig.orbit(-quarter / 30.0)
+	check(not rig.is_easing(), "a drag moves it at once")
+	check_near(_core_dir(-rig.transform.basis.z).dot(Vector2(0.0, 1.0)), 1.0, 1e-6,
+			"a quarter turn: side-on, looking across the table")
+	var eye := _eye_xy(rig)
+	check(eye.y < -1.1 and absf(eye.x) < 0.2, "walked round to the side: %s from %s" % [eye, start_eye])
+	check_near(rad_to_deg(asin(-(-rig.transform.basis.z).y)), CameraRig.BROADCAST_PITCH_DEG, 1e-4, "at the same angle")
+	for marker: Array in _markers():
+		var at := rig.project(rig.transform, marker[1])
+		check(_on_canvas(at) and _under(at, controls).is_empty(), "side-on: %s in view and clear at %s" % [marker[0], at])
+	_rail_corners_in_view(rig, rig.transform, "side-on")
+	var centre := rig.project(rig.transform, Vector3.ZERO)
+	check(centre.distance_to(CANVAS / 2.0) < 120.0, "round the table's centre: %s" % centre)
+	var distance := rig.transform.origin.length()
+	rig.pinch(1.5)
+	check(rig.is_overview(), "a pinch zooms the overview")
+	check(rig.transform.origin.length() < distance * 0.85, "in: %.2f m from %.2f" % [rig.transform.origin.length(), distance])
+	rig.pinch(0.01)
+	check(rig.transform.origin.length() > distance * 1.1, "and out, to its limit")
+	check_eq(rig.zoom_scale(), 1.0, "the aiming zoom left alone")
+	rig.set_overview(false)
+	rig._process(CameraRig.BLEND_S)
+	check(rig.transform.is_equal_approx(rig.pose_for(cue, 0.2)), "the eye again: behind the cue ball at the aim it had")
+	rig.free()
+
+
+func test_overview_shows_the_broadcast_view_and_back() -> void:
+	var rig := _rig()
+	rig.follow(Vector2(-1.0, 0.0), 2.9)
+	rig.set_pitch_deg(30.0)
+	rig.set_zoom_scale(0.6)
+	var changes: Array[bool] = []
+	rig.overview_changed.connect(func(on: bool) -> void: changes.append(on))
+	rig.set_overview(true)
+	check(rig.is_overview() and rig.view_name() == "overview", "the overview")
+	check(rig.pitch_deg() == 30.0 and rig.zoom_scale() == 0.6, "the aiming tilt and zoom kept for later")
+	check(rig.is_easing() and _camera_active(), "blended into")
+	rig.follow(Vector2(-1.0, 0.0), 3.0)
+	rig._process(CameraRig.BLEND_S)
+	check(rig.transform.is_equal_approx(rig.broadcast_pose(PI)), "from the end behind the aim, the black end")
+	check(not _camera_active(), "settled")
+	rig.set_overview(false)
+	rig._process(CameraRig.BLEND_S)
+	check(rig.transform.is_equal_approx(rig.pose_for(Vector2(-1.0, 0.0), 3.0)), "back behind the cue ball at the latest aim")
+	rig.set_overview(true)
+	rig._process(CameraRig.BLEND_S)
+	rig.tilt(-20.0)
+	check(not rig.is_overview() and rig.is_easing(), "a tilt leaves it, blending")
+	rig._process(CameraRig.BLEND_S)
+	check_near(rig.pitch_deg(), 26.0, 1e-9, "tilted from where it was")
+	check(rig.transform.is_equal_approx(rig.pose_for(Vector2(-1.0, 0.0), 3.0)), "behind the cue ball")
+	check_eq(changes, [true, false, true, false], "overview_changed each time")
+	rig.set_overview(true)
+	rig.hold(true)
+	check(not rig.is_overview() and rig.view_name() == "shot", "a shot takes over from the overview")
+	check_eq(changes, [true, false, true, false, true, false], "and says so")
+	rig.set_overview(true)
+	check(not rig.is_overview(), "not while a shot holds the camera")
 	rig.free()
