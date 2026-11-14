@@ -319,6 +319,30 @@ def recentre(o: bpy.types.Object, origin: Vector, scale: float = 1.0, turn: Matr
     o.matrix_world = Matrix.Identity(4)
 
 
+def strip_colour_profiles(folder: str) -> int:
+    """Godot 4.7's JPEG loader refuses a file with an embedded ICC profile, and Blender writes
+    one (plain sRGB) into every colour texture. Dropping that segment changes no pixel."""
+    stripped = 0
+    for name in sorted(os.listdir(folder)):
+        if not name.lower().endswith((".jpg", ".jpeg")):
+            continue
+        path = os.path.join(folder, name)
+        with open(path, "rb") as f:
+            data = f.read()
+        out, i = bytearray(data[:2]), 2
+        while i + 4 <= len(data) and data[i] == 0xFF and data[i + 1] != 0xDA:
+            size = 2 + int.from_bytes(data[i + 2:i + 4], "big")
+            if not (data[i + 1] == 0xE2 and data[i + 4:i + 15] == b"ICC_PROFILE"):
+                out += data[i:i + size]
+            i += size
+        out += data[i:]
+        if len(out) != len(data):
+            with open(path, "wb") as f:
+                f.write(out)
+            stripped += 1
+    return stripped
+
+
 def export(path: str, objects) -> None:
     bpy.ops.object.select_all(action="DESELECT")
     for o in objects:
@@ -418,6 +442,7 @@ def main() -> None:
     export(os.path.join(args.out, "balls.gltf"), ball_objects)
     export(os.path.join(args.out, "cue.gltf"), [cue])
     export(os.path.join(args.out, "extras.gltf"), extras)
+    report["colour_profiles_stripped"] = strip_colour_profiles(args.out)
 
     lamp_co = coords(lamp.data)
     report["lamp"] = {"min": lamp_co.min(0).tolist(), "max": lamp_co.max(0).tolist()}
