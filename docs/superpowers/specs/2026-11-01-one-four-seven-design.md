@@ -701,9 +701,11 @@ off by default.
 - **Pockets (Owner, M2), as tournament tables seen from above:** each cushion runs straight
   to the pocket and turns in at its knuckle, the slate's edge rounded at the fall. A light
   crochet net hangs in every hole, darkening to its opening, so the hole reads shallow, not a
-  pit. A cream leather horseshoe wraps the back of each corner hole, the wooden rails running
-  on to a mitred, rounded corner; at the middles a smaller fitting sits behind the hole and the
-  rail's outer edge runs straight past. The rails are warm, dark mahogany.
+  pit. At the corners the green cushion runs down each angled facing to the hole, and a slim
+  cream band (about 18 mm from above) hugs the back of the hole, the wooden rails running on
+  to a mitred, rounded corner. At the middles the wood curves round into the jaws, the cloth
+  slopes down into the hole, and a smaller round fitting sits behind it. The facings sit in
+  shade under the cushion nose. The rails are warm, dark mahogany.
 - **Assets:** built procedurally in code or Godot, or from CC0 (public-domain) sources,
   with licences recorded (section 18).
 
