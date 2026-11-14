@@ -32,6 +32,10 @@ import tarfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "tools"))
+
+import licensed_imports  # noqa: E402
+
 BUNDLE_ID = "com.kaichuan.onefourseven"
 LICENSED = ROOT / "game" / "licensed"
 STAMP = ".stamp"
@@ -151,33 +155,37 @@ def push_head() -> None:
     subprocess.run(["git", "push", "-q", "--force", "mac", "HEAD:refs/heads/build"], cwd=ROOT, check=True)
 
 
-def licensed_files() -> list[Path]:
-    """What the Mac needs of game/licensed: not Godot's .import files, which it writes itself."""
-    return sorted(f for f in LICENSED.rglob("*") if f.is_file() and f.suffix != ".import" and f.name != STAMP)
+def licensed_files() -> dict[str, bytes]:
+    """What the Mac needs of game/licensed, by archive name: the assets, and fresh import settings
+    for the textures in place of this PC's .import files, which Godot has filled in for itself."""
+    files = {f.relative_to(LICENSED).as_posix(): f.read_bytes() for f in sorted(LICENSED.rglob("*"))
+             if f.is_file() and f.suffix != ".import" and f.name != STAMP}
+    if files:
+        files.update({name: text.encode() for name, text in licensed_imports.stubs(LICENSED).items()})
+    return files
 
 
-def licensed_stamp(files: list[Path]) -> str:
+def licensed_stamp(files: dict[str, bytes]) -> str:
     digest = hashlib.sha256()
-    for f in files:
-        digest.update(f.relative_to(LICENSED).as_posix().encode() + b"\0")
-        digest.update(hashlib.sha256(f.read_bytes()).digest())
+    for name in sorted(files):
+        digest.update(name.encode() + bytes(1))
+        digest.update(hashlib.sha256(files[name]).digest())
     return digest.hexdigest()
 
 
-def licensed_archive(files: list[Path], stamp: str) -> bytes:
+def licensed_archive(files: dict[str, bytes], stamp: str) -> bytes:
     buffer = io.BytesIO()
     with tarfile.open(fileobj=buffer, mode="w") as tar:
-        for f in files:
-            tar.add(f, arcname=f.relative_to(LICENSED).as_posix())
-        info = tarfile.TarInfo(STAMP)
-        info.size = len(stamp)
-        tar.addfile(info, io.BytesIO(stamp.encode()))
+        for name, data in sorted(files.items()) + [(STAMP, stamp.encode())]:
+            info = tarfile.TarInfo(name)
+            info.size = len(data)
+            tar.addfile(info, io.BytesIO(data))
     return buffer.getvalue()
 
 
 def send_licensed() -> int:
     """Brings the Mac's game/licensed in line with this PC's; 0 when the build can go ahead."""
-    files = licensed_files() if LICENSED.is_dir() else []
+    files = licensed_files() if LICENSED.is_dir() else {}
     if not files:
         print("note: no game/licensed here; the Mac builds with whatever table it already has", file=sys.stderr)
         return 0

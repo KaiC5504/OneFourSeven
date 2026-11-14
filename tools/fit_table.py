@@ -19,12 +19,16 @@ import json
 import math
 import os
 import sys
+from pathlib import Path
 
 import bmesh
 import bpy
 import numpy as np
 from mathutils import Matrix, Vector
 from mathutils.bvhtree import BVHTree
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import licensed_imports  # noqa: E402
 
 # The model as bought, in its own frame: metres, +y towards the black, z up.
 NOSE_X = 0.7722
@@ -443,6 +447,7 @@ def main() -> None:
     export(os.path.join(args.out, "cue.gltf"), [cue])
     export(os.path.join(args.out, "extras.gltf"), extras)
     report["colour_profiles_stripped"] = strip_colour_profiles(args.out)
+    report["import_settings_written"] = licensed_imports.write(Path(args.out))
 
     lamp_co = coords(lamp.data)
     report["lamp"] = {"min": lamp_co.min(0).tolist(), "max": lamp_co.max(0).tolist()}

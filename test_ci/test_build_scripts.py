@@ -607,7 +607,11 @@ class MacLicensedAssets(unittest.TestCase):
                 self.assertEqual(0, mac.send_licensed())
             self.assertIn("output muted", calls[0][1].decode())
             names = tarfile.open(fileobj=io.BytesIO(calls[1][1])).getnames()
-            self.assertEqual(["SnookerTable_D.jpg", "table.gltf", ".stamp"], names)
+            self.assertEqual(["SnookerTable_D.jpg", "SnookerTable_D.jpg.import", "table.gltf", ".stamp"], names)
+            sent = tarfile.open(fileobj=io.BytesIO(calls[1][1])).extractfile("SnookerTable_D.jpg.import").read().decode()
+            self.assertIn("compress/mode=2", sent)
+            self.assertIn("mipmaps/generate=true", sent)
+            self.assertNotIn("uid=", sent)
             self.assertIn("licensed.new", calls[1][0][-1])
 
     def test_skips_the_transfer_when_the_mac_is_current(self):
