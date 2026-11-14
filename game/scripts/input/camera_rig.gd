@@ -38,6 +38,8 @@ const DEFAULT_PITCH_DEG := 16.0
 ## Vertical. The phone's 2.17:1 screen makes the horizontal view about twice as wide, and balls at
 ## its edges stretch with the angle off the centre; 40 degrees stretched them about 13 %.
 const FOV_DEG := 34.0
+## The broadcast view's long lens: from further back the far end shrinks less, as on TV.
+const BROADCAST_FOV_DEG := 20.0
 const NEAR_M := 0.02
 const FAR_M := 40.0
 ## Camera to the point it looks at, at the default zoom, below PLAN_FROM_DEG.
@@ -71,7 +73,7 @@ const ORBIT_RAD_PER_PX := 0.0016
 const OVERVIEW_ZOOM_MIN := 0.5
 const OVERVIEW_ZOOM_MAX := 1.5
 ## Between the aiming camera and the broadcast view.
-const BLEND_S := 1.0
+const BLEND_S := 1.5
 ## How far ahead of a straight line the height runs while blending: up first when rising, down last
 ## when descending, so a camera low behind the cue ball clears the rails as it pulls back. Above
 ## 0.1875 the height would overshoot its end.
@@ -116,6 +118,7 @@ var _ease_s := EASE_S
 var _blending := false
 var _from_eye := Vector3.ZERO
 var _from_turn := Vector3.ZERO
+var _from_fov := FOV_DEG
 var _from_eye_v := Vector3.ZERO
 var _from_turn_v := Vector3.ZERO
 var _goal_eye := Vector3.ZERO
@@ -439,10 +442,10 @@ func clearance_at(xy: Vector2) -> float:
 
 
 ## Where the camera at `pose` draws a Godot point on the canvas, for views not shown yet.
-func project(pose: Transform3D, point: Vector3) -> Vector2:
+func project(pose: Transform3D, point: Vector3, fov_deg: float = FOV_DEG) -> Vector2:
 	var canvas := _canvas()
 	var local := pose.affine_inverse() * point
-	var scale := canvas.y / 2.0 / tan(deg_to_rad(FOV_DEG) / 2.0) / maxf(-local.z, 1e-6)
+	var scale := canvas.y / 2.0 / tan(deg_to_rad(fov_deg) / 2.0) / maxf(-local.z, 1e-6)
 	return canvas / 2.0 + Vector2(local.x, -local.y) * scale
 
 
@@ -462,7 +465,7 @@ func _outline_corners() -> PackedVector3Array:
 func _frame_bounds(basis: Basis, frame: Rect2) -> PackedFloat64Array:
 	var forward := -basis.z
 	var half := _canvas() / 2.0
-	var per_tan := half.y / tan(deg_to_rad(FOV_DEG) / 2.0)
+	var per_tan := half.y / tan(deg_to_rad(BROADCAST_FOV_DEG) / 2.0)
 	var tans := PackedFloat64Array([(half.y - frame.position.y) / per_tan, (frame.end.y - half.y) / per_tan,
 			(frame.end.x - half.x) / per_tan, (half.x - frame.position.x) / per_tan])
 	var normals: Array[Vector3] = [basis.y - forward * tans[0], -basis.y - forward * tans[1], basis.x - forward * tans[2],
@@ -530,7 +533,7 @@ func _covers_controls(pose: Transform3D) -> bool:
 	if _clear_boxes.is_empty():
 		return false
 	var canvas := _canvas()
-	var per_m := canvas.y / 2.0 / tan(deg_to_rad(FOV_DEG) / 2.0)
+	var per_m := canvas.y / 2.0 / tan(deg_to_rad(BROADCAST_FOV_DEG) / 2.0)
 	var to_view := pose.affine_inverse()
 	var drawn := PackedVector2Array()
 	for p in _pocket_points:
@@ -588,6 +591,10 @@ static func _basis_for(turn: Vector3) -> Basis:
 	return Basis.looking_at(level * cos(pitch) + Vector3.DOWN * sin(pitch), Vector3.UP)
 
 
+func _view_fov() -> float:
+	return BROADCAST_FOV_DEG if is_broadcast() else FOV_DEG
+
+
 func _goal() -> Transform3D:
 	if is_broadcast():
 		return broadcast_pose(_yaw, _view_zoom)
@@ -626,9 +633,11 @@ func _step_blend() -> void:
 			_shown_cue = _target_cue
 			_shown_aim = _target_aim
 			_shown_elevation = _target_elevation
+		camera().fov = _view_fov()
 		_place(goal)
 		return
 	var k := smoothstep(0.0, 1.0, s)
+	camera().fov = lerpf(_from_fov, _view_fov(), k)
 	var carry := s * (1.0 - s) * (1.0 - s) * _ease_s
 	var eye := _from_eye.lerp(_goal_eye, k) + _from_eye_v * carry
 	eye.y += absf(_goal_eye.y - _from_eye.y) * BLEND_ARC * 16.0 * s * s * (1.0 - s) * (1.0 - s)
@@ -655,6 +664,7 @@ func _start_blend() -> void:
 	var velocity := _blend_velocity()
 	_from_eye = transform.origin
 	_from_turn = _turn(transform)
+	_from_fov = camera().fov
 	_from_eye_v = velocity[0]
 	_from_turn_v = velocity[1]
 	_goal_eye = _from_eye
@@ -699,6 +709,7 @@ func _show(cue_xy: Vector2, aim_rad: float, elevation_rad: float) -> void:
 func _apply() -> void:
 	if not _has_pose or _blending:
 		return
+	camera().fov = _view_fov()
 	_place(broadcast_pose(_yaw, _view_zoom) if is_broadcast() else pose_for(_shown_cue, _shown_aim, _shown_elevation))
 
 

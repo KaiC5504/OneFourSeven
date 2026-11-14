@@ -665,13 +665,14 @@ func test_the_broadcast_view_keeps_every_ball_of_a_long_pot_on_screen() -> void:
 	var moved_after := 0.0
 	var last_eye := camera.global_position
 	var frames := 0
+	var settled := int(ceil(CameraRig.BLEND_S * 60.0)) + 2
 	while player.is_playing() and frames < 1200:
 		player.advance(dt)
 		rig._process(dt)
 		frames += 1
 		var step := camera.global_position.distance_to(last_eye)
 		largest_step = maxf(largest_step, step)
-		if frames > 62:
+		if frames > settled:
 			moved_after = maxf(moved_after, step)
 		last_eye = camera.global_position
 		if main._record == null:
@@ -684,9 +685,9 @@ func test_the_broadcast_view_keeps_every_ball_of_a_long_pot_on_screen() -> void:
 			var at := TableSpace.core_to_godot(state[o + ShotPlayback.X], state[o + ShotPlayback.Y], r)
 			if camera.is_position_behind(at) or not view.has_point(camera.unproject_position(at)):
 				off_screen.append("ball %d at t %.2f" % [o / ShotPlayback.STRIDE, player.time()])
-		if frames == 62:
-			check(rig.transform.is_equal_approx(broadcast), "at the broadcast view from baulk after a second")
-	check(frames > 90, "the shot ran: %d frames" % frames)
+		if frames == settled:
+			check(rig.transform.is_equal_approx(broadcast), "at the broadcast view from baulk once blended")
+	check(frames > settled + 30, "the shot ran: %d frames" % frames)
 	check_eq(off_screen, [] as Array[String], "every moving ball stays on screen in every frame")
 	check(largest_step < 0.2, "eased, no jump: %.3f m in one frame" % largest_step)
 	check_eq(moved_after, 0.0, "steady once there, not chasing the balls")

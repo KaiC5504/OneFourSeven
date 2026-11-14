@@ -433,8 +433,9 @@ level 1.
   up to a high, nearly overhead angle. That high angle doubles as the planning view
   without adding a separate top-down mode.
 - **Owner (M2), the TV view:** when a shot is struck, the camera rises smoothly, in about
-  a second, to the main TV camera's view: high and well back at the end behind the shot,
-  about 55 degrees down, the whole table in frame and clear of the controls. It holds
+  a second and a half, to the main TV camera's view: well back at the end behind the shot,
+  about 30 degrees down on a long lens (20 degrees) so the far end stays wide, the table as
+  big as the screen allows with every pocket clear of the controls. It holds
   there steadily while the balls run, then eases back behind the cue ball for the next
   shot.
 - An overview button shows the same view (**Owner**, M2). A one-finger drag walks round
