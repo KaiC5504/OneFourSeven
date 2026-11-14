@@ -22,14 +22,29 @@ const SURFACE_FITTINGS := 4
 ## The cushion's top, from the nose back to the wooden rail: a slim rubber wedge, as on tournament
 ## tables, the wood taking the rest of the rail's width.
 const CUSHION_DEPTH := 0.04
-## At a middle pocket the wood ends in a cut square across the rail this far behind the facing, as
-## on the real tables: the cushion fills its jaw up to the cut and runs on down the facing this
-## wide, instead of jutting into the rail.
+## The cushions are a shade darker than the bed. Their face under the nose darkens further down to
+## UNDERCUT_SHADE at the cloth: the cloth material's rim light ignores which way a face turns from
+## the light, and lit the facings, seen edge on from the player's eye, as bright wedges.
+const CUSHION_SHADE := 0.93
+const UNDERCUT_SHADE := 0.5
+## Profile points closer than this to a neighbour don't set its normal's slope (_profile_normals).
+const PROFILE_STEP := 0.0008
+## At a middle pocket the wood ends in a cut across the rail this far behind the facing: the cushion
+## fills its jaw up to the cut and runs on down the facing this wide, instead of jutting into the
+## rail. The cut rounds into the rail's inner edge MIDDLE_FILLET wide, so the wood's edge round the
+## pocket is one smooth curve with the fitting's, as on the real tables, and the cushion's top
+## widens round its jaw.
 const JAW_STRIP := 0.012
+const MIDDLE_FILLET := 0.06
+const FILLET_STEPS := 6
 ## The slate's rounded edge, where the cloth turns down into the pocket, and how far down the
 ## turned cloth reaches before the net takes over.
 const FALL := 0.01
 const FALL_DEPTH := 0.016
+const FALL_STEPS := 4
+## The turned cloth darkens evenly across its slope into the hole's shade, and again down to
+## FALL_DEPTH, so the opening reads from where the cloth starts turning rather than from the net.
+const FALL_SHADE := 0.4
 ## The net from its rim down, a bag: each row (its size as a fraction of the hole's, depth below the
 ## cloth, shade). It sags out in the shade of the fitting's lip and the turned cloth (NET_RIM_SHADE
 ## at its rim), so from the player's eye its back curves away; then it closes in, its bowl lit, down
@@ -69,20 +84,28 @@ const LIP_STEPS := 4
 ## The physics' drop circle reaches past the rail's outer edge there, so the hole drawn behind the
 ## fall is shallower than the circle; the net bellies out behind it under the fitting.
 const MIN_CAP := 0.001
-## A middle pocket's fitting: a band this wide round the back of its hole, so at its sides it meets
-## the wood's square end, as on the real tables.
+## A middle pocket's fitting: a band this wide round the back of its hole, its outer edge a circle
+## that runs on smoothly from the cushions' backs, as on the real tables.
 const BAND := JAW_STRIP
-## A corner's horseshoe fitting: this wide round the back of its hole, a little wider than a cushion.
-const HORSESHOE_WIDTH := 0.05
-const HORSESHOE_SEGMENTS := 16
-## The rails' rounded outer corner, mitred where the two rails meet behind each corner's horseshoe.
+## A corner's fitting: a slim band this wide round the back of its hole, as on tournament tables
+## (Riley Aristocrat, Masters 2023). The cushion runs on down its facing to the hole, this wide behind
+## it past the rail's inner edge, so its back runs smoothly into the band's outer edge.
+const CORNER_BAND := 0.018
+const CORNER_BAND_SEGMENTS := 16
+## The faces where the cushions end against a fitting stand this far towards the table, so they
+## don't fight the net's edge in the same plane.
+const BAND_END_OFFSET := 0.0002
+## The front corners' radius of the square round a middle's hole where its cloth starts turning
+## down (_fall_reach).
+const MIDDLE_ROUNDING := 0.012
+## The rails' rounded outer corner, mitred where the two rails meet behind each corner's fitting.
 const CORNER_RADIUS := 0.02
 const MITRE_WIDTH := 0.0012
 const MITRE_SHADE := 0.3
 ## The middle fittings wrap over the rail's edge and this far down the apron.
 const CAP_WRAP := 0.03
 ## The fittings' top rises this much above the rail, so the canopy shades them like padded leather;
-## it rises over at least DOME_RAMP of leather, so the horseshoe's tapering arms don't spike.
+## it rises over at least DOME_RAMP of leather, so a narrow band doesn't spike.
 const DOME := 0.004
 const DOME_RAMP := 0.02
 const DOME_ROWS := 6
@@ -122,9 +145,10 @@ const FITTING_CREAM := Color(0.78, 0.7, 0.55)
 const NET_PIXELS := 64
 const NET_CELLS := 2
 const NET_TILE := 0.025
-const NET_CORD := Color(0.94, 0.91, 0.84)
+# Off-white, and the gaps not black: the real nets read soft, not as white mesh on black.
+const NET_CORD := Color(0.88, 0.86, 0.8)
 # What shows between the cords: the net's far side and the dark under the table.
-const NET_GAP := Color(0.2, 0.18, 0.16)
+const NET_GAP := Color(0.3, 0.28, 0.25)
 # Cord and knot half-widths, in cells, and how much each cord swells along its stitches.
 const NET_CORD_WIDTH := 0.14
 const NET_KNOT_WIDTH := 0.22
@@ -166,10 +190,6 @@ class PocketInfo:
 	## corner, mitred at its middle point.
 	var edge := PackedVector2Array()
 	var edge_out := PackedVector2Array()
-	## A corner's horseshoe: its arms' tips, where each cushion ends on its rail's inner edge, and
-	## where the cuts square across the rails from there meet its outer edge (ua's side first).
-	var tips := PackedVector2Array()
-	var cuts := PackedVector2Array()
 	## A corner's rounded outer rail corner, and the mitre's direction out through it.
 	var corner_centre := Vector2.ZERO
 	var corner_out := Vector2.ZERO
@@ -179,9 +199,8 @@ class PocketInfo:
 class Section:
 	var name := ""
 	## The outline from where the cushion ends at the start pocket round the jaws and along the nose
-	## to where it ends at the end pocket; normals point to the play side or the opening. At a corner
-	## the cushion ends where its facing reaches the rail's inner edge, at a middle where its facing
-	## meets the hole.
+	## to where it ends at the end pocket; normals point to the play side or the opening. The cushion
+	## ends where its facing meets the hole.
 	var points := PackedVector2Array()
 	var normals := PackedVector2Array()
 	## The cushion's back for each outline point, on the rail's inner edge, and how far each point's
@@ -196,7 +215,8 @@ class Section:
 	## Each facing's direction, out of the table.
 	var start_axis := Vector2.ZERO
 	var end_axis := Vector2.ZERO
-	## Whether the cushion runs straight into the pocket and ends on the rail's inner edge (a corner).
+	## Whether the cushion runs straight into the pocket, its back on the rail's inner edge until it
+	## turns down the facing (a corner).
 	var start_straight := false
 	var end_straight := false
 	var nose_point := Vector2.ZERO
@@ -415,7 +435,9 @@ func _assemble(shape: Dictionary, problems: PackedStringArray) -> void:
 		section.end_axis = end["axis"]
 		section.start_straight = start["straight"]
 		section.end_straight = end["straight"]
-		_append(section, start["end"], start["facing_normal"], section.start_straight)
+		var facing: PackedVector2Array = start["facing"]
+		for p in facing:
+			_append(section, p, start["facing_normal"], section.start_straight, start["strip"])
 		var arc_points: PackedVector2Array = start["points"]
 		var arc_normals: PackedVector2Array = start["normals"]
 		for i in arc_points.size():
@@ -425,7 +447,9 @@ func _assemble(shape: Dictionary, problems: PackedStringArray) -> void:
 		arc_normals = end["normals"]
 		for i in range(arc_points.size() - 1, -1, -1):
 			_append(section, arc_points[i], arc_normals[i], section.end_straight)
-		_append(section, end["end"], end["facing_normal"], section.end_straight)
+		facing = end["facing"]
+		for i in range(facing.size() - 1, -1, -1):
+			_append(section, facing[i], end["facing_normal"], section.end_straight, end["strip"])
 		unordered.append(section)
 	if not problems.is_empty():
 		return
@@ -447,46 +471,71 @@ func _assemble(shape: Dictionary, problems: PackedStringArray) -> void:
 
 ## Adds an outline point and the cushion's back behind it. A straight cushion's back is the rail's
 ## inner edge square behind the point: offset along a tight knuckle's normals, the back would fold
-## over itself. Elsewhere the back is where the point's normal first meets the wood: the rail's inner
-## edge, or at a middle pocket the wood's end, cut square across the rail JAW_STRIP behind the facing.
-func _append(section: Section, p: Vector2, n: Vector2, straight: bool) -> void:
+## over itself. Past that edge, down a corner's facing, it is `strip` behind the point. Elsewhere the
+## back is where the point's normal first meets the wood: the rail's inner edge, or at a middle
+## pocket the wood's end, cut across the rail JAW_STRIP behind the facing and rounded into the inner
+## edge (_wood_hit).
+func _append(section: Section, p: Vector2, n: Vector2, straight: bool, strip := 0.0) -> void:
 	if not section.points.is_empty() and section.points[section.points.size() - 1].distance_to(p) < 1e-6:
 		return
 	section.points.append(p)
 	section.normals.append(n)
+	if strip > 0.0:
+		section.backs.append(p - n * strip)
+		section.reach.append(strip)
+		return
 	var depth := (p - section.nose_point).dot(section.nose_normal) + CUSHION_DEPTH
 	var square := n.dot(section.nose_normal)
 	if straight:
 		section.backs.append(p - section.nose_normal * depth)
 		section.reach.append(maxf(depth, 0.0) / maxf(square, 0.1))
 		return
-	# Each middle pocket's cut, as its facing's point and the direction out of the hole across it.
-	var cuts: Array[PackedVector2Array] = []
+	var width := CUSHION_DEPTH
+	var middles := 0
 	for start: bool in [true, false]:
 		if not (section.start_straight if start else section.end_straight):
 			var pocket := _pockets[section.start_pocket if start else section.end_pocket]
 			var u: Vector2 = section.start_u if start else section.end_u
-			cuts.append(PackedVector2Array([pocket.centre + u * pocket.hole_radius, u]))
-	var width := CUSHION_DEPTH
-	if depth > 0.0 and square > 1e-3:
-		var on_wood := true
-		for cut in cuts:
-			on_wood = on_wood and (p - n * (depth / square) - cut[0]).dot(cut[1]) >= JAW_STRIP - 1e-9
-		if on_wood:
-			width = minf(width, depth / square)
-	for cut in cuts:
-		var behind := (cut[0] - p).dot(cut[1]) + JAW_STRIP
-		var across := n.dot(-cut[1])
-		if behind > 0.0 and across > 1e-3:
-			var hit := p - n * (behind / across)
-			if (hit - section.nose_point).dot(section.nose_normal) + CUSHION_DEPTH <= 1e-9:
-				width = minf(width, behind / across)
+			width = minf(width, _wood_hit(p, n, depth, square, pocket.centre + u * pocket.hole_radius, u))
+			middles += 1
+	if middles == 0 and depth > 0.0 and square > 1e-3:
+		width = minf(width, depth / square)
 	section.backs.append(p - n * width)
 	section.reach.append(width)
 
 
-## The jaw at a nose's end: the arc from its facing round to the nose, where the facing meets the
-## pocket's hole, and where the cushion ends. Empty, with a problem recorded, when the outline
+## How far back from p, against its normal n, the cushion meets the wood at a middle pocket's end:
+## behind the rail's inner edge (depth and square as in _append) and JAW_STRIP past the facing at
+## `cut`, out of the hole along u, with the corner between rounded MIDDLE_FILLET. INF if never.
+static func _wood_hit(p: Vector2, n: Vector2, depth: float, square: float, cut: Vector2, u: Vector2) -> float:
+	# Along the ray, a is how far it is past the cut and b how far behind the inner edge.
+	var a0 := (p - cut).dot(u) - JAW_STRIP
+	var da := -n.dot(u)
+	var b0 := -depth
+	var db := square
+	var r := MIDDLE_FILLET
+	var best := INF
+	if da > 1e-9 and -a0 / da >= 0.0 and b0 - a0 / da * db >= r - 1e-9:
+		best = -a0 / da
+	if db > 1e-9 and -b0 / db >= 0.0 and a0 - b0 / db * da >= r - 1e-9:
+		best = minf(best, -b0 / db)
+	# Where it enters the fillet's circle round (r, r), within the corner it rounds.
+	var ca := a0 - r
+	var cb := b0 - r
+	var qa := da * da + db * db
+	var qb := ca * da + cb * db
+	var disc := qb * qb - qa * (ca * ca + cb * cb - r * r)
+	if qa > 1e-12 and disc >= 0.0:
+		var t := (-qb - sqrt(disc)) / qa
+		var a := a0 + da * t
+		var b := b0 + db * t
+		if t >= 0.0 and a >= -1e-9 and b >= -1e-9 and a <= r + 1e-9 and b <= r + 1e-9:
+			best = minf(best, t)
+	return best
+
+
+## The jaw at a nose's end: the arc from its facing round to the nose, and the cushion's points down
+## the facing from where it meets the pocket's hole. Empty, with a problem recorded, when the outline
 ## doesn't join up.
 func _jaw(nose_end: Vector2, nose_normal: Vector2, arcs: Array[Dictionary], facings: Array[Dictionary],
 		nose_name: String, problems: PackedStringArray) -> Dictionary:
@@ -531,9 +580,26 @@ func _jaw(nose_end: Vector2, nose_normal: Vector2, arcs: Array[Dictionary], faci
 			return {}
 		info.hole_radius = to_hole.length()
 		# A corner's facing crosses the rail's inner edge before it reaches the hole: the cushion runs
-		# straight in and ends there. A middle's jaw curves on past it.
-		var along := (-CUSHION_DEPTH - (jaw_end - nose_end).dot(nose_normal)) / minf(axis.dot(nose_normal), -1e-6)
+		# straight in, its back on that edge until the band CORNER_BAND behind the facing meets it
+		# (`via`), then down the facing to the hole. A middle's jaw curves on past the edge.
+		var square := minf(axis.dot(nose_normal), -1e-6)
+		var along := (-CUSHION_DEPTH - (jaw_end - nose_end).dot(nose_normal)) / square
 		var straight := along > 0.0 and along < (t - jaw_end).dot(axis)
+		var facing_points := PackedVector2Array([t])
+		if straight:
+			var via := along + CORNER_BAND * to_hole.normalized().dot(nose_normal) / square
+			if via <= 0.0 or via >= (t - jaw_end).dot(axis):
+				problems.append("facing '%s' is too short for its cushion's band" % facing["name"])
+				return {}
+			facing_points.append(jaw_end + axis * via)
+		else:
+			# Points down the facing where the wood's end rounds into the rail's inner edge, so the
+			# cushion's back follows the round.
+			var behind := -(jaw_end - nose_end).dot(nose_normal) - CUSHION_DEPTH
+			if behind < MIDDLE_FILLET:
+				var fillet := minf((MIDDLE_FILLET - behind) / -square, (t - jaw_end).dot(axis))
+				for i in range(FILLET_STEPS, 0, -1):
+					facing_points.append(jaw_end + axis * fillet * i / FILLET_STEPS)
 		var sign := 1.0 if _dir(near_angle).dot(nose_normal) >= 0.0 else -1.0
 		var span := wrapf(near_angle - far_angle, -PI, PI)
 		var steps := maxi(2, ceili(absf(span) / ARC_STEP))
@@ -543,9 +609,9 @@ func _jaw(nose_end: Vector2, nose_normal: Vector2, arcs: Array[Dictionary], faci
 			var radial := _dir(far_angle + span * i / steps)
 			points.append(c + radial * r)
 			normals.append(radial * sign)
-		return {"pocket": pocket, "end": jaw_end + axis * along if straight else t, "straight": straight,
-				"u": -to_hole.normalized(), "axis": axis, "facing_normal": to_hole.normalized(),
-				"points": points, "normals": normals}
+		return {"pocket": pocket, "facing": facing_points, "strip": CORNER_BAND if straight else 0.0,
+				"straight": straight, "u": -to_hole.normalized(), "axis": axis,
+				"facing_normal": to_hole.normalized(), "points": points, "normals": normals}
 	problems.append("no jaw arc meets nose '%s' at %s" % [nose_name, nose_end])
 	return {}
 
@@ -573,29 +639,15 @@ func _shape_pocket(a: Section, b: Section, rail_width: float, problems: PackedSt
 	pocket.edge_out = PackedVector2Array([-a.nose_normal, -b.nose_normal])
 
 
-## A corner's horseshoe and rail corner: each cushion ends on its rail's inner edge, and from there
-## a cut runs square across the rail to the horseshoe's outer edge.
+## A corner's rail corner, behind the band round its hole.
 func _shape_corner(pocket: PocketInfo, a: Section, b: Section, rail_width: float, room: float,
 		problems: PackedStringArray) -> void:
 	if not (a.end_straight and b.start_straight):
 		problems.append("corner pocket '%s': its cushions don't run straight in to their rails' inner edges" % pocket.name)
 		return
-	var reach := pocket.hole_radius + HORSESHOE_WIDTH
-	if reach > room - BEVEL:
-		problems.append("corner pocket '%s': its horseshoe reaches past the rail's outer edge" % pocket.name)
+	if pocket.hole_radius + CORNER_BAND > room - BEVEL:
+		problems.append("corner pocket '%s': its band reaches past the rail's outer edge" % pocket.name)
 		return
-	pocket.tips = PackedVector2Array([a.points[a.points.size() - 1], b.points[0]])
-	pocket.cuts = PackedVector2Array()
-	for side in 2:
-		var section := a if side == 0 else b
-		var out := -section.nose_normal
-		var w := pocket.tips[side] - pocket.centre
-		var along := w.dot(out)
-		var square := along * along - w.length_squared() + reach * reach
-		if square < 0.0 or w.length() >= reach:
-			problems.append("corner pocket '%s': a cushion ends outside its horseshoe" % pocket.name)
-			return
-		pocket.cuts.append(pocket.tips[side] + out * (sqrt(square) - along))
 	var na := a.nose_normal
 	var nb := b.nose_normal
 	var ca := a.nose_point.dot(na) - rail_width
@@ -620,39 +672,38 @@ static func _inside(section: Section, p: Vector2, rail_width: float) -> float:
 
 
 ## Where a middle pocket's fitting meets the section's wooden rail: from the cushion's back where it
-## ends at the pocket (`ending`: the section ends there rather than starts), round a band behind the
-## hole, then square out to `inset` in from the rail's outer edge.
+## ends at the pocket (`ending`: the section ends there rather than starts), round a circle behind
+## the hole, then square out to `inset` in from the rail's outer edge.
 func _seam(pocket: PocketInfo, section: Section, ending: bool, rail_width: float, inset: float) -> PackedVector2Array:
 	var c := pocket.centre
 	var n := section.nose_normal
 	var u := section.end_u if ending else section.start_u
 	var out := PackedVector2Array([section.backs[section.backs.size() - 1] if ending else section.backs[0]])
-	var across := pocket.hole_radius + BAND
-	var along := pocket.hole_back + BAND
+	var radius := pocket.hole_radius + BAND
 	var reach := (_inside(section, c, rail_width) - BEVEL) / (-n.dot(pocket.axis))
-	var end := asin(clampf(reach / along, 0.0, 1.0))
+	var end := asin(clampf(reach / radius, 0.0, 1.0))
 	for i in BAND_SEGMENTS + 1:
 		var theta := end * i / BAND_SEGMENTS
-		out.append(c + u * cos(theta) * across + pocket.axis * sin(theta) * along)
+		out.append(c + (u * cos(theta) + pocket.axis * sin(theta)) * radius)
 	var last := out[out.size() - 1]
 	out.append(last - n * (_inside(section, last, rail_width) - inset))
 	return out
 
 
 ## Where the section's rail ends at a pocket, from its cushion's back out to BEVEL in from its outer
-## edge: round a middle's fitting, or at a corner across the cut, round the horseshoe to the mitre,
+## edge: round a middle's fitting, or at a corner round the band from the cushion's end to the mitre,
 ## along the mitre and round the rail's corner to its straight edge. side 0 is the rail before the
 ## pocket, 1 the one after.
 func _rail_end(pocket: PocketInfo, section: Section, side: int, rail_width: float) -> PackedVector2Array:
 	if not pocket.corner:
 		return _seam(pocket, section, side == 0, rail_width, BEVEL)
 	var c := pocket.centre
-	var reach := pocket.hole_radius + HORSESHOE_WIDTH
-	var out := PackedVector2Array([pocket.tips[side], pocket.cuts[side]])
-	var from := (pocket.cuts[side] - c).angle()
+	var reach := pocket.hole_radius + CORNER_BAND
+	var out := PackedVector2Array()
+	var from := (pocket.ua if side == 0 else pocket.ub).angle()
 	var span := wrapf(pocket.axis.angle() - from, -PI, PI)
-	for i in range(1, HORSESHOE_SEGMENTS + 1):
-		out.append(c + _dir(from + span * i / HORSESHOE_SEGMENTS) * reach)
+	for i in CORNER_BAND_SEGMENTS + 1:
+		out.append(c + _dir(from + span * i / CORNER_BAND_SEGMENTS) * reach)
 	var half := int(CORNER_SEGMENTS / 2.0)
 	for i in half + 1:
 		var d := pocket.corner_out.slerp(-section.nose_normal, float(i) / half)
@@ -676,21 +727,38 @@ static func _edge_part(pocket: PocketInfo, ending: bool, path: PackedVector2Arra
 
 
 ## Normals for a profile of (s, z) points that runs from its outer top edge towards the visible
-## side, s growing away from it: each normal is (along s, up).
+## side, s growing away from it: each normal is (along s, up). Neighbours closer than PROFILE_STEP
+## are stepped over, so where a cushion's profile is pressed into a narrow strip its sliver of a
+## step doesn't turn the flat top on its side.
 static func _profile_normals(profile: PackedVector2Array) -> PackedVector2Array:
 	var out := PackedVector2Array()
+	var last := profile.size() - 1
 	for j in profile.size():
-		var t := profile[mini(j + 1, profile.size() - 1)] - profile[maxi(j - 1, 0)]
+		var next := j
+		while next < last and profile[next].distance_to(profile[j]) < PROFILE_STEP:
+			next += 1
+		var previous := j
+		while previous > 0 and profile[previous].distance_to(profile[j]) < PROFILE_STEP:
+			previous -= 1
+		var t := profile[next] - profile[previous]
 		out.append(Vector2(t.y, -t.x).normalized())
 	return out
 
 
 ## A surface through rows of points, row j at the profile's height z_j; vis[k] is the horizontal
-## direction column k faces (towards smaller s). shades, when given, colours each row.
+## direction column k faces (towards smaller s). shades, when given, colours each row. reach, when
+## given, is how far back each column's profile reaches, as its rows were pressed in; its normals
+## follow the pressed profile, not the full one.
 func _sweep(surf: Surf, rows: Array[PackedVector2Array], profile: PackedVector2Array, vis: PackedVector2Array,
-		tile: Vector2, colour: Color = Color.WHITE, shades := PackedColorArray()) -> void:
+		tile: Vector2, colour: Color = Color.WHITE, shades := PackedColorArray(), reach := PackedFloat32Array()) -> void:
 	var first := surf.verts.size()
 	var normals := _profile_normals(profile)
+	var pressed: Array[PackedVector2Array] = []
+	for k in reach.size():
+		var column := PackedVector2Array()
+		for p in profile:
+			column.append(Vector2(minf(p.x, reach[k]), p.y))
+		pressed.append(_profile_normals(column))
 	var along := PackedFloat32Array()
 	var u := 0.0
 	for k in rows[0].size():
@@ -702,8 +770,9 @@ func _sweep(surf: Surf, rows: Array[PackedVector2Array], profile: PackedVector2A
 		if j > 0:
 			v += profile[j].distance_to(profile[j - 1])
 		for k in rows[j].size():
-			var h := -vis[k] * normals[j].x
-			surf.vertex(_g(rows[j][k], profile[j].y), Vector3(-h.y, normals[j].y, -h.x).normalized(),
+			var normal := normals[j] if pressed.is_empty() else pressed[k][j]
+			var h := -vis[k] * normal.x
+			surf.vertex(_g(rows[j][k], profile[j].y), Vector3(-h.y, normal.y, -h.x).normalized(),
 					Vector2(along[k] / tile.x, v / tile.y), colour if shades.is_empty() else shades[j])
 	surf.grid(first, profile.size(), rows[0].size())
 
@@ -728,8 +797,9 @@ func _cushion_profile(contact: float, rail_height: float) -> PackedVector2Array:
 	])
 
 
-## The cushion from its back on the rail's inner edge round its nose to the cloth. Where a corner's
-## facing closes on the rail's edge, the nose's rounding narrows with it to the cushion's tip.
+## The cushion from its back on the rail's inner edge round its nose to the cloth, the same all
+## round: down a corner's facing it keeps a strip CORNER_BAND deep, its undercut and all. The face
+## under the nose is shaded darker towards the cloth, as the nose shades it from the light above.
 func _add_cushion(cloth: Surf, section: Section, contact: float, rail_height: float) -> void:
 	var profile := _cushion_profile(contact, rail_height)
 	var rows: Array[PackedVector2Array] = [section.backs]
@@ -738,7 +808,11 @@ func _add_cushion(cloth: Surf, section: Section, contact: float, rail_height: fl
 		for k in section.points.size():
 			row.append(section.points[k] - section.normals[k] * minf(profile[j].x, section.reach[k]))
 		rows.append(row)
-	_sweep(cloth, rows, profile, section.normals, METRES, Color(0.93, 0.93, 0.93))
+	var shades := PackedColorArray()
+	for p in profile:
+		var shade := CUSHION_SHADE * lerpf(1.0, UNDERCUT_SHADE, clampf((contact - p.y) / contact, 0.0, 1.0))
+		shades.append(Color(shade, shade, shade))
+	_sweep(cloth, rows, profile, section.normals, METRES, Color.WHITE, shades, section.reach)
 
 
 func _add_rail(wood: Surf, section: Section, rail_height: float, rail_width: float) -> void:
@@ -809,10 +883,10 @@ func _add_bed_and_pockets(cloth: Surf, net: Surf, fittings: Surf, wood: Surf, ra
 		_add_fall(cloth, pocket)
 		_add_net(net, pocket, back_top)
 		if pocket.corner:
-			_add_horseshoe(fittings, pocket, rail_height, back_top)
+			_add_band(fittings, pocket, section, _sections[(i + 1) % _sections.size()], rail_height)
 			_add_mitre(wood, pocket, rail_height)
 		else:
-			_add_fitting(fittings, wood, pocket, section, _sections[(i + 1) % _sections.size()], rail_height, rail_width)
+			_add_fitting(fittings, wood, cloth, pocket, section, _sections[(i + 1) % _sections.size()], rail_height, rail_width)
 	_add_bed(cloth)
 
 
@@ -826,7 +900,7 @@ func _add_bed(cloth: Surf) -> void:
 	for pocket in _pockets:
 		var disc := _fall_dirs(pocket)
 		for k in disc.size():
-			disc[k] = pocket.centre + disc[k] * (pocket.hole_radius + FALL)
+			disc[k] = pocket.centre + disc[k] * _fall_reach(pocket, disc[k])
 		# Round the back, well clear of the bed, to close the disc.
 		for d in _sweep_dirs(pocket.ub, pocket.ua, pocket.axis, POCKET_SEGMENTS):
 			disc.append(pocket.centre + d * (pocket.hole_radius + FALL))
@@ -865,44 +939,82 @@ static func _fall_dirs(pocket: PocketInfo) -> PackedVector2Array:
 	return _sweep_dirs(pocket.ua, pocket.ub, -pocket.axis, POCKET_SEGMENTS)
 
 
-## The hole's back from u round to -u, `s` out from its edge: half an ellipse, as deep as the rail allows.
-static func _back(pocket: PocketInfo, u: Vector2, s: float) -> PackedVector2Array:
+## How far from the pocket's centre, along d round the front of the hole, the cloth starts turning
+## down: FALL out from a corner's hole. A middle's is the square round its hole FALL out, its front
+## corners rounded MIDDLE_ROUNDING, so the cloth slopes into the hole across the whole width between
+## the facings rather than leaving a ledge of flat cloth beside it.
+static func _fall_reach(pocket: PocketInfo, d: Vector2) -> float:
+	var r := pocket.hole_radius + FALL
+	if pocket.corner:
+		return r
+	var x := absf(d.dot(pocket.ua))
+	var y := maxf(-d.dot(pocket.axis), 0.0)
+	var k := r - MIDDLE_ROUNDING
+	if y > 1e-9 and x * r <= k * y:
+		return r / y
+	if x > 1e-9 and y * r <= k * x:
+		return r / x
+	var b := (x + y) * k
+	return b + sqrt(maxf(0.0, b * b - 2.0 * k * k + MIDDLE_ROUNDING * MIDDLE_ROUNDING))
+
+
+## The hole's back from ua round to ub, `s` out from its edge: a corner's circle, or a middle's
+## half-ellipse, as deep as the rail allows.
+static func _back(pocket: PocketInfo, s: float) -> PackedVector2Array:
 	var out := PackedVector2Array()
+	if pocket.corner:
+		for d in _sweep_dirs(pocket.ua, pocket.ub, pocket.axis, POCKET_SEGMENTS):
+			out.append(pocket.centre + d * (pocket.hole_radius + s))
+		return out
 	for k in POCKET_SEGMENTS + 1:
 		var a := PI * k / POCKET_SEGMENTS
-		out.append(pocket.centre + u * cos(a) * (pocket.hole_radius + s) + pocket.axis * sin(a) * (pocket.hole_back + s))
+		out.append(pocket.centre + pocket.ua * cos(a) * (pocket.hole_radius + s) + pocket.axis * sin(a) * (pocket.hole_back + s))
 	return out
 
 
 ## The back's inward directions, matching _back's points.
-static func _back_inward(pocket: PocketInfo, u: Vector2) -> PackedVector2Array:
+static func _back_inward(pocket: PocketInfo) -> PackedVector2Array:
 	var out := PackedVector2Array()
+	if pocket.corner:
+		for d in _sweep_dirs(pocket.ua, pocket.ub, pocket.axis, POCKET_SEGMENTS):
+			out.append(-d)
+		return out
 	for k in POCKET_SEGMENTS + 1:
 		var a := PI * k / POCKET_SEGMENTS
-		out.append(-(u * cos(a) / pocket.hole_radius + pocket.axis * sin(a) / pocket.hole_back).normalized())
+		out.append(-(pocket.ua * cos(a) / pocket.hole_radius + pocket.axis * sin(a) / pocket.hole_back).normalized())
 	return out
 
 
-## The hole's edge behind the fall, from where it touches the facing before the pocket round the
-## back: a corner's circle, or a middle's half-ellipse.
-static func _back_ring(pocket: PocketInfo) -> PackedVector2Array:
-	if not pocket.corner:
-		return _back(pocket, pocket.ua, 0.0)
-	var out := PackedVector2Array()
-	for d in _sweep_dirs(pocket.ua, pocket.ub, pocket.axis, POCKET_SEGMENTS):
-		out.append(pocket.centre + d * pocket.hole_radius)
-	return out
-
-
-## The cloth turning down over the slate's rounded edge round the front of the hole.
+## The cloth turning down over the slate's rounded edge round the front of the hole, from where it
+## starts (_fall_reach) to the hole's edge FALL down, then on down to FALL_DEPTH, darkening into the
+## hole's shade. Beside a middle's hole it slopes gently all the way from the facings.
 func _add_fall(cloth: Surf, pocket: PocketInfo) -> void:
-	var profile := PackedVector2Array()
-	for i in 5:
-		var angle := PI / 2.0 * i / 4.0
-		profile.append(Vector2(FALL * (1.0 - sin(angle)), -FALL * (1.0 - cos(angle))))
-	profile.append(Vector2(0.0, -FALL_DEPTH))
 	var front := _fall_dirs(pocket)
-	_sweep(cloth, _radial_rows(pocket.centre, front, profile, pocket.hole_radius), profile, _negated(front), METRES)
+	var profiles: Array[PackedVector2Array] = []
+	var normals: Array[PackedVector2Array] = []
+	for d in front:
+		var extent := _fall_reach(pocket, d) - pocket.hole_radius
+		var profile := PackedVector2Array()
+		for i in FALL_STEPS + 1:
+			var angle := PI / 2.0 * i / FALL_STEPS
+			profile.append(Vector2(extent * (1.0 - sin(angle)), -FALL * (1.0 - cos(angle))))
+		profile.append(Vector2(0.0, -FALL_DEPTH))
+		profiles.append(profile)
+		normals.append(_profile_normals(profile))
+	var first := cloth.verts.size()
+	var rows := profiles[0].size()
+	for j in rows:
+		var shade := lerpf(1.0, FALL_SHADE, minf(1.0, float(j) / FALL_STEPS)) * (FALL_SHADE if j > FALL_STEPS else 1.0)
+		var along := 0.0
+		for k in front.size():
+			if k > 0:
+				along += pocket.hole_radius * front[k].angle_to(front[k - 1])
+			var p := profiles[k][j]
+			var h := front[k] * normals[k][j].x
+			cloth.vertex(_g(pocket.centre + front[k] * (pocket.hole_radius + p.x), p.y),
+					Vector3(-h.y, normals[k][j].y, -h.x).normalized(), Vector2(absf(along), p.x - p.y),
+					Color(shade, shade, shade))
+	cloth.grid(first, rows, front.size())
 
 
 ## The net hanging in the hole, from the turned cloth at the front and the fitting's lip at the back
@@ -915,7 +1027,7 @@ func _add_net(net: Surf, pocket: PocketInfo, back_top: float) -> void:
 	for d in _fall_dirs(pocket):
 		ring.append(c + d * pocket.hole_radius)
 		tops.append(-FALL_DEPTH)
-	var back := _back_ring(pocket)
+	var back := _back(pocket, 0.0)
 	for k in range(back.size() - 1, -1, -1):
 		ring.append(back[k])
 		tops.append(back_top)
@@ -991,7 +1103,7 @@ static func _hole_reach(pocket: PocketInfo, d: Vector2, across: float, back: flo
 ## The leather cap over the rail behind a middle pocket (between sections a and b): a low dome from
 ## the cushions' ends round the back of the hole, rolling over a lip into the hole and over the rail's
 ## edge a little way down the apron.
-func _add_fitting(fittings: Surf, wood: Surf, pocket: PocketInfo, a: Section, b: Section,
+func _add_fitting(fittings: Surf, wood: Surf, cloth: Surf, pocket: PocketInfo, a: Section, b: Section,
 		rail_height: float, rail_width: float) -> void:
 	var c := pocket.centre
 	var u := a.end_u
@@ -1005,100 +1117,104 @@ func _add_fitting(fittings: Surf, wood: Surf, pocket: PocketInfo, a: Section, b:
 		outer.append(pocket.edge[k] - pocket.edge_out[k] * BEVEL)
 	for k in range(seam_b.size() - 1, 0, -1):
 		outer.append(seam_b[k])
-	_add_dome(fittings, c, u, pocket.axis, 0.0, PI, _back(pocket, u, LIP), _cleaned(outer), rail_height, true)
+	_add_dome(fittings, c, u, pocket.axis, 0.0, PI, _back(pocket, LIP), _cleaned(outer), rail_height, true)
 
-	# Where each cushion ends: the fitting's leather down its end to the turned cloth.
-	var edge_shade := Color(FITTING_EDGE_SHADE, FITTING_EDGE_SHADE, FITTING_EDGE_SHADE)
+	# Where each cushion ends against the fitting: its cloth-covered end, in the cushion's shade, down
+	# to the turned cloth. Leather there read as a box's corner from the player's eye.
 	var ends: Array[PackedVector2Array] = [PackedVector2Array([a.points[a.points.size() - 1], a.backs[a.backs.size() - 1]]),
 			PackedVector2Array([b.points[0], b.backs[0]])]
+	var shift := -pocket.axis * BAND_END_OFFSET
+	var shade := CUSHION_SHADE * UNDERCUT_SHADE
+	var end_shade := Color(shade, shade, shade)
 	for end in ends:
-		var near := end[0]
-		var far := end[1]
+		var near := end[0] + shift
+		var far := end[1] + shift
 		var width := near.distance_to(far)
 		var n := _g(-pocket.axis, 0.0)
-		var first := fittings.vertex(_g(near, -FALL_DEPTH), n, Vector2.ZERO, edge_shade)
-		fittings.vertex(_g(far, -FALL_DEPTH), n, Vector2(width, 0.0), edge_shade)
-		fittings.vertex(_g(far, rail_height), n, Vector2(width, rail_height + FALL_DEPTH), edge_shade)
-		fittings.vertex(_g(near, rail_height), n, Vector2(0.0, rail_height + FALL_DEPTH), edge_shade)
-		fittings.tri(first, first + 1, first + 2)
-		fittings.tri(first, first + 2, first + 3)
+		var first := cloth.vertex(_g(near, -FALL_DEPTH), n, Vector2.ZERO, end_shade)
+		cloth.vertex(_g(far, -FALL_DEPTH), n, Vector2(width, 0.0), end_shade)
+		cloth.vertex(_g(far, rail_height), n, Vector2(width, rail_height + FALL_DEPTH), end_shade)
+		cloth.vertex(_g(near, rail_height), n, Vector2(0.0, rail_height + FALL_DEPTH), end_shade)
+		cloth.tri(first, first + 1, first + 2)
+		cloth.tri(first, first + 2, first + 3)
 
-	var lip := PackedVector2Array()
-	for i in 5:
-		var angle := PI / 2.0 * i / 4.0
-		lip.append(Vector2(LIP * (1.0 - sin(angle)), rail_height - LIP + LIP * cos(angle)))
-	lip.append(Vector2(0.0, rail_height - LIP - LIP_FACE))
-	var rows: Array[PackedVector2Array] = []
-	var shades := PackedColorArray()
-	for p in lip:
-		rows.append(_back(pocket, u, p.x))
-		shades.append(edge_shade.darkened(0.6 * (rail_height - p.y) / (LIP + LIP_FACE)))
-	_sweep(fittings, rows, lip, _back_inward(pocket, u), METRES, Color.WHITE, shades)
-
+	var edge_shade := Color(FITTING_EDGE_SHADE, FITTING_EDGE_SHADE, FITTING_EDGE_SHADE)
+	_add_lip(fittings, pocket, rail_height)
 	_add_edge(fittings, pocket.edge, pocket.edge_out, _edge_profile(rail_height, rail_height - CAP_WRAP), edge_shade)
 	_add_edge(wood, pocket.edge, pocket.edge_out,
 			PackedVector2Array([Vector2(0.0, rail_height - CAP_WRAP), Vector2(0.0, APRON_BOTTOM)]))
 
 
-## A corner's horseshoe: padded leather round the back of the hole, in a cut-out where the rails
-## meet. Its arms run up the facings to the tips, where the cushions end, and its lip rolls into the
-## hole round the back, growing from nothing at the tips.
-func _add_horseshoe(fittings: Surf, pocket: PocketInfo, rail_height: float, back_top: float) -> void:
-	var c := pocket.centre
-	var r := pocket.hole_radius
-	# The inner edge, tip to tip: up the first facing, round the back, down the other. The hole's
-	# edge where it touches each facing comes twice, where the leather's foot steps from the turned
-	# cloth up to the net.
-	var inner := PackedVector2Array([pocket.tips[0], c + pocket.ua * r])
-	var sizes := PackedFloat32Array([0.0, LIP])
-	var outward := PackedVector2Array([pocket.ua, pocket.ua])
-	var feet := PackedFloat32Array([-FALL_DEPTH, -FALL_DEPTH])
-	for p in _back_ring(pocket):
-		inner.append(p)
-		sizes.append(LIP)
-		outward.append((p - c).normalized())
-		feet.append(back_top)
-	inner.append_array(PackedVector2Array([c + pocket.ub * r, pocket.tips[1]]))
-	sizes.append_array(PackedFloat32Array([LIP, 0.0]))
-	outward.append_array(PackedVector2Array([pocket.ub, pocket.ub]))
-	feet.append_array(PackedFloat32Array([-FALL_DEPTH, -FALL_DEPTH]))
-
+## The fitting's lip, rolling over from its top into the hole round the back and down to where the
+## net hangs from it.
+func _add_lip(fittings: Surf, pocket: PocketInfo, rail_height: float) -> void:
 	var edge_shade := Color(FITTING_EDGE_SHADE, FITTING_EDGE_SHADE, FITTING_EDGE_SHADE)
-	var first := fittings.verts.size()
-	var columns := inner.size()
-	for i in LIP_STEPS + 2:
-		var angle := PI / 2.0 * mini(i, LIP_STEPS) / LIP_STEPS
-		var along := 0.0
-		for k in columns:
-			if k > 0:
-				along += inner[k].distance_to(inner[k - 1])
-			var s := sizes[k] * (1.0 - sin(angle))
-			var z := rail_height - sizes[k] * (1.0 - cos(angle)) if i <= LIP_STEPS else feet[k]
-			var n := Vector3.UP * cos(angle) - _g(outward[k], 0.0) * sin(angle)
-			var shade := edge_shade.darkened(minf(0.6, 0.6 * (rail_height - z) / (LIP + LIP_FACE)))
-			fittings.vertex(_g(inner[k] + outward[k] * s, z), n.normalized(), Vector2(along, rail_height - z), shade)
-	fittings.grid(first, LIP_STEPS + 2, columns)
+	var lip := _lip_profile(rail_height)
+	var rows: Array[PackedVector2Array] = []
+	var shades := PackedColorArray()
+	for p in lip:
+		rows.append(_back(pocket, p.x))
+		shades.append(edge_shade.darkened(0.6 * (rail_height - p.y) / (LIP + LIP_FACE)))
+	_sweep(fittings, rows, lip, _back_inward(pocket), METRES, Color.WHITE, shades)
 
-	var lip_top := PackedVector2Array()
-	for k in columns:
-		lip_top.append(inner[k] + outward[k] * sizes[k])
-	var reach := r + HORSESHOE_WIDTH
-	var outer := PackedVector2Array([pocket.tips[0]])
-	for d in _sweep_dirs((pocket.cuts[0] - c).normalized(), (pocket.cuts[1] - c).normalized(), pocket.axis, HORSESHOE_SEGMENTS * 2):
-		outer.append(c + d * reach)
-	outer.append(pocket.tips[1])
+
+## The lip's cross-section, (s out from the hole's edge, height), from the fitting's top down its face.
+static func _lip_profile(rail_height: float) -> PackedVector2Array:
+	var lip := PackedVector2Array()
+	for i in LIP_STEPS + 1:
+		var angle := PI / 2.0 * i / LIP_STEPS
+		lip.append(Vector2(LIP * (1.0 - sin(angle)), rail_height - LIP + LIP * cos(angle)))
+	lip.append(Vector2(0.0, rail_height - LIP - LIP_FACE))
+	return lip
+
+
+## A corner's fitting: a slim band of padded leather round the back of the hole, from where one
+## cushion meets the hole round to the other, its lip rolling into the hole. Each end stands on its
+## cushion's end, from the dome down past the turned cloth, so nothing shows through under the
+## cushion's undercut.
+func _add_band(fittings: Surf, pocket: PocketInfo, a: Section, b: Section, rail_height: float) -> void:
+	var c := pocket.centre
+	_add_lip(fittings, pocket, rail_height)
 	var across := pocket.axis.orthogonal()
-	var ends := PackedFloat32Array()
-	for p in pocket.tips:
-		ends.append(atan2((p - c).dot(across), (p - c).dot(pocket.axis)))
-	_add_dome(fittings, c, pocket.axis, across, minf(ends[0], ends[1]), maxf(ends[0], ends[1]),
-			_cleaned(lip_top), outer, rail_height, false)
+	var lo := atan2(pocket.ua.dot(across), pocket.ua.dot(pocket.axis))
+	var hi := atan2(pocket.ub.dot(across), pocket.ub.dot(pocket.axis))
+	_add_dome(fittings, c, pocket.axis, across, minf(lo, hi), maxf(lo, hi), _back(pocket, LIP),
+			_back(pocket, CORNER_BAND), rail_height, false)
+
+	# The end's outline, (s out from the hole's edge, height): over the dome as _add_dome raises it,
+	# down past the turned cloth, and back up the lip.
+	var outline := PackedVector2Array()
+	var rise := DOME * minf(1.0, (CORNER_BAND - LIP) / DOME_RAMP)
+	for j in DOME_ROWS + 1:
+		var f := float(j) / DOME_ROWS
+		outline.append(Vector2(lerpf(LIP, CORNER_BAND, f), rail_height + rise * sin(PI * f)))
+	outline.append(Vector2(CORNER_BAND, -FALL_DEPTH))
+	outline.append(Vector2(0.0, -FALL_DEPTH))
+	var lip := _lip_profile(rail_height)
+	for i in range(LIP_STEPS, 0, -1):
+		outline.append(lip[i])
+	var triangles := Geometry2D.triangulate_polygon(outline)
+	if triangles.is_empty():
+		Log.error("app", "app.error", {"kind": "message",
+				"message": "table_view: corner pocket '%s': its band's end doesn't triangulate" % pocket.name})
+		return
+	var shade := Color(FITTING_EDGE_SHADE, FITTING_EDGE_SHADE, FITTING_EDGE_SHADE).darkened(0.3)
+	for side in 2:
+		var u := pocket.ua if side == 0 else pocket.ub
+		var facing := a.end_axis if side == 0 else b.start_axis
+		var n := _g(-facing, 0.0)
+		var first := fittings.verts.size()
+		for p in outline:
+			var at := c + u * (pocket.hole_radius + p.x) - facing * BAND_END_OFFSET
+			fittings.vertex(_g(at, p.y), n, Vector2(p.x, p.y), shade)
+		for i in range(0, triangles.size(), 3):
+			fittings.tri(first + triangles[i], first + triangles[i + 1], first + triangles[i + 2])
 
 
-## The joint where the two rails meet behind a corner's horseshoe: each rail's grain turns there, and
-## a fine dark line marks the mitre from the horseshoe to the rail's outer corner.
+## The joint where the two rails meet behind a corner's band: each rail's grain turns there, and a
+## fine dark line marks the mitre from the band to the rail's outer corner.
 func _add_mitre(wood: Surf, pocket: PocketInfo, rail_height: float) -> void:
-	var from := pocket.centre + pocket.axis * (pocket.hole_radius + HORSESHOE_WIDTH)
+	var from := pocket.centre + pocket.axis * (pocket.hole_radius + CORNER_BAND)
 	var to := pocket.corner_centre + pocket.corner_out * (CORNER_RADIUS - BEVEL)
 	var side := (to - from).normalized().orthogonal() * MITRE_WIDTH / 2.0
 	var shade := Color(MITRE_SHADE, MITRE_SHADE, MITRE_SHADE)
@@ -1184,24 +1300,6 @@ static func _ray_hit(c: Vector2, d: Vector2, line: PackedVector2Array, low_end: 
 			nearest = (at as Vector2).distance_to(c)
 			hit = at
 	return hit
-
-
-## Rows round a centre: row j at radius base + profile[j].x along each direction.
-static func _radial_rows(centre: Vector2, dirs: PackedVector2Array, profile: PackedVector2Array, base: float) -> Array[PackedVector2Array]:
-	var rows: Array[PackedVector2Array] = []
-	for p in profile:
-		var row := PackedVector2Array()
-		for d in dirs:
-			row.append(centre + d * (base + p.x))
-		rows.append(row)
-	return rows
-
-
-static func _negated(dirs: PackedVector2Array) -> PackedVector2Array:
-	var out := PackedVector2Array()
-	for d in dirs:
-		out.append(-d)
-	return out
 
 
 ## The frame under the rails, set in from the apron and darker.

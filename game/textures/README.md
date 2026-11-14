@@ -68,15 +68,15 @@ pockets, where the table also draws a fine dark joint (vertex colour 0.3).
 | Source | ambientCG Leather 030, albedo darkened to 45 % (dark brown, nearly black under the canopy) |
 | Tile | **0.45 m** (the source's "ca. 45 cm") |
 | StandardMaterial3D | `roughness` 1.0 (the map averages 0.48, so it has a soft sheen); `normal_scale` 1.0 |
-| Fittings on the table | the corner horseshoes and the middle fittings: the scan's normal (`normal_scale` 0.6) and roughness (`roughness` 0.9) without its albedo, `albedo_color` cream sRGB (0.78, 0.7, 0.55), shaded from 0.72 at the edges to 1.0 on the padded crown through the vertex colour; `clearcoat` 0.25, `clearcoat_roughness` 0.4. The dark albedo is only the materials preview's now: the holes are no longer lined |
+| Fittings on the table | the corner bands and the middle fittings: the scan's normal (`normal_scale` 0.6) and roughness (`roughness` 0.9) without its albedo, `albedo_color` cream sRGB (0.78, 0.7, 0.55), shaded from 0.72 at the edges to 1.0 on the padded crown through the vertex colour; `clearcoat` 0.25, `clearcoat_roughness` 0.4. The dark albedo is only the materials preview's now: the holes are no longer lined |
 
 ### Pocket nets (generated, no file)
 
 `table_view.gd` (`_net_maps`) draws the crochet net when the table is first built, in about 4 ms on
 this PC: a 64 x 64 albedo and normal map, two diamonds of round cord across a **0.025 m** tile (each
 diamond about 12 mm), a knot where the cords cross and the cords swelling three times per diamond
-side like crochet stitches. Cord sRGB (0.94, 0.91, 0.84), the gaps (0.2, 0.18, 0.16) for the dark
-under the table; the normal map (OpenGL style) comes from the cords' heights. Roughness is
+side like crochet stitches. Cord sRGB (0.88, 0.86, 0.8), the gaps (0.3, 0.28, 0.25) for the dark
+under the table, off-white on grey as the real nets read rather than white on black; the normal map (OpenGL style) comes from the cords' heights. Roughness is
 `cloth/cloth_roughness.jpg` with `roughness` 1.0 and `metallic_specular` 0.2: matt cotton. The net
 hangs as a bag; its vertex colour shades it 0.6 at the rim, in the shade of the fitting's lip, up to
 0.95 in its bowl, 0.3 low down and near black (0.012) at the opening at its bottom. Its normals are
