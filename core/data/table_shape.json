@@ -7,10 +7,10 @@
     "playing_width_m": 1.778,
     "jaw_radius_m": 0.10105,
     "jaw_sweep_rad": 0.98494,
-    "corner_jaw_start_m": 0.09996,
+    "corner_jaw_start_m": 0.10296,
     "middle_jaw_start_m": 0.13075,
-    "corner_drop_centre_m": 0.05899,
-    "corner_drop_radius_m": 0.05484,
+    "corner_drop_centre_m": 0.05646,
+    "corner_drop_radius_m": 0.05599,
     "middle_drop_centre_m": 0.0504,
     "middle_drop_radius_m": 0.04839,
     "rail_width_m": 0.1177,
@@ -39,8 +39,8 @@
     },
     "corner_jaw_start_m": {
       "unit": "m",
-      "source": "Measured on the bought table model (Studio-Lab 'Snooker Table', Fab) as fitted to this playing area by tools/fit_table.py: game/licensed/fit.json, half_length - outline.corner_side_jaw.start. The model as bought has 87 mm; fit_table.py draws each corner cushion back 13 mm (CORNER_PULL) for the owner's rule that pots must not get harder with the new table (2026-11-15).",
-      "note": "Where a corner jaw leaves the nose line, short of the corner point. As bought, the model's corner mouth leaves a 52.5 mm ball 14 mm of play; drawn back, it leaves 31 mm, the play of the 84 mm tournament gap this file had before."
+      "source": "Measured on the bought table model (Studio-Lab 'Snooker Table', Fab) as fitted to this playing area by tools/fit_table.py: game/licensed/fit.json, half_length - outline.corner_side_jaw.start. The model as bought has 87 mm; fit_table.py draws each corner cushion back 16 mm (CORNER_PULL) for the owner's rule that pots must not get harder with the new table (2026-11-15), set by measuring pot widths against the outline this file had before (ofs_sim_cli pots --against).",
+      "note": "Where a corner jaw leaves the nose line, short of the corner point. As bought, the model's corner mouth leaves a 52.5 mm ball 14 mm of play. Drawn back 13 mm it matched the old 84 mm gap head-on but took fewer balls from 30 degrees off the diagonal outwards, because the long round jaws rattle a ball the old knuckles fed in; at 16 mm the mouth is 86 mm at its narrowest and takes at least as many as the old outline at every angle to 30 degrees and at pace along the cushion. A dying ball along the cushion still drops less often than it did."
     },
     "middle_jaw_start_m": {
       "unit": "m",
@@ -50,7 +50,7 @@
     "corner_drop_centre_m": {
       "unit": "m",
       "source": "Measured on the bought table model (Studio-Lab 'Snooker Table', Fab) as fitted to this playing area by tools/fit_table.py: game/licensed/fit.json, outline.corner_fall.centre, taken along the diagonal from the corner point.",
-      "note": "The centre of the hole cut in the bed at a corner. With the radius below, the fall begins 4 mm beyond the corner point."
+      "note": "The centre of the hole cut in the bed at a corner. With the radius below, the fall begins 0.5 mm beyond the corner point."
     },
     "corner_drop_radius_m": {
       "unit": "m",
@@ -85,19 +85,19 @@
       "name": "top_left",
       "corner": true,
       "drop_centre": [
-        1.8262122290221945,
-        0.9307122290221944
+        1.8244232488657925,
+        0.9289232488657925
       ],
-      "drop_radius": 0.05484
+      "drop_radius": 0.05599
     },
     {
       "name": "top_right",
       "corner": true,
       "drop_centre": [
-        1.8262122290221945,
-        -0.9307122290221944
+        1.8244232488657925,
+        -0.9289232488657925
       ],
-      "drop_radius": 0.05484
+      "drop_radius": 0.05599
     },
     {
       "name": "middle_left",
@@ -121,19 +121,19 @@
       "name": "bottom_left",
       "corner": true,
       "drop_centre": [
-        -1.8262122290221945,
-        0.9307122290221944
+        -1.8244232488657925,
+        0.9289232488657925
       ],
-      "drop_radius": 0.05484
+      "drop_radius": 0.05599
     },
     {
       "name": "bottom_right",
       "corner": true,
       "drop_centre": [
-        -1.8262122290221945,
-        -0.9307122290221944
+        -1.8244232488657925,
+        -0.9289232488657925
       ],
-      "drop_radius": 0.05484
+      "drop_radius": 0.05599
     }
   ],
   "lines": [
@@ -142,11 +142,11 @@
       "kind": "nose",
       "p1": [
         1.7845,
-        -0.78904
+        -0.7860400000000001
       ],
       "p2": [
         1.7845,
-        0.78904
+        0.7860400000000001
       ],
       "normal": [
         -1.0,
@@ -158,11 +158,11 @@
       "kind": "nose",
       "p1": [
         -1.7845,
-        0.78904
+        0.7860400000000001
       ],
       "p2": [
         -1.7845,
-        -0.78904
+        -0.7860400000000001
       ],
       "normal": [
         1.0,
@@ -177,7 +177,7 @@
         0.889
       ],
       "p2": [
-        1.68454,
+        1.68154,
         0.889
       ],
       "normal": [
@@ -189,7 +189,7 @@
       "name": "left_baulk",
       "kind": "nose",
       "p1": [
-        -1.68454,
+        -1.68154,
         0.889
       ],
       "p2": [
@@ -205,7 +205,7 @@
       "name": "right_top",
       "kind": "nose",
       "p1": [
-        1.68454,
+        1.68154,
         -0.889
       ],
       "p2": [
@@ -225,7 +225,7 @@
         -0.889
       ],
       "p2": [
-        -1.68454,
+        -1.68154,
         -0.889
       ],
       "normal": [
@@ -237,12 +237,12 @@
       "name": "top_left_facing_left",
       "kind": "facing",
       "p1": [
-        1.7687387925768898,
+        1.76573879257689,
         0.9341781302568646
       ],
       "p2": [
-        1.8212170993597463,
-        1.0132628304451738
+        1.8186352829040653,
+        1.0138930321847799
       ],
       "normal": [
         0.8332389171389393,
@@ -254,11 +254,11 @@
       "kind": "facing",
       "p1": [
         1.8296781302568648,
-        0.8732387925768897
+        0.8702387925768899
       ],
       "p2": [
-        1.908762830445174,
-        0.9257170993597462
+        1.90939303218478,
+        0.9231352829040652
       ],
       "normal": [
         -0.5529131097786775,
@@ -269,12 +269,12 @@
       "name": "top_right_facing_right",
       "kind": "facing",
       "p1": [
-        1.7687387925768898,
+        1.76573879257689,
         -0.9341781302568646
       ],
       "p2": [
-        1.8212170993597463,
-        -1.0132628304451738
+        1.8186352829040653,
+        -1.0138930321847799
       ],
       "normal": [
         0.8332389171389393,
@@ -286,11 +286,11 @@
       "kind": "facing",
       "p1": [
         1.8296781302568648,
-        -0.8732387925768897
+        -0.8702387925768899
       ],
       "p2": [
-        1.908762830445174,
-        -0.9257170993597462
+        1.90939303218478,
+        -0.9231352829040652
       ],
       "normal": [
         -0.5529131097786775,
@@ -365,12 +365,12 @@
       "name": "bottom_left_facing_left",
       "kind": "facing",
       "p1": [
-        -1.7687387925768898,
+        -1.76573879257689,
         0.9341781302568646
       ],
       "p2": [
-        -1.8212170993597463,
-        1.0132628304451738
+        -1.8186352829040653,
+        1.0138930321847799
       ],
       "normal": [
         -0.8332389171389393,
@@ -382,11 +382,11 @@
       "kind": "facing",
       "p1": [
         -1.8296781302568648,
-        0.8732387925768897
+        0.8702387925768899
       ],
       "p2": [
-        -1.908762830445174,
-        0.9257170993597462
+        -1.90939303218478,
+        0.9231352829040652
       ],
       "normal": [
         0.5529131097786775,
@@ -397,12 +397,12 @@
       "name": "bottom_right_facing_right",
       "kind": "facing",
       "p1": [
-        -1.7687387925768898,
+        -1.76573879257689,
         -0.9341781302568646
       ],
       "p2": [
-        -1.8212170993597463,
-        -1.0132628304451738
+        -1.8186352829040653,
+        -1.0138930321847799
       ],
       "normal": [
         -0.8332389171389393,
@@ -414,11 +414,11 @@
       "kind": "facing",
       "p1": [
         -1.8296781302568648,
-        -0.8732387925768897
+        -0.8702387925768899
       ],
       "p2": [
-        -1.908762830445174,
-        -0.9257170993597462
+        -1.90939303218478,
+        -0.9231352829040652
       ],
       "normal": [
         0.5529131097786775,
@@ -431,7 +431,7 @@
       "name": "top_left_jaw_left",
       "pocket": "top_left",
       "centre": [
-        1.68454,
+        1.68154,
         0.99005
       ],
       "radius": 0.10105,
@@ -443,7 +443,7 @@
       "pocket": "top_left",
       "centre": [
         1.88555,
-        0.78904
+        0.7860400000000001
       ],
       "radius": 0.10105,
       "angle_start": 2.156652653589793,
@@ -453,7 +453,7 @@
       "name": "top_right_jaw_right",
       "pocket": "top_right",
       "centre": [
-        1.68454,
+        1.68154,
         -0.99005
       ],
       "radius": 0.10105,
@@ -465,7 +465,7 @@
       "pocket": "top_right",
       "centre": [
         1.88555,
-        -0.78904
+        -0.7860400000000001
       ],
       "radius": 0.10105,
       "angle_start": -3.141592653589793,
@@ -519,7 +519,7 @@
       "name": "bottom_left_jaw_left",
       "pocket": "bottom_left",
       "centre": [
-        -1.68454,
+        -1.68154,
         0.99005
       ],
       "radius": 0.10105,
@@ -531,7 +531,7 @@
       "pocket": "bottom_left",
       "centre": [
         -1.88555,
-        0.78904
+        0.7860400000000001
       ],
       "radius": 0.10105,
       "angle_start": 0.0,
@@ -541,7 +541,7 @@
       "name": "bottom_right_jaw_right",
       "pocket": "bottom_right",
       "centre": [
-        -1.68454,
+        -1.68154,
         -0.99005
       ],
       "radius": 0.10105,
@@ -553,7 +553,7 @@
       "pocket": "bottom_right",
       "centre": [
         -1.88555,
-        -0.78904
+        -0.7860400000000001
       ],
       "radius": 0.10105,
       "angle_start": -0.9849399999999999,
