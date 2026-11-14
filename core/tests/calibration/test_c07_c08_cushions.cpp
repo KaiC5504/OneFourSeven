@@ -25,6 +25,7 @@ std::vector<std::string> stale_params(const nlohmann::json& fx) {
         {"cushion_contact_height_m", p.cushion_contact_height_m},
         {"cushion_rigid_limit_m_s", p.cushion_rigid_limit_m_s},
         {"cushion_restitution_slope_per_m_s", p.cushion_restitution_slope_per_m_s},
+        {"cushion_restitution_min", p.cushion_restitution_min},
         {"ball_radius_m", R},
     };
     std::vector<std::string> out;
@@ -96,6 +97,9 @@ Compared compare(const nlohmann::json& c, Vec3 v_out_fixture_frame) {
 
 // Tolerances from the M1 plan: Mathavan's model is the reference, so a faithful implementation
 // lands well inside them; the fixture's own N-vs-2N convergence is below 1e-6 and 1e-4 degrees.
+// The band is round the model at the loaded cushion_restitution: 0.85 since KaiC's feel sessions on
+// the phone (2026-11-13 to 15), where the paper fitted 0.98. The paper's own rebounds are the
+// fixture's "literature" cases, checked below with the paper's value.
 constexpr double kAngleTolDeg = 1.0;
 constexpr double kSpeedTolRel = 0.02;
 
@@ -108,13 +112,13 @@ std::string case_name(const nlohmann::json& c) {
 }
 
 // One fixture case against collide_line in frame f; a failure is described in full.
-void check_case(const nlohmann::json& c, Frame f, std::vector<std::string>& failures) {
+void check_case(const nlohmann::json& c, Frame f, const PhysicsParams& p, std::vector<std::string>& failures) {
     Vec3 r;
     const LineCushion line = cushion_in(f, r);
     BallState b = make_ball(table::Ball::cue, 0, r, to_table(vec_of(c["in"]["v"]), f, false),
                             to_table(vec_of(c["in"]["w"]), f, true));
-    b.motion = classify(b, params());
-    if (!collide_line(b, line, params())) {
+    b.motion = classify(b, p);
+    if (!collide_line(b, line, p)) {
         failures.push_back(case_name(c) + ": the impact solver gave up (plain restitution bounce)");
         return;
     }
@@ -144,7 +148,7 @@ TEST_CASE("C7 plain-ball cushion rebounds match Mathavan et al. (2010), 10-80 de
     for (const Frame& f : kFrames) {
         for (const nlohmann::json& c : cushion_fixture()["cases"]) {
             if (c["group"] == "side") continue;
-            check_case(c, f, failures);
+            check_case(c, f, params(), failures);
             ++n;
         }
     }
@@ -152,6 +156,43 @@ TEST_CASE("C7 plain-ball cushion rebounds match Mathavan et al. (2010), 10-80 de
     INFO(failures.size() << " of " << n << " impacts (cases x 8 cushion placements) off Mathavan et al. "
                          << "(2010), cushion_mathavan.json; the first:\n" << join(failures));
     CHECK(failures.empty());
+}
+
+TEST_CASE("C7 with the paper's cushion (e_e = 0.98) the model gives the paper's rebounds") {
+    // The literature reference: Mathavan et al. (2010) sec. 3.5 fitted e_e = 0.98 to their measured
+    // snooker rebounds. The owner's cushion is softer, so the paper's numbers are held here with
+    // the paper's value and every other parameter as loaded.
+    require_current_fixture();
+    const nlohmann::json& lit = cushion_fixture()["literature"];
+    REQUIRE_MESSAGE(lit.is_object(), "cushion_mathavan.json has no literature cases: run `uv run tools/gen_reference.py`");
+    PhysicsParams paper = params();
+    paper.cushion_restitution = lit["cushion_restitution"].get<double>();
+    CHECK(paper.cushion_restitution == 0.98);
+    int n = 0;
+    std::vector<std::string> failures;
+    double straight_in = 0.0;
+    for (const Frame& f : kFrames) {
+        for (const nlohmann::json& c : lit["cases"]) {
+            check_case(c, f, paper, failures);
+            ++n;
+            if (c["group"] == "rolling" && c["speed_m_s"] == 1.0 && c["incidence_deg"] == 0.0) {
+                straight_in = c["rebound_speed_m_s"].get<double>();
+            }
+        }
+    }
+    CHECK(n >= 50 * 8);
+    INFO(failures.size() << " of " << n << " impacts off the paper's cushion; the first:\n" << join(failures));
+    CHECK(failures.empty());
+    // Rolling straight in at 1 m/s: 0.911 of the speed with the paper's cushion (targets.md).
+    CHECK(straight_in == doctest::Approx(0.911).epsilon(0.002));
+    for (const nlohmann::json& c : cushion_fixture()["cases"]) {
+        if (c["group"] != "rolling" || c["speed_m_s"] != 1.0 || c["incidence_deg"] != 0.0) continue;
+        const double ours = c["rebound_speed_m_s"].get<double>();
+        MESSAGE("rolling straight into a cushion at 1 m/s: " << ours << " of the speed at cushion_restitution "
+                                                            << params().cushion_restitution << ", " << straight_in
+                                                            << " with the paper's " << paper.cushion_restitution << " ("
+                                                            << (ours / straight_in - 1.0) * 100.0 << "%)");
+    }
 }
 
 TEST_CASE("C7 through simulate(): a rolling ball's rebound off a cushion line") {
@@ -188,7 +229,7 @@ TEST_CASE("C8 running side widens and check side narrows the rebound, by Mathava
     for (const Frame& f : kFrames) {
         for (const nlohmann::json& c : cases) {
             if (c["group"] != "side") continue;
-            check_case(c, f, failures);
+            check_case(c, f, params(), failures);
             ++n;
         }
     }

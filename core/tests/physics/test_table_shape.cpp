@@ -25,6 +25,9 @@ constexpr double kPi = 3.14159265358979323846;
 constexpr double R = table::kBallRadius;
 constexpr double kHalfL = table::kPlayingLength / 2.0;
 constexpr double kHalfW = table::kPlayingWidth / 2.0;
+// m: the outline is built from the dimensions in doubles, so the two agree to rounding, far
+// inside a picometre.
+constexpr double kTol = 1e-12;
 
 nlohmann::json read_json(const std::string& path) {
     std::ifstream in(path);
@@ -52,6 +55,68 @@ double dot(Vec2 a, Vec2 b) { return a.x * b.x + a.y * b.y; }
 Vec2 sub(Vec2 a, Vec2 b) { return {a.x - b.x, a.y - b.y}; }
 Vec2 add(Vec2 a, Vec2 b, double t) { return {a.x + b.x * t, a.y + b.y * t}; }
 double len(Vec2 a) { return std::hypot(a.x, a.y); }
+Vec2 unit(Vec2 a) { return {a.x / len(a), a.y / len(a)}; }
+
+// The design numbers the outline is built from (table_shape.json "dimensions").
+struct Dims {
+    double jaw_radius = 0.0;
+    double jaw_sweep = 0.0;
+    double corner_jaw_start = 0.0;
+    double middle_jaw_start = 0.0;
+    double corner_drop_centre = 0.0;
+    double corner_drop_radius = 0.0;
+    double middle_drop_centre = 0.0;
+    double middle_drop_radius = 0.0;
+};
+
+Dims dims_of(const nlohmann::json& file) {
+    const nlohmann::json& d = file.at("dimensions");
+    return {d.at("jaw_radius_m").get<double>(),         d.at("jaw_sweep_rad").get<double>(),
+            d.at("corner_jaw_start_m").get<double>(),   d.at("middle_jaw_start_m").get<double>(),
+            d.at("corner_drop_centre_m").get<double>(), d.at("corner_drop_radius_m").get<double>(),
+            d.at("middle_drop_centre_m").get<double>(), d.at("middle_drop_radius_m").get<double>()};
+}
+
+// What the construction text measures a pocket from: the corner point (where the two nose lines
+// cross) or, for a middle pocket, where its centre line crosses the nose line; and the pocket's
+// axis out of the table (the diagonal through the corner point; square to the cushion for a
+// middle pocket). Taken from the pocket's name alone, so none of it comes from the outline.
+struct PocketFrame {
+    Vec2 origin;
+    Vec2 axis;
+};
+
+PocketFrame frame_of(const Pocket& p) {
+    const double sy = p.name.find("left") != std::string::npos ? 1.0 : -1.0;
+    if (p.name.rfind("middle", 0) == 0) return {{0.0, sy * kHalfW}, {0.0, sy}};
+    const double sx = p.name.rfind("top", 0) == 0 ? 1.0 : -1.0;
+    return {{sx * kHalfL, sy * kHalfW}, {sx * std::sqrt(0.5), sy * std::sqrt(0.5)}};
+}
+
+Vec2 arc_end(const ArcCushion& a, double angle) {
+    return {a.centre.x + a.radius * std::cos(angle), a.centre.y + a.radius * std::sin(angle)};
+}
+
+// A jaw's two ends: it leaves its nose at the one nearer the table and ends at the cushion's tip.
+struct JawEnds {
+    Vec2 nose;
+    Vec2 tip;
+};
+
+JawEnds jaw_ends(const ArcCushion& a, const PocketFrame& f) {
+    const Vec2 e0 = arc_end(a, a.angle_start);
+    const Vec2 e1 = arc_end(a, a.angle_end);
+    return dot(e0, f.axis) < dot(e1, f.axis) ? JawEnds{e0, e1} : JawEnds{e1, e0};
+}
+
+// The two facings of a pocket, by their names in the file.
+std::vector<const LineCushion*> facings_of(const TableShape& s, const nlohmann::json& lines, const std::string& pocket) {
+    std::vector<const LineCushion*> out;
+    for (std::size_t i = 0; i < s.lines.size(); ++i) {
+        if (lines[i].at("name").get<std::string>().rfind(pocket + "_facing", 0) == 0) out.push_back(&s.lines[i]);
+    }
+    return out;
+}
 
 // Anticlockwise from angle_start, so arcs that pass +-pi work.
 bool in_arc(double angle, const ArcCushion& a) {
@@ -139,7 +204,7 @@ TEST_CASE("table shape: the outline loads with no problems") {
     CHECK(s.rail_width_m > 0.0);
 }
 
-TEST_CASE("table shape: every dimension has a source and the outline matches the dimensions") {
+TEST_CASE("table shape: every dimension has a source") {
     // Spec 6.3: the geometry is recorded in one data file with its sources.
     const nlohmann::json file = shape_file();
     const nlohmann::json& dims = file.at("dimensions");
@@ -156,60 +221,114 @@ TEST_CASE("table shape: every dimension has a source and the outline matches the
     CHECK(dims.at("playing_width_m").get<double>() == table::kPlayingWidth);
     CHECK(s.rail_width_m == dims.at("rail_width_m").get<double>());
     CHECK(s.rail_height_m == dims.at("rail_height_m").get<double>());
+}
 
+TEST_CASE("table shape: the lines, arcs and pockets are what the dimensions and the construction give") {
+    // Each check quotes the sentence of table_shape.json's "construction" it comes from, and is
+    // worked out here from the dimensions, not by tools/make_table_shape.py.
+    const nlohmann::json file = shape_file();
+    const TableShape s = load_good();
+    const Dims d = dims_of(file);
     const nlohmann::json& lines = file.at("lines");
-    int noses = 0;
-    for (std::size_t i = 0; i < s.lines.size(); ++i) {
-        if (lines[i].at("kind") != "nose") continue;
-        ++noses;
-        const LineCushion& l = s.lines[i];
-        // On the playing area's edge, facing in.
-        const double edge = dot(l.p1, {-l.normal.x, -l.normal.y});
-        CHECK(edge == doctest::Approx(std::abs(l.normal.x) > 0.5 ? kHalfL : kHalfW).epsilon(1e-12));
-        CHECK(dot(l.p2, {-l.normal.x, -l.normal.y}) == doctest::Approx(edge).epsilon(1e-12));
-    }
-    CHECK(noses == 6);
+    const double r = d.jaw_radius;
+    const double cs = std::cos(d.jaw_sweep);
+    const double sn = std::sin(d.jaw_sweep);
+    std::vector<Vec2> jaw_starts;
+    std::vector<int> facing_jaws(s.lines.size(), 0);
 
     for (std::size_t pi = 0; pi < s.pockets.size(); ++pi) {
         const Pocket& p = s.pockets[pi];
         INFO(p.name);
-        const double gap = dims.at(p.corner ? "corner_gap_m" : "middle_gap_m").get<double>();
-        const double jaw = dims.at(p.corner ? "corner_jaw_radius_m" : "middle_jaw_radius_m").get<double>();
-        std::vector<const LineCushion*> facings;
-        for (std::size_t i = 0; i < s.lines.size(); ++i) {
-            const std::string name = lines[i].at("name").get<std::string>();
-            if (name.rfind(p.name + "_facing", 0) == 0) facings.push_back(&s.lines[i]);
-        }
-        REQUIRE(facings.size() == 2);
-        if (p.corner) {
-            // Each turned corner_facing_angle_rad from the axis, opening towards the table, and the
-            // gap apart where they cross the fall: the line through the corner point square to the
-            // axis.
-            const double alpha = dims.at("corner_facing_angle_rad").get<double>();
-            const Vec2 corner{std::copysign(kHalfL, p.drop_centre.x), std::copysign(kHalfW, p.drop_centre.y)};
-            const Vec2 axis{std::copysign(std::sqrt(0.5), corner.x), std::copysign(std::sqrt(0.5), corner.y)};
-            CHECK(dot(facings[0]->normal, facings[1]->normal) == doctest::Approx(-std::cos(2.0 * alpha)).epsilon(1e-12));
-            std::vector<Vec2> crossings;
-            for (const LineCushion* f : facings) {
-                const Vec2 d = sub(f->p2, f->p1);
-                const double length = std::sqrt(dot(d, d));
-                CHECK(std::abs(dot(d, axis)) / length == doctest::Approx(std::cos(alpha)).epsilon(1e-12));
-                // Where the facing's line crosses the fall.
-                const double t = dot(sub(corner, f->p1), axis) / dot(d, axis);
-                crossings.push_back({f->p1.x + t * d.x, f->p1.y + t * d.y});
-            }
-            const Vec2 across = sub(crossings[1], crossings[0]);
-            CHECK(std::sqrt(dot(across, across)) == doctest::Approx(gap).epsilon(1e-9));
-        } else {
-            // Parallel, facing each other, gap apart.
-            CHECK(dot(facings[0]->normal, facings[1]->normal) == doctest::Approx(-1.0).epsilon(1e-12));
-            CHECK(dot(sub(facings[1]->p1, facings[0]->p1), facings[0]->normal) == doctest::Approx(gap).epsilon(1e-9));
-        }
+        const PocketFrame f = frame_of(p);
+        const double drop_centre = p.corner ? d.corner_drop_centre : d.middle_drop_centre;
+        const double drop_radius = p.corner ? d.corner_drop_radius : d.middle_drop_radius;
+        // "Each drop circle is the hole in the bed: its centre sits on the pocket's axis,
+        // corner_drop_centre_m beyond the corner point or middle_drop_centre_m behind the nose
+        // line, with the matching drop radius."
+        CHECK(p.drop_radius == drop_radius);
+        CHECK(len(sub(p.drop_centre, add(f.origin, f.axis, drop_centre))) <= kTol);
+
+        int on_side = 0;
+        int on_end = 0;
         for (const ArcCushion& a : s.arcs) {
-            if (a.pocket == static_cast<int>(pi)) CHECK(a.radius == jaw);
+            if (a.pocket != static_cast<int>(pi)) continue;
+            // "a circular arc of jaw_radius_m ... through jaw_sweep_rad"
+            CHECK(a.radius == r);
+            CHECK(std::abs(a.angle_end - a.angle_start - d.jaw_sweep) <= kTol);
+            const JawEnds ends = jaw_ends(a, f);
+            // "Cushion noses ('kind': 'nose') run along the playing area's edges. At each pocket
+            // each nose ends in a jaw": the jaw starts on a side cushion's edge or, at a corner,
+            // on the end cushion's; `normal` is that nose's, into the playing area.
+            Vec2 normal{0.0, -std::copysign(1.0, f.axis.y)};
+            if (p.corner && std::abs(std::abs(ends.nose.y) - kHalfW) > kTol) {
+                normal = {-std::copysign(1.0, f.axis.x), 0.0};
+                CHECK(std::abs(std::abs(ends.nose.x) - kHalfL) <= kTol);
+                ++on_end;
+            } else {
+                CHECK(std::abs(std::abs(ends.nose.y) - kHalfW) <= kTol);
+                ++on_side;
+            }
+            // "A corner jaw starts corner_jaw_start_m short of the corner point (where the two
+            // nose lines cross); a middle jaw starts middle_jaw_start_m from the pocket's centre
+            // line."
+            const Vec2 towards = unit(sub(f.origin, ends.nose));
+            CHECK(std::abs(dot(towards, normal)) <= kTol);
+            CHECK(std::abs(len(sub(f.origin, ends.nose)) - (p.corner ? d.corner_jaw_start : d.middle_jaw_start)) <= kTol);
+            // "tangent to the nose": the arc's centre is jaw_radius_m straight behind the nose's end.
+            CHECK(len(sub(a.centre, add(ends.nose, normal, -r))) <= kTol);
+            // "that turns away from the table through jaw_sweep_rad to the cushion's tip"
+            const Vec2 tip_radial = add({normal.x * cs, normal.y * cs}, towards, sn);
+            CHECK(len(sub(ends.tip, add(a.centre, tip_radial, r))) <= kTol);
+            // "From each tip a straight facing ('kind': 'facing') runs on along the jaw's tangent
+            // until it is level with the far edge of the drop circle, measured along the pocket's
+            // axis"
+            const Vec2 run = add({towards.x * cs, towards.y * cs}, normal, -sn);
+            int found = 0;
+            for (std::size_t li = 0; li < s.lines.size(); ++li) {
+                const LineCushion& l = s.lines[li];
+                if (lines[li].at("kind") != "facing" || len(sub(l.p1, ends.tip)) > kTol) continue;
+                ++found;
+                ++facing_jaws[li];
+                CHECK(len(sub(unit(sub(l.p2, l.p1)), run)) <= kTol);
+                CHECK(len(sub(l.normal, tip_radial)) <= kTol);
+                CHECK(std::abs(dot(sub(l.p2, f.origin), f.axis) - (drop_centre + drop_radius)) <= kTol);
+            }
+            CHECK(found == 1);
+            jaw_starts.push_back(ends.nose);
         }
-        CHECK(p.drop_radius == doctest::Approx(gap / 2.0).epsilon(1e-12));
+        CHECK(on_side == (p.corner ? 1 : 2));
+        CHECK(on_end == (p.corner ? 1 : 0));
     }
+    REQUIRE(jaw_starts.size() == 12);
+
+    int noses = 0;
+    double nose_length = 0.0;
+    for (std::size_t i = 0; i < s.lines.size(); ++i) {
+        INFO(lines[i].at("name").get<std::string>());
+        const LineCushion& l = s.lines[i];
+        if (lines[i].at("kind") != "nose") {
+            CHECK(facing_jaws[i] == 1);
+            continue;
+        }
+        ++noses;
+        nose_length += len(sub(l.p2, l.p1));
+        // "Cushion noses ('kind': 'nose') run along the playing area's edges", facing in.
+        const double edge = dot(l.p1, {-l.normal.x, -l.normal.y});
+        CHECK(edge == doctest::Approx(std::abs(l.normal.x) > 0.5 ? kHalfL : kHalfW).epsilon(1e-12));
+        CHECK(dot(l.p2, {-l.normal.x, -l.normal.y}) == doctest::Approx(edge).epsilon(1e-12));
+        // "At each pocket each nose ends in a jaw": both of its ends are jaw starts.
+        for (const Vec2 q : {l.p1, l.p2}) {
+            CHECK(std::count_if(jaw_starts.begin(), jaw_starts.end(),
+                                [&](Vec2 j) { return len(sub(j, q)) <= kTol; }) == 1);
+        }
+    }
+    CHECK(noses == 6);
+    // What the jaw starts leave of the edges: the two end cushions and the four side ones.
+    CHECK(nose_length == doctest::Approx(2.0 * (table::kPlayingWidth - 2.0 * d.corner_jaw_start) +
+                                         4.0 * (kHalfL - d.corner_jaw_start - d.middle_jaw_start))
+                             .epsilon(1e-12));
+    MESSAGE("jaw tips " << r * (1.0 - cs) * 1000.0 << " mm behind the nose line, " << r * sn * 1000.0
+                        << " mm along it from where the jaw starts");
 }
 
 TEST_CASE("table shape: the outline is closed and continuous") {
@@ -249,9 +368,10 @@ TEST_CASE("table shape: the outline is closed and continuous") {
     CHECK(nose_length < 2.0 * (table::kPlayingLength + table::kPlayingWidth));
 }
 
-TEST_CASE("table shape: every pocket has two jaws and a drop circle behind its mouth") {
-    // Spec 7.6: potted when the centre passes the drop boundary, a region behind the jaws.
+TEST_CASE("table shape: every pocket has two jaws and a drop circle a ball rolling down its axis reaches") {
+    // Spec 7.6: potted when the centre passes the drop boundary, the edge of the hole in the bed.
     const TableShape s = load_good();
+    const nlohmann::json lines = shape_file().at("lines");
     for (std::size_t pi = 0; pi < s.pockets.size(); ++pi) {
         const Pocket& p = s.pockets[pi];
         INFO(p.name);
@@ -260,47 +380,85 @@ TEST_CASE("table shape: every pocket has two jaws and a drop circle behind its m
         CHECK(jaws == 2);
         // Outside the playing rectangle, so no ball on the cloth is potted.
         CHECK(outside_rectangle_by(p.drop_centre) > p.drop_radius);
-        // Behind the mouth: further out than both jaws' centres along the pocket's axis.
-        const double sy = std::copysign(1.0, p.drop_centre.y);
-        const Vec2 axis = p.corner ? Vec2{std::copysign(1.0, p.drop_centre.x), sy} : Vec2{0.0, sy};
-        for (const ArcCushion& a : s.arcs) {
-            if (a.pocket == static_cast<int>(pi)) CHECK(dot(p.drop_centre, axis) > dot(a.centre, axis));
+        // From half a metre out, straight down the axis, the hole comes before any cushion.
+        const PocketFrame f = frame_of(p);
+        const RayHit h = first_hit(s, add(f.origin, f.axis, -0.5), f.axis);
+        CHECK(h.kind == Hit::pocket);
+        CHECK(h.index == static_cast<int>(pi));
+        // The hole spans the pocket: level with its centre, wherever a ball's centre fits between
+        // the two facings (R clear of each) it is over the hole, so nothing rolls past it into the
+        // back of the pocket.
+        const Vec2 across{-f.axis.y, f.axis.x};
+        const std::vector<const LineCushion*> facings = facings_of(s, lines, p.name);
+        REQUIRE(facings.size() == 2);
+        double lo = -std::numeric_limits<double>::infinity();
+        double hi = std::numeric_limits<double>::infinity();
+        for (const LineCushion* l : facings) {
+            // dot(drop_centre + w across - p1, normal) >= R, solved for w.
+            const double slope = dot(across, l->normal);
+            REQUIRE(slope != 0.0);
+            const double w = (R - dot(sub(p.drop_centre, l->p1), l->normal)) / slope;
+            if (slope > 0.0) lo = std::max(lo, w);
+            else hi = std::min(hi, w);
         }
+        CHECK(lo > -p.drop_radius);
+        CHECK(hi < p.drop_radius);
     }
 }
 
-TEST_CASE("table shape: corner and middle pockets differ, and the middle pockets are set back") {
-    // Spec 6.3.
+TEST_CASE("table shape: corner pockets open out behind their tips, middle pockets close in, and neither is set back") {
+    // Spec 6.3, as the bought table's pockets are: one jaw arc at all twelve cushion ends (the
+    // construction case checks it), where this file had 1 in corner knuckles, 2.5 in quarter
+    // circles at the middles and the middle pockets set a jaw radius behind the nose line.
     const TableShape s = load_good();
-    const nlohmann::json dims = shape_file().at("dimensions");
-    CHECK(dims.at("middle_gap_m").get<double>() > dims.at("corner_gap_m").get<double>());
-    CHECK(dims.at("middle_jaw_radius_m").get<double>() != dims.at("corner_jaw_radius_m").get<double>());
-    const Pocket& corner = s.pockets[0];
-    const Pocket& middle = s.pockets[2];
-    REQUIRE(corner.corner);
-    REQUIRE(!middle.corner);
-    // How far behind the playing area's edge (the corner point for a corner) the ball centre must
-    // get, on the pocket's axis, before it drops.
-    const double corner_depth = len(sub(corner.drop_centre, {kHalfL, kHalfW})) - corner.drop_radius;
-    const double middle_depth = std::abs(middle.drop_centre.y) - middle.drop_radius - kHalfW;
-    MESSAGE("drop depth behind the edge: corner " << corner_depth * 1000.0 << " mm, middle "
-                                                  << middle_depth * 1000.0 << " mm");
-    CHECK(middle_depth > corner_depth);
-}
-
-TEST_CASE("table shape: drop circles are reachable straight down each pocket's axis") {
-    const TableShape s = load_good();
+    const nlohmann::json lines = shape_file().at("lines");
+    double mouth[2] = {0.0, 0.0};  // corner, middle: the narrowest gap between the two jaws
     for (std::size_t pi = 0; pi < s.pockets.size(); ++pi) {
         const Pocket& p = s.pockets[pi];
         INFO(p.name);
-        const Vec2 from = p.corner ? Vec2{std::copysign(kHalfL - 0.5, p.drop_centre.x),
-                                          std::copysign(kHalfW - 0.5, p.drop_centre.y)}
-                                   : Vec2{0.0, 0.0};
-        const Vec2 d = sub(p.drop_centre, from);
-        const RayHit h = first_hit(s, from, {d.x / len(d), d.y / len(d)});
-        CHECK(h.kind == Hit::pocket);
-        CHECK(h.index == static_cast<int>(pi));
+        const PocketFrame f = frame_of(p);
+        const Vec2 across{-f.axis.y, f.axis.x};
+        const std::vector<const LineCushion*> facings = facings_of(s, lines, p.name);
+        REQUIRE(facings.size() == 2);
+        // Each facing starts at its cushion's tip (p1) and runs into the pocket.
+        const double at_tips = std::abs(dot(sub(facings[0]->p1, facings[1]->p1), across));
+        const double at_ends = std::abs(dot(sub(facings[0]->p2, facings[1]->p2), across));
+        if (p.corner) CHECK(at_ends > at_tips);
+        else CHECK(at_ends < at_tips);
+
+        // The fall begins just past the playing area's edge, in front of the cushion tips: a ball
+        // drops between the jaws, not behind them.
+        const double fall = dot(sub(p.drop_centre, f.origin), f.axis) - p.drop_radius;
+        const double tips = std::min(dot(sub(facings[0]->p1, f.origin), f.axis), dot(sub(facings[1]->p1, f.origin), f.axis));
+        CHECK(fall > 0.0);
+        CHECK(fall < tips);
+
+        // The narrowest gap between the jaws: on the line of their centres when that crosses both
+        // arcs (the corners' jaws turn past it), else between the tips.
+        std::vector<const ArcCushion*> jaws;
+        for (const ArcCushion& a : s.arcs) {
+            if (a.pocket == static_cast<int>(pi)) jaws.push_back(&a);
+        }
+        REQUIRE(jaws.size() == 2);
+        const Vec2 between = sub(jaws[1]->centre, jaws[0]->centre);
+        const bool crosses = in_arc(std::atan2(between.y, between.x), *jaws[0]) &&
+                             in_arc(std::atan2(-between.y, -between.x), *jaws[1]);
+        CHECK(crosses == p.corner);
+        const double gap = crosses ? len(between) - jaws[0]->radius - jaws[1]->radius
+                                   : len(sub(facings[0]->p1, facings[1]->p1));
+        // A ball fits, two side by side don't.
+        CHECK(gap > 2.0 * R);
+        CHECK(gap < 4.0 * R);
+        double& known = mouth[p.corner ? 0 : 1];
+        if (known == 0.0) {
+            known = gap;
+            MESSAGE(p.name << ": narrowest gap between the jaws " << gap * 1000.0 << " mm, the fall begins "
+                           << fall * 1000.0 << " mm past the edge, the tips are " << tips * 1000.0 << " mm past it");
+        }
+        CHECK(std::abs(gap - known) <= kTol);
     }
+    // Corner and middle pockets differ in mouth width (spec 6.3).
+    CHECK(mouth[1] > mouth[0]);
 }
 
 TEST_CASE("table shape: the named jaw fixtures meet what their notes say") {
@@ -318,7 +476,7 @@ TEST_CASE("table shape: the named jaw fixtures meet what their notes say") {
         const nlohmann::json f = read_json(dir + "towards_top_left_jaw.json");
         const auto& r = f.at("start").at("balls")[0].at("r");
         const RayHit h = first_hit(s, {r[0].get<double>(), r[1].get<double>()}, {1.0, 0.0});
-        // The far jaw or, past its knuckle, the facing it turns into.
+        // The far jaw or, past its tip, the facing it runs on into.
         REQUIRE((h.kind == Hit::arc || h.kind == Hit::line));
         if (h.kind == Hit::arc) {
             CHECK(&s.arcs[static_cast<std::size_t>(h.index)] == jaw_on_side(s, 0, {1.0, 0.0}));

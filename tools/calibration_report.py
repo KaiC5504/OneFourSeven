@@ -40,6 +40,9 @@ REQUIRED = ("series", "title", "params_hash", "columns", "rows")
 
 MET = "met"
 NOT_MET = "not met"
+# Off the published target because of a value the owner set by feel, and inside the band recorded
+# for his table.
+OWNER = "owner's value"
 REVIEW = "for review"
 NO_DATA = "no data"
 
@@ -631,7 +634,7 @@ def evaluate(s: Series, context: dict | None = None) -> Verdict:
             body = verdict.sentence.removesuffix(" (C10)")
             verdict = Verdict(verdict.status, f"{body} {' '.join(raised)} (C10)")
     row = context.get("results", {}).get(s.target) if s.name in ("cushion_rebound", "lag") else None
-    if row and row[4] in (MET, NOT_MET) and verdict.status != NOT_MET:
+    if row and row[4] in (MET, NOT_MET, OWNER) and verdict.status != NOT_MET:
         sentence = re.sub(r" The target is .*$", "", verdict.sentence)
         verdict = Verdict(row[4], f"{sentence} Against the target ({s.target}): {row[2]}; the target is {row[3]}.")
     return verdict
@@ -1111,7 +1114,13 @@ def plain_words(m: dict, series: dict[str, Series], params: dict, fixtures: dict
             text = (f"**Cushions.** A rolling ball arriving straight into a cushion at 1 m/s comes off with "
                     f"{percent(straight[1.0])} of its speed; firm hits lose more, {percent(straight[firm])} at "
                     f"{firm:g} m/s.")
-            if published:
+            paper = paper_straight_in(fixtures.get("cushion"), params)
+            if paper is not None:
+                text += (f" (This bounce is set by feel: with the cushion value Mathavan and colleagues fitted, their "
+                         f"model, which the game uses, gives {percent(paper)}"
+                         + (f"; their one set of measurements on a snooker table averaged {percent(published)}"
+                            + (f" below {below:g} m/s" if below else "") if published else "") + ".)")
+            elif published:
                 text += (f" (The one set of measurements on a snooker table, by Mathavan and colleagues, averaged "
                          f"{percent(published)}" + (f" below {below:g} m/s" if below else "") + ", where their "
                          f"own cushion model, which the game uses, gives {percent(straight[1.0])}.)")
@@ -1133,13 +1142,23 @@ def plain_words(m: dict, series: dict[str, Series], params: dict, fixtures: dict
         if lag:
             text += (f"; coming back down from the top cushion to the baulk cushion takes "
                      f"{lag['t_baulk'] - lag['t_top']:.1f} seconds")
-        bullets.append(text + ".")
+        text += "."
+        if lag_row(lag_series, lag, fixtures.get("table_speed"), params)[4] == OWNER:
+            text += (" This pace is set by feel; it is slower than the published range for a fast cloth (C11 below "
+                     "has both).")
+        bullets.append(text)
 
-    bullets.append("**Still starting guesses, for you to judge by feel in M2:** how lively the pocket jaws are "
-                   "(firm balls rattling, slow ones dropping), the nap drift on slow balls with and against the "
-                   "nap, what a miscue does, how much a very hard ball dies on a cushion, and the cloth's overall "
-                   "pace (the one snooker measurement found a slower cloth; tournament tables are heated and "
-                   "faster, so this sits between the two).")
+    owner = (fixtures.get("table_speed") or {}).get("owner_tuned")
+    guesses = ("**Still starting guesses, for you to judge by feel in M2:** how lively the pocket jaws are "
+               "(firm balls rattling, slow ones dropping), the nap drift on slow balls with and against the "
+               "nap, what a miscue does")
+    if owner:
+        bullets.append(guesses + " and how much a very hard ball dies on a cushion. The cloth's pace and the "
+                       f"cushions' bounce are already yours ({owner.get('session', 'set by feel')}).")
+    else:
+        bullets.append(guesses + ", how much a very hard ball dies on a cushion, and the cloth's overall "
+                       "pace (the one snooker measurement found a slower cloth; tournament tables are heated and "
+                       "faster, so this sits between the two).")
     return lines + [""] + [f"- {b}" for b in bullets]
 
 
@@ -1306,9 +1325,36 @@ def cushion_reference_row(rebound: Series | None, reference: dict | None, params
     ok = worst_angle <= CUSHION_TOLERANCE[0] and worst_speed <= CUSHION_TOLERANCE[1]
     case_speeds = [c["speed_m_s"] for c in compared]
     angles = [c["incidence_deg"] for c in compared]
+    measured = (f"worst {worst_angle:.2f} deg and {worst_speed * 100:.2f}% of the speed off the fine-step Mathavan "
+                f"solution over {len(compared)} cases")
+    target = "1 deg, 2% (the suite also checks side, stun and screw)"
+    verdict = mark(ok)
+    paper, ours = paper_straight_in(reference, params), straight_in(reference.get("cases"))
+    if ok and paper is not None and ours is not None:
+        measured += f"; straight in at 1 m/s the ball keeps {ours * 100:.1f}% of its speed"
+        target = (f"1 deg, 2% of the model at the owner's `cushion_restitution` {params['cushion_restitution']:g} "
+                  f"(the suite also checks side, stun and screw); with the paper's "
+                  f"{reference['literature']['cushion_restitution']:g} the ball keeps {paper * 100:.1f}%, so this is "
+                  f"{(ours / paper - 1) * 100:+.1f}%")
+        verdict = OWNER
     return ["C7", what + f", {min(case_speeds):g}-{max(case_speeds):g} m/s, {min(angles):g}-{max(angles):g} deg",
-            f"worst {worst_angle:.2f} deg and {worst_speed * 100:.2f}% of the speed off the fine-step Mathavan "
-            f"solution over {len(compared)} cases", "1 deg, 2% (the suite also checks side, stun and screw)", mark(ok)]
+            measured, target, verdict]
+
+
+def straight_in(cases: list | None) -> float | None:
+    """The speed a ball rolling straight into the cushion at 1 m/s keeps, from a list of reference cases."""
+    for case in cases or []:
+        if case.get("group") == "rolling" and case.get("speed_m_s") == 1.0 and case.get("incidence_deg") == 0:
+            return case["rebound_speed_m_s"] / case["speed_m_s"]
+    return None
+
+
+def paper_straight_in(reference: dict | None, params: dict) -> float | None:
+    """The same with the cushion as the paper fitted it; None when the table's cushion is the paper's."""
+    literature = (reference or {}).get("literature") or {}
+    if literature.get("cushion_restitution") in (None, params.get("cushion_restitution")):
+        return None
+    return straight_in(literature.get("cases"))
 
 
 def lag_row(lag_series: Series | None, lag: dict | None, published: dict | None, params: dict) -> list[str]:
@@ -1325,10 +1371,29 @@ def lag_row(lag_series: Series | None, lag: dict | None, published: dict | None,
     back = lag["t_baulk"] - lag["t_top"]
     slope = 2 * lag["back_m"] / (g * back ** 2)
     ok = low <= ball_speed <= high and fast <= slope <= slow
-    return ["C11", what, f"cue ball {ball_speed:.2f} m/s; back down from the top cushion in {back:.1f} s, "
-                         f"effective slope {slope:.4f}",
-            f"{low:.2f}-{high:.2f} m/s (TP B.6 for slopes {fast:g}-{slow:g}, +-{margin * 100:.0f}%); slope "
-            f"{fast:g}-{slow:g}", mark(ok)]
+    measured = (f"cue ball {ball_speed:.2f} m/s; back down from the top cushion in {back:.1f} s, effective slope "
+                f"{slope:.4f}")
+    target = (f"{low:.2f}-{high:.2f} m/s (TP B.6 for slopes {fast:g}-{slow:g}, +-{margin * 100:.0f}%); slope "
+              f"{fast:g}-{slow:g}")
+    owner = published.get("owner_tuned")
+    if ok or not owner:
+        return ["C11", what, measured, target, mark(ok)]
+    band = owner["tolerance_rel"]
+    held = (abs(ball_speed / owner["lag_speed_m_s"] - 1) <= band
+            and abs(slope / owner["effective_slope"] - 1) <= band)
+    measured += (f": {off_band(ball_speed, low, high)} the published speeds, the slope "
+                 f"{off_band(slope, fast, slow)} the published slopes")
+    target = (f"published: {target}; the owner's cloth ({owner['session']}): {owner['lag_speed_m_s']:.2f} m/s, "
+              f"slope {owner['effective_slope']:.4f}, +-{band * 100:.0f}%")
+    return ["C11", what, measured, target, OWNER if held else NOT_MET]
+
+
+def off_band(value: float, low: float, high: float) -> str:
+    """ "24% above" or "inside": where a value sits against a published band."""
+    if low <= value <= high:
+        return "inside"
+    edge = high if value > high else low
+    return f"{abs(value / edge - 1) * 100:.0f}% {'above' if value > high else 'below'}"
 
 
 def what_changed(changes: dict | None, params: dict) -> tuple[list[str], list[str]]:
@@ -1336,7 +1401,11 @@ def what_changed(changes: dict | None, params: dict) -> tuple[list[str], list[st
     if changes is None:
         return ["No what_changed.json was found."], ["what_changed.json is missing or not a JSON object"]
     lines, problems = [], []
-    for entry in changes.get("changes", []):
+    entries = changes.get("changes", [])
+    # A parameter tuned more than once keeps its history: only its latest entry must match the file.
+    latest = {name: index for index, entry in enumerate(entries)
+              if isinstance(entry, dict) and isinstance(entry.get("params"), dict) for name in entry["params"]}
+    for index, entry in enumerate(entries):
         values_text = []
         try:
             pairs = [(name, before, after) for name, (before, after) in entry["params"].items()]
@@ -1346,7 +1415,7 @@ def what_changed(changes: dict | None, params: dict) -> tuple[list[str], list[st
         for name, before, after in pairs:
             text = f"`{name}` " + (f"new, {after}" if before is None else f"{before} to {after}")
             now = params.get(name)
-            if now != after:
+            if now != after and latest.get(name) == index:
                 text += f" (now {now})" if name in params else " (no longer in the file)"
                 problems.append(f"what_changed.json gives {name} as {after}; table_params.json has {now}")
             values_text.append(text)
@@ -1392,7 +1461,9 @@ def assemble_report(series: dict[str, Series], charts: dict[str, str], problems:
         lines += ["", "## Results against the targets", "",
                   "What this report measured itself, from `ofs_sim_cli calibrate` and its own shots. The "
                   "calibration suite (`ofs_calibration_tests`, run by the gate) checks the same targets with the "
-                  "exact tolerances in `docs/calibration/targets.md`.", ""]
+                  "exact tolerances in `docs/calibration/targets.md`. \"Owner's value\" means the number is off "
+                  "its published target because of a value the owner set by feel, and inside the band the suite "
+                  "holds his table to; the published target is shown beside it.", ""]
         lines += table(list(context["results"].values()), ["#", "What", "Measured", "Target", "Verdict"])
         change_lines, change_problems = what_changed(changes, params)
         problems += change_problems

@@ -2,128 +2,128 @@
   "build": "release",
   "machine": "13th Gen Intel(R) Core(TM) i7-13650HX, 20 logical cores",
   "note": "Written by ofs_sim_cli bench --write-baseline: microseconds, and each shot's time in timings of the speed probe, which --check compares on this machine and build only.",
-  "params_hash": "588862c086c7b2c1",
-  "probe_us": 56.2525,
+  "params_hash": "8f1c5349b38d880b",
+  "probe_us": 54.86666666666666,
   "shots": {
     "break_10.0ms_rack1": {
-      "events": 175,
-      "median_us": 268.1,
-      "p99_us": 313.5830000000001,
-      "probe_units": 4.848178801532034
+      "events": 206,
+      "median_us": 301.1,
+      "p99_us": 354.61199999999997,
+      "probe_units": 5.610831234256927
     },
     "break_10.0ms_rack2": {
-      "events": 264,
-      "median_us": 401.0,
-      "p99_us": 442.852,
-      "probe_units": 7.008745627186407
+      "events": 306,
+      "median_us": 419.55,
+      "p99_us": 500.579,
+      "probe_units": 7.5455612925677045
     },
     "break_10.0ms_rack3": {
-      "events": 32,
-      "median_us": 58.1,
-      "p99_us": 91.906,
-      "probe_units": 1.1284046692607004
+      "events": 27,
+      "median_us": 46.5,
+      "p99_us": 73.903,
+      "probe_units": 0.9186507936507936
     },
     "break_4.5ms_rack1": {
-      "events": 124,
-      "median_us": 205.8,
-      "p99_us": 251.75599999999983,
-      "probe_units": 3.7386569872958257
+      "events": 122,
+      "median_us": 200.5,
+      "p99_us": 265.625,
+      "probe_units": 3.7119701336352566
     },
     "break_4.5ms_rack2": {
-      "events": 139,
-      "median_us": 220.35000000000002,
-      "p99_us": 276.7059999999998,
-      "probe_units": 3.9763845131644877
+      "events": 133,
+      "median_us": 205.55,
+      "p99_us": 242.37099999999992,
+      "probe_units": 3.754785953549736
     },
     "break_4.5ms_rack3": {
-      "events": 128,
-      "median_us": 195.64999999999998,
-      "p99_us": 261.15000000000003,
-      "probe_units": 3.5025406827384646
+      "events": 126,
+      "median_us": 178.9,
+      "p99_us": 240.94000000000005,
+      "probe_units": 3.2677269195524845
     },
     "break_7.0ms_rack1": {
-      "events": 168,
-      "median_us": 271.0,
-      "p99_us": 338.704,
-      "probe_units": 4.686679790026247
+      "events": 152,
+      "median_us": 231.45,
+      "p99_us": 291.19999999999993,
+      "probe_units": 4.217166363785656
     },
     "break_7.0ms_rack2": {
-      "events": 269,
-      "median_us": 379.85,
-      "p99_us": 416.64500000000015,
-      "probe_units": 6.607905230142956
+      "events": 217,
+      "median_us": 329.5,
+      "p99_us": 391.32000000000005,
+      "probe_units": 5.912212600776352
     },
     "break_7.0ms_rack3": {
-      "events": 245,
-      "median_us": 334.2,
-      "p99_us": 380.01,
-      "probe_units": 5.951870939850855
+      "events": 230,
+      "median_us": 314.8,
+      "p99_us": 363.096,
+      "probe_units": 5.759191176470589
     },
     "break_off_worst": {
       "events": 317,
-      "median_us": 1171.9,
-      "p99_us": 1436.821,
-      "probe_units": 21.0015741187585
+      "median_us": 1215.85,
+      "p99_us": 2416.579999999999,
+      "probe_units": 22.088830781228445
     },
     "cluster_split": {
-      "events": 80,
-      "median_us": 64.2,
-      "p99_us": 76.647,
-      "probe_units": 1.2130518234165066
+      "events": 73,
+      "median_us": 54.7,
+      "p99_us": 73.301,
+      "probe_units": 1.0749506903353057
     },
     "creeping_wedge": {
-      "events": 312,
-      "median_us": 1068.3,
-      "p99_us": 2128.4880000000003,
-      "probe_units": 18.824453108078842
+      "events": 301,
+      "median_us": 1073.4,
+      "p99_us": 1773.3,
+      "probe_units": 18.846300715390175
     },
     "long_multi_cushion": {
-      "events": 20,
-      "median_us": 21.2,
-      "p99_us": 24.801,
-      "probe_units": 0.4161735700197239
+      "events": 15,
+      "median_us": 12.6,
+      "p99_us": 21.0,
+      "probe_units": 0.249500998003992
     },
     "pack_break_off": {
-      "events": 246,
-      "median_us": 701.95,
-      "p99_us": 1205.8290000000031,
-      "probe_units": 12.144120888377252
+      "events": 253,
+      "median_us": 573.5,
+      "p99_us": 1209.2640000000001,
+      "probe_units": 9.978954752718344
     },
     "pack_slow_roll": {
       "events": 162,
-      "median_us": 358.7,
-      "p99_us": 660.2640000000004,
-      "probe_units": 5.9471947194719466
+      "median_us": 361.5,
+      "p99_us": 621.572,
+      "probe_units": 6.1927231381466745
     },
     "pack_slow_worst": {
       "events": 261,
-      "median_us": 871.6,
-      "p99_us": 925.889,
-      "probe_units": 15.306608565078019
+      "median_us": 885.6,
+      "p99_us": 1811.25,
+      "probe_units": 15.958788898233811
     },
     "pot_black_corner": {
-      "events": 13,
-      "median_us": 12.0,
-      "p99_us": 17.302,
-      "probe_units": 0.23408239700374533
+      "events": 20,
+      "median_us": 20.8,
+      "p99_us": 28.500999999999998,
+      "probe_units": 0.4130434782608695
     },
     "pot_long_red_screw": {
       "events": 10,
       "median_us": 7.1,
-      "p99_us": 15.0,
-      "probe_units": 0.1383399209486166
+      "p99_us": 13.0,
+      "probe_units": 0.1394422310756972
     },
     "pot_red_middle": {
-      "events": 24,
-      "median_us": 24.3,
-      "p99_us": 28.201999999999998,
-      "probe_units": 0.47534516765285995
+      "events": 12,
+      "median_us": 9.9,
+      "p99_us": 12.0,
+      "probe_units": 0.1952191235059761
     },
     "slow_roll_nap": {
-      "events": 10,
-      "median_us": 6.9,
-      "p99_us": 13.4,
-      "probe_units": 0.13043478260869565
+      "events": 9,
+      "median_us": 3.8,
+      "p99_us": 8.401,
+      "probe_units": 0.0741444866920152
     }
   },
   "version": 3

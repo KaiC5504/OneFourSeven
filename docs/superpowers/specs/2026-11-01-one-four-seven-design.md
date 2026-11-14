@@ -178,13 +178,26 @@ One fixed, tournament-standard full-size table. **Owner**
   The aim is tight tournament-style pockets with **curved, rounded jaws**, as snooker
   pockets have, not pool's straight angled facings. The geometry is recorded in one data
   file with its sources.
-- **Owner (M2):** as on tournament tables seen from above, each corner cushion runs straight
-  into the pocket and turns in at a tight knuckle (1 in), and the corner facings close in
-  towards the fall (7 degrees), so the mouth is about two balls wide at the knuckles.
-- Corner and middle pockets differ in mouth width and jaw shape. The middle pockets are
-  set slightly back.
+- **Owner (2026-11-15):** the pockets are the bought table model's. Their dimensions are
+  measured on the model as fitted to the playing area (`tools/fit_table.py`) and recorded
+  in `core/data/table_shape.json`, from which `tools/make_table_shape.py` builds the
+  outline the physics uses. Every cushion ends in the same jaw: one arc of 101 mm radius,
+  tangent to the cushion nose, turning away from the table through 56.4 degrees to the
+  cushion's tip, 45 mm behind the nose line. From each tip a straight facing runs on along
+  the tangent. This replaces M2's 1 in corner knuckles and 2.5 in middle jaws.
+- Corner and middle pockets differ in mouth width, not in jaw shape. Corner jaws start
+  100 mm short of the corner point (the model's 87 mm, drawn back 13 mm for the owner's
+  rule below) and are 82 mm apart at their narrowest; their facings open out behind the
+  tips. Middle jaws start 131 mm either side of the pocket's centre line; their tips are
+  93 mm apart and their facings close in behind them. The middle pockets are not set back.
+- The fall is the hole cut in the bed, a circle at each pocket that spans it between the
+  jaws: it begins 4 mm beyond the corner point at a corner and 2 mm behind the nose line
+  at a middle pocket, in front of the cushion tips at both.
 - **Owner check:** pockets feel "tournament tight". A ball hit firmly into the jaws
   rattles and stays out; a slow, accurate ball drops even when it touches a jaw.
+- **Owner's rule:** pots must not get harder when the outline changes. `ofs_sim_cli pots`
+  measures how wide each pocket plays (the band of lines on which a lone ball drops, by
+  approach angle and pace) and compares one outline with another.
 - Cushion nose height comes from the cushion model's source (Mathavan et al., 2010, on
   snooker cushions). The builder records the value used.
 
@@ -262,16 +275,18 @@ elevation θ and cue speed V.
   cloth during the impact. That produces correct rebound angles, the effect of running
   and check side, and speed-dependent loss. Han (2005) is an acceptable fallback only if
   Mathavan proves unworkable, and the builder notes the trade-off.
-- Straight cushion sections are line segments. Pocket jaws are curved segments using the
-  same impact model with their own tunable restitution.
+- Straight cushion sections are line segments, and so are the facings behind the cushion
+  tips. Pocket jaws are circular arcs using the same impact model with their own tunable
+  restitution.
 - With the contact at height h, both contacts (cushion and cloth) can stick and wedge the
   ball once h ≥ 2R / (1 + μ²), μ the lower of the cushion and cloth frictions. The impact
   then falls back to a plain restitution bounce and logs it. The parameter ranges (height
   ≤ 45 mm, frictions ≤ 0.25) keep every allowed table clear of that height.
 
 ### 7.6 Pockets
-- A ball is potted when its centre passes the pocket's drop boundary, a region behind
-  the jaws.
+- A ball is potted when its centre passes the pocket's drop boundary: the edge of the
+  hole in the bed (section 6.3), a circle that lies wholly outside the playing area and
+  begins in front of the cushion tips, so a ball drops between the jaws.
 - Rattles and "hanging on the lip" emerge from jaw collisions, not from scripted
   outcomes.
 - A potted ball's fall into the pocket is animated cosmetically. It doesn't need

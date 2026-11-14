@@ -1,7 +1,8 @@
 # ofs_sim_cli
 
 The physics core on the command line (spec 16.1, 16.10, 21 M1): run one shot, replay a logged
-shot, fuzz thousands of random shots, time the benchmark shots and write the calibration data.
+shot, fuzz thousands of random shots, time the benchmark shots, write the calibration data and
+measure how wide the pockets play.
 
 Build it with the core (`cmake --build build/windows --config Release --target ofs_sim_cli`); it
 lands in `build/windows/tools/sim_cli/<config>/`. Every command reads the physics parameters from
@@ -110,8 +111,8 @@ their spots, a slow roll with side and nap, and the recorded pack-heavy shots in
 | Shot | Events | What |
 | --- | --- | --- |
 | `break_off_worst` | 317 | the slowest fuzz break-off found (6.7 ms over 1,139 events before the fix round), the bench's longest shot |
-| `creeping_wedge` | 312 | a shot that leaves a ball creeping out from almost in line between two others |
-| `pack_break_off` | 246 | a 10 m/s fuzz break-off (792 events before the fix round) |
+| `creeping_wedge` | 301 | a shot that leaves a ball creeping out from almost in line between two others |
+| `pack_break_off` | 253 | a full 10 m/s break-off of rack 16: the most events of 480 tried on the bought table's outline, with the owner's cloth and cushions (the fuzz break-off recorded here before went into the pack off the old middle jaws and misses it off these) |
 | `pack_slow_roll` | 162 | a 0.3 m/s roll into the pack (2,947 events before the fix round) |
 | `pack_slow_worst` | 261 | the slowest 0.3 m/s roll into the pack found (34 ms before the fix round) |
 
@@ -186,3 +187,31 @@ uv run tools/calibration_report.py build/calibration build/calibration-report
 Run it from a Release build: the break-off timings of a Debug build mean nothing for the budget.
 `tools/calibration_report.py` turns the folder into PNG charts and `report.md`, a sentence per
 chart saying what it shows and whether it meets its target.
+
+## pots
+
+How wide each pocket plays (spec 6.3: the owner's rule is that pots must not get harder when the
+outline changes). A lone ball rolls at a pocket from `--distance` away (default 0.6 m), paced to
+arrive at 0.5, 1.5 and 4 m/s, and its line is swept sideways in `--step-mm` steps (default 0.1).
+The width of the band of lines that drop is the pocket's size from that angle at that pace.
+
+```
+ofs_sim_cli pots
+ofs_sim_cli pots --against old_table_shape.json --out build/pots.json
+```
+
+- The corner pocket (top left) at 0, 15, 30 and 43 degrees from its diagonal, turned towards
+  running along the side cushion (43 is 2 degrees off the cushion), and the middle pocket (left)
+  at 0, 20, 40 and 60 degrees from square. A line's offset is how far it lies to the left of the
+  one through the corner point (the middle of the mouth on the nose line for a middle pocket), so
+  the bands of two outlines compare. Lines the ball could not start on, inside a cushion, are left
+  out: that is what ends the 43 degree band on the cushion's side.
+- A ball counts as potted only in that pocket and without leaving its neighbourhood (0.75 m)
+  first: one that rattles out and drops after a trip round the table is a fluke.
+- Then the same along the side cushion into the corner: the ball touching the cushion, and the
+  gaps off the cushion that still drop.
+- `--against OTHER` runs the same sweeps on another outline with the same parameters and prints
+  both widths and their ratio (this table over the other).
+- `--out FILE` writes every row as JSON: `width_mm`, `lo_mm`, `hi_mm`, the `lines` swept and
+  `out_inside`, the lines inside the band that stay out.
+- Exit 1 when any of its shots had a physics anomaly.

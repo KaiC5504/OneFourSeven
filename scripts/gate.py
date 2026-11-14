@@ -5,9 +5,10 @@
     python scripts/gate.py --quick   # without the Windows export, for the edit loop; records no pass
 
 One Debug configure and build of the core, the extension and ofs_params_hash, then the core tests
-(ctest), a Release build of the core alone for the physics lane (the calibration suite, a fuzz of
-random shots: 2,000 with --quick, otherwise the full 100,000 of spec C14 on each of two seeds, and
-the simulation benchmarks against the 2 ms budget and the baseline, only reported on CI), the
+(ctest), a Release build of the core alone for the physics lane (first that the table outline is
+the one its dimensions give, tools/make_table_shape.py --check; then the calibration suite, a fuzz
+of random shots: 2,000 with --quick, otherwise the full 100,000 of spec C14 on each of two seeds,
+and the simulation benchmarks against the 2 ms budget and the baseline, only reported on CI), the
 Godot tests (sync_data, --import, res://tests/run_tests.gd), a short headless run of the game
 whose session log must pass tools/check_logs.py with no app.error, the PC tools' tests
 and the workflow tests. The full gate adds a Windows export (build_windows.py --check). Lanes run
@@ -157,7 +158,10 @@ def physics_steps(quick: bool) -> list[Step]:
     # A CI runner is a shared VM, neither the desktop core the 2 ms budget is for nor the PC the
     # baseline was timed on, so there the benchmarks are only reported.
     bench = ["bench"] if on_ci() else ["bench", "--check"]
-    return configure_and_build(PHYSICS_BUILD, "Release", ["-DOFS_BUILD_GDEXT=OFF"]) + [
+    # Everything after it runs on table_shape.json's outline, which must be the one its own
+    # dimensions give.
+    outline = step([sys.executable, ROOT / "tools" / "make_table_shape.py", "--check"])
+    return [outline] + configure_and_build(PHYSICS_BUILD, "Release", ["-DOFS_BUILD_GDEXT=OFF"]) + [
         step(["ctest", "--test-dir", PHYSICS_BUILD, "-C", "Release", "-L", "calibration", "--output-on-failure"]),
         # Both report every failing shot before exiting, each with a replayable bundle.
         *fuzz,

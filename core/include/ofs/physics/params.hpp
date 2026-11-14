@@ -16,7 +16,7 @@ struct PhysicsParams {
     double ball_mass_kg = 0.1406;
     double gravity_m_s2 = 9.81;
     double slide_friction = 0.212;      // mu_s, ball-cloth while the contact point slips
-    double roll_friction = 0.01;        // mu_r, rolling resistance
+    double roll_friction = 0.015;       // mu_r, rolling resistance
     double spin_friction_per_r = 0.4444444444444444;  // mu_sp / R (pooltool u_sp_proportionality)
 
     // Ball-ball (spec 7.4): normal restitution, and contact friction
@@ -31,7 +31,7 @@ struct PhysicsParams {
     double ball_rest_speed_m_s = 1.0e-3;
 
     // Cushions and jaws (spec 7.5, Mathavan et al. 2010).
-    double cushion_restitution = 0.98;
+    double cushion_restitution = 0.85;
     double cushion_friction = 0.14;        // mu_w, ball-cushion
     double cushion_table_friction = 0.212;  // mu_s, ball-cloth during the impact
     double cushion_contact_height_m = 0.03675;  // height of the cushion nose's contact above the cloth

@@ -141,6 +141,20 @@ class Lanes(unittest.TestCase):
                 physics_step()
         return [[str(part) for part in call.args[0]] for call in run.call_args_list]
 
+    def test_the_physics_lane_first_checks_the_outline_against_its_dimensions(self):
+        for quick in (True, False):
+            first = self.physics_commands(quick=quick, ci=False)[0]
+            self.assertEqual([str(gate.ROOT / "tools" / "make_table_shape.py"), "--check"], first[1:])
+
+    def test_a_stale_outline_fails_the_physics_lane_before_anything_is_built(self):
+        ran = []
+        with mock.patch.object(gate, "configure_and_build", return_value=[lambda: ran.append("build") or (True, "")]), \
+                mock.patch.object(gate, "run", return_value=(False, "lines do not match the dimensions")), \
+                tempfile.TemporaryDirectory() as temp, mock.patch.object(gate, "LOGS", Path(temp)):
+            _, status, _, tail = gate.run_lane(gate.Lane("physics", gate.physics_steps(quick=True)), {})
+        self.assertEqual(("FAIL", []), (status, ran))
+        self.assertIn("do not match the dimensions", tail)
+
     def test_the_full_gate_fuzzes_two_seeds_and_quick_one(self):
         def seeds(commands):
             return [c[c.index("--seed") + 1] for c in commands if c[1:2] == ["fuzz"]]

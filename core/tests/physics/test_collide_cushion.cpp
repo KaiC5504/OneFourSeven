@@ -92,8 +92,17 @@ Local mathavan_reference(Local y, double sin_theta, double mu_w, double mu_s, do
 
 double sin_theta(const PhysicsParams& p) { return (p.cushion_contact_height_m - R) / R; }
 
+// The cushion as Mathavan et al. (2010) fitted it (sec. 3.5: e_e = 0.98 with mu_w = 0.14). The
+// paper's figures and the grid below are for that cushion; the table's own cushion_restitution is
+// the owner's (table_params.json).
+PhysicsParams paper_params() {
+    PhysicsParams p;
+    p.cushion_restitution = 0.98;
+    return p;
+}
+
 // The C7 grid's speeds and the restitution each of its impacts must see, worked by hand from the
-// sources in table_params.json: e = 0.98 (Mathavan et al. 2010 sec. 3.5) up to 2.5 m/s of normal
+// paper's cushion and the sources in table_params.json: e = 0.98 (sec. 3.5) up to 2.5 m/s of normal
 // speed v0 sin(alpha) (their Fig. 7), 0.98 - 0.16 (v0 sin(alpha) - 2.5) above it (the fit to
 // Fig. 7(b)), and never below 0.70 (TP B.6). Columns are alpha = 5, 15, ..., 85 degrees.
 constexpr double kGridSpeeds[5] = {0.2, 1.0, 3.0, 6.0, 12.0};
@@ -200,7 +209,7 @@ Arrival near_left_cushion_arrival(const PhysicsParams& p) {
 TEST_CASE("cushion: fast Mathavan model matches the 5000-step reference over the C7 grid") {
     // Spec 7.11 C7; Mathavan et al. (2010). Incidence 5-85 degrees, 0.2-6 m/s, plain, top, stun,
     // screw and running or check side.
-    const PhysicsParams p;
+    const PhysicsParams p = paper_params();
     // kGridRestitution was worked out for these.
     REQUIRE(p.cushion_restitution == 0.98);
     REQUIRE(p.cushion_rigid_limit_m_s == 2.5);
@@ -240,7 +249,7 @@ TEST_CASE("cushion: fast Mathavan model matches the 5000-step reference over the
 TEST_CASE("cushion: a rolling ball at normal incidence rebounds at Mathavan's 0.91 of its speed") {
     // Mathavan et al. (2010) Fig. 7(b): the model's rebound for a rolling ball at normal incidence
     // with e = 0.98 and mu_w = 0.14 is 0.900-0.912 of the incident speed (digitised).
-    const PhysicsParams p;
+    const PhysicsParams p = paper_params();
     for (double v0 : {0.3, 1.0, 2.0}) {
         const Local got = hit_line(paper_state(v0, kPi / 2.0, 1.0, 0.0), p);
         CHECK(speed(got) / v0 == doctest::Approx(0.906).epsilon(0.01));
@@ -282,7 +291,7 @@ TEST_CASE("cushion: mirrored incidence gives the mirrored rebound") {
 TEST_CASE("cushion: running side widens the rebound and check side narrows it") {
     // Spec 7.11 C8; Mathavan et al. (2010) Fig. 10: running ("right") side rebounds wider and
     // faster, check side narrower and, with enough of it, back to the side it came from.
-    const PhysicsParams p;
+    const PhysicsParams p = paper_params();
     for (int alpha_deg : {30, 45, 60}) {
         const double a = alpha_deg * kPi / 180.0;
         const Local plain = hit_line(paper_state(1.0, a, 1.0, 0.0), p);
