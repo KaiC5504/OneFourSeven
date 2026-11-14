@@ -739,15 +739,17 @@ using ofs::table::Vec2;
 
 double dot2(Vec2 a, Vec2 b) { return a.x * b.x + a.y * b.y; }
 
-// A pocket's axis into it and the middle of its fall, the line through the points where its jaws
-// meet their facings (table_shape.json "construction"). The facings are half_gap either side of
-// the axis, so a ball whose centre stays within half_gap - R of it touches neither.
+// A pocket's axis into it and the middle of its fall (table_shape.json "construction"): for a
+// middle pocket the line through the points where its jaws meet their facings, for a corner the
+// line through the corner point square to the axis. The facings are half_gap either side of the
+// axis there, so a ball whose centre stays within half_gap - R of it touches neither.
 struct Mouth {
     int pocket = -1;
     Vec2 axis;
     Vec2 across;  // the axis turned anticlockwise
     Vec2 fall;
     double half_gap = 0.0;
+    bool corner = false;
 };
 
 Mouth mouth(const std::string& name) {
@@ -757,6 +759,7 @@ Mouth mouth(const std::string& name) {
     }
     REQUIRE(m.pocket >= 0);
     const Pocket& pk = table().pockets[static_cast<std::size_t>(m.pocket)];
+    m.corner = pk.corner;
     const double sy = std::copysign(1.0, pk.drop_centre.y);
     m.axis = pk.corner ? Vec2{std::copysign(std::sqrt(0.5), pk.drop_centre.x), sy * std::sqrt(0.5)} : Vec2{0.0, sy};
     m.across = {-m.axis.y, m.axis.x};
@@ -769,17 +772,31 @@ Mouth mouth(const std::string& name) {
         joints.push_back(dot2(s, m.axis) > dot2(e, m.axis) ? s : e);
     }
     REQUIRE(joints.size() == 2);
-    m.fall = {0.5 * (joints[0].x + joints[1].x), 0.5 * (joints[0].y + joints[1].y)};
-    m.half_gap = 0.5 * std::abs(dot2({joints[1].x - joints[0].x, joints[1].y - joints[0].y}, m.across));
+    if (pk.corner) {
+        // Corner facings close in towards the fall, through the corner point square to the axis,
+        // where they are the gap (twice the drop radius) apart.
+        m.fall = {std::copysign(ofs::table::kPlayingLength / 2.0, pk.drop_centre.x), sy * ofs::table::kPlayingWidth / 2.0};
+        m.half_gap = pk.drop_radius;
+    } else {
+        m.fall = {0.5 * (joints[0].x + joints[1].x), 0.5 * (joints[0].y + joints[1].y)};
+        m.half_gap = 0.5 * std::abs(dot2({joints[1].x - joints[0].x, joints[1].y - joints[0].y}, m.across));
+    }
     return m;
 }
 
 // A ball that rattles out may go on round the table, so only this pocket's jaws are counted.
 struct Entry {
     bool potted = false;  // in this pocket
-    int jaw_hits = 0;     // on this pocket's jaws
+    int jaw_hits = 0;     // on this pocket's jaws, or its facings (the corners' close in)
     int line_hits = 0;
 };
+
+// A facing of pocket k: lines run nose to nose round the table, and only facings start within a
+// rail's width of a drop circle.
+bool is_facing_of(const LineCushion& l, int k) {
+    const Pocket& pk = table().pockets[static_cast<std::size_t>(k)];
+    return std::hypot(l.p1.x - pk.drop_centre.x, l.p1.y - pk.drop_centre.y) < table().rail_width_m;
+}
 
 // A red rolling on a heading turned heading_rad from the axis, whose path crosses the fall
 // `offset` across the axis. It starts 0.12 m back, fast enough to cross the fall at `speed` under
@@ -805,6 +822,9 @@ Entry roll_into(const Mouth& m, double heading_rad, double offset, double speed)
     out.potted = r.final_state.balls[0].motion == Motion::pocketed && r.final_state.balls[0].pocket == m.pocket;
     for (const ShotEvent& e : r.events) {
         if (e.kind == EventKind::ball_arc && table().arcs[static_cast<std::size_t>(e.body)].pocket == m.pocket) {
+            ++out.jaw_hits;
+        }
+        if (e.kind == EventKind::ball_line && is_facing_of(table().lines[static_cast<std::size_t>(e.body)], m.pocket)) {
             ++out.jaw_hits;
         }
         out.line_hits += e.kind == EventKind::ball_line ? 1 : 0;
@@ -854,6 +874,9 @@ TEST_CASE("simulate pockets: a slow ball that clips a jaw still drops") {
         for (const double past : {0.00125, 0.004, 0.00925}) {
             for (const double side : {1.0, -1.0}) {
                 for (const double speed : {0.12, 0.2, 0.3, 0.5}) {
+                    // The corner facings close in behind the fall, so the deepest clip there takes
+                    // a little more pace to carry through.
+                    if (m.corner && past > 0.009 && speed < 0.2) continue;
                     CAPTURE(name);
                     CAPTURE(side * (limit + past));
                     CAPTURE(speed);
@@ -864,10 +887,8 @@ TEST_CASE("simulate pockets: a slow ball that clips a jaw still drops") {
             }
         }
     }
-    // A ball running along the side cushion, touching it or 2 mm off it, meets the far jaw nearly
-    // square (35 degrees off its normal) while 22 mm short of the fall; paced to cross the fall at
-    // 0.2 m/s or more it still drops. towards_top_left_jaw.json struck at 0.3 m/s reaches the jaw
-    // at only 0.12 m/s, rolls 23.5 mm after it and stops 10 mm short: it hangs.
+    // A ball running along the side cushion, touching it or 2 mm off it, meets the far jaw or its
+    // facing short of the fall; paced to cross the fall at 0.2 m/s or more it still drops.
     const Mouth corner = mouth("top_left");
     for (const double gap : {0.0, 0.002}) {
         const double y = ofs::table::kPlayingWidth / 2.0 - kR - gap;
@@ -884,12 +905,16 @@ TEST_CASE("simulate pockets: a slow ball that clips a jaw still drops") {
 
 TEST_CASE("simulate pockets: a firm ball into a jaw face rattles and stays out") {
     // Spec 6.3 owner check: a ball hit firmly into the jaws rattles and stays out; spec 7.6:
-    // rattles emerge from jaw collisions, not from scripted outcomes. These paths overlap a jaw's
-    // reach by 24-32 mm, about half the ball.
+    // rattles emerge from jaw collisions, not from scripted outcomes. The middles' paths overlap a
+    // jaw's reach by 24-32 mm, about half the ball.
     for (const char* name : {"top_left", "middle_left"}) {
         const Mouth m = mouth(name);
         const double limit = m.half_gap - kR;
-        for (const double past : {0.024, 0.03225}) {
+        // A corner's tight knuckle reaches less far across the mouth: past it a ball meets the
+        // straight cushion instead, so its paths overlap the jaw by 14-17 mm.
+        const std::vector<double> overlaps =
+            m.corner ? std::vector<double>{0.014, 0.017} : std::vector<double>{0.024, 0.03225};
+        for (const double past : overlaps) {
             for (const double side : {1.0, -1.0}) {
                 for (const double speed : {2.0, 3.0, 4.0, 6.0, 8.0}) {
                     CAPTURE(name);

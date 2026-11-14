@@ -592,6 +592,9 @@ std::string PlayArea::violation(const Vec3& c, double tol) const {
         bool on_segment = false;
         const double d = line_distance(k, c, on_segment);
         if (!on_segment || d >= kR - tol) continue;
+        // Deeper than the rail is somewhere else on the table (a corner pocket's throat lies along
+        // a middle facing's line), not inside this cushion.
+        if (-d > table_.rail_width_m) continue;
         if (d < 0.0) return format("behind cushion line %zu (%.3g m past its nose)", k, -d);
         return format("into cushion line %zu by %.3g m", k, kR - d);
     }

@@ -128,7 +128,8 @@ func test_through_a_mouth_is_a_pocket() -> void:
 	check_eq(middle["kind"], "pocket", "middle kind")
 	check_eq(middle["index"], -1, "middle index")
 	check_near(middle["distance"], 0.9985 - 0.044, 1e-9, "middle distance to the drop circle")
-	var drop := Vector2(1.8156721645938199, 0.9201721645938199)
+	var top_left: Array = (_shape()["pockets"] as Array)[0]["drop_centre"]
+	var drop := Vector2(float(top_left[0]), float(top_left[1]))
 	var corner := _contact([drop - Vector2(0.8, 0.8)], PI / 4.0)
 	check_eq(corner["kind"], "pocket", "corner kind")
 	check_near(corner["distance"], 0.8 * sqrt(2.0) - 0.042, 1e-6, "corner distance")

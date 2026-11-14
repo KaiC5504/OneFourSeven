@@ -178,6 +178,9 @@ One fixed, tournament-standard full-size table. **Owner**
   The aim is tight tournament-style pockets with **curved, rounded jaws**, as snooker
   pockets have, not pool's straight angled facings. The geometry is recorded in one data
   file with its sources.
+- **Owner (M2):** as on tournament tables seen from above, each corner cushion runs straight
+  into the pocket and turns in at a tight knuckle (1 in), and the corner facings close in
+  towards the fall (7 degrees), so the mouth is about two balls wide at the knuckles.
 - Corner and middle pockets differ in mouth width and jaw shape. The middle pockets are
   set slightly back.
 - **Owner check:** pockets feel "tournament tight". A ball hit firmly into the jaws

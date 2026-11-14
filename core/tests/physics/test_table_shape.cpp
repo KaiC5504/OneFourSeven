@@ -181,9 +181,30 @@ TEST_CASE("table shape: every dimension has a source and the outline matches the
             if (name.rfind(p.name + "_facing", 0) == 0) facings.push_back(&s.lines[i]);
         }
         REQUIRE(facings.size() == 2);
-        // Parallel, facing each other, gap apart.
-        CHECK(dot(facings[0]->normal, facings[1]->normal) == doctest::Approx(-1.0).epsilon(1e-12));
-        CHECK(dot(sub(facings[1]->p1, facings[0]->p1), facings[0]->normal) == doctest::Approx(gap).epsilon(1e-9));
+        if (p.corner) {
+            // Each turned corner_facing_angle_rad from the axis, opening towards the table, and the
+            // gap apart where they cross the fall: the line through the corner point square to the
+            // axis.
+            const double alpha = dims.at("corner_facing_angle_rad").get<double>();
+            const Vec2 corner{std::copysign(kHalfL, p.drop_centre.x), std::copysign(kHalfW, p.drop_centre.y)};
+            const Vec2 axis{std::copysign(std::sqrt(0.5), corner.x), std::copysign(std::sqrt(0.5), corner.y)};
+            CHECK(dot(facings[0]->normal, facings[1]->normal) == doctest::Approx(-std::cos(2.0 * alpha)).epsilon(1e-12));
+            std::vector<Vec2> crossings;
+            for (const LineCushion* f : facings) {
+                const Vec2 d = sub(f->p2, f->p1);
+                const double length = std::sqrt(dot(d, d));
+                CHECK(std::abs(dot(d, axis)) / length == doctest::Approx(std::cos(alpha)).epsilon(1e-12));
+                // Where the facing's line crosses the fall.
+                const double t = dot(sub(corner, f->p1), axis) / dot(d, axis);
+                crossings.push_back({f->p1.x + t * d.x, f->p1.y + t * d.y});
+            }
+            const Vec2 across = sub(crossings[1], crossings[0]);
+            CHECK(std::sqrt(dot(across, across)) == doctest::Approx(gap).epsilon(1e-9));
+        } else {
+            // Parallel, facing each other, gap apart.
+            CHECK(dot(facings[0]->normal, facings[1]->normal) == doctest::Approx(-1.0).epsilon(1e-12));
+            CHECK(dot(sub(facings[1]->p1, facings[0]->p1), facings[0]->normal) == doctest::Approx(gap).epsilon(1e-9));
+        }
         for (const ArcCushion& a : s.arcs) {
             if (a.pocket == static_cast<int>(pi)) CHECK(a.radius == jaw);
         }
@@ -297,10 +318,13 @@ TEST_CASE("table shape: the named jaw fixtures meet what their notes say") {
         const nlohmann::json f = read_json(dir + "towards_top_left_jaw.json");
         const auto& r = f.at("start").at("balls")[0].at("r");
         const RayHit h = first_hit(s, {r[0].get<double>(), r[1].get<double>()}, {1.0, 0.0});
-        REQUIRE(h.kind == Hit::arc);
-        CHECK(s.pockets[static_cast<std::size_t>(s.arcs[static_cast<std::size_t>(h.index)].pocket)].name ==
-              "top_left");
-        CHECK(&s.arcs[static_cast<std::size_t>(h.index)] == jaw_on_side(s, 0, {1.0, 0.0}));
+        // The far jaw or, past its knuckle, the facing it turns into.
+        REQUIRE((h.kind == Hit::arc || h.kind == Hit::line));
+        if (h.kind == Hit::arc) {
+            CHECK(&s.arcs[static_cast<std::size_t>(h.index)] == jaw_on_side(s, 0, {1.0, 0.0}));
+        } else {
+            CHECK(shape_file().at("lines")[static_cast<std::size_t>(h.index)].at("name") == "top_left_facing_top");
+        }
     }
 }
 
