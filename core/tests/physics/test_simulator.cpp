@@ -903,15 +903,13 @@ TEST_CASE("simulate pockets: a slow ball that clips a jaw still drops") {
             }
         }
     }
-    // A ball running along the side cushion meets the far jaw short of the hole. Touching the
-    // cushion it still drops when paced to pass the corner at 0.2 m/s or more; 2 mm off the cushion
-    // it takes 0.3 m/s (at 0.2 it dies in the jaws).
+    // A ball running along the side cushion, touching it or 2 mm off it, meets the far jaw short
+    // of the hole; paced to pass the corner at 0.2 m/s or more it still drops.
     const Mouth corner = mouth("top_left");
     for (const double gap : {0.0, 0.002}) {
         const double y = ofs::table::kPlayingWidth / 2.0 - kR - gap;
         const double offset = (y - corner.point.y) / corner.across.y;
         for (const double speed : {0.2, 0.3, 0.5}) {
-            if (gap > 0.0 && speed < 0.3) continue;
             CAPTURE(gap);
             CAPTURE(speed);
             const Entry e = roll_into(corner, -std::atan2(1.0, 1.0), offset, speed, 0.3);
