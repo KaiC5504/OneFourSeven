@@ -14,6 +14,7 @@ const FINE_TUNE_STEPS := 30
 ## A point on the table clear of every control at the default window size.
 const TABLE_POINT := Vector2(960.0, 300.0)
 const PULL_UNITS := 312.0
+const DT := 1.0 / 60.0
 
 var _log_start := 0
 var _t := [0.0]
@@ -641,6 +642,8 @@ func test_the_broadcast_view_keeps_every_ball_of_a_long_pot_on_screen() -> void:
 	# KaiC: "after the potting the ball just show this angle to see where the ball goes", the TV
 	# camera at the end behind the shot, steady, eased into from behind the cue ball and back.
 	var main: MainScript = await _spawn()
+	# The pot would cut to the pocket camera (test_shot_cycle.gd); this is the TV view's own test.
+	Settings.set_value("pocket_camera", false)
 	var rig: CameraRig = main.get_node("CameraRig")
 	var camera := rig.camera()
 	var player: ShotPlayer = main.get_node("ShotPlayer")
@@ -762,6 +765,221 @@ func test_a_drag_during_a_shot_walks_round_the_broadcast_view() -> void:
 	rig._process(CameraRig.BLEND_S)
 	check(rig.transform.is_equal_approx(rig.pose_for(main._cue_xy(), main.setup.aim_rad, main.setup.effective_elevation())),
 			"behind the cue ball after it")
+	_finish(main)
+
+
+## A red straight into the top left corner from the cue ball, the blue on its spot to aim at next.
+## Returns the strike.
+func _load_pot(main: MainScript) -> Dictionary:
+	var r := float(OfsTable.dimensions()["ball_radius"])
+	var top_left := Vector2.ZERO
+	for p: Dictionary in Physics.table_shape()["pockets"]:
+		if p["name"] == "top_left":
+			top_left = Vector2(float(p["drop_centre"][0]), float(p["drop_centre"][1]))
+	var red := Vector2(1.0, 0.45)
+	var cue := Vector2(-1.0, 0.1)
+	check(main.harness_load_position([{"ball": "cue", "index": 0, "x": cue.x, "y": cue.y},
+			{"ball": "red", "index": 4, "x": red.x, "y": red.y}, {"ball": "blue", "index": 0, "x": 0.0, "y": -0.2}], 0),
+			"the position")
+	var ghost := red - (top_left - red).normalized() * 2.0 * r
+	return {"aim_rad": (ghost - cue).angle(), "tip_x": 0.0, "tip_y": 0.0, "elevation_rad": 0.0, "speed_m_s": 4.0}
+
+
+## One frame of everything a shot moves, at a fixed step: the player, then the scene's own clock
+## once the balls have stopped, the drops, the popups and the camera.
+func _step_shot(main: MainScript, dt: float) -> void:
+	var player: ShotPlayer = main.get_node("ShotPlayer")
+	if player.is_playing():
+		player.advance(dt)
+	else:
+		main._process(dt)
+	(main.get_node("Balls") as BallsView)._process(dt)
+	(main.get_node("PotPopups") as PotPopups)._process(dt)
+	(main.get_node("CameraRig") as CameraRig)._process(dt)
+
+
+func test_a_pot_cuts_to_the_pocket_scores_and_swoops_back_onto_the_next_ball() -> void:
+	var main: MainScript = await _spawn()
+	var rig: CameraRig = main.get_node("CameraRig")
+	var player: ShotPlayer = main.get_node("ShotPlayer")
+	var popups: PotPopups = main.get_node("PotPopups")
+	var pill: Label = main.get_node("Hud/BreakPill")
+	var asked: Array = []
+	main.choose_next = func(balls: Array[Dictionary], cue_ball: int, prefer: String) -> Dictionary:
+		asked.append([balls.map(func(b: Dictionary) -> String: return b["ball"]), cue_ball, prefer])
+		return {"index": 1, "ball": "blue", "pocket": 2, "aim_rad": 0.7, "cut_deg": 12.5, "score": 0.8, "reason": ""}
+	var strike := _load_pot(main)
+	await tree.process_frame
+	# Aimed first, as a player does: the camera has settled behind the cue ball by the strike.
+	main.setup.set_aim(strike["aim_rad"])
+	main._flush_refresh()
+	rig._process(1.0)
+	var shot_id := main.harness_play_shot(strike)
+	check(main.is_playing(), "the shot plays")
+	var cameras := _logged("shot.camera")
+	check_eq(cameras.size(), 1, "one shot.camera")
+	if cameras.size() != 1:
+		_finish(main)
+		return
+	_check_schema("shot.camera", cameras[0])
+	check_eq(cameras[0]["shot_id"], shot_id, "for this shot")
+	check_eq(cameras[0]["sequence"], "pocket", "the pocket camera")
+	check_eq(cameras[0]["ball"], "red 4", "for the red")
+	check(not cameras[0].has("reason"), "no reason against it")
+	check_eq((cameras[0]["pose"] as Array).size(), 5, "its pose")
+	var drop_t := float(cameras[0]["drop_t"])
+	check(drop_t > ShotCycle.CUT_T and drop_t < ShotCycle.POCKET_CAM_MAX_T, "drops at %.2f s" % drop_t)
+	check_eq(rig.view_name(), "shot", "behind the cue ball for the stroke")
+	var behind := rig.transform
+	var t := 0.0
+	var views := {}
+	var pill_at_drop := ""
+	var popped_at := -1.0
+	var frames := 0
+	while main.is_playing() and frames < 1200:
+		_step_shot(main, DT)
+		t += DT
+		frames += 1
+		var view := rig.view_name()
+		if not views.has(view):
+			views[view] = t
+		if popped_at < 0.0 and popups.count() > 0:
+			popped_at = t
+			pill_at_drop = pill.text if pill.visible else ""
+		if view == "pocket" and t > ShotCycle.CUT_T + DT and t < drop_t:
+			check(rig.transform.is_equal_approx(Transform3D(Basis.from_euler(Vector3(cameras[0]["pose"][3], cameras[0]["pose"][4], 0.0)),
+					Vector3(cameras[0]["pose"][0], cameras[0]["pose"][1], cameras[0]["pose"][2]))), "at the logged pose")
+		if t < ShotCycle.CUT_T - DT:
+			check(rig.transform.is_equal_approx(behind), "still for the stroke at %.2f" % t)
+		if t > ShotCycle.CUT_T + DT and t < drop_t + ShotCycle.HOLD_AFTER_DROP_S - DT:
+			if view != "pocket":
+				failures.append("at %.2f s the view is %s, not the pocket" % [t, view])
+				break
+	check_near(views.get("pocket", -1.0), ShotCycle.CUT_T, DT * 1.5, "cut to the pocket")
+	check_near(popped_at, drop_t, DT * 1.5, "the 1 floats up at the drop")
+	check_eq(pill_at_drop, "Break 1", "and the break counts it")
+	check(not main.is_playing(), "settled after %d frames" % frames)
+	var results := _logged("shot.result")
+	check_eq(results.size(), 1, "one shot.result")
+	if results.size() == 1:
+		_check_schema("shot.result", results[0])
+		check_eq(results[0]["shot_id"], shot_id, "for this shot")
+		check_eq(results[0]["potted"], ["red 4"], "the red potted")
+		check_eq(int(results[0]["points"]), 1, "one point")
+		check_eq(int(results[0]["break"]), 1, "a break of 1")
+		check_eq(results[0]["next_ball"], "blue", "turned to the blue")
+		check_eq(int(results[0]["next_pocket"]), 2, "for its pocket")
+		check_near(results[0]["next_aim_rad"], 0.7, 1e-12, "at the chosen aim")
+		check_near(results[0]["next_cut_deg"], 12.5, 1e-12, "the cut")
+	check_eq(asked, [[["cue", "blue"], 0, "colour"]], "asked once for a colour after the red, on the table after the shot")
+	check_near(main.setup.aim_rad, 0.7, 1e-12, "the aim turned before the swoop")
+	check(pill.visible and pill.text == "Break 1", "the break shows")
+	check(rig.view_name() == "aim" and rig.is_easing(), "swooping back")
+	frames = 0
+	while rig.is_easing() and frames < 200:
+		rig._process(DT)
+		frames += 1
+	check(absf(frames - CameraRig.RETURN_S * 60.0) <= 2.0, "in RETURN_S: %d frames" % frames)
+	check(rig.transform.is_equal_approx(rig.pose_for(main._cue_xy(), 0.7, main.setup.effective_elevation())),
+			"behind the cue ball on the blue's aim")
+	check(not Perf._active.has(&"camera"), "and the game can idle")
+	_key(KEY_R)
+	check(not pill.visible and main.harness_state()["break"] == 0, "a retake starts the break again")
+	_finish(main)
+
+
+func test_a_tap_skips_the_pocket_camera_and_still_scores() -> void:
+	var main: MainScript = await _spawn()
+	var rig: CameraRig = main.get_node("CameraRig")
+	var player: ShotPlayer = main.get_node("ShotPlayer")
+	main.choose_next = func(_balls: Array[Dictionary], _cue_ball: int, _prefer: String) -> Dictionary: return {}
+	var strike := _load_pot(main)
+	await tree.process_frame
+	main.harness_play_shot(strike)
+	player.advance(0.1)
+	_touch(TABLE_POINT, true)
+	_touch(TABLE_POINT, false)
+	await _until_idle(main)
+	check(not main.is_playing(), "settled at once")
+	check(rig.view_name() == "aim" and rig.is_easing(), "straight to the swoop, no pocket camera")
+	check_eq((main.get_node("PotPopups") as PotPopups).count(), 0, "no points float up for a skipped drop")
+	var results := _logged("shot.result")
+	check(results.size() == 1 and int(results[0]["break"]) == 1 and results[0]["next_ball"] == ""
+			and results[0]["next_reason"] == "no object ball", "the pot still counts; nothing to turn to: %s" % [results])
+	_finish(main)
+
+
+func test_a_drag_at_the_pocket_walks_round_the_tv_view() -> void:
+	var main: MainScript = await _spawn()
+	var rig: CameraRig = main.get_node("CameraRig")
+	var player: ShotPlayer = main.get_node("ShotPlayer")
+	var strike := _load_pot(main)
+	await tree.process_frame
+	main.harness_play_shot(strike)
+	player.advance(ShotCycle.CUT_T + 0.05)
+	check_eq(rig.view_name(), "pocket", "at the pocket")
+	check_eq(main.harness_state()["camera"]["view"], "pocket", "and the dump says so")
+	_table_drag(TABLE_POINT, Vector2(200.0, 0.0), 10)
+	check(main.is_playing(), "a drag doesn't skip the shot")
+	check(rig.view_name() == "shot" and rig.is_broadcast(), "up to the TV view to walk round")
+	rig._process(ShotCycle.RISE_S)
+	var walked := rig.broadcast_pose(CameraRig.end_behind(strike["aim_rad"]))
+	check(not rig.transform.is_equal_approx(walked), "walked round from the TV view behind the shot")
+	main.skip_shot()
+	await _until_idle(main)
+	_finish(main)
+
+
+func test_aim_next_ball_off_keeps_the_aim_and_pocket_camera_off_rises_at_once() -> void:
+	var main: MainScript = await _spawn()
+	Settings.set_value("aim_next_ball", false)
+	Settings.set_value("pocket_camera", false)
+	var rig: CameraRig = main.get_node("CameraRig")
+	var calls := [0]
+	main.choose_next = func(_balls: Array[Dictionary], _cue_ball: int, _prefer: String) -> Dictionary:
+		calls[0] += 1
+		return {"index": 1, "ball": "blue", "pocket": 2, "aim_rad": 0.7, "cut_deg": 0.0, "score": 1.0, "reason": ""}
+	var strike := _load_pot(main)
+	await tree.process_frame
+	main.harness_play_shot(strike)
+	check(rig.view_name() == "shot" and rig.is_easing(), "rising to the TV view at the strike")
+	var cameras := _logged("shot.camera")
+	check(cameras.size() == 1 and cameras[0]["sequence"] == "broadcast" and cameras[0]["reason"] == "setting off"
+			and not cameras[0].has("pose"), "logged why: %s" % [cameras])
+	main.skip_shot()
+	await _until_idle(main)
+	check_eq(calls[0], 0, "NextTarget not asked")
+	check_eq(main.setup.aim_rad, wrapf(float(strike["aim_rad"]), -PI, PI), "the aim as it was")
+	var results := _logged("shot.result")
+	check(results.size() == 1 and results[0]["next_ball"] == "" and results[0]["next_reason"] == "setting off",
+			"logged: %s" % [results])
+	_finish(main)
+
+
+func test_the_break_starts_again_on_any_new_table() -> void:
+	var main: MainScript = await _spawn()
+	var pill: Label = main.get_node("Hud/BreakPill")
+	var table: FreeTable = main.get_node("FreeTable")
+	main.choose_next = func(_balls: Array[Dictionary], _cue_ball: int, _prefer: String) -> Dictionary: return {}
+	main.harness_play_shot(_load_pot(main))
+	main.skip_shot()
+	await _until_idle(main)
+	check(pill.visible and pill.text == "Break 1", "a break of 1 shown")
+	var band: Rect2 = main._break_band
+	check(band.encloses(pill.get_rect()), "the pill %s in its band %s" % [pill.get_rect(), band])
+	check(pill.get_rect().end.y <= main.get_viewport().get_visible_rect().size.y, "on the screen")
+	var actions: Array[Callable] = [main.retake, main.redo, main.undo, main.redo,
+			func() -> void: table.set_edit_mode(true), func() -> void: table.set_edit_mode(false),
+			func() -> void: main._choose_setup("empty"), func() -> void: main._choose_setup("full_rack"),
+			func() -> void: _load_pot(main)]
+	var names := ["retake", "redo", "undo", "redo again", "edit mode", "edit mode off", "empty", "rack", "load"]
+	for i in actions.size():
+		main._cycle.break_total = 9
+		main._cycle.shown_break = 9
+		main._show_break()
+		check(pill.visible and pill.text == "Break 9", "%s: set up" % names[i])
+		actions[i].call()
+		check(not pill.visible and main.harness_state()["break"] == 0, "%s resets the break" % names[i])
 	_finish(main)
 
 

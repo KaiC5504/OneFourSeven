@@ -18,6 +18,10 @@ const DEFAULTS := {
 	"reset_spin_after_shot": true,
 	"volume": 0.8,
 	"haptics": true,
+	# The shot cycle (spec 8.5): the camera at the pocket for a pot, and the aim turned to the next
+	# ball after each shot.
+	"pocket_camera": true,
+	"aim_next_ball": true,
 }
 ## The values a string setting may take; every other key is checked by its default's type.
 const CHOICES := {"strike_mode": STRIKE_MODES}

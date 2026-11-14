@@ -1,7 +1,8 @@
 extends Node3D
 ## The free table (spec 12.1, 8), where the app opens: the table, balls and cue, one ShotSetup
-## every control writes, the shot from strike to playback, edit mode, and the harness's hooks
-## (spec 16.5, docs/harness.md).
+## every control writes, the shot from strike to playback and its cycle (spec 8.5: the pocket
+## camera, the points, the break, the aim turned to the next ball), edit mode, and the harness's
+## hooks (spec 16.5, docs/harness.md).
 
 const HudScript := preload("res://scripts/hud.gd")
 const MODE := "free_table"
@@ -17,8 +18,11 @@ const SELECTION_COLOUR := Color(1.0, 0.82, 0.3, 0.9)
 ## Edit mode: where a new ball goes when its own spot is taken, rings of this many ball widths out.
 const FREE_SPOT_RINGS := 40
 const OVERVIEW_HINT := "Drag to walk round the table"
+const BREAK_TEXT := "Break %d"
 
 var setup := ShotSetup.new()
+## Where the aim turns after a shot: NextTarget.choose(balls, cue_ball, prefer); tests put a fake in.
+var choose_next: Callable
 
 var _backswing_m := 0.0
 var _record: OfsShotRecord
@@ -37,6 +41,17 @@ var _dragged := -1
 var _selected := -1
 var _selection := MeshInstance3D.new()
 var _notice_timer := Timer.new()
+var _pockets: Array = []
+## The shot cycle (spec 8.5): the camera from the strike to the swoop back, and the break. _cycle_t
+## is its clock: the shot's playback time, then real time once the balls have stopped.
+var _cycle: ShotCycle
+var _cycle_t := 0.0
+var _plan := {}
+var _popups := PotPopups.new()
+var _break_pill := Label.new()
+var _break_band := Rect2()
+var _break_centre_x := 0.0
+var _pot_warned := false
 
 @onready var _stage: Stage = $Stage
 @onready var _table: TableView = $Table
@@ -74,8 +89,13 @@ func _ready() -> void:
 	_stage.dress_camera(_rig.camera())
 	_rig.set_table_bounds(_table.bounds())
 	_stage.capture_reflections()
-	_balls.set_pockets(shape.get("pockets", []))
+	_pockets = shape.get("pockets", [])
+	_balls.set_pockets(_pockets)
 	_rig.moved.connect(_on_camera_moved)
+	_cycle = ShotCycle.new(_rig)
+	choose_next = func(balls: Array[Dictionary], cue_ball: int, prefer: String) -> Dictionary: return NextTarget.choose(balls, cue_ball, prefer)
+	_popups.name = "PotPopups"
+	add_child(_popups)
 	# Kept out of the table's reflection probe, which would show them where they were captured.
 	_set_layers(_guides, Stage.MOVING_LAYER)
 
@@ -123,6 +143,7 @@ func _ready() -> void:
 
 	_build_selection()
 	_build_notice()
+	_build_break_pill()
 	get_viewport().size_changed.connect(_layout)
 	var poll := Timer.new()
 	poll.wait_time = SAFE_AREA_POLL_SECONDS
@@ -146,7 +167,10 @@ func _notification(what: int) -> void:
 		_layout()
 
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
+	if _playing and not _player.is_playing() and not _skip_requested:
+		_cycle_t += delta
+		_cycle.update(_cycle_t)
 	if _settling:
 		_settle()
 
@@ -187,11 +211,19 @@ func is_playing() -> bool:
 	return _playing
 
 
-## Ends the playing shot at once, as a tap on the table does.
+## Ends the playing shot at once, as a tap on the table does: no pocket camera, straight to the
+## settle and the swoop back, also while the camera is still at the pocket or rising after the
+## balls have stopped.
 func skip_shot() -> void:
-	if _playing and _player.is_playing():
-		_skip_requested = true
+	if not _playing:
+		return
+	_skip_requested = true
+	if _player.is_playing():
 		_player.skip_to_end()
+	elif _settling:
+		_balls.finish_drops()
+		_cycle.cancel()
+		_settle()
 
 
 ## Logs, simulates and starts playing the shot set up; its id, or "" when none could start.
@@ -214,6 +246,8 @@ func _strike(strike_mode: String) -> String:
 		_queue_refresh()
 		return ""
 	_free.shot_started(setup.snapshot(), shot_id)
+	# An aim set this frame (a harness shot) would otherwise leave the camera held where it was.
+	_flush_refresh()
 	_record = record
 	_shot_id = shot_id
 	_skip_requested = false
@@ -223,7 +257,8 @@ func _strike(strike_mode: String) -> String:
 	_cue.play_strike(setup.speed_m_s)
 	_audio.begin_shot(record.strike_outcome())
 	_guides.hide_all()
-	_rig.hold(true)
+	var playback := ShotPlayback.from_record(record)
+	_start_cycle(playback, shot_id)
 	_bar.close_menu()
 	_stroke.cancel_stroke("shot started")
 	# Their touches are ignored while it plays, so a thumb still down would never lift.
@@ -234,8 +269,29 @@ func _strike(strike_mode: String) -> String:
 	_set_playing(true)
 	_overlay.set_shot_times(record.sim_us(), _guides.last_predict_us())
 	# A shot with no motion finishes inside play(), so everything above is in place first.
-	_player.play(ShotPlayback.from_record(record), shot_id)
+	_player.play(playback, shot_id)
 	return shot_id
+
+
+## Chooses the camera sequence for the shot about to play (spec 8.5), logs it and starts it.
+func _start_cycle(playback: ShotPlayback, shot_id: String) -> void:
+	_plan = ShotCycle.plan(playback, _free.balls, _free.cue_ball, bool(Settings.get_value("pocket_camera")), _pockets)
+	var fields := {"shot_id": shot_id, "sequence": _plan["sequence"]}
+	for key: String in ["ball", "pocket", "drop_t"]:
+		if _plan.has(key):
+			fields[key] = _plan[key]
+	if not String(_plan["reason"]).is_empty():
+		fields["reason"] = _plan["reason"]
+	var pose := Transform3D.IDENTITY
+	if _plan["sequence"] == "pocket":
+		pose = _rig.pocket_pose(_plan["drop_centre"], _plan["from"], _plan["middle"])
+		fields["pose"] = ShotCycle.pose_fields(pose)
+	if _plan.has("problem"):
+		Log.warn("app", "app.error", {"kind": "message", "message": "main: shot %s has no pocket camera: %s (pockets %s)"
+				% [shot_id, _plan["problem"], _pockets]})
+	Log.info("shot", "shot.camera", fields)
+	_cycle_t = 0.0
+	_cycle.start(_plan, pose)
 
 
 ## The logger truncates a long line from its last values, so the identity fields go first and the
@@ -254,6 +310,10 @@ func _shot_input_fields(shot_id: String, strike_mode: String) -> Dictionary:
 func _on_frame(state: PackedFloat64Array, t: float, dt: float) -> void:
 	_balls.apply_state(state, dt)
 	_audio.on_frame(state, t, dt)
+	# A skip jumps to the end, past the cut and the rise.
+	if _playing and not _skip_requested:
+		_cycle_t = t
+		_cycle.update(t)
 
 
 func _on_event(event: Dictionary, state: PackedFloat64Array) -> void:
@@ -261,6 +321,28 @@ func _on_event(event: Dictionary, state: PackedFloat64Array) -> void:
 		return
 	_audio.on_event(event, state)
 	_haptics.on_event(event)
+	if String(event.get("kind", "")) == "pocket":
+		_on_pot(event)
+
+
+## An object ball dropped: its value floats up out of the pocket and the break counts it.
+func _on_pot(event: Dictionary) -> void:
+	var index := int(event.get("a", -1))
+	if index == _free.cue_ball:
+		return
+	var pocket := int(event.get("body", -1))
+	var ball: Dictionary = _free.balls[index] if index >= 0 and index < _free.balls.size() else {}
+	var value := int(ShotCycle.VALUES.get(String(ball.get("ball", "")), 0))
+	if value <= 0 or pocket < 0 or pocket >= _pockets.size():
+		if not _pot_warned:
+			_pot_warned = true
+			Log.warn("app", "app.error", {"kind": "message", "message": "main: shot %s potted ball %d (%s) in pocket %d of %d; no points shown"
+					% [_shot_id, index, ball, pocket, _pockets.size()]})
+		return
+	var centre: Array = (_pockets[pocket] as Dictionary)["drop_centre"]
+	_popups.pop(value, Vector2(float(centre[0]), float(centre[1])))
+	_cycle.count(value)
+	_show_break()
 
 
 func _on_shot_finished(shot_id: String) -> void:
@@ -268,13 +350,15 @@ func _on_shot_finished(shot_id: String) -> void:
 		return
 	if _skip_requested:
 		_balls.finish_drops()
+		_cycle.cancel()
 	_settling = true
 	_settle()
 
 
-## Waits for the last drops into the pockets, then hands the result to the free table.
+## Waits for the last drops into the pockets and the shot cycle's TV view, then hands the result to
+## the free table, turns the aim to the next ball and swoops back behind the cue ball.
 func _settle() -> void:
-	if _balls.is_dropping():
+	if _balls.is_dropping() or not _cycle.settle_ready(_cycle_t):
 		set_process(true)
 		return
 	set_process(false)
@@ -287,10 +371,41 @@ func _settle() -> void:
 		# FreeTable refused the result and logged why; show the table it kept.
 		_balls.sync(_free.balls)
 	setup.after_shot(bool(Settings.get_value("reset_spin_after_shot")))
+	var result := {"shot_id": _shot_id}
+	result.merge(_cycle.end_shot())
+	# Before the camera moves, so the swoop lands on the new aim.
+	result.merge(_turn_to_next())
+	Log.info("shot", "shot.result", result)
+	_show_break()
 	_set_playing(false)
 	_rig.reset_view()
 	_refresh()
 	_rig.hold(false)
+
+
+## Turns the aim to the next ball (spec 8.5, the return) unless "aim_next_ball" is off; shot.result's
+## next_ fields.
+func _turn_to_next() -> Dictionary:
+	if not bool(Settings.get_value("aim_next_ball")):
+		return {"next_ball": "", "next_reason": "setting off"}
+	var prefer := _cycle.prefer(_free.balls)
+	var chosen: Variant = choose_next.call(_free.balls, _free.cue_ball, prefer)
+	if not chosen is Dictionary or (chosen as Dictionary).is_empty():
+		if not chosen is Dictionary:
+			Log.warn("app", "app.error", {"kind": "message", "message": "main: NextTarget.choose(prefer %s) returned %s, not a Dictionary; the aim stays"
+					% [prefer, type_string(typeof(chosen))]})
+		return {"next_ball": "", "next_reason": "no object ball"}
+	var target: Dictionary = chosen
+	var aim: Variant = target.get("aim_rad")
+	if not (aim is float or aim is int) or not is_finite(float(aim)):
+		Log.warn("app", "app.error", {"kind": "message", "message": "main: NextTarget.choose(prefer %s) gave no usable aim_rad: %s; the aim stays"
+				% [prefer, target]})
+		return {"next_ball": "", "next_reason": "no usable aim"}
+	setup.set_aim(float(aim))
+	# NextTarget's "ball" is already the label ("red 3").
+	return {"next_ball": String(target.get("ball", "")), "next_pocket": int(target.get("pocket", -1)),
+			"next_aim_rad": setup.aim_rad, "next_cut_deg": float(target.get("cut_deg", 0.0)),
+			"next_reason": String(target.get("reason", ""))}
 
 
 func _set_playing(on: bool) -> void:
@@ -410,6 +525,9 @@ func _on_setting_changed(key: String, value: Variant) -> void:
 func _on_table_changed(balls: Array[Dictionary], _cue_ball: int, reason: StringName) -> void:
 	_abort_drag()
 	_balls.sync(balls)
+	# Only a shot carries the break on; a retake, undo, redo, setup or edit starts again.
+	if reason != &"shot":
+		_reset_break()
 	if reason != &"edit" or _selected >= balls.size():
 		_selected = -1
 	_update_palette()
@@ -453,6 +571,7 @@ func _choose_setup(setup_name: String) -> void:
 
 func _on_edit_mode_changed(on: bool) -> void:
 	_abort_drag()
+	_reset_break()
 	_bar.set_edit_mode(on)
 	_update_aim_enabled()
 	_selected = -1
@@ -492,6 +611,9 @@ func _on_drag_started(at: Vector2) -> void:
 
 func _on_drag_moved(at: Vector2, relative: Vector2) -> void:
 	if _dragged < 0:
+		if _playing:
+			# At the pocket (or about to cut to it) a drag goes up to the TV view to walk round.
+			_cycle.walk_round(_cycle_t)
 		_rig.orbit(relative.x)
 		return
 	var xy: Variant = TableSpace.screen_to_core(_rig.camera(), at, _balls.radius)
@@ -643,6 +765,58 @@ func _build_notice() -> void:
 	add_child(_notice_timer)
 
 
+## The running break (spec 8.5): a small pill at the bottom centre, shown while above zero.
+func _build_break_pill() -> void:
+	var panel := StyleBoxFlat.new()
+	panel.bg_color = Color(0.05, 0.06, 0.065, 0.72)
+	panel.set_corner_radius_all(26)
+	panel.content_margin_left = 22.0
+	panel.content_margin_right = 22.0
+	panel.content_margin_top = 6.0
+	panel.content_margin_bottom = 6.0
+	_break_pill.name = "BreakPill"
+	_break_pill.add_theme_stylebox_override("normal", panel)
+	_break_pill.add_theme_color_override("font_color", SettingsPanel.TEXT)
+	_break_pill.add_theme_font_size_override("font_size", 28)
+	_break_pill.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_break_pill.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_break_pill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_break_pill.visible = false
+	$Hud.add_child(_break_pill)
+
+
+func _show_break() -> void:
+	var value := _cycle.shown_break
+	if value <= 0:
+		_break_pill.visible = false
+		return
+	var text := BREAK_TEXT % value
+	if _break_pill.text != text:
+		_break_pill.text = text
+		_break_pill.reset_size()
+	_break_pill.visible = true
+	_place_break()
+
+
+func _reset_break() -> void:
+	_cycle.reset_break()
+	_popups.clear()
+	_show_break()
+
+
+# Centred under the table, inside the band the layout leaves it; written only when it moves.
+func _place_break() -> void:
+	var pill := _break_pill.get_combined_minimum_size()
+	pill.y = maxf(pill.y, HudScript.BREAK_HEIGHT)
+	if _break_pill.size != pill:
+		_break_pill.size = pill
+	var band := _break_band
+	var x := clampf(_break_centre_x - pill.x / 2.0, band.position.x, maxf(band.end.x - pill.x, band.position.x))
+	var at := Vector2(x, band.end.y - pill.y).round()
+	if _break_pill.position != at:
+		_break_pill.position = at
+
+
 ## A line at the top of the screen for a moment: no pop-up, nothing to dismiss (spec 11.2).
 func _show_notice(text: String) -> void:
 	_notice.text = text
@@ -671,6 +845,10 @@ func _layout() -> void:
 	_put(_elevation, rects["elevation"])
 	_put(_spin, rects["spin"])
 	_palette.place_in(rects["bottom"])
+	_break_band = rects["break"]
+	_break_centre_x = safe.get_center().x
+	if _break_pill.visible:
+		_place_break()
 	_overlay.clear_right = safe.end.x - (rects["cue"] as Rect2).position.x
 	var controls: Array[Rect2] = []
 	for key: String in ["bar", "spin", "elevation", "cue", "wheel"]:
@@ -741,7 +919,8 @@ func _warn_out_of_range(strike: Dictionary) -> void:
 				"result": {"warnings": problems}})
 
 
-## True while a shot is playing or a ball is still dropping into a pocket.
+## True while a shot is playing, a ball is still dropping into a pocket, or the shot cycle's camera
+## has yet to hold the TV view (spec 8.5).
 func harness_busy() -> bool:
 	return _playing
 
@@ -761,6 +940,7 @@ func harness_state() -> Dictionary:
 		"history": {"index": _free.history_index(), "size": _free.history_size()},
 		"last_shot": _last_shot.duplicate(true),
 		"camera": {"pitch_deg": _rig.pitch_deg(), "zoom_scale": _rig.zoom_scale(), "view": _rig.view_name()},
+		"break": _cycle.shown_break,
 	}
 
 

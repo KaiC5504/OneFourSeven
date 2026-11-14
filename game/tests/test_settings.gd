@@ -14,6 +14,8 @@ func test_defaults_without_a_file() -> void:
 	check_eq(store.all(), SettingsStore.DEFAULTS, "every default")
 	check_eq(store.get_value("strike_mode"), "stroke", "finger stroke by default")
 	check_eq(store.get_value("reset_spin_after_shot"), true, "spin reset on by default")
+	check_eq(store.get_value("pocket_camera"), true, "the pocket camera on by default")
+	check_eq(store.get_value("aim_next_ball"), true, "aiming at the next ball on by default")
 	var loaded := _logged("settings.loaded")
 	check_eq(loaded.size(), 1, "settings.loaded once")
 	if not loaded.is_empty():
@@ -29,7 +31,7 @@ func test_set_value_validates_each_key() -> void:
 	var good := {
 		"strike_mode": "pull", "guide_level": 3, "aim_sensitivity": 0.25,
 		"fine_tune_sensitivity": 4.0, "stroke_wander": true, "reset_spin_after_shot": false,
-		"volume": 0.0, "haptics": false,
+		"volume": 0.0, "haptics": false, "pocket_camera": false, "aim_next_ball": false,
 	}
 	for key: String in good:
 		check(store.set_value(key, good[key]), "%s accepts %s" % [key, str(good[key])])
@@ -39,7 +41,7 @@ func test_set_value_validates_each_key() -> void:
 		["guide_level", 1.5], ["guide_level", "2"], ["aim_sensitivity", 0.2], ["aim_sensitivity", 4.01],
 		["fine_tune_sensitivity", NAN], ["fine_tune_sensitivity", "1"], ["stroke_wander", 1],
 		["reset_spin_after_shot", "true"], ["volume", 1.5], ["volume", -0.1], ["haptics", null],
-		["no_such_key", true],
+		["pocket_camera", 1], ["aim_next_ball", "on"], ["no_such_key", true],
 	]
 	_mark_log()
 	for pair: Array in bad:

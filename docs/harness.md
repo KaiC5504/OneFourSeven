@@ -97,7 +97,16 @@ or the fixtures' form with `"r": [x, y]`; `cue_ball` is the cue ball's position 
 `perf` (the last second's fps, frame times, dropped frames, thermal state, memory footprint and
 idle) and `balls` (`name`, `ball`, `index`, `position` [x, y, height] in core metres), overlaid
 by the game's own state (`harness_state()` in `main.gd`: screen, ball list, shot setup,
-settings, last shot).
+settings, last shot, camera and break).
+
+| Field | What |
+| --- | --- |
+| `camera.pitch_deg`, `camera.zoom_scale` | the aiming camera's tilt and zoom (spec 8.5) |
+| `camera.view` | `aim` (behind the cue ball, including the swoop back to it), `shot` (a shot holds the camera: still behind the cue ball for the stroke, rising to or at the TV view), `pocket` (the shot cycle's camera behind the pocket of the first object ball to drop) or `overview` |
+| `break` | the running break as the counter shows it: the shot's pots count up as they drop, and it is 0 after a shot that pots nothing or the cue ball, a retake, undo, redo, setup, edit mode or `load_position` |
+
+`wait_idle` returns once the shot has settled, as the camera starts swooping back behind the cue
+ball; the swoop takes about 1.1 s more (`CameraRig.RETURN_S`).
 
 ### Input events
 

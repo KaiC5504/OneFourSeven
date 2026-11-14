@@ -1,7 +1,8 @@
 class_name SettingsPanel
 extends Control
 ## The feel build's settings (spec 15, the keys in Settings.DEFAULTS): strike mode, guide level,
-## sensitivities, stroke wander, spin reset, volume and haptics. Every change goes through
+## sensitivities, stroke wander, spin reset, the pocket camera, aiming at the next ball, volume
+## and haptics. Every change goes through
 ## Settings.set_value, and the controls follow Settings.changed. A modal card in the middle of
 ## the safe area; tapping outside it closes it, like Close.
 
@@ -203,6 +204,8 @@ func _build() -> void:
 	_slider_row(left, "Fine-tune sensitivity", "fine_tune_sensitivity", 0.05, true)
 	_switch_row(right, "Stroke wander", "A crooked push adds aim error", "stroke_wander")
 	_switch_row(right, "Reset spin and elevation", "After each shot", "reset_spin_after_shot")
+	_switch_row(right, "Pocket camera", "Watch the ball drop", "pocket_camera")
+	_switch_row(right, "Aim at the next ball", "Turn to the easiest pot after each shot", "aim_next_ball")
 	_switch_row(right, "Haptics", "", "haptics")
 	_slider_row(right, "Volume", "volume", 0.05, false)
 

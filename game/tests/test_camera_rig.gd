@@ -352,6 +352,10 @@ const PHONE_SAFE_AREAS: Array[Rect2] = [
 ## A blend's frame at 60 fps: the most the eye may move and the view may turn.
 const STEP_MAX_M := 0.2
 const TURN_MAX_DEG := 3.0
+## The swoop back is shorter (RETURN_S) and swings round the cue ball, so it moves further a frame;
+## smooth still means no frame much over the smoothstep's peak of 1.5 times the average.
+const RETURN_STEP_MAX_M := 0.35
+const PEAK_OVER_MEAN := 1.75
 ## The bottom of main.gd's notice line ("Drag to walk round the table"): 16 down, about 60 deep.
 const NOTICE_BOTTOM := 80.0
 
@@ -555,12 +559,19 @@ func _run_blend(rig: CameraRig, frames: int) -> Array:
 	return [steps, turns, low]
 
 
-func _check_smooth(run: Array, what: String) -> void:
+func _check_smooth(run: Array, what: String, duration_s: float = CameraRig.BLEND_S) -> void:
 	var steps: Array[float] = run[0]
 	var turns: Array[float] = run[1]
-	check(absf(steps.size() - CameraRig.BLEND_S * 60.0) <= 3.0, "%s: BLEND_S long, %d frames" % [what, steps.size()])
+	check(absf(steps.size() - duration_s * 60.0) <= 3.0, "%s: %.1f s long, %d frames" % [what, duration_s, steps.size()])
 	var mid := steps.size() / 2
-	check(steps.max() < STEP_MAX_M, "%s: at most %.3f m a frame" % [what, steps.max()])
+	if duration_s == CameraRig.BLEND_S:
+		check(steps.max() < STEP_MAX_M, "%s: at most %.3f m a frame" % [what, steps.max()])
+	else:
+		var mean := 0.0
+		for step in steps:
+			mean += step / steps.size()
+		check(steps.max() < RETURN_STEP_MAX_M and steps.max() < PEAK_OVER_MEAN * mean + 0.005,
+				"%s: at most %.3f m a frame, %.3f on average" % [what, steps.max(), mean])
 	check(turns.max() < TURN_MAX_DEG, "%s: at most %.2f° a frame" % [what, turns.max()])
 	for k in 3:
 		check(steps[k] < steps[mid] and steps[-1 - k] < steps[mid], "%s: slow at both ends (%.4f, %.4f vs %.4f mid)"
@@ -588,7 +599,7 @@ func test_the_shot_blends_up_to_the_broadcast_view_and_back_down_smoothly() -> v
 				check(rig.transform.is_equal_approx(rig.broadcast_pose(CameraRig.end_behind(start[1]))),
 						"at the broadcast view, " + what)
 				rig.hold(false)
-				_check_smooth(_run_blend(rig, 120), "down, " + what)
+				_check_smooth(_run_blend(rig, 120), "down, " + what, CameraRig.RETURN_S)
 				check(rig.transform.is_equal_approx(rig.pose_for(start[0], start[1])), "behind the cue ball again, " + what)
 	check(not _camera_active(), "settled")
 	rig.free()
@@ -613,7 +624,7 @@ func test_a_shot_finished_mid_blend_turns_back_without_a_jump() -> void:
 		var steps: Array[float] = run[0]
 		check(absf(steps[0] - before) < 0.012,
 				"after %d frames: the first step back %.4f m, the last one up %.4f m" % [frames_up, steps[0], before])
-		check(steps.max() < STEP_MAX_M, "after %d frames: at most %.3f m a frame" % [frames_up, steps.max()])
+		check(steps.max() < RETURN_STEP_MAX_M, "after %d frames: at most %.3f m a frame" % [frames_up, steps.max()])
 		var turns: Array[float] = run[1]
 		check(turns.max() < TURN_MAX_DEG, "after %d frames: turning gently, at most %.2f° a frame" % [frames_up, turns.max()])
 		check_eq(run[2], [] as Array[String], "after %d frames: clear of the cloth and rails" % frames_up)

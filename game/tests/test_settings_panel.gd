@@ -28,6 +28,10 @@ func test_controls_call_through_to_settings() -> void:
 	check_eq(store.get_value("reset_spin_after_shot"), false, "spin reset")
 	(panel.control("haptics") as Button).button_pressed = false
 	check_eq(store.get_value("haptics"), false, "haptics")
+	(panel.control("pocket_camera") as Button).button_pressed = false
+	check_eq(store.get_value("pocket_camera"), false, "pocket camera")
+	(panel.control("aim_next_ball") as Button).button_pressed = false
+	check_eq(store.get_value("aim_next_ball"), false, "aim at the next ball")
 	panel.queue_free()
 	await tree.process_frame
 	_cleanup(store)
@@ -97,8 +101,14 @@ func test_open_close_and_placement() -> void:
 	panel.place_in(safe)
 	var card := panel.get_child(1) as Control
 	check(safe.encloses(card.get_rect()), "the card is inside the safe area: %s" % card.get_rect())
-	for id: String in ["close", "strike_mode:stroke", "guide_level:2", "aim_sensitivity", "volume", "haptics"]:
+	# The containers lay the rows out at the end of the frame.
+	await tree.process_frame
+	for id: String in ["close", "strike_mode:stroke", "guide_level:2", "aim_sensitivity", "volume", "haptics",
+			"pocket_camera", "aim_next_ball"]:
 		check(panel.control(id).size.y >= 88.0, "%s is at least 88 units tall" % id)
+		check(card.get_global_rect().encloses(panel.control(id).get_global_rect()), "%s inside the card" % id)
+	for words: Array in [["Pocket camera", "Watch the ball drop"], ["Aim at the next ball", "Turn to the easiest pot after each shot"]]:
+		check(_has_label(panel, words[0]) and _has_label(panel, words[1]), "a row titled %s, saying %s" % words)
 	(panel.control("close") as Button).pressed.emit()
 	check(not panel.visible, "Close closes")
 	check_eq(closes[0], 1, "closed emitted")
@@ -107,6 +117,15 @@ func test_open_close_and_placement() -> void:
 	panel.queue_free()
 	await tree.process_frame
 	_cleanup(store)
+
+
+func _has_label(node: Node, text: String) -> bool:
+	if node is Label and (node as Label).text == text:
+		return true
+	for child in node.get_children():
+		if _has_label(child, text):
+			return true
+	return false
 
 
 func _store() -> SettingsStore:

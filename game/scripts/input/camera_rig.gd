@@ -28,6 +28,11 @@ extends Node3D
 ## the table at that angle, refitting the distance to keep the whole table in view; in the overview
 ## pinch zooms it. Moving between the aiming camera and the broadcast view blends the whole pose over
 ## BLEND_S (see _step_blend).
+##
+## The shot cycle (spec 8.5, ShotCycle) holds the camera in other ways too: still behind the cue ball
+## for a moment after the strike (hold(true, true)), then cut to the pocket camera (show_pocket), then
+## up to the broadcast view (show_broadcast). Releasing swoops back behind the cue ball over RETURN_S,
+## swinging round the cue ball rather than cutting across the table.
 
 signal moved
 signal overview_changed(on: bool)
@@ -74,6 +79,31 @@ const OVERVIEW_ZOOM_MIN := 0.5
 const OVERVIEW_ZOOM_MAX := 1.5
 ## Between the aiming camera and the broadcast view.
 const BLEND_S := 1.5
+## The swoop back behind the cue ball after a shot: KaiC's reference game takes about a second.
+const RETURN_S := 1.1
+## The pocket camera, as in KaiC's reference game: low outside the table, POCKET_BACK_M beyond the
+## pocket's drop centre and swung POCKET_SWING_DEG round it off the ball's line (straight down the
+## line the pocket's own fitting hides the ball), looking back up the ball's way in, turned half
+## the swing back towards the pocket and pitched to put the pocket POCKET_FRAME_Y down the frame.
+## The reference frames have the pocket about 30 % of the width across, so close, and three
+## quarters down.
+const POCKET_FOV_DEG := 40.0
+const POCKET_HEIGHT_M := 0.3
+const POCKET_BACK_M := 0.65
+const POCKET_FRAME_Y := 0.75
+## A middle pocket's camera stands higher and further back, looking down across the table at both
+## ends as the reference game's does, the pocket low in the frame, above the break counter.
+const POCKET_MIDDLE_HEIGHT_M := 0.75
+const POCKET_MIDDLE_BACK_M := 1.1
+const POCKET_MIDDLE_FRAME_Y := 0.8
+const POCKET_SWING_DEG := 12.0
+## A way in shorter than this (a ball nudged in from the jaws) gives no direction; the pocket's own
+## line out from the table centre stands in.
+const POCKET_MIN_RUN_M := 0.05
+## How far beyond the table's outline (TableView.bounds()) and how high a shot camera may stand: the
+## arena round the table (Stage).
+const ROOM_MARGIN_M := 3.0
+const ROOM_HEIGHT_M := 4.0
 ## How far ahead of a straight line the height runs while blending: up first when rising, down last
 ## when descending, so a camera low behind the cue ball clears the rails as it pulls back. Above
 ## 0.1875 the height would overshoot its end.
@@ -96,9 +126,14 @@ const FALLBACK_BALL_RADIUS := 0.02625
 ## A corner and a middle pocket's drop centre and radius (x, y, radius), mirrored to the others.
 const FALLBACK_POCKETS: Array[Vector3] = [Vector3(1.8157, 0.9202, 0.042), Vector3(0.0, 0.9985, 0.044)]
 
+enum ShotView { BROADCAST, STILL, POCKET }
+
 var _pitch_deg := DEFAULT_PITCH_DEG
 var _zoom := 1.0
 var _held := false
+## What the camera shows while held.
+var _shot_view := ShotView.BROADCAST
+var _pocket_pose := Transform3D.IDENTITY
 var _overview := false
 var _has_pose := false
 var _shown_cue := Vector2.ZERO
@@ -123,6 +158,11 @@ var _from_eye_v := Vector3.ZERO
 var _from_turn_v := Vector3.ZERO
 var _goal_eye := Vector3.ZERO
 var _goal_turn := Vector3.ZERO
+## The core point a swoop swings the eye round, or NAN when the eye runs straight; where the view
+## looked at the start and where the goal looks (_focus_of).
+var _swing_about := Vector2(NAN, NAN)
+var _from_focus := Vector3.ZERO
+var _goal_focus := Vector3.ZERO
 ## The broadcast view: the core direction it looks along, and the overview's zoom.
 var _yaw := 0.0
 var _view_zoom := 1.0
@@ -300,13 +340,13 @@ func is_overview() -> bool:
 
 ## True while the broadcast view is the camera's goal: a shot playing or the overview.
 func is_broadcast() -> bool:
-	return _held or _overview
+	return (_held and _shot_view == ShotView.BROADCAST) or _overview
 
 
-## "aim", "shot" or "overview".
+## "aim", "shot", "pocket" or "overview".
 func view_name() -> String:
 	if _held:
-		return "shot"
+		return "pocket" if _shot_view == ShotView.POCKET else "shot"
 	return "overview" if _overview else "aim"
 
 
@@ -357,24 +397,96 @@ func set_pitch_deg(deg: float) -> void:
 	_apply()
 
 
-## A shot playing: blends to the broadcast view from the end behind the shot and holds it; follow()
-## only remembers where to go and pinch and tilt are ignored. Releasing blends back behind the cue
-## ball at the last follow().
-func hold(on: bool) -> void:
+## A shot playing: blends to the broadcast view from the end behind the shot and holds it, or with
+## still, stays behind the cue ball until show_pocket or show_broadcast; follow() only remembers
+## where to go and pinch and tilt are ignored. Releasing swoops back behind the cue ball at the last
+## follow() over RETURN_S.
+func hold(on: bool, still: bool = false) -> void:
 	if on == _held:
 		return
 	_held = on
+	_shot_view = ShotView.STILL if on and still else ShotView.BROADCAST
 	if on:
 		if _overview:
 			_overview = false
 			overview_changed.emit(false)
 		_yaw = end_behind(_target_aim)
 		_view_zoom = 1.0
-	_start_blend()
+		if still:
+			return
+		_start_blend()
+		return
+	_start_blend(RETURN_S, _target_cue)
 
 
 func is_held() -> bool:
 	return _held
+
+
+## Cuts, with no blend, to `pose` (pocket_pose) while a shot holds the camera.
+func show_pocket(pose: Transform3D) -> void:
+	if not _held:
+		return
+	_shot_view = ShotView.POCKET
+	_pocket_pose = pose
+	_stop_ease()
+	camera().fov = POCKET_FOV_DEG
+	_place(pose)
+
+
+## Moves on to the broadcast view over duration_s from the camera held still or at the pocket,
+## swinging round the table rather than across it: the pocket's end is often the far end from the
+## TV camera's.
+func show_broadcast(duration_s: float = BLEND_S) -> void:
+	if not _held or _shot_view == ShotView.BROADCAST:
+		return
+	_shot_view = ShotView.BROADCAST
+	_start_blend(duration_s, Vector2.ZERO)
+
+
+## The pocket camera's pose for a ball dropping into the pocket at drop_centre (core metres) coming
+## in from from_xy: outside the table beyond the pocket, low, looking back along the ball's way in
+## (see POCKET_FOV_DEG). middle: a middle pocket.
+func pocket_pose(drop_centre: Vector2, from_xy: Vector2, middle: bool) -> Transform3D:
+	var into := drop_centre - from_xy
+	if not (into.length() >= POCKET_MIN_RUN_M):
+		into = drop_centre
+	into = into.normalized()
+	var back := POCKET_MIDDLE_BACK_M if middle else POCKET_BACK_M
+	var side := _pocket_side(drop_centre, into)
+	var eye_xy := drop_centre + into.rotated(side) * back
+	if not _outside_cushions(eye_xy):
+		# A ball that turned in off a jaw can come in from outside; the pocket's own line can't.
+		into = drop_centre.normalized()
+		side = _pocket_side(drop_centre, into)
+		eye_xy = drop_centre + into.rotated(side) * back
+	var height := POCKET_MIDDLE_HEIGHT_M if middle else POCKET_HEIGHT_M
+	var frame_y := POCKET_MIDDLE_FRAME_Y if middle else POCKET_FRAME_Y
+	var below_centre := atan((frame_y - 0.5) * 2.0 * tan(deg_to_rad(POCKET_FOV_DEG) / 2.0))
+	var pitch := atan2(height, eye_xy.distance_to(drop_centre)) - below_centre
+	var yaw := (-into.rotated(side / 2.0)).angle()
+	return Transform3D(_basis_for(Vector3(yaw, pitch, 0.0)), TableSpace.core_to_godot(eye_xy.x, eye_xy.y, height))
+
+
+## The swing off the ball's line, in radians: POCKET_SWING_DEG to the side whose view takes in more
+## of the table.
+func _pocket_side(drop_centre: Vector2, into: Vector2) -> float:
+	var to_centre := -drop_centre.normalized()
+	var swing := deg_to_rad(POCKET_SWING_DEG)
+	return swing if -into.rotated(swing).dot(to_centre) >= -into.rotated(-swing).dot(to_centre) - 1e-9 else -swing
+
+
+func _outside_cushions(xy: Vector2) -> bool:
+	return absf(xy.x) > _half_size.x or absf(xy.y) > _half_size.y
+
+
+## True when a camera at Godot point `eye` is in the arena: within ROOM_MARGIN_M of the table's
+## outline, below ROOM_HEIGHT_M, and above the cloth's or rails' clearance.
+func in_room(eye: Vector3) -> bool:
+	var xy := TableSpace.godot_to_core(eye)
+	var grown := _outline.grow(ROOM_MARGIN_M)
+	return eye.x > grown.position.x and eye.x < grown.end.x and eye.z > grown.position.z and eye.z < grown.end.z \
+			and eye.y < ROOM_HEIGHT_M and eye.y >= clearance_at(xy)
 
 
 func is_easing() -> bool:
@@ -592,10 +704,14 @@ static func _basis_for(turn: Vector3) -> Basis:
 
 
 func _view_fov() -> float:
+	if _held and _shot_view == ShotView.POCKET:
+		return POCKET_FOV_DEG
 	return BROADCAST_FOV_DEG if is_broadcast() else FOV_DEG
 
 
 func _goal() -> Transform3D:
+	if _held and _shot_view == ShotView.POCKET:
+		return _pocket_pose
 	if is_broadcast():
 		return broadcast_pose(_yaw, _view_zoom)
 	return pose_for(_target_cue, _target_aim, _target_elevation)
@@ -622,12 +738,21 @@ func _process(delta: float) -> void:
 # a blend carries into it. The height adds a bump that is zero, with zero slope, at both ends
 # (BLEND_ARC). Turning by angle rather than towards a point keeps the turn spread over the blend:
 # a low camera looking at a point just ahead would swing nearly all its pitch in the first rise.
+#
+# A swoop (_swing_about set) runs the eye's level part round that point instead of straight: its
+# angle round the point and its distance from it each run the smoothstep, so a camera coming down
+# from the TV view onto an aim the other way swings round the cue ball as the reference game's does,
+# rather than crossing over it. It looks at a point sliding from where the view looked to where the
+# goal looks, both at the balls' height: turned by angle, a camera high and far away still pitched
+# for the TV view would look over the cue ball into the dark while it came down.
 func _step_blend() -> void:
 	var s := _ease
 	var goal := _goal()
 	_goal_eye = goal.origin
 	_goal_turn = _turn(goal)
 	_goal_turn.x = _from_turn.x + angle_difference(_from_turn.x, _goal_turn.x)
+	_goal_focus = _focus_of(goal)
+	var swing := _swing()
 	if s >= 1.0:
 		if not is_broadcast():
 			_shown_cue = _target_cue
@@ -636,29 +761,77 @@ func _step_blend() -> void:
 		camera().fov = _view_fov()
 		_place(goal)
 		return
-	var k := smoothstep(0.0, 1.0, s)
-	camera().fov = lerpf(_from_fov, _view_fov(), k)
-	var carry := s * (1.0 - s) * (1.0 - s) * _ease_s
-	var eye := _from_eye.lerp(_goal_eye, k) + _from_eye_v * carry
-	eye.y += absf(_goal_eye.y - _from_eye.y) * BLEND_ARC * 16.0 * s * s * (1.0 - s) * (1.0 - s)
+	camera().fov = lerpf(_from_fov, _view_fov(), smoothstep(0.0, 1.0, s))
+	var pose := _blend_at(s, swing)
+	var eye: Vector3 = pose[0]
 	eye.y = maxf(eye.y, clearance_at(TableSpace.godot_to_core(eye)))
-	var turn := _from_turn.lerp(_goal_turn, k) + _from_turn_v * carry
-	_place(Transform3D(_basis_for(turn), eye))
+	_place(Transform3D(_basis_for(pose[1]), eye))
+
+
+## How far a swoop swings the eye round _swing_about towards the goal, in radians; 0 for a blend
+## that runs straight, or an end too close to the point to have an angle round it.
+func _swing() -> float:
+	if is_nan(_swing_about.x):
+		return 0.0
+	var from := TableSpace.godot_to_core(_from_eye) - _swing_about
+	var to := TableSpace.godot_to_core(_goal_eye) - _swing_about
+	if from.length() < POCKET_MIN_RUN_M or to.length() < POCKET_MIN_RUN_M:
+		return 0.0
+	return angle_difference(from.angle(), to.angle())
+
+
+## The blend's eye and turn (see _turn) at s, 0 to 1, towards the goal of the last step, before the
+## clearance.
+func _blend_at(s: float, swing: float) -> Array[Vector3]:
+	var k := smoothstep(0.0, 1.0, s)
+	var carry := s * (1.0 - s) * (1.0 - s) * _ease_s
+	var eye := _from_eye.lerp(_goal_eye, k)
+	if swing != 0.0:
+		var from := TableSpace.godot_to_core(_from_eye) - _swing_about
+		var to := TableSpace.godot_to_core(_goal_eye) - _swing_about
+		var level := _swing_about + from.normalized().rotated(swing * k) * lerpf(from.length(), to.length(), k)
+		eye = TableSpace.core_to_godot(level.x, level.y, eye.y)
+	var turn := _from_turn.lerp(_goal_turn, k)
+	if is_nan(_swing_about.x):
+		eye.y += absf(_goal_eye.y - _from_eye.y) * BLEND_ARC * 16.0 * s * s * (1.0 - s) * (1.0 - s)
+	else:
+		# The pitch runs the smoothstep and the height follows from it: a height run straight down
+		# would pitch the camera sharply in the last frames, as it closes in on a point just ahead.
+		var focus := _from_focus.lerp(_goal_focus, k)
+		var to_focus := TableSpace.godot_to_core(focus - eye)
+		eye.y = focus.y + to_focus.length() * tan(turn.y)
+		if to_focus.length() > 1e-6:
+			turn.x = _from_turn.x + angle_difference(_from_turn.x, to_focus.angle())
+	return [eye + _from_eye_v * carry, turn + _from_turn_v * carry]
+
+
+## Where the view at `pose` looks: its centre line at the balls' height, or NEAR_DISTANCE_M ahead
+## when it looks level or up.
+func _focus_of(pose: Transform3D) -> Vector3:
+	var forward := -pose.basis.z
+	var drop := pose.origin.y - _ball_radius
+	if forward.y < -0.02 and drop > 0.0:
+		return pose.origin + forward * minf(drop / -forward.y, FAR_M)
+	return pose.origin + forward * NEAR_DISTANCE_M
 
 
 ## The blend's eye and turn velocities now, per second; zero when no blend runs.
 func _blend_velocity() -> Array[Vector3]:
 	if not _blending or _ease < 0.0:
 		return [Vector3.ZERO, Vector3.ZERO]
-	var s := _ease
-	var dk := 6.0 * s * (1.0 - s) / _ease_s
-	var dcarry := (1.0 - s) * (1.0 - 3.0 * s)
-	var darc := absf(_goal_eye.y - _from_eye.y) * BLEND_ARC * 32.0 * s * (1.0 - s) * (1.0 - 2.0 * s) / _ease_s
-	return [(_goal_eye - _from_eye) * dk + _from_eye_v * dcarry + Vector3.UP * darc,
-			(_goal_turn - _from_turn) * dk + _from_turn_v * dcarry]
+	var swing := _swing()
+	var lo := maxf(_ease - 1e-4, 0.0)
+	var hi := minf(_ease + 1e-4, 1.0)
+	var a := _blend_at(lo, swing)
+	var b := _blend_at(hi, swing)
+	var dt := (hi - lo) * _ease_s
+	var turned := b[1] - a[1]
+	turned.x = angle_difference(a[1].x, b[1].x)
+	return [(b[0] - a[0]) / dt, turned / dt]
 
 
-func _start_blend() -> void:
+## swing_about: the core point a swoop swings round (see _step_blend), NAN to run straight.
+func _start_blend(duration_s: float = BLEND_S, swing_about := Vector2(NAN, NAN)) -> void:
 	if not _has_pose:
 		return
 	var velocity := _blend_velocity()
@@ -669,8 +842,11 @@ func _start_blend() -> void:
 	_from_turn_v = velocity[1]
 	_goal_eye = _from_eye
 	_goal_turn = _from_turn
+	_swing_about = swing_about
+	_from_focus = _focus_of(transform)
+	_goal_focus = _from_focus
 	_blending = true
-	_ease_s = BLEND_S
+	_ease_s = duration_s
 	if _ease < 0.0:
 		Perf.set_active(&"camera", true)
 	_ease = 0.0
@@ -710,7 +886,12 @@ func _apply() -> void:
 	if not _has_pose or _blending:
 		return
 	camera().fov = _view_fov()
-	_place(broadcast_pose(_yaw, _view_zoom) if is_broadcast() else pose_for(_shown_cue, _shown_aim, _shown_elevation))
+	if _held and _shot_view == ShotView.POCKET:
+		_place(_pocket_pose)
+	elif is_broadcast():
+		_place(broadcast_pose(_yaw, _view_zoom))
+	else:
+		_place(pose_for(_shown_cue, _shown_aim, _shown_elevation))
 
 
 func _place(pose: Transform3D) -> void:
