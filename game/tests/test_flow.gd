@@ -640,7 +640,7 @@ func test_guides_key_on_the_table_version() -> void:
 
 func test_the_broadcast_view_keeps_every_ball_of_a_long_pot_on_screen() -> void:
 	# KaiC: "after the potting the ball just show this angle to see where the ball goes": the
-	# full-table camera at baulk, steady, cut to from behind the cue ball as his reference game does.
+	# full-table camera at the black end, steady, cut to from behind the cue ball as his reference game does.
 	var main: MainScript = await _spawn()
 	# The pot would cut to the pocket camera (test_shot_cycle.gd); this is the full-table view's own test.
 	Settings.set_value("pocket_camera", false)
@@ -695,7 +695,7 @@ func test_the_broadcast_view_keeps_every_ball_of_a_long_pot_on_screen() -> void:
 			if camera.is_position_behind(at) or not view.has_point(camera.unproject_position(at)):
 				off_screen.append("ball %d at t %.2f" % [o / ShotPlayback.STRIDE, player.time()])
 		if frames == settled:
-			check(rig.transform.is_equal_approx(broadcast), "at the full-table view from baulk %.2f s after the strike" % (frames * dt))
+			check(rig.transform.is_equal_approx(broadcast), "at the full-table view from the black end %.2f s after the strike" % (frames * dt))
 	check(frames > settled + 30, "the shot ran: %d frames" % frames)
 	check_eq(off_screen, [] as Array[String], "every moving ball stays on screen in every frame")
 	check(moves == 1 and not blended, "one cut and no blend: the camera moved %d times" % moves)
@@ -867,7 +867,7 @@ func test_a_pot_cuts_to_the_pocket_scores_and_swoops_back_onto_the_next_ball() -
 				break
 		if full_table_at < 0.0 and rig.is_broadcast():
 			full_table_at = t
-			check(rig.transform.is_equal_approx(rig.broadcast_pose(CameraRig.FULL_TABLE_YAW)), "cut straight to the full table from baulk")
+			check(rig.transform.is_equal_approx(rig.broadcast_pose(CameraRig.FULL_TABLE_YAW)), "cut straight to the full table from the black end")
 	check_near(views.get("pocket", -1.0), ShotCycle.CUT_T, DT * 1.5, "cut to the pocket")
 	check_near(full_table_at, maxf(drop_t + ShotCycle.HOLD_AFTER_DROP_S, ShotCycle.CUT_T + ShotCycle.MIN_POCKET_S), DT * 1.5,
 			"cut on to the full table 0.7 s after the drop")
@@ -941,7 +941,7 @@ func test_a_drag_at_the_pocket_walks_round_the_full_table_view() -> void:
 	_table_drag(TABLE_POINT, Vector2(200.0, 0.0), 10)
 	check(main.is_playing(), "a drag doesn't skip the shot")
 	check(rig.view_name() == "shot" and rig.is_broadcast() and not rig.is_easing(), "cut to the full table to walk round")
-	check(not rig.transform.is_equal_approx(rig.broadcast_pose(CameraRig.FULL_TABLE_YAW)), "walked round from the view at baulk")
+	check(not rig.transform.is_equal_approx(rig.broadcast_pose(CameraRig.FULL_TABLE_YAW)), "walked round from the view at the black end")
 	check_near(_turned(-rig.broadcast_pose(CameraRig.FULL_TABLE_YAW).basis.z, -rig.transform.basis.z),
 			200.0 * CameraRig.ORBIT_RAD_PER_PX, 1e-4, "by the drag")
 	main.skip_shot()

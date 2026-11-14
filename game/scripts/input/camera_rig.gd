@@ -21,7 +21,7 @@ extends Node3D
 ## The broadcast view is the full-table view of KaiC's reference game, measured from his recording:
 ## well back at one end, BROADCAST_PITCH_DEG down on a long lens, the table upright on the screen,
 ## its outline FULL_TABLE_HEIGHT of the height and centred, every pocket clear of the controls
-## (keep_clear), the far end narrower. While a shot plays it stands at baulk (FULL_TABLE_YAW) and
+## (keep_clear), the far end narrower. While a shot plays it stands at the black end (FULL_TABLE_YAW) and
 ## stays there rather than chasing the balls. set_overview() shows it too, from the end behind the
 ## aim. In both, orbit() walks round the table at that angle, refitting the distance to keep the
 ## whole table in view; in the overview pinch zooms it. Moving between the aiming camera and the
@@ -71,8 +71,9 @@ const FULL_TABLE_HEIGHT := 0.82
 ## follows the yaw.
 const END_ON_WIDTH := 0.68
 const SIDE_ON_WIDTH := 0.9
-## The full-table view of a shot stands at baulk looking towards the black.
-const FULL_TABLE_YAW := 0.0
+## The full-table view of a shot stands at the black end looking towards baulk, the black at the
+## bottom of the screen, as in KaiC's recording.
+const FULL_TABLE_YAW := PI
 ## How far round from an end the walk has gone before the controls press on the fit in full (see
 ## broadcast_pose).
 const WALK_FIT_DEG := 20.0
@@ -446,7 +447,7 @@ func show_pocket(pose: Transform3D) -> void:
 	_place(pose)
 
 
-## Cuts, with no blend, to the full-table view from baulk while a shot holds the camera.
+## Cuts, with no blend, to the full-table view from the black end while a shot holds the camera.
 func show_broadcast() -> void:
 	if not _held or _shot_view == ShotView.BROADCAST:
 		return

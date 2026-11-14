@@ -525,7 +525,7 @@ func test_the_walk_round_fits_the_table_clear_of_the_controls_at_every_yaw() -> 
 	rig.free()
 
 
-func test_a_shots_full_table_view_stands_at_baulk() -> void:
+func test_a_shots_full_table_view_stands_at_the_black_end() -> void:
 	var rig := _rig()
 	for aim: float in [0.3, -1.2, 2.5, -2.0, PI / 2.0 + 0.05]:
 		rig.follow(Vector2(-0.5, 0.2), aim)
@@ -537,8 +537,8 @@ func test_a_shots_full_table_view_stands_at_baulk() -> void:
 		check(not rig.is_easing(), "aim %.2f: cut, not blended" % aim)
 		check(rig.transform.is_equal_approx(rig.broadcast_pose(CameraRig.FULL_TABLE_YAW)), "aim %.2f: the full-table view" % aim)
 		var eye := _eye_xy(rig)
-		check(eye.x < -1.95 and absf(eye.y) < 1e-6, "aim %.2f: from baulk, whichever way the shot went (%s)" % [aim, eye])
-		check(_core_dir(-rig.transform.basis.z).dot(Vector2(1.0, 0.0)) > 1.0 - 1e-9, "aim %.2f: looking up the table at the black" % aim)
+		check(eye.x > 1.95 and absf(eye.y) < 1e-6, "aim %.2f: from the black end, whichever way the shot went (%s)" % [aim, eye])
+		check(_core_dir(-rig.transform.basis.z).dot(Vector2(-1.0, 0.0)) > 1.0 - 1e-9, "aim %.2f: looking down the table at baulk" % aim)
 		check(_height(rig) > 1.0, "looking down from above the table: %.2f m" % _height(rig))
 		rig.follow(Vector2(0.6, -0.2), aim + 1.0)
 		check(rig.transform.is_equal_approx(rig.broadcast_pose(CameraRig.FULL_TABLE_YAW)), "steady while the shot plays")
@@ -753,7 +753,7 @@ func test_hold_ignores_pinch_and_tilt_and_follow_waits_for_the_release() -> void
 	check_eq(rig.pitch_deg(), CameraRig.DEFAULT_PITCH_DEG, "tilt ignored while held")
 	check(rig.transform.is_equal_approx(behind), "still where the shot was struck from")
 	rig.show_broadcast()
-	check(rig.transform.is_equal_approx(rig.broadcast_pose(0.0)), "the full-table view from baulk")
+	check(rig.transform.is_equal_approx(rig.broadcast_pose(CameraRig.FULL_TABLE_YAW)), "the full-table view from the black end")
 	check(not rig.is_easing() and not _camera_active(), "cut to and held still there")
 	rig.hold(false)
 	check(rig.is_easing(), "returns behind the cue ball with a blend")

@@ -434,7 +434,7 @@ level 1.
   without adding a separate top-down mode.
 - **Owner (M2), the full-table view:** while a shot plays the camera shows the whole table
   as the mobile game he plays does (measured from his recording of it): from well back at
-  the baulk end, about 30 degrees down on a long lens (17.5 degrees) so the far end stays
+  the black end (the black at the bottom of the screen, baulk at the top), about 30 degrees down on a long lens (17.5 degrees) so the far end stays
   wide, the table upright, about 80 % of the screen's height and centred, every pocket
   clear of the controls. The view is cut to, never glided to, and stands still while the
   balls run.
