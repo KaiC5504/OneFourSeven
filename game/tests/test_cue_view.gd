@@ -55,22 +55,53 @@ func test_backswing_pulls_the_tip_back_along_the_cue() -> void:
 
 
 func test_the_cue_is_full_length_and_tapered() -> void:
+	# Ours or the bought one (res://licensed/cue.gltf), as it stands in the CueView's own frame.
 	var cue := _cue()
 	cue.set_pose(CUE_XY, 0.0, 0.0, Vector2.ZERO, 0.0)
-	var mesh := (cue.get_node("Mesh") as MeshInstance3D).mesh
-	var box := mesh.get_aabb()
+	var instance := cue.get_node("Mesh") as MeshInstance3D
+	var box := instance.transform * instance.mesh.get_aabb()
 	check_near(box.size.z, CueView.LENGTH, 1e-4, "length")
 	check_near(box.size.x, CueView.BUTT_DIAMETER, 1e-4, "butt diameter")
-	check_near(box.position.z, 0.0, 1e-6, "the tip's face is the node's origin")
+	check_near(box.position.z, 0.0, 1e-5, "the tip's face is the node's origin")
+	check_near(box.get_center().x, 0.0, 1e-4, "on the node's axis (x)")
+	check_near(box.get_center().y, 0.0, 1e-4, "on the node's axis (y)")
+	# Slimmer at the tip than at the butt: the vertices of its first and last 5 cm.
+	var tip_girth := 0.0
+	var butt_girth := 0.0
+	for s in instance.mesh.get_surface_count():
+		for vertex: Vector3 in instance.mesh.surface_get_arrays(s)[Mesh.ARRAY_VERTEX]:
+			var v := instance.transform * vertex
+			if v.z < 0.05:
+				tip_girth = maxf(tip_girth, Vector2(v.x, v.y).length())
+			elif v.z > CueView.LENGTH - 0.05:
+				butt_girth = maxf(butt_girth, Vector2(v.x, v.y).length())
+	check(tip_girth > 0.003 and tip_girth < 0.008, "a tip of 6 to 16 mm across: %f" % (2.0 * tip_girth))
+	check_near(2.0 * butt_girth, CueView.BUTT_DIAMETER, 1e-3, "widest at the butt")
+	check_eq(instance.layers, Stage.MOVING_LAYER, "out of the table's reflection probe")
+	cue.free()
+
+
+func test_the_bought_cue_is_shown_when_it_is_there() -> void:
+	var cue := _cue()
+	var instance := cue.get_node("Mesh") as MeshInstance3D
+	var bought := ResourceLoader.exists(CueView.BOUGHT_PATH)
+	check_eq(instance.mesh is ArrayMesh and instance.mesh.get_surface_count() == 4, not bought, "our own four-part cue only without it")
+	if bought:
+		var material := instance.get_active_material(0) as BaseMaterial3D
+		check(material != null and material.albedo_texture != null
+				and material.albedo_texture.resource_path.begins_with("res://licensed/"), "the model's own textures")
+		check(instance.material_override != null and instance.material_override != instance.mesh.surface_get_material(0),
+				"on a copy: the model's material is left alone")
 	cue.free()
 
 
 func test_the_cue_dissolves_before_the_camera_clips_it() -> void:
 	var cue := _cue()
-	var mesh := (cue.get_node("Mesh") as MeshInstance3D).mesh
+	var instance := cue.get_node("Mesh") as MeshInstance3D
+	var mesh := instance.mesh
 	check(CueView.NEAR_HIDDEN_M > CameraRig.NEAR_M, "hidden before the near plane cuts it open")
 	for i in mesh.get_surface_count():
-		var material := mesh.surface_get_material(i) as BaseMaterial3D
+		var material := instance.get_active_material(i) as BaseMaterial3D
 		check_eq(material.distance_fade_mode, BaseMaterial3D.DISTANCE_FADE_PIXEL_DITHER, "surface %d dithers out" % i)
 		check_near(material.distance_fade_min_distance, CueView.NEAR_HIDDEN_M, 1e-6, "surface %d hidden up close" % i)
 		check_near(material.distance_fade_max_distance, CueView.NEAR_SOLID_M, 1e-6, "surface %d solid beyond" % i)

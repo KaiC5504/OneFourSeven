@@ -7,6 +7,9 @@ extends Node3D
 ## The node's origin is the tip's face and its -Z the cue's axis towards the ball; X is the
 ## shot's "right" and Y the "up" square to the cue, the frame the strike's tip offsets use
 ## (core/src/physics/cue.cpp).
+##
+## With the bought table model's cue in res://licensed (BOUGHT_PATH) that one is shown, at this
+## cue's length and butt diameter; without it, the cue built here.
 
 const LENGTH := 1.45
 const TIP_DIAMETER := 0.0095
@@ -23,6 +26,11 @@ const STRIKE_HOLD := 0.25
 ## butt never fills the view as a dark wedge when a low or zoomed-in camera sits over it.
 const NEAR_HIDDEN_M := 0.05
 const NEAR_SOLID_M := 0.15
+## How metallic the ferrule is drawn. The cue is out of the table's probe, and a full metal shows
+## only the dim studio it reflects, nearly black.
+const FERRULE_METALLIC := 0.3
+const BOUGHT_PATH := "res://licensed/cue.gltf"
+const BOUGHT_NODE := "Cue"
 
 var _mesh_instance: MeshInstance3D
 var _ball_radius := BALL_RADIUS_FALLBACK
@@ -119,25 +127,67 @@ func _ensure_mesh() -> void:
 	if _mesh_instance != null:
 		return
 	_ball_radius = float(OfsTable.dimensions().get("ball_radius", BALL_RADIUS_FALLBACK))
+	_mesh_instance = MeshInstance3D.new()
+	_mesh_instance.name = "Mesh"
+	# Out of the table's reflection probe, which would otherwise keep the cue where it was captured.
+	_mesh_instance.layers = Stage.MOVING_LAYER
+	if not _show_bought(_mesh_instance):
+		_mesh_instance.mesh = _own_mesh()
+	add_child(_mesh_instance)
+
+
+## Puts the bought cue on `instance`; false (logged when the file is there but unusable) leaves it
+## for our own. The model has its tip's end at the origin and its butt along -Z, and is thicker
+## and longer than the cue the physics clears cushions and balls with (LENGTH, BUTT_DIAMETER): drawn
+## as bought it would sink into a rail it is said to clear, so it is drawn at our length and girth.
+static func _show_bought(instance: MeshInstance3D) -> bool:
+	if not ResourceLoader.exists(BOUGHT_PATH):
+		return false
+	var scene := load(BOUGHT_PATH) as PackedScene
+	var root: Node = scene.instantiate() if scene != null else null
+	var node: MeshInstance3D = root.find_child(BOUGHT_NODE, true, false) as MeshInstance3D if root != null else null
+	var mesh: Mesh = node.mesh if node != null else null
+	if root != null:
+		root.free()
+	var why := ""
+	if mesh == null or mesh.get_surface_count() != 1 or not mesh.surface_get_material(0) is BaseMaterial3D:
+		why = "it has no mesh node %s of one surface with a standard material, which the fade near the camera needs" % BOUGHT_NODE
+	else:
+		var box := mesh.get_aabb()
+		if absf(box.end.z) > 0.001 or box.size.z < 1.0 or box.size.x < 0.01 or absf(box.get_center().x) > 0.001 \
+				or absf(box.get_center().y) > 0.001:
+			why = "%s is not a cue with its tip at the origin and its butt along -Z (bounds %s)" % [BOUGHT_NODE, box]
+	if not why.is_empty():
+		Log.warn("app", "app.error", {"kind": "message", "file": BOUGHT_PATH,
+				"message": "cue_view: %s: %s; our own cue is drawn" % [BOUGHT_PATH, why]})
+		return false
+	var size := mesh.get_aabb().size
+	var girth := BUTT_DIAMETER / maxf(size.x, size.y)
+	instance.mesh = mesh
+	instance.transform = Transform3D(Basis(Vector3.UP, PI) * Basis.from_scale(Vector3(girth, girth, LENGTH / size.z)), Vector3.ZERO)
+	# A copy: the model's own material is shared with whatever else shows it.
+	var material := (mesh.surface_get_material(0) as BaseMaterial3D).duplicate() as BaseMaterial3D
+	material.metallic *= FERRULE_METALLIC
+	material.distance_fade_mode = BaseMaterial3D.DISTANCE_FADE_PIXEL_DITHER
+	material.distance_fade_min_distance = NEAR_HIDDEN_M
+	material.distance_fade_max_distance = NEAR_SOLID_M
+	instance.material_override = material
+	return true
+
+
+static func _own_mesh() -> ArrayMesh:
 	var mesh := ArrayMesh.new()
 	var dome := PackedVector2Array([Vector2(0.0, 0.0), Vector2(0.0004, 0.0022), Vector2(0.0012, 0.0036),
 			Vector2(0.0025, 0.0045), Vector2(0.004, _radius_at(0.004)), Vector2(TIP_LENGTH, _radius_at(TIP_LENGTH))])
 	_lathe(mesh, dome, _material(Color(0.2, 0.36, 0.62), 0.95, 0.0))
-	# Mostly diffuse: the cue is out of the table's probe, and a full metal shows only the dim
-	# studio it reflects, nearly black.
-	_lathe(mesh, _taper(TIP_LENGTH, FERRULE_END, 2), _material(Color(0.8, 0.62, 0.32), 0.4, 0.3))
+	_lathe(mesh, _taper(TIP_LENGTH, FERRULE_END, 2), _material(Color(0.8, 0.62, 0.32), 0.4, FERRULE_METALLIC))
 	_lathe(mesh, _taper(FERRULE_END, BUTT_START, 12), _wood_material("ash", 0.7, 0.6, 0.2))
 	var butt := _taper(BUTT_START, LENGTH - 0.004, 8)
 	var end_radius := _radius_at(LENGTH)
 	butt.append_array(PackedVector2Array([Vector2(LENGTH - 0.0015, end_radius * 0.92),
 			Vector2(LENGTH, end_radius * 0.6), Vector2(LENGTH, 0.0)]))
 	_lathe(mesh, butt, _wood_material("ebony", 0.6, 1.0, 0.08))
-	_mesh_instance = MeshInstance3D.new()
-	_mesh_instance.name = "Mesh"
-	# Out of the table's reflection probe, which would otherwise keep the cue where it was captured.
-	_mesh_instance.layers = Stage.MOVING_LAYER
-	_mesh_instance.mesh = mesh
-	add_child(_mesh_instance)
+	return mesh
 
 
 static func _radius_at(from_tip: float) -> float:
