@@ -1085,6 +1085,86 @@
           "required": true
         }
       }
+    },
+    "shot.camera": {
+      "subsystem": "shot",
+      "levels": [
+        "info"
+      ],
+      "fields": {
+        "shot_id": {
+          "type": "string",
+          "required": true
+        },
+        "sequence": {
+          "type": "string",
+          "required": true
+        },
+        "ball": {
+          "type": "string",
+          "required": false
+        },
+        "pocket": {
+          "type": "integer",
+          "required": false
+        },
+        "drop_t": {
+          "type": "number",
+          "required": false
+        },
+        "reason": {
+          "type": "string",
+          "required": false
+        },
+        "pose": {
+          "type": "array",
+          "required": false
+        }
+      }
+    },
+    "shot.result": {
+      "subsystem": "shot",
+      "levels": [
+        "info"
+      ],
+      "fields": {
+        "shot_id": {
+          "type": "string",
+          "required": true
+        },
+        "potted": {
+          "type": "array",
+          "required": true
+        },
+        "points": {
+          "type": "integer",
+          "required": true
+        },
+        "break": {
+          "type": "integer",
+          "required": true
+        },
+        "next_ball": {
+          "type": "string",
+          "required": true
+        },
+        "next_pocket": {
+          "type": "integer",
+          "required": false
+        },
+        "next_aim_rad": {
+          "type": "number",
+          "required": false
+        },
+        "next_cut_deg": {
+          "type": "number",
+          "required": false
+        },
+        "next_reason": {
+          "type": "string",
+          "required": false
+        }
+      }
     }
   }
 }

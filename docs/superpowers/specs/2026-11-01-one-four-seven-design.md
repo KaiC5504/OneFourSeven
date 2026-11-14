@@ -438,6 +438,21 @@ level 1.
   big as the screen allows with every pocket clear of the controls. It holds
   there steadily while the balls run, then eases back behind the cue ball for the next
   shot.
+- **Owner (M2), the shot cycle**, as in the mobile game he plays:
+  - **The pot:** when an object ball will drop within about 4 seconds of the strike (the
+    simulator knows at the strike), the view cuts just after the tip meets the cue ball
+    to a camera behind that pocket, low and looking back along the ball's path, and
+    holds while the ball drops. The ball's value (red 1 up to black 7) floats up out of
+    the pocket. The camera then moves smoothly up to the TV view. A shot that pots
+    nothing, only the cue ball, or a ball too late, rises straight to the TV view.
+  - **The settle:** the TV view holds until every ball stops.
+  - **The return:** the aim turns to the easiest clear pot (a colour after a red, a red
+    after a colour while reds remain; the nearest such ball when nothing is clear), and
+    the camera swoops back down behind the cue ball onto that aim in about a second.
+    "Aim at the next ball" in Settings turns the aim turn off.
+  - **The break:** a small counter shows the running break while it is above zero; a
+    shot that pots nothing or the cue ball ends it. Full scoring and the opponent come
+    with the rules (M3).
 - An overview button shows the same view (**Owner**, M2). A one-finger drag walks round
   the table, keeping it all in view, and pinch zooms; a drag during a shot walks round
   too. The button again, or a tilt, returns behind the cue ball.
