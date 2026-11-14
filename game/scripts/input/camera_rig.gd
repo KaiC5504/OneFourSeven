@@ -19,8 +19,10 @@ extends Node3D
 ## more than ELEVATION_JUMP_RAD (the cue forced over a ball or the rail), eases there over EASE_S.
 ##
 ## The broadcast view is the main TV camera of a match (KaiC's reference, a World Grand Prix frame):
-## at one end, high and well back, BROADCAST_PITCH_DEG down, the whole table in frame clear of the
-## controls (keep_clear), the far end narrower. While a shot plays (held) it stands at the end
+## at one end, BROADCAST_PITCH_DEG down, the table as big as the screen allows: the whole outline
+## in view below the notice line, the near rail about two thirds of the width, every pocket clear
+## of the controls (keep_clear) though a rail's outer edge may pass under one, the far end
+## narrower. While a shot plays (held) it stands at the end
 ## behind the shot, so the picture keeps the player's left and right, and stays there like the TV
 ## camera rather than chasing the balls. set_overview() shows it too. In both, orbit() walks round
 ## the table at that angle, refitting the distance to keep the whole table in view; in the overview
@@ -54,9 +56,16 @@ const JUMP_M := 0.05
 const JUMP_RAD := 0.5
 const ELEVATION_JUMP_RAD := 0.15
 const ABOVE_CUE_DEG := 12.0
-const BROADCAST_PITCH_DEG := 55.0
-## The share of the half-view the table's outline may fill.
-const BROADCAST_FILL := 0.92
+const BROADCAST_PITCH_DEG := 30.0
+## The most of the view's width the table's outline may fill seen from an end (the TV frame's near
+## rail is about 65 % wide) and from a side, where the long table runs across the wide screen;
+## between, it follows the yaw.
+const END_ON_WIDTH := 0.68
+const SIDE_ON_WIDTH := 0.9
+## Canvas units at the top the table stays below: main.gd's notice line (16 down, about 60 deep).
+const NOTICE_CLEAR := 92.0
+## Canvas units between the outline and the canvas's bottom.
+const OUTLINE_MARGIN := 6.0
 ## A drag across the whole screen walks about half way round.
 const ORBIT_RAD_PER_PX := 0.0016
 const OVERVIEW_ZOOM_MIN := 0.5
@@ -67,10 +76,11 @@ const BLEND_S := 1.0
 ## when descending, so a camera low behind the cue ball clears the rails as it pulls back. Above
 ## 0.1875 the height would overshoot its end.
 const BLEND_ARC := 0.18
-## Canvas units kept between the table's outline and a control.
+## Canvas units kept between a pocket and a control.
 const CLEAR_MARGIN := 12.0
-## The furthest the broadcast view backs off to clear the controls before giving up.
-const MAX_PULL_BACK_M := 20.0
+## The smallest share of its fit the broadcast view shrinks to, clearing the controls, before
+## giving up.
+const MIN_FIT_SCALE := 0.3
 ## The phone's canvas, for a camera not in a viewport yet.
 const DEFAULT_CANVAS := Vector2(1912.0, 880.0)
 const DEFAULT_ASPECT := 1912.0 / 880.0
@@ -81,6 +91,8 @@ const RAIL_CLEARANCE_M := 0.1
 ## Used when the extension gives no table (spec 6.1).
 const FALLBACK_HALF_SIZE := Vector2(1.7845, 0.889)
 const FALLBACK_BALL_RADIUS := 0.02625
+## A corner and a middle pocket's drop centre and radius (x, y, radius), mirrored to the others.
+const FALLBACK_POCKETS: Array[Vector3] = [Vector3(1.8157, 0.9202, 0.042), Vector3(0.0, 0.9985, 0.044)]
 
 var _pitch_deg := DEFAULT_PITCH_DEG
 var _zoom := 1.0
@@ -114,7 +126,10 @@ var _view_zoom := 1.0
 var _outline := Stage.DEFAULT_BOUNDS
 var _keep_clear: Array[Rect2] = []
 var _clear_boxes: Array[PackedVector2Array] = []
-var _pull_back_warned := false
+var _clear_warned := false
+## The pockets' drop circles' hull (core metres), and as Godot points at the cloth and the rail top.
+var _pocket_hull := PackedVector2Array()
+var _pocket_points := PackedVector3Array()
 var _half_size := FALLBACK_HALF_SIZE
 var _ball_radius := FALLBACK_BALL_RADIUS
 
@@ -127,6 +142,17 @@ func _init() -> void:
 	else:
 		Log.warn("app", "app.error", {"kind": "message",
 				"message": "camera_rig: OfsTable.dimensions() gave no table; framing and clearances use the standard table"})
+	var pockets: Array = Physics.table_shape().get("pockets", [])
+	_pocket_hull = _hull_of(pockets)
+	if _pocket_hull.size() < 3:
+		Log.warn("app", "app.error", {"kind": "message", "message": "camera_rig: the table shape gave no pockets (%d: %s); the broadcast view keeps the standard table's clear"
+				% [pockets.size(), pockets]})
+		var standard: Array = []
+		for p in FALLBACK_POCKETS:
+			for corner: Vector2 in [Vector2(1, 1), Vector2(1, -1), Vector2(-1, 1), Vector2(-1, -1)]:
+				standard.append({"drop_centre": [p.x * corner.x, p.y * corner.y], "drop_radius": p.z})
+		_pocket_hull = _hull_of(standard)
+	_place_pockets()
 
 
 func _ready() -> void:
@@ -163,20 +189,37 @@ func follow(cue_xy: Vector2, aim_rad: float) -> void:
 func set_table_bounds(bounds: AABB) -> void:
 	if bounds.has_volume():
 		_outline = bounds
+		_place_pockets()
 		_apply()
 
 
-## Canvas rectangles (the controls) the broadcast view keeps the table out from under.
+## Canvas rectangles (the controls) the broadcast view keeps the pockets out from under.
 func keep_clear(rects: Array[Rect2]) -> void:
 	if rects == _keep_clear:
 		return
 	_keep_clear = rects.duplicate()
 	_clear_boxes.clear()
+	var canvas := _canvas()
+	var beyond := Rect2(-canvas, canvas * 3.0)
+	# Each control keeps the pockets out of its column of the screen, from its inner edge out, or out
+	# of the band from the top down to its bottom when that gives up less of the screen. That leaves
+	# them one clear rectangle: against the controls' own shapes a pocket slipping round a corner,
+	# from beside a control to above it, springs the fit in or out as the view walks round. No band
+	# runs along the bottom, where the near rail sits.
 	for rect in rects:
 		var grown := rect.grow(CLEAR_MARGIN)
-		_clear_boxes.append(PackedVector2Array([grown.position, Vector2(grown.end.x, grown.position.y), grown.end,
-				Vector2(grown.position.x, grown.end.y)]))
+		var column := Rect2(beyond.position, Vector2(grown.end.x - beyond.position.x, beyond.size.y))
+		var column_cut := grown.end.x / canvas.x
+		if grown.get_center().x > canvas.x / 2.0:
+			column = Rect2(Vector2(grown.position.x, beyond.position.y), Vector2(beyond.end.x - grown.position.x, beyond.size.y))
+			column_cut = 1.0 - grown.position.x / canvas.x
+		var band := Rect2(beyond.position, Vector2(beyond.size.x, grown.end.y - beyond.position.y))
+		_clear_boxes.append(_corners(band if grown.end.y / canvas.y < column_cut else column))
 	_apply()
+
+
+static func _corners(rect: Rect2) -> PackedVector2Array:
+	return PackedVector2Array([rect.position, Vector2(rect.end.x, rect.position.y), rect.end, Vector2(rect.position.x, rect.end.y)])
 
 
 ## The planning view's distance looking along aim_rad: FAR_DISTANCE_M along the table, further
@@ -363,31 +406,19 @@ func pose_for(cue_xy: Vector2, aim_rad: float, elevation_rad: float = 0.0) -> Tr
 
 
 ## The rig's transform for the broadcast view looking along yaw_rad (a core angle: 0 stands at
-## baulk looking towards the black), BROADCAST_PITCH_DEG down, at the distance that fits the
-## table's outline into BROADCAST_FILL of the view clear of the controls, times zoom.
+## baulk looking towards the black), BROADCAST_PITCH_DEG down, as close as the table's outline fits
+## the view below the notice line, at most END_ON_WIDTH to SIDE_ON_WIDTH of its width, with every
+## pocket clear of the controls; times zoom.
 func broadcast_pose(yaw_rad: float, zoom: float = 1.0) -> Transform3D:
 	var pitch := deg_to_rad(BROADCAST_PITCH_DEG)
 	var level := TableSpace.core_to_godot(cos(yaw_rad), sin(yaw_rad))
 	var basis := Basis.looking_at(level * cos(pitch) + Vector3.DOWN * sin(pitch), Vector3.UP)
 	var forward := -basis.z
-	var tan_v := tan(deg_to_rad(FOV_DEG) / 2.0) * BROADCAST_FILL
-	var tan_h := tan_v * _aspect()
-	# For a fixed orientation each edge of the view is a plane through the eye, and a point is inside
-	# it when the eye is far enough along that plane's normal: a linear bound per point and edge.
-	# The eye that meets the top and bottom bounds (or the sides, whichever is further back)
-	# exactly, centred between the other pair, is the closest fit.
-	var top := -INF
-	var bottom := -INF
-	var right := -INF
-	var left := -INF
-	for p in _outline_corners():
-		top = maxf(top, p.dot(basis.y - forward * tan_v))
-		bottom = maxf(bottom, p.dot(-basis.y - forward * tan_v))
-		right = maxf(right, p.dot(basis.x - forward * tan_h))
-		left = maxf(left, p.dot(-basis.x - forward * tan_h))
-	var along := minf(-(top + bottom) / (2.0 * tan_v), -(right + left) / (2.0 * tan_h))
-	var eye := basis.x * (right - left) / 2.0 + basis.y * (top - bottom) / 2.0 + forward * along
-	eye -= forward * _pull_back_for_controls(eye, basis)
+	var canvas := _canvas()
+	var width := canvas.x * lerpf(END_ON_WIDTH, SIDE_ON_WIDTH, sin(yaw_rad) * sin(yaw_rad))
+	var bounds := _frame_bounds(basis, Rect2((canvas.x - width) / 2.0, NOTICE_CLEAR, width,
+			canvas.y - OUTLINE_MARGIN - NOTICE_CLEAR))
+	var eye := _clear_eye(basis, bounds)
 	var to_cloth := (eye.y - _ball_radius) / -forward.y
 	return Transform3D(basis, eye + forward * to_cloth * (1.0 - zoom))
 
@@ -423,41 +454,116 @@ func _outline_corners() -> PackedVector3Array:
 			Vector3(lo.x, hi.y, hi.z)])
 
 
-## Metres to back the eye off along the view so the outline is clear of every keep_clear rectangle.
-## Backing off shrinks the table towards the middle of the view, where no control is.
-func _pull_back_for_controls(eye: Vector3, basis: Basis) -> float:
-	if not _covers_controls(Transform3D(basis, eye)):
-		return 0.0
-	var near := 0.0
-	var far := 0.25
-	while _covers_controls(Transform3D(basis, eye + basis.z * far)):
-		near = far
-		far *= 2.0
-		if far > MAX_PULL_BACK_M:
-			if not _pull_back_warned:
-				_pull_back_warned = true
-				Log.warn("app", "app.error", {"kind": "message", "message": "camera_rig: the broadcast view can't clear the controls %s within %.0f m (outline %s, canvas %s)"
-						% [_keep_clear, MAX_PULL_BACK_M, _outline, _canvas()]})
-			return MAX_PULL_BACK_M
-	for i in 14:
-		var mid := (near + far) / 2.0
-		if _covers_controls(Transform3D(basis, eye + basis.z * mid)):
-			near = mid
+## What _eye needs to place the outline inside the canvas rectangle `frame` looking along `basis`:
+## the frame's top, bottom, right and left edges as tangents off the view's centre, then for each
+## the outline's furthest reach past it.
+# For a fixed orientation each edge of the frame is a plane through the eye, and a point is inside it
+# when the eye is far enough along that plane's normal: a linear bound per point and edge.
+func _frame_bounds(basis: Basis, frame: Rect2) -> PackedFloat64Array:
+	var forward := -basis.z
+	var half := _canvas() / 2.0
+	var per_tan := half.y / tan(deg_to_rad(FOV_DEG) / 2.0)
+	var tans := PackedFloat64Array([(half.y - frame.position.y) / per_tan, (frame.end.y - half.y) / per_tan,
+			(frame.end.x - half.x) / per_tan, (half.x - frame.position.x) / per_tan])
+	var normals: Array[Vector3] = [basis.y - forward * tans[0], -basis.y - forward * tans[1], basis.x - forward * tans[2],
+			-basis.x - forward * tans[3]]
+	var bounds := tans.duplicate()
+	for normal in normals:
+		var reach := -INF
+		for p in _outline_corners():
+			reach = maxf(reach, p.dot(normal))
+		bounds.append(reach)
+	return bounds
+
+
+## The eye with the outline inside the frame _frame_bounds gave, centred across. At scale 1 it is
+## the closest such eye, meeting the top and bottom bounds (or the sides, whichever is further
+## back); a smaller scale backs off until the table is that much smaller. low 0 centres the outline
+## between the top and bottom, 1 puts it as low as it goes. Raising or lowering the eye along its
+## own up leaves where everything is across the screen exactly as it was.
+func _eye(basis: Basis, bounds: PackedFloat64Array, scale: float, low: float) -> Vector3:
+	var forward := -basis.z
+	var along := minf(-(bounds[4] + bounds[5]) / (bounds[0] + bounds[1]), -(bounds[6] + bounds[7]) / (bounds[2] + bounds[3]))
+	if scale < 1.0:
+		var centre := Vector3(_outline.get_center().x, _outline.end.y, _outline.get_center().z).dot(forward)
+		along = centre - (centre - along) / scale
+	var lowest := -bounds[5] - bounds[1] * along
+	var up := lerpf((bounds[4] + bounds[0] * along + lowest) / 2.0, lowest, low)
+	var side := (bounds[6] + bounds[2] * along - bounds[7] - bounds[3] * along) / 2.0
+	return basis.x * side + basis.y * up + forward * along
+
+
+## The broadcast eye with every pocket clear of the controls: the closest that is clear with the
+## table as low as it goes, then raised towards the middle as far as it stays clear. Across the
+## screen only the size matters, so the controls' columns set the size and the bands the height.
+func _clear_eye(basis: Basis, bounds: PackedFloat64Array) -> Vector3:
+	var scale := 1.0
+	if _covers_controls(Transform3D(basis, _eye(basis, bounds, scale, 1.0))):
+		scale = MIN_FIT_SCALE
+		if _covers_controls(Transform3D(basis, _eye(basis, bounds, scale, 1.0))):
+			if not _clear_warned:
+				_clear_warned = true
+				Log.warn("app", "app.error", {"kind": "message", "message": "camera_rig: the broadcast view can't clear the pockets of the controls %s at %.0f %% of its fit (outline %s, canvas %s)"
+						% [_keep_clear, MIN_FIT_SCALE * 100.0, _outline, _canvas()]})
+			return _eye(basis, bounds, scale, 1.0)
+		var covers := 1.0
+		for i in 12:
+			var mid := (scale + covers) / 2.0
+			if _covers_controls(Transform3D(basis, _eye(basis, bounds, mid, 1.0))):
+				covers = mid
+			else:
+				scale = mid
+	var low := 1.0
+	var too_high := 0.0
+	if not _covers_controls(Transform3D(basis, _eye(basis, bounds, scale, too_high))):
+		return _eye(basis, bounds, scale, too_high)
+	for i in 10:
+		var mid := (low + too_high) / 2.0
+		if _covers_controls(Transform3D(basis, _eye(basis, bounds, scale, mid))):
+			too_high = mid
 		else:
-			far = mid
-	return far
+			low = mid
+	return _eye(basis, bounds, scale, low)
 
 
 func _covers_controls(pose: Transform3D) -> bool:
 	if _clear_boxes.is_empty():
 		return false
-	var outline := PackedVector2Array()
-	for p in _outline_corners():
-		outline.append(project(pose, p))
+	var canvas := _canvas()
+	var per_m := canvas.y / 2.0 / tan(deg_to_rad(FOV_DEG) / 2.0)
+	var to_view := pose.affine_inverse()
+	var drawn := PackedVector2Array()
+	for p in _pocket_points:
+		var local := to_view * p
+		drawn.append(canvas / 2.0 + Vector2(local.x, -local.y) * per_m / maxf(-local.z, 1e-6))
+	var pockets := Geometry2D.convex_hull(drawn)
 	for box in _clear_boxes:
-		if not Geometry2D.intersect_polygons(outline, box).is_empty():
+		if not Geometry2D.intersect_polygons(pockets, box).is_empty():
 			return true
 	return false
+
+
+## The convex hull round the pockets' drop circles in core metres; `pockets` as
+## OfsPhysics.table_shape() gives them.
+static func _hull_of(pockets: Array) -> PackedVector2Array:
+	var points := PackedVector2Array()
+	for pocket: Variant in pockets:
+		if not (pocket is Dictionary and (pocket as Dictionary).has("drop_centre") and (pocket as Dictionary).has("drop_radius")):
+			continue
+		var c: Array = pocket["drop_centre"]
+		if c.size() < 2:
+			continue
+		for k in 8:
+			points.append(Vector2(float(c[0]), float(c[1])) + Vector2.from_angle(k * TAU / 8.0) * float(pocket["drop_radius"]))
+	return Geometry2D.convex_hull(points) if points.size() >= 3 else PackedVector2Array()
+
+
+# At the cloth and at the rail top, whichever a view draws further out.
+func _place_pockets() -> void:
+	_pocket_points.clear()
+	for p in _pocket_hull:
+		_pocket_points.append(TableSpace.core_to_godot(p.x, p.y))
+		_pocket_points.append(TableSpace.core_to_godot(p.x, p.y, _outline.end.y))
 
 
 func _canvas() -> Vector2:
@@ -466,11 +572,6 @@ func _canvas() -> Vector2:
 		if view.y > 0.0:
 			return view
 	return DEFAULT_CANVAS
-
-
-func _aspect() -> float:
-	var canvas := _canvas()
-	return canvas.x / canvas.y
 
 
 ## A view's direction as (yaw, pitch, 0): the core angle it looks along and how far down, in
