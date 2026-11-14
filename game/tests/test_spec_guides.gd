@@ -89,11 +89,18 @@ func test_first_contact_cushion_with_no_balls() -> void:
 
 
 func test_first_contact_pocket() -> void:
-	# spec 8.4 with the outline of spec 6.3: an aim from the table centre into the top-left pocket.
-	# Aimed at its drop centre (about 0.469 rad) the ball clips the left jaw; straight-line
-	# geometry puts the clear window at about 0.4556-0.4665 rad, so 0.461 goes in.
+	# spec 8.4 with the outline of spec 6.3: an aim from the table centre into the top-left pocket,
+	# at the point where its two cushions' nose lines cross, the middle of its mouth. (Aimed at the
+	# drop centre, deeper in, the ball clips the left jaw.)
 	var shape := _shape()
-	var aim := 0.461
+	var corner := Vector2.ZERO
+	for line: Dictionary in shape.get("lines", []):
+		if line["name"] == "top":
+			corner.x = float(line["p1"][0])
+		elif line["name"] == "left_top":
+			corner.y = float(line["p1"][1])
+	check(corner.x > 0.0 and corner.y > 0.0, "the top and left noses are in the shape")
+	var aim := corner.angle()
 	var balls: Array[Dictionary] = [_ball("cue", 0.0, 0.0)]
 	var c := Guides.first_contact(balls, 0, aim, shape, R)
 	check_eq(c.get("kind"), "pocket", "kind")

@@ -3,29 +3,26 @@ extends RefCounted
 ## Picks where the aim turns after a shot, as the camera swoops back behind the cue ball: the
 ## easiest clear pot, preferring the kind of ball that would be on.
 ##
-## Ghost-ball geometry on straight lines. Each preferred ball and pocket gives a target just inside
-## the mouth, the ghost ball touching the object ball on the line to it, and the cut between the
-## cue ball's path to the ghost and the object ball's path. A pot is clear when no ball comes
-## within a ball's width of either path, the ghost is on the cloth, and the object ball's centre
-## reaches the pocket's drop circle before touching a nose, jaw or facing.
+## Ghost-ball geometry on straight lines. Each preferred ball and pocket gives the line a ball must
+## take to drop (the middle of what it can see of the hole between the jaws), the ghost ball touching
+## the object ball on that line, and the cut between the cue ball's path to the ghost and the object
+## ball's path. A pot is clear when no ball comes within a ball's width of either path, the ghost is
+## on the cloth, and the object ball's centre reaches the pocket's drop circle before touching a
+## nose, jaw or facing.
 
 const VALUES := {"red": 1, "yellow": 2, "green": 3, "brown": 4, "blue": 5, "pink": 6, "black": 7}
 const PREFERENCES: Array[String] = ["red", "colour", "any"]
+## The simulator makes every cut to 80 degrees, but the aim that makes one narrows from 0.2 degrees
+## wide at 75 to 0.1 at 80, and past 80 some can't be made at all.
 const MAX_CUT_DEG := 75.0
-## Middle pockets are narrow: nobody pots along the cushion into one.
+## Off a middle pocket's axis. Its mouth closes up from the side: balls still go in cleanly at 75
+## degrees, through a few millimetres; to 50 it stays wider than a corner pocket's at its best.
 const MAX_MIDDLE_APPROACH_DEG := 50.0
 # Ease = cos^2(cut) / (1 + CUE_COST * cue travel + OBJECT_COST * object travel), per metre: an aim
 # error grows along both paths alike, and any sum under 20/m keeps a 30 degree cut over 1 m (0.25)
 # ahead of a 60 degree cut over 0.3 m (0.156).
 const CUE_COST_PER_M := 1.0
 const OBJECT_COST_PER_M := 1.0
-# Aimed at the mouth's centre, an angled pot clips the near jaw, so the target moves towards the
-# far jaw by this times the sine of the approach's angle to the pocket's axis. Over the cloth in
-# 2.5 cm steps that clears all the corner pots and 98% of the middle pots that the best fixed shift
-# up to 3 cm would; the mouth's centre loses about 30% of them (the black off its spot into a top
-# corner among them), the drop centre about 64%.
-const CORNER_SHIFT_M := 0.025
-const MIDDLE_SHIFT_M := 0.02
 ## Shorter paths than this have no direction.
 const MIN_TRAVEL_M := 1.0e-9
 # Tolerances as Guides uses them: already touching, arc ends and segment ends.
@@ -39,9 +36,14 @@ const QUANT := 1099511627776.0
 const CANDIDATE_MASK := 2047
 ## Floats stored per candidate: target x, y, ghost x, y, object direction x, y, score.
 const CANDIDATE_STRIDE := 7
-## Floats stored per pocket: drop centre x, y, drop radius, outward axis x, y, mouth target x, y,
-## shift, 1 for a corner.
-const POCKET_STRIDE := 9
+## Per side of a mouth: where the drop circle meets the cushion a ball's radius out (x, y; NAN when
+## it doesn't), then that side's jaw as a ball's centre meets it: centre x, y, radius plus a ball's
+## (0 without a jaw), and unit vectors from that centre to the two ends, anticlockwise, of the arc a
+## ball can touch before the hole.
+const MOUTH_SIDE := 9
+## Floats stored per pocket (_mouths): drop centre x, y, drop radius, outward axis x, y, 1 for a
+## corner, then MOUTH_SIDE floats for the side on the left looking into the pocket and for the right.
+const POCKET_STRIDE := 6 + 2 * MOUTH_SIDE
 
 
 ## balls are FreeTable balls ({"ball", "index", "x", "y"} in core metres); prefer is "red",
@@ -94,51 +96,26 @@ static func choose_on(shape: Dictionary, dims: Dictionary, balls: Array[Dictiona
 	var pockets: Array = shape["pockets"]
 	var cos_max_cut := cos(deg_to_rad(MAX_CUT_DEG))
 	var cos_max_middle := cos(deg_to_rad(MAX_MIDDLE_APPROACH_DEG))
-	var pocket_data := PackedFloat64Array()
-	for pocket: Dictionary in pockets:
-		var centre: Array = pocket["drop_centre"]
-		var dcx := float(centre[0])
-		var dcy := float(centre[1])
-		var drop_r := float(pocket["drop_radius"])
-		var corner := bool(pocket["corner"])
-		var ax := signf(dcx) * sqrt(0.5) if corner else 0.0
-		var ay := signf(dcy) * sqrt(0.5) if corner else signf(dcy)
-		# The target is the drop circle's near edge, drop_set_back_m behind the narrowest point.
-		pocket_data.append_array(PackedFloat64Array([dcx, dcy, drop_r, ax, ay, dcx - ax * drop_r, dcy - ay * drop_r,
-				CORNER_SHIFT_M if corner else MIDDLE_SHIFT_M, 1.0 if corner else 0.0]))
+	var pocket_data := _mouths(pockets, shape["lines"], shape["arcs"], r)
 
 	var cand_ball := PackedInt32Array()
 	var cand_pocket := PackedInt32Array()
 	var cand := PackedFloat64Array()
 	cand.resize(preferred.size() * pockets.size() * CANDIDATE_STRIDE)
 	var keys := PackedInt64Array()
+	var line := PackedFloat64Array([0.0, 0.0, 0.0, 0.0])
 	for i in preferred:
 		var ox := xs[i]
 		var oy := ys[i]
 		var value := int(VALUES[String(balls[i]["ball"])])
 		for p in pockets.size():
 			var k := p * POCKET_STRIDE
-			var ax := pocket_data[k + 3]
-			var ay := pocket_data[k + 4]
-			var tx := pocket_data[k + 5]
-			var ty := pocket_data[k + 6]
-			var ux := tx - ox
-			var uy := ty - oy
-			var length := sqrt(ux * ux + uy * uy)
-			if length < MIN_TRAVEL_M:
+			if not _pot_line(pocket_data, k, ox, oy, line):
 				continue
-			ux /= length
-			uy /= length
-			# The part of the path across the axis has length sin(approach angle).
-			var along := ux * ax + uy * ay
-			tx += (ux - along * ax) * pocket_data[k + 7]
-			ty += (uy - along * ay) * pocket_data[k + 7]
-			ux = tx - ox
-			uy = ty - oy
-			length = sqrt(ux * ux + uy * uy)
-			ux /= length
-			uy /= length
-			if pocket_data[k + 8] == 0.0 and ux * ax + uy * ay < cos_max_middle:
+			var ux := line[0]
+			var uy := line[1]
+			var length := line[2]
+			if pocket_data[k + 5] == 0.0 and ux * pocket_data[k + 3] + uy * pocket_data[k + 4] < cos_max_middle:
 				continue
 			var gx := ox - 2.0 * r * ux
 			var gy := oy - 2.0 * r * uy
@@ -156,8 +133,8 @@ static func choose_on(shape: Dictionary, dims: Dictionary, balls: Array[Dictiona
 			cand_ball.append(i)
 			cand_pocket.append(p)
 			var j := c * CANDIDATE_STRIDE
-			cand[j] = tx
-			cand[j + 1] = ty
+			cand[j] = ox + ux * length
+			cand[j + 1] = oy + uy * length
 			cand[j + 2] = gx
 			cand[j + 3] = gy
 			cand[j + 4] = ux
@@ -223,6 +200,215 @@ static func _input_problem(shape: Dictionary, dims: Dictionary, balls: Array[Dic
 		if not pocket is Dictionary or not (pocket as Dictionary).has_all(["drop_centre", "drop_radius", "corner"]):
 			return "a pocket lacks drop_centre, drop_radius or corner: %s" % JSON.stringify(pocket)
 	return ""
+
+
+## Each pocket's mouth as a ball's centre meets it, POCKET_STRIDE floats a pocket. The part of the
+## drop circle a centre can reach runs between the two points where the circle meets a jaw or
+## facing a ball's radius out, either side of the point nearest the table.
+static func _mouths(pockets: Array, lines: Array, arcs: Array, r: float) -> PackedFloat64Array:
+	var index_of := {}
+	for p in pockets.size():
+		index_of[(pockets[p] as Dictionary).get("name", "")] = p
+	# Each jaw a ball's radius out: its pocket, centre x, y, radius, start and sweep.
+	var jaws := PackedFloat64Array()
+	for arc: Dictionary in arcs:
+		var of: Variant = arc.get("pocket")
+		var centre: Array = arc["centre"]
+		var start := float(arc["angle_start"])
+		# The binding names an arc's pocket by index, the shape file by name.
+		var pocket := float(of) if of is int or of is float else float(index_of.get(of, -1))
+		jaws.append_array([pocket, float(centre[0]), float(centre[1]), float(arc["radius"]) + r, start,
+				float(arc["angle_end"]) - start])
+	# Each facing a ball's radius out: its start x, y and its run x, y.
+	var facings := PackedFloat64Array()
+	for line: Dictionary in lines:
+		if line.get("kind", "") != "facing":
+			continue
+		var p1: Array = line["p1"]
+		var p2: Array = line["p2"]
+		var normal: Array = line["normal"]
+		facings.append_array([float(p1[0]) + float(normal[0]) * r, float(p1[1]) + float(normal[1]) * r,
+				float(p2[0]) - float(p1[0]), float(p2[1]) - float(p1[1])])
+
+	var out := PackedFloat64Array()
+	out.resize(pockets.size() * POCKET_STRIDE)
+	for p in pockets.size():
+		var pocket: Dictionary = pockets[p]
+		var centre: Array = pocket["drop_centre"]
+		var dcx := float(centre[0])
+		var dcy := float(centre[1])
+		var drop_r := float(pocket["drop_radius"])
+		var corner := bool(pocket["corner"])
+		var ax := signf(dcx) * sqrt(0.5) if corner else 0.0
+		var ay := signf(dcy) * sqrt(0.5) if corner else signf(dcy)
+		var k := p * POCKET_STRIDE
+		out[k] = dcx
+		out[k + 1] = dcy
+		out[k + 2] = drop_r
+		out[k + 3] = ax
+		out[k + 4] = ay
+		out[k + 5] = 1.0 if corner else 0.0
+		# How far round the drop circle from its point nearest the table each side's meeting point is.
+		var nearest := PackedFloat64Array([INF, INF])
+		var met_on_jaw := PackedByteArray([0, 0])
+		for side in 2:
+			out[k + 6 + side * MOUTH_SIDE] = NAN
+			out[k + 6 + side * MOUTH_SIDE + 4] = 0.0
+		for j in range(0, jaws.size(), 6):
+			if int(jaws[j]) != p:
+				continue
+			var jx := jaws[j + 1]
+			var jy := jaws[j + 2]
+			var rho := jaws[j + 3]
+			var b := k + 6 + (0 if ax * (jy - dcy) - ay * (jx - dcx) > 0.0 else 1) * MOUTH_SIDE
+			out[b + 2] = jx
+			out[b + 3] = jy
+			out[b + 4] = rho
+			out[b + 5] = jaws[j + 4]
+			out[b + 6] = jaws[j + 5]
+			var apart := sqrt((jx - dcx) * (jx - dcx) + (jy - dcy) * (jy - dcy))
+			if apart < MIN_TRAVEL_M or apart > rho + drop_r or apart < absf(rho - drop_r):
+				continue
+			var along := (apart * apart + drop_r * drop_r - rho * rho) / (2.0 * apart)
+			var across := sqrt(maxf(drop_r * drop_r - along * along, 0.0))
+			for sign: float in [1.0, -1.0]:
+				var x := dcx + (along * (jx - dcx) - sign * across * (jy - dcy)) / apart
+				var y := dcy + (along * (jy - dcy) + sign * across * (jx - dcx)) / apart
+				var past := fposmod(atan2(y - jy, x - jx) - jaws[j + 4], TAU)
+				if (past <= jaws[j + 5] + ANGLE_EPS or past >= TAU - ANGLE_EPS) and _meets(out, k, x, y, nearest):
+					met_on_jaw[0 if ax * (y - dcy) - ay * (x - dcx) > 0.0 else 1] = 1
+		for f in range(0, facings.size(), 4):
+			var x1 := facings[f]
+			var y1 := facings[f + 1]
+			var ex := facings[f + 2]
+			var ey := facings[f + 3]
+			var e2 := ex * ex + ey * ey
+			var half_b := (x1 - dcx) * ex + (y1 - dcy) * ey
+			var disc := half_b * half_b - e2 * ((x1 - dcx) * (x1 - dcx) + (y1 - dcy) * (y1 - dcy) - drop_r * drop_r)
+			if e2 <= 0.0 or disc < 0.0:
+				continue
+			for sign: float in [1.0, -1.0]:
+				var s := (-half_b + sign * sqrt(disc)) / e2
+				if s < -SEGMENT_EPS or s > 1.0 + SEGMENT_EPS:
+					continue
+				var x := x1 + s * ex
+				var y := y1 + s * ey
+				if _meets(out, k, x, y, nearest):
+					met_on_jaw[0 if ax * (y - dcy) - ay * (x - dcx) > 0.0 else 1] = 0
+		# A jaw can only be touched before the hole: its arc stops where the drop circle crosses it.
+		for side in 2:
+			var b := k + 6 + side * MOUTH_SIDE
+			if out[b + 4] <= 0.0:
+				continue
+			var start := out[b + 5]
+			var sweep := out[b + 6]
+			if met_on_jaw[side] != 0:
+				var at := clampf(fposmod(atan2(out[b + 1] - out[b + 3], out[b] - out[b + 2]) - start + ANGLE_EPS, TAU) - ANGLE_EPS,
+						0.0, sweep)
+				var sx := out[b + 2] + out[b + 4] * cos(start) - dcx
+				var sy := out[b + 3] + out[b + 4] * sin(start) - dcy
+				if sx * sx + sy * sy > drop_r * drop_r:
+					sweep = at
+				else:
+					start += at
+					sweep -= at
+			out[b + 5] = cos(start)
+			out[b + 6] = sin(start)
+			out[b + 7] = cos(start + sweep)
+			out[b + 8] = sin(start + sweep)
+	return out
+
+
+## Keeps (x, y) as its side's meeting point of pocket k when it is nearer the drop circle's point
+## nearest the table than the one held; true when kept.
+static func _meets(mouths: PackedFloat64Array, k: int, x: float, y: float, nearest: PackedFloat64Array) -> bool:
+	var ax := mouths[k + 3]
+	var ay := mouths[k + 4]
+	var rx := x - mouths[k]
+	var ry := y - mouths[k + 1]
+	var left := ax * ry - ay * rx
+	var side := 0 if left > 0.0 else 1
+	var round_from_front := absf(atan2(left, -(ax * rx + ay * ry)))
+	if round_from_front >= nearest[side]:
+		return false
+	nearest[side] = round_from_front
+	mouths[k + 6 + side * MOUTH_SIDE] = x
+	mouths[k + 6 + side * MOUTH_SIDE + 1] = y
+	return true
+
+
+## The line a ball at o must take into pocket k of `mouths`: the middle of the directions along
+## which its centre reaches the reachable part of the drop circle without touching a jaw first, so
+## it has the same room for error either side. Fills line with the unit direction x, y, the travel
+## to the drop circle and half the width of those directions in radians; false when there are none.
+static func _pot_line(mouths: PackedFloat64Array, k: int, ox: float, oy: float, line: PackedFloat64Array) -> bool:
+	var dcx := mouths[k]
+	var dcy := mouths[k + 1]
+	var drop_r := mouths[k + 2]
+	var wx := dcx - ox
+	var wy := dcy - oy
+	var dist2 := wx * wx + wy * wy
+	if dist2 <= drop_r * drop_r:
+		return false
+	var dist := sqrt(dist2)
+	var ex := wx / dist
+	var ey := wy / dist
+	# Directions are kept as the tangent of their angle from the line to the drop centre, positive
+	# to the left: they all lie within a quarter turn of it.
+	var hi := drop_r / sqrt(dist2 - drop_r * drop_r)
+	var lo := -hi
+	for side in 2:
+		var b := k + 6 + side * MOUTH_SIDE
+		var s := 1.0 if side == 0 else -1.0
+		var bound := hi if side == 0 else lo
+		var px := mouths[b]
+		if not is_nan(px):
+			var py := mouths[b + 1]
+			if (px - dcx) * (ox - dcx) + (py - dcy) * (oy - dcy) >= drop_r * drop_r:
+				# The meeting point faces the ball: nothing of the hole shows beyond it.
+				bound = (ex * (py - oy) - ey * (px - ox)) / (ex * (px - ox) + ey * (py - oy))
+			elif s * (ex * (py - dcy) - ey * (px - dcx)) <= 0.0:
+				# It is round the back on the other side: the ball sees none of the reachable part.
+				return false
+		var rho := mouths[b + 4]
+		if rho > 0.0:
+			var jx := mouths[b + 2] - ox
+			var jy := mouths[b + 3] - oy
+			var away := sqrt(jx * jx + jy * jy)
+			var sin_half := minf(rho / away, 1.0)
+			var cos_half := sqrt(1.0 - sin_half * sin_half)
+			# The line that just clears the jaw on the hole's side of it, and where it touches.
+			var tx := (jx * cos_half + s * jy * sin_half) / away
+			var ty := (jy * cos_half - s * jx * sin_half) / away
+			var qx := tx * away * cos_half - jx
+			var qy := ty * away * cos_half - jy
+			if mouths[b + 5] * qy - mouths[b + 6] * qx >= -ANGLE_EPS * rho and qx * mouths[b + 8] - qy * mouths[b + 7] >= -ANGLE_EPS * rho:
+				var ahead := ex * tx + ey * ty
+				var left := ex * ty - ey * tx
+				if ahead > 0.0:
+					bound = minf(bound, left / ahead) if side == 0 else maxf(bound, left / ahead)
+				elif s * left <= 0.0:
+					# It clears the jaw only by turning away from the hole.
+					return false
+		if side == 0:
+			hi = bound
+		else:
+			lo = bound
+	if hi - lo <= ANGLE_EPS:
+		return false
+	# The bisector of the two bounding directions, in the frame of the line to the drop centre.
+	var lo_scale := 1.0 / sqrt(1.0 + lo * lo)
+	var hi_scale := 1.0 / sqrt(1.0 + hi * hi)
+	var mx := lo_scale + hi_scale
+	var my := lo * lo_scale + hi * hi_scale
+	var m := sqrt(mx * mx + my * my)
+	mx /= m
+	my /= m
+	line[0] = ex * mx - ey * my
+	line[1] = ey * mx + ex * my
+	line[2] = dist * mx - sqrt(maxf(drop_r * drop_r - dist2 * my * my, 0.0))
+	line[3] = 0.5 * atan2((hi - lo) * lo_scale * hi_scale, (1.0 + lo * hi) * lo_scale * hi_scale)
+	return true
 
 
 ## Whether a ball other than skip_a and skip_b comes within sqrt(min_d2) of the segment a to b.
