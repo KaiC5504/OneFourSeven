@@ -63,6 +63,9 @@ var _roll_target_db := SILENT_DB
 var _roll_amp := 0.0
 var _miscue := false
 var _facing_lines := {}
+# The cushion noses as lines, [x, y, inward normal x, y] each: a ball's centre behind one is in a
+# pocket's mouth.
+var _noses := PackedFloat64Array()
 var _height := DEFAULT_BALL_RADIUS
 var _bad_event_logged := false
 
@@ -111,16 +114,24 @@ func begin_shot(strike_outcome: Dictionary) -> void:
 
 
 ## Hits on a pocket facing (OfsPhysics.table_shape() lines of kind "facing") sound like the jaw.
+## A jaw's arc starts as the cushion's own nose turning away, so a hit on it sounds like the jaw
+## only once the ball's centre is past the line of a nose (kind "nose"), in the pocket's mouth.
 func use_table_shape(shape: Dictionary) -> void:
 	_facing_lines.clear()
+	_noses.clear()
 	var lines: Array = shape.get("lines", [])
 	for i in lines.size():
-		if (lines[i] as Dictionary).get("kind", "") == "facing":
+		var line: Dictionary = lines[i]
+		if line.get("kind", "") == "facing":
 			_facing_lines[i] = true
+		elif line.get("kind", "") == "nose" and line.get("p1") is Array and line.get("normal") is Array:
+			var p1: Array = line["p1"]
+			var normal: Array = line["normal"]
+			_noses.append_array([float(p1[0]), float(p1[1]), float(normal[0]), float(normal[1])])
 
 
 func on_event(event: Dictionary, state: PackedFloat64Array) -> void:
-	var sound := sound_for(event)
+	var sound := sound_for(event, state)
 	if String(event.get("kind", "")) == "strike":
 		_miscue = false
 	if sound.is_empty():
@@ -187,13 +198,29 @@ func stop_all() -> void:
 
 
 ## The sound an event makes ("" for none): strike is "tip", or "miscue" after begin_shot said so.
-func sound_for(event: Dictionary) -> String:
+## state, the balls at the event, places a hit on a jaw's arc: "cushion" short of the mouth.
+func sound_for(event: Dictionary, state: PackedFloat64Array = PackedFloat64Array()) -> String:
 	var kind := String(event.get("kind", ""))
 	if kind == "strike" and _miscue:
 		return "miscue"
 	if kind == "ball_line" and _facing_lines.has(int(event.get("body", -1))):
 		return "jaw"
+	if kind == "ball_arc" and not _in_a_mouth(int(event.get("a", -1)), state):
+		return "cushion"
 	return KIND_SOUNDS.get(kind, "")
+
+
+## Whether ball a's centre is past the line of a cushion nose. Without the ball or the noses to
+## tell by, a jaw's arc is taken as hit in the mouth.
+func _in_a_mouth(a: int, state: PackedFloat64Array) -> bool:
+	if a < 0 or a >= state.size() / ShotPlayback.STRIDE or _noses.is_empty():
+		return true
+	var x := state[a * ShotPlayback.STRIDE + ShotPlayback.X]
+	var y := state[a * ShotPlayback.STRIDE + ShotPlayback.Y]
+	for k in range(0, _noses.size(), 4):
+		if (x - _noses[k]) * _noses[k + 2] + (y - _noses[k + 1]) * _noses[k + 3] < 0.0:
+			return true
+	return false
 
 
 ## Level in dB before Settings "volume" for a sound name or event kind at an impact speed (m/s).

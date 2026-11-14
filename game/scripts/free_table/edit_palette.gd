@@ -70,7 +70,7 @@ func _build() -> void:
 	_panel.add_child(_box)
 	for ball in BALLS:
 		var b := _button("+", BALL_BUTTON)
-		b.icon = _swatch(BallsView.BALL_COLOURS[ball])
+		b.icon = _swatch(BallsView.ball_colour(ball))
 		b.tooltip_text = "Add a " + ball
 		b.pressed.connect(add_pressed.emit.bind(ball))
 		_buttons[ball] = b

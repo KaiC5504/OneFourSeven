@@ -1,6 +1,10 @@
 extends TestCase
 ## NextTarget (spec 8.5, the return): the easiest clear pot by ghost-ball geometry, the preference
 ## and its fallback, the nearest ball when nothing is clear, refusals of bad input, and its time.
+##
+## Where a ball must go to drop is taken from the table shape, never from numbers written here: the
+## expected line is the middle of the directions that Guides' straight-line geometry sends cleanly
+## into the pocket (_clear_window).
 
 const R := 0.02625
 const HALF_LENGTH := 1.7845
@@ -13,15 +17,18 @@ var _log_start := 0
 
 
 func test_black_off_its_spot_is_a_straight_pot_into_the_top_left() -> void:
-	# The black's spot is (1.4605, 0). The top-left target starts at the drop circle's near edge,
-	# (1.815613, 0.920113) - 0.042 * (DIAG, DIAG) = (1.785914, 0.890414). The line to it is 24.9 degrees
-	# off the pocket's axis (sine 0.4214), so the target moves 0.025 * 0.4214 = 10.5 mm towards the
-	# left cushion's jaw, to (1.778464, 0.897864): u = (0.333820, 0.942637). With the cue ball 0.5 m
-	# straight behind the black on that line the pot is straight: cut 0, aim atan2(u) = 1.230443.
+	# The black's spot is (1.4605, 0), some 24 degrees off the top-left pocket's axis: its line is
+	# the middle of what goes in, nearer the left cushion's jaw than the line to the drop centre.
+	# With the cue ball 0.5 m straight behind the black on that line the pot is straight.
 	var black := [1.4605, 0.0]
-	var target := [1.7784644346106204, 0.89786399251412596]
-	var u := _unit(float(target[0]) - float(black[0]), float(target[1]) - float(black[1]))
-	var cue := [float(black[0]) - 0.5 * u[0], float(black[1]) - 0.5 * u[1]]
+	var window := _clear_window(black, _pocket("top_left"))
+	check_eq(window.size(), 2, "the black can be potted in the top left")
+	if window.size() != 2:
+		return
+	var line := 0.5 * (float(window[0]) + float(window[1]))
+	var drop: Array = Physics.table_shape()["pockets"][_pocket("top_left")]["drop_centre"]
+	check(line > atan2(float(drop[1]) - float(black[1]), float(drop[0]) - float(black[0])), "left of the line to the drop centre")
+	var cue := [float(black[0]) - 0.5 * cos(line), float(black[1]) - 0.5 * sin(line)]
 	_mark_log()
 	var balls := _balls([["cue", cue], ["black", black]])
 	var result := NextTarget.choose(balls, 0, "colour")
@@ -29,8 +36,7 @@ func test_black_off_its_spot_is_a_straight_pot_into_the_top_left() -> void:
 	check_eq(result.get("ball"), "black", "label")
 	check_eq(result.get("pocket"), _pocket("top_left"), "top left")
 	check_near(float(result.get("cut_deg", NAN)), 0.0, 1e-6, "straight")
-	check_near(float(result.get("aim_rad", NAN)), 1.2304431495750543, 1e-9, "along the line")
-	check_near(float(result.get("aim_rad", NAN)), atan2(u[1], u[0]), 1e-12, "the line's own angle")
+	check_near(float(result.get("aim_rad", NAN)), line, 1e-9, "along the middle of what goes in")
 	check_eq(result.get("reason"), "", "no reason")
 	check(float(result.get("score", 0.0)) > 0.0, "a score")
 	check_eq(_logged("app.error").size(), 0, "nothing logged")
@@ -42,11 +48,44 @@ func test_black_off_its_spot_is_a_straight_pot_into_the_top_left() -> void:
 		check_eq(int(record.final_balls()[1].get("pocket", -1)), _pocket("top_left"), "potted in the top left")
 
 
+func test_the_line_into_a_pocket_is_the_middle_of_what_goes_in() -> void:
+	# From either side of each kind of pocket and from near and far: the cue ball straight behind
+	# the red on the middle of its clear directions is a straight pot along exactly that line.
+	var cases := [
+		["top_left", [1.2, 0.75]], ["top_left", [1.6, 0.3]], ["top_left", [0.0, 0.0]], ["bottom_right", [-1.0, -0.2]],
+		["middle_left", [0.3, 0.5]], ["middle_left", [-0.5, 0.45]], ["middle_right", [0.1, 0.3]],
+	]
+	for case: Array in cases:
+		var red: Array = case[1]
+		var label := "%s from %s" % [case[0], red]
+		var p := _pocket(case[0])
+		var window := _clear_window(red, p)
+		check_eq(window.size(), 2, label + ": can be potted")
+		if window.size() != 2:
+			continue
+		var line := 0.5 * (float(window[0]) + float(window[1]))
+		var cue := [float(red[0]) - 0.3 * cos(line), float(red[1]) - 0.3 * sin(line)]
+		var result := NextTarget.choose(_balls([["cue", cue], ["red", red]]), 0, "red")
+		check_eq(result.get("pocket"), p, label + ": that pocket")
+		check_near(float(result.get("aim_rad", NAN)), line, 1e-9, label + ": the middle of what goes in")
+		check_near(float(result.get("cut_deg", NAN)), 0.0, 1e-6, label + ": straight")
+
+
+func test_no_pot_where_the_jaws_leave_no_way_in() -> void:
+	# A red 3 mm off the left cushion, 0.5 m short of the top-left pocket: along the cushion the
+	# near jaw's curve is in the way, and nothing goes cleanly in. The cue ball is straight behind
+	# it along the cushion, so that pocket would otherwise be the easiest by far.
+	var red := [HALF_LENGTH - 0.5, HALF_WIDTH - R - 0.003]
+	check_eq(_clear_window(red, _pocket("top_left")).size(), 0, "nothing goes in")
+	var result := NextTarget.choose(_balls([["cue", [float(red[0]) - 0.4, float(red[1])]], ["red", red]]), 0, "red")
+	check(result.get("pocket") != _pocket("top_left"), "the top left is not offered")
+
+
 func test_thirty_degree_cut_aims_at_the_ghost_ball() -> void:
-	# A red 0.4 m out from the top-left corner on the pocket's axis: no shift, so the target is
-	# the drop circle's near edge T, the object ball runs along the axis and the ghost ball is
-	# G = O - 2R * (DIAG, DIAG). The cue ball sits 0.6 m back from G along 45 +- 30 degrees, so the
-	# aim is atan2(G - C), 75 or 15 degrees, and the cut 30.
+	# A red 0.4 m out from the top-left corner on the pocket's axis, where the jaws are the same
+	# either side: the object ball runs along the axis and the ghost ball is G = O - 2R * (DIAG, DIAG).
+	# The cue ball sits 0.6 m back from G along 45 +- 30 degrees, so the aim is atan2(G - C), 75 or
+	# 15 degrees, and the cut 30.
 	var pocket: Dictionary = Physics.table_shape()["pockets"][_pocket("top_left")]
 	var drop: Array = pocket["drop_centre"]
 	var t := [float(drop[0]) - DIAG * float(pocket["drop_radius"]), float(drop[1]) - DIAG * float(pocket["drop_radius"])]
@@ -65,33 +104,55 @@ func test_thirty_degree_cut_aims_at_the_ghost_ball() -> void:
 
 
 func test_a_ball_on_a_path_sends_it_to_another_pot() -> void:
-	# A red at (0.65, -0.04) with the cue ball at (1.15, 0.34): an 18.4 degree cut into the right
-	# middle beats a 19.8 degree cut into the bottom right, whose object ball runs 1.5 m further.
-	var open := [["cue", [1.15, 0.34]], ["red", [0.65, -0.04]]]
+	# A red at (0.65, -0.04) with the cue ball at (1.15, 0.34): a cut of some 17 degrees into the
+	# right middle beats one of some 20 into the bottom right, whose object ball runs 1.5 m further.
+	var red := [0.65, -0.04]
+	var cue := [1.15, 0.34]
+	var open := [["cue", cue], ["red", red]]
+	var middle := _pot(red, cue, _pocket("middle_right"))
+	var corner := _pot(red, cue, _pocket("bottom_right"))
+	check(not middle.is_empty() and not corner.is_empty(), "both pots are on")
+	if middle.is_empty() or corner.is_empty():
+		return
+	check(float(middle["cut_deg"]) < float(corner["cut_deg"]), "the middle is the fuller ball")
 	var result := NextTarget.choose(_balls(open), 0, "red")
 	check_eq(result.get("pocket"), _pocket("middle_right"), "unblocked: the middle")
-	check_near(float(result.get("cut_deg", NAN)), 18.393, 1e-3, "middle cut")
-	# A blue halfway along the red's line to the middle (target (-0.0116, -0.9545)).
-	var object_blocked := NextTarget.choose(_balls(open + [["blue", [0.3192, -0.4973]]]), 0, "red")
+	check_near(float(result.get("cut_deg", NAN)), float(middle["cut_deg"]), 1e-6, "middle cut")
+	check_near(float(result.get("aim_rad", NAN)), float(middle["aim_rad"]), 1e-9, "middle aim")
+	# A blue 0.5 m along the red's line to the middle.
+	var along: Array = middle["line"]
+	var on_object_path := [float(red[0]) + 0.5 * float(along[0]), float(red[1]) + 0.5 * float(along[1])]
+	var object_blocked := NextTarget.choose(_balls(open + [["blue", on_object_path]]), 0, "red")
 	check_eq(object_blocked.get("pocket"), _pocket("bottom_right"), "object path blocked: the bottom right")
-	check_near(float(object_blocked.get("cut_deg", NAN)), 19.832, 1e-3, "bottom right cut")
+	check_near(float(object_blocked.get("cut_deg", NAN)), float(corner["cut_deg"]), 1e-6, "bottom right cut")
 	# A blue 1.5R off the cue ball's line to the middle's ghost ball, 3R short of it, on the side
 	# away from the bottom right's ghost ball: it blocks the one path but not the other.
-	var cue_blocked := NextTarget.choose(_balls(open + [["blue", [0.7217, 0.0805]]]), 0, "red")
+	var ghost: Array = middle["ghost"]
+	var other: Array = corner["ghost"]
+	var to_ghost := _unit(float(ghost[0]) - float(cue[0]), float(ghost[1]) - float(cue[1]))
+	var side := [-float(to_ghost[1]), float(to_ghost[0])]
+	if (float(other[0]) - float(ghost[0])) * float(side[0]) + (float(other[1]) - float(ghost[1])) * float(side[1]) > 0.0:
+		side = [-float(side[0]), -float(side[1])]
+	var on_cue_path := [float(ghost[0]) - 3.0 * R * float(to_ghost[0]) + 1.5 * R * float(side[0]),
+			float(ghost[1]) - 3.0 * R * float(to_ghost[1]) + 1.5 * R * float(side[1])]
+	var cue_blocked := NextTarget.choose(_balls(open + [["blue", on_cue_path]]), 0, "red")
 	check_eq(cue_blocked.get("pocket"), _pocket("bottom_right"), "cue path blocked: the bottom right")
 	check_eq(cue_blocked.get("index"), 1, "still the red")
 
 
 func test_prefer_colour_takes_a_colour_over_an_easier_red() -> void:
 	# A red 0.3 m out on the top-left axis with the cue ball 0.4 m straight behind it (cut 0), and a
-	# pink at (1.2, -0.2) that goes in the top right at a 49.7 degree cut.
+	# pink at (1.2, -0.2) that goes in the top right at a cut of some 50 degrees.
 	var red := [HALF_LENGTH - 0.3 * DIAG, HALF_WIDTH - 0.3 * DIAG]
 	var cue := [float(red[0]) - (0.4 + 2.0 * R) * DIAG, float(red[1]) - (0.4 + 2.0 * R) * DIAG]
 	var balls := _balls([["cue", cue], ["red", red], ["pink", [1.2, -0.2]]])
+	var pink := _pot([1.2, -0.2], cue, _pocket("top_right"))
+	check(not pink.is_empty(), "the pink can be potted in the top right")
 	var colour := NextTarget.choose(balls, 0, "colour")
 	check_eq(colour.get("ball"), "pink", "colour: the pink")
 	check_eq(colour.get("pocket"), _pocket("top_right"), "colour: top right")
-	check_near(float(colour.get("cut_deg", NAN)), 49.669, 1e-3, "colour: cut")
+	check_near(float(colour.get("cut_deg", NAN)), float(pink.get("cut_deg", NAN)), 1e-6, "colour: cut")
+	check(float(pink.get("cut_deg", 0.0)) > 40.0 and float(pink.get("cut_deg", 90.0)) < 60.0, "a thin cut: %s" % pink.get("cut_deg"))
 	var any := NextTarget.choose(balls, 0, "any")
 	check_eq(any.get("ball"), "red 0", "any: the easier red")
 	check_eq(any.get("pocket"), _pocket("top_left"), "any: top left")
@@ -159,25 +220,31 @@ func test_a_cut_over_75_degrees_is_never_chosen() -> void:
 
 
 func test_along_the_cushion_into_a_middle_is_rejected() -> void:
-	# A red 8.9 cm from the left cushion at x = -0.6 with the cue ball straight behind it on the line
-	# to the left middle's mouth (0, 0.9545): 76 degrees off the pocket's axis. Some other pot wins.
-	var mouth := [0.0, 0.9545]
-	var along := [-0.6, 0.8]
-	var u := _unit(float(mouth[0]) - float(along[0]), float(mouth[1]) - float(along[1]))
-	var cue := [float(along[0]) - 0.4 * u[0], float(along[1]) - 0.4 * u[1]]
-	var result := NextTarget.choose(_balls([["cue", cue], ["red", along]]), 0, "red")
-	check(result.get("pocket") != _pocket("middle_left"), "not along the cushion into the middle")
-	# 23 degrees off the axis, the same middle takes it.
-	var square := [-0.15, 0.6]
-	u = _unit(float(mouth[0]) - float(square[0]), float(mouth[1]) - float(square[1]))
-	cue = [float(square[0]) - 0.4 * u[0], float(square[1]) - 0.4 * u[1]]
-	result = NextTarget.choose(_balls([["cue", cue], ["red", square]]), 0, "red")
-	check_eq(result.get("pocket"), _pocket("middle_left"), "a fuller angle into the middle")
+	# The left middle's mouth is the point of its drop circle nearest the table. A red 0.4 m from
+	# it with the cue ball straight behind on the red's own line: at 40 degrees off the pocket's
+	# axis the middle takes it; at 60 the line is still clear but past MAX_MIDDLE_APPROACH_DEG, and
+	# at 80, along the cushion, the near jaw leaves no way in. Some other pot wins those.
+	var pocket: Dictionary = Physics.table_shape()["pockets"][_pocket("middle_left")]
+	var mouth := [float(pocket["drop_centre"][0]), float(pocket["drop_centre"][1]) - float(pocket["drop_radius"])]
+	for case: Array in [[40.0, true], [60.0, true], [80.0, false]]:
+		var off_axis: float = case[0]
+		var label := "%d degrees off the axis" % off_axis
+		var red := [float(mouth[0]) - 0.4 * sin(deg_to_rad(off_axis)), float(mouth[1]) - 0.4 * cos(deg_to_rad(off_axis))]
+		var window := _clear_window(red, _pocket("middle_left"))
+		check_eq(window.size() == 2, case[1], label + ": whether anything goes in")
+		var line := deg_to_rad(90.0 - off_axis) if window.is_empty() else 0.5 * (float(window[0]) + float(window[1]))
+		var cue := [float(red[0]) - 0.4 * cos(line), float(red[1]) - 0.4 * sin(line)]
+		var result := NextTarget.choose(_balls([["cue", cue], ["red", red]]), 0, "red")
+		if off_axis < NextTarget.MAX_MIDDLE_APPROACH_DEG:
+			check_eq(result.get("pocket"), _pocket("middle_left"), label + ": the middle takes it")
+			check_near(float(result.get("cut_deg", NAN)), 0.0, 1e-6, label + ": straight")
+		else:
+			check(result.get("pocket") != _pocket("middle_left"), label + ": not into the middle")
 
 
 func test_opening_break_position() -> void:
 	# From the opening cue position every red is in the pack: no clear pot, so the aim goes at the
-	# apex red. The blue off its spot into the top left (a 19.3 degree cut) is the easiest colour.
+	# apex red. The blue off its spot into the top left (a cut of some 19 degrees) is the easiest colour.
 	var layout := FreeTable._opening_layout()
 	check_eq(layout.size(), 22, "full layout")
 	_mark_log()
@@ -190,7 +257,10 @@ func test_opening_break_position() -> void:
 	var colour := NextTarget.choose(layout, 0, "colour")
 	check_eq(colour.get("ball"), "blue", "the blue")
 	check_eq(colour.get("pocket"), _pocket("top_left"), "top left")
-	check_near(float(colour.get("cut_deg", NAN)), 19.289, 1e-3, "cut")
+	var blue := _pot([float(layout[colour.get("index", 0)]["x"]), float(layout[colour.get("index", 0)]["y"])],
+			[float(layout[0]["x"]), float(layout[0]["y"])], _pocket("top_left"))
+	check_near(float(colour.get("cut_deg", NAN)), float(blue.get("cut_deg", NAN)), 1e-6, "cut")
+	check(float(blue.get("cut_deg", 0.0)) > 15.0 and float(blue.get("cut_deg", 90.0)) < 25.0, "about 19 degrees: %s" % blue.get("cut_deg"))
 	check(is_finite(float(colour.get("aim_rad", NAN))) and float(colour.get("score", 0.0)) > 0.0, "finite aim and a score")
 	check_eq(_logged("app.error").size(), 0, "no errors")
 
@@ -269,6 +339,58 @@ func _scattered(seed: int) -> Array[Dictionary]:
 				reds += 1 if name == "red" else 0
 				break
 	return balls
+
+
+## The directions, in radians from +x, along which a ball at `from` runs cleanly into pocket p:
+## [lowest, highest], or [] when there are none. Found with Guides' straight-line geometry, by a
+## scan across the drop circle and a bisection at each end, not with anything of NextTarget's.
+func _clear_window(from: Array, p: int) -> Array:
+	var shape := Physics.table_shape()
+	var pocket: Dictionary = shape["pockets"][p]
+	var drop := [float(pocket["drop_centre"][0]), float(pocket["drop_centre"][1])]
+	var drop_r := float(pocket["drop_radius"])
+	var away := sqrt(pow(float(drop[0]) - float(from[0]), 2.0) + pow(float(drop[1]) - float(from[1]), 2.0))
+	var towards := atan2(float(drop[1]) - float(from[1]), float(drop[0]) - float(from[0]))
+	var reach := asin(minf(drop_r / away, 1.0))
+	var balls := _balls([["cue", from]])
+	var goes_in := func(angle: float) -> bool:
+		var c := Guides.first_contact(balls, 0, angle, shape, R)
+		var ghost: Vector2 = c["ghost"]
+		return c["kind"] == "pocket" and absf(ghost.distance_to(Vector2(float(drop[0]), float(drop[1]))) - drop_r) < 1.0e-5
+	var steps := 1000
+	var step := 2.0 * reach / steps
+	var first := -1
+	var last := -1
+	for i in steps + 1:
+		if goes_in.call(towards - reach + i * step):
+			first = i if first < 0 else first
+			last = i
+	if first < 0:
+		return []
+	var ends: Array = []
+	for end: Array in [[first, -1.0], [last, 1.0]]:
+		var inside := towards - reach + int(end[0]) * step
+		var outside := inside + float(end[1]) * step
+		for i in 60:
+			var mid := 0.5 * (inside + outside)
+			if goes_in.call(mid):
+				inside = mid
+			else:
+				outside = mid
+		ends.append(inside)
+	return ends
+
+
+## The pot of a ball at `object` into pocket p with the cue ball at `cue`, from _clear_window:
+## {"line": the object ball's unit direction, "ghost", "aim_rad", "cut_deg"}, or {} without one.
+func _pot(object: Array, cue: Array, p: int) -> Dictionary:
+	var window := _clear_window(object, p)
+	if window.size() != 2:
+		return {}
+	var line := 0.5 * (float(window[0]) + float(window[1]))
+	var ghost := [float(object[0]) - 2.0 * R * cos(line), float(object[1]) - 2.0 * R * sin(line)]
+	var aim := atan2(float(ghost[1]) - float(cue[1]), float(ghost[0]) - float(cue[0]))
+	return {"line": [cos(line), sin(line)], "ghost": ghost, "aim_rad": aim, "cut_deg": rad_to_deg(absf(angle_difference(aim, line)))}
 
 
 ## [[name, [x, y]], ...] as FreeTable balls; reds are numbered in order.

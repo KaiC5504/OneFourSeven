@@ -52,11 +52,54 @@ func _sounds(played: Array[Array]) -> Array[String]:
 func test_event_kinds_map_to_sounds() -> void:
 	var audio := _audio()
 	var played := _played(audio)
+	# Ball 0 is in the top-left pocket's mouth, where the cushions' nose lines cross.
+	var in_the_mouth := _state([{"x": 1.7845 + 0.01, "y": 0.889 + 0.01}, {"x": 0.6, "y": -0.4}])
 	for kind in KINDS:
-		audio.on_event(_event(kind, 1.0), _two_balls())
+		audio.on_event(_event(kind, 1.0), in_the_mouth)
 	for kind: String in ["transition", "nap", "guard"]:
-		audio.on_event(_event(kind, 1.0), _two_balls())
+		audio.on_event(_event(kind, 1.0), in_the_mouth)
 	check_eq(_sounds(played), ["tip", "click", "cushion", "jaw", "pocket"] as Array[String], "sounds")
+	audio.free()
+
+
+func test_a_jaws_curve_is_the_cushion_until_the_ball_is_in_the_mouth() -> void:
+	# Each jaw is one long arc that starts as the cushion's nose turning away. Along the left
+	# middle's top jaw, a ball's radius out from it: where its centre is still on the table side
+	# of the left cushion's nose line the hit sounds like the cushion, past it like the jaw.
+	var audio := _audio()
+	var played := _played(audio)
+	var shape := Physics.table_shape()
+	var arcs: Array = shape["arcs"]
+	var jaw := -1
+	var nose_y := NAN
+	for i in arcs.size():
+		if arcs[i]["name"] == "middle_left_jaw_top":
+			jaw = i
+	for line: Dictionary in shape["lines"]:
+		if line["name"] == "left_top":
+			nose_y = float(line["p1"][1])
+	check(jaw >= 0 and not is_nan(nose_y), "the left middle's top jaw and the left nose are in the shape")
+	if jaw < 0 or is_nan(nose_y):
+		audio.free()
+		return
+	var centre := Vector2(float(arcs[jaw]["centre"][0]), float(arcs[jaw]["centre"][1]))
+	var reach := float(arcs[jaw]["radius"]) + 0.02625
+	var from := float(arcs[jaw]["angle_start"])
+	var to := float(arcs[jaw]["angle_end"])
+	var expected: Array[String] = []
+	var behind := 0
+	for i in 11:
+		var at := centre + Vector2.from_angle(lerpf(from, to, i / 10.0)) * reach
+		var in_the_mouth := at.y > nose_y
+		behind += 1 if in_the_mouth else 0
+		expected.append("jaw" if in_the_mouth else "cushion")
+		audio.on_event(_event("ball_arc", 1.0, jaw), _state([{"x": at.x, "y": at.y}, {"x": 0.6, "y": -0.4}]))
+	check_eq(_sounds(played), expected, "cushion along the curve, jaw in the mouth")
+	check(behind > 0 and behind < 11, "the curve has both: %d of 11 in the mouth" % behind)
+	# With no place for the ball, or no noses to tell by, a jaw's arc sounds like the jaw.
+	check_eq(audio.sound_for(_event("ball_arc", 1.0, jaw)), "jaw", "no state")
+	audio.use_table_shape({})
+	check_eq(audio.sound_for(_event("ball_arc", 1.0, jaw), _two_balls()), "jaw", "no shape")
 	audio.free()
 
 

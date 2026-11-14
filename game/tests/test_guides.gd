@@ -59,6 +59,14 @@ func _contact(positions: Array, aim_rad: float) -> Dictionary:
 	return Guides.first_contact(_balls(positions), 0, aim_rad, _shape(), R)
 
 
+func _named(entries: Array, name: String) -> Dictionary:
+	for entry: Dictionary in entries:
+		if entry["name"] == name:
+			return entry
+	failures.append("nothing named %s in the table shape" % name)
+	return {}
+
+
 func test_straight_on() -> void:
 	var c := _contact([Vector2(-1.0, 0.0), Vector2(0.0, 0.0)], 0.0)
 	check_eq(c["kind"], "ball", "kind")
@@ -116,23 +124,32 @@ func test_cushion_noses() -> void:
 
 
 func test_jaw_is_a_cushion() -> void:
-	# Between the middle pocket's facing and its top jaw, so the jaw's curve is what it meets.
-	var c := _contact([[0.03, 0.0]], PI / 2.0)
-	var expected := 0.9525 - sqrt(pow(0.0635 + R, 2.0) - pow(0.1075 - 0.03, 2.0))
+	# Straight up the table at the left middle's top jaw, half the jaw's radius along from where
+	# it leaves the nose: the ball meets the jaw's curve, a ball's radius out from it.
+	var jaw := _named(_shape()["arcs"], "middle_left_jaw_top")
+	var centre := [float(jaw["centre"][0]), float(jaw["centre"][1])]
+	var radius := float(jaw["radius"])
+	var x := float(centre[0]) - 0.5 * radius
+	var c := _contact([[x, 0.0]], PI / 2.0)
+	var expected := float(centre[1]) - sqrt(pow(radius + R, 2.0) - pow(float(centre[0]) - x, 2.0))
 	check_eq(c["kind"], "cushion", "kind")
 	check_near(c["distance"], expected, 1e-9, "distance")
+	check(expected > 0.889 - R, "the curve lets it run on past where the nose would have stopped it: %f" % expected)
 
 
 func test_through_a_mouth_is_a_pocket() -> void:
+	var pockets: Array = _shape()["pockets"]
+	var left_middle := _named(pockets, "middle_left")
 	var middle := _contact([Vector2(0.0, 0.0)], PI / 2.0)
 	check_eq(middle["kind"], "pocket", "middle kind")
 	check_eq(middle["index"], -1, "middle index")
-	check_near(middle["distance"], 0.9985 - 0.044, 1e-9, "middle distance to the drop circle")
-	var top_left: Array = (_shape()["pockets"] as Array)[0]["drop_centre"]
-	var drop := Vector2(float(top_left[0]), float(top_left[1]))
+	check_near(middle["distance"], float(left_middle["drop_centre"][1]) - float(left_middle["drop_radius"]), 1e-9,
+			"middle distance to the drop circle")
+	var top_left := _named(pockets, "top_left")
+	var drop := Vector2(float(top_left["drop_centre"][0]), float(top_left["drop_centre"][1]))
 	var corner := _contact([drop - Vector2(0.8, 0.8)], PI / 4.0)
 	check_eq(corner["kind"], "pocket", "corner kind")
-	check_near(corner["distance"], 0.8 * sqrt(2.0) - 0.042, 1e-6, "corner distance")
+	check_near(corner["distance"], 0.8 * sqrt(2.0) - float(top_left["drop_radius"]), 1e-6, "corner distance")
 
 
 func test_bad_cue_index_is_none() -> void:

@@ -53,6 +53,117 @@ func test_only_the_cue_ball_has_dots() -> void:
 		var material := (ball as MeshInstance3D).material_override as ShaderMaterial
 		var dots := float(material.get_shader_parameter("dot_cos")) < 1.0
 		check_eq(dots, ball.name == "cue", "%s dots" % ball.name)
+		check(material.shader.code.contains("dot_cos") and material.shader.code.contains("local_dir"), "%s: the dots are in its shader" % ball.name)
+	view.free()
+
+
+func test_the_bought_balls_are_drawn_when_they_are_there() -> void:
+	# res://licensed/balls.gltf is the bought model's (never in the repository): with it each ball
+	# is the model's mesh with its colour from the model's swatch texture and the model's gloss, the
+	# highlight still ours; without it, our own sphere and colours.
+	var view := _build()
+	var bought := ResourceLoader.exists(BallsView.BOUGHT_PATH)
+	check_eq(not BallsView.bought(RADIUS).is_empty(), bought, "the model is used exactly when it is there")
+	var meshes := {}
+	for ball: Node in view.get_children():
+		var instance := ball as MeshInstance3D
+		var material := instance.material_override as ShaderMaterial
+		var kind := String(instance.get_meta("ball"))
+		meshes[kind] = instance.mesh
+		var box := instance.mesh.get_aabb()
+		check_near(box.size.x, 2.0 * RADIUS, 1e-3, "%s: a ball's width" % ball.name)
+		check(box.get_center().length() < 1e-4, "%s: centred on its node" % ball.name)
+		check_eq(instance.layers, Stage.BALL_LAYER, "%s: on the balls' layer" % ball.name)
+		check_eq(instance.mesh is SphereMesh, not bought, "%s: our sphere only without the model" % ball.name)
+		if bought:
+			check(material.get_shader_parameter("swatches") is Texture2D, "%s: the model's colours" % ball.name)
+			check_near(float(material.get_shader_parameter("gloss_roughness")), float(BallsView.bought(RADIUS)["roughness"]), 1e-9,
+					"%s: the model's gloss" % ball.name)
+			check(material.shader.code.contains("void light()"), "%s: our highlight" % ball.name)
+		else:
+			check_eq(material.get_shader_parameter("base_colour"), BallsView.BALL_COLOURS[kind], "%s: our colour" % ball.name)
+	if bought:
+		check(meshes["red"] != meshes["black"] and meshes["cue"] != meshes["red"], "each kind has its own mesh")
+	else:
+		check_eq(meshes["red"], meshes["black"], "one sphere for all")
+	view.free()
+
+
+func test_swatch_colours_are_the_balls_colours() -> void:
+	var bought: Dictionary = BallsView.bought(RADIUS).get("colours", {})
+	for kind: String in BallsView.BALL_COLOURS:
+		var colour := BallsView.ball_colour(kind)
+		if bought.has(kind):
+			check_eq(colour, bought[kind], "%s: the model's swatch" % kind)
+		else:
+			check_eq(colour, BallsView.BALL_COLOURS[kind], "%s: our own colour" % kind)
+	if not bought.is_empty():
+		# Read from the model's texture: each is the colour it is named for.
+		var red: Color = bought["red"]
+		var blue: Color = bought["blue"]
+		var black: Color = bought["black"]
+		var white: Color = bought["cue"]
+		check(red.r > 0.4 and red.r > 2.0 * red.g and red.r > 2.0 * red.b, "red is red: %s" % red)
+		check(blue.b > 0.4 and blue.b > blue.r and blue.b > blue.g, "blue is blue: %s" % blue)
+		check(black.get_luminance() < 0.1, "black is dark: %s" % black)
+		check(white.get_luminance() > 0.8, "the cue ball is white: %s" % white)
+	check_eq(BallsView.ball_colour("no such ball"), BallsView.ball_colour("cue"), "an unknown kind is drawn as the cue ball")
+
+
+func test_a_potted_ball_rolls_over_the_lip_and_stops_in_the_net() -> void:
+	# A ball is potted with its centre over the edge of the hole (the drop circle). From every side
+	# of a corner and a middle pocket, at rest and at pace, it never comes nearer that edge than
+	# its own radius on the way in, ends over the drop centre and never sinks past DROP_DEPTH.
+	var layout := _layout()
+	var view := _build()
+	var shape := TableView.shape_from_json(FileAccess.get_file_as_string(Physics.TABLE_SHAPE_PATH))
+	var pockets: Array = shape["pockets"]
+	view.set_pockets(pockets)
+	var ball := view.get_child(5) as Node3D
+	var o := 5 * ShotPlayback.STRIDE
+	for p: int in [0, 2]:
+		var centre := _v2(pockets[p]["drop_centre"])
+		var drop_r := float(pockets[p]["drop_radius"])
+		# Out of the pocket along its axis: the diagonal at a corner, square to the cushion at a middle.
+		var towards_table := -Vector2(signf(centre.x), signf(centre.y)).normalized() if bool(pockets[p]["corner"]) 				else Vector2(0.0, -signf(centre.y))
+		for turn: float in [-0.25, 0.0, 0.25]:
+			for speed: float in [0.0, 0.3, 2.0, 8.0]:
+				var label := "pocket %d, %.2f rad round, %.1f m/s" % [p, turn, speed]
+				var from := centre + towards_table.rotated(turn) * drop_r
+				var state := _state(layout)
+				state[o + ShotPlayback.X] = from.x
+				state[o + ShotPlayback.Y] = from.y
+				state[o + ShotPlayback.VX] = (centre - from).normalized().x * speed
+				state[o + ShotPlayback.VY] = (centre - from).normalized().y * speed
+				state[o + ShotPlayback.MOTION] = ShotPlayback.ROLLING
+				view.apply_state(state, 0.0)
+				state[o + ShotPlayback.VX] = 0.0
+				state[o + ShotPlayback.VY] = 0.0
+				state[o + ShotPlayback.MOTION] = ShotPlayback.POCKETED
+				state[o + ShotPlayback.POCKET] = float(p)
+				view.apply_state(state, 0.0)
+				view.set_process(false)
+				var lip := TableSpace.core_to_godot(from.x, from.y, 0.0)
+				var nearest := INF
+				var lowest := INF
+				var steps := 0
+				var first_step := 0.0
+				while view.is_dropping() and steps < 1000:
+					view._process(0.001)
+					steps += 1
+					if steps == 1:
+						first_step = TableSpace.godot_to_core(ball.position).distance_to(from)
+					nearest = minf(nearest, ball.position.distance_to(lip))
+					lowest = minf(lowest, ball.position.y)
+					check(TableSpace.godot_to_core(ball.position).distance_to(centre) <= drop_r + 1e-6, label + ": stays over the hole")
+				check(nearest > RADIUS - 2e-5, label + ": over the lip, not through it (%f)" % nearest)
+				check_near(lowest, RADIUS - BallsView.DROP_DEPTH, 1e-6, label + ": down to its rest in the net")
+				check(TableSpace.godot_to_core(ball.position).distance_to(centre) < 1e-5, label + ": ends over the drop centre")
+				check(steps <= roundi(BallsView.DROP_SECONDS * 1000.0) + 1, label + ": no longer than a dying ball's drop (%d ms)" % steps)
+				check(steps >= roundi(BallsView.DROP_MIN_SECONDS * 1000.0) - 1, label + ": no shorter than the shortest (%d ms)" % steps)
+				# It carries on at the pace it came in with, up to a ball's fall time for the whole drop.
+				check_near(first_step, speed * 0.001, 0.15 * speed * 0.001 + 2e-5, label + ": the pace it came in with")
+				view.apply_state(_state(layout), 0.0)
 	view.free()
 
 
