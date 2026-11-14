@@ -432,30 +432,43 @@ level 1.
 - **Pinch** zooms. A **two-finger vertical drag** tilts the camera from cue level (low)
   up to a high, nearly overhead angle. That high angle doubles as the planning view
   without adding a separate top-down mode.
-- **Owner (M2), the TV view:** when a shot is struck, the camera rises smoothly, in about
-  a second and a half, to the main TV camera's view: well back at the end behind the shot,
-  about 30 degrees down on a long lens (20 degrees) so the far end stays wide, the table as
-  big as the screen allows with every pocket clear of the controls. It holds
-  there steadily while the balls run, then eases back behind the cue ball for the next
-  shot.
-- **Owner (M2), the shot cycle**, as in the mobile game he plays:
+- **Owner (M2), the full-table view:** while a shot plays the camera shows the whole table
+  as the mobile game he plays does (measured from his recording of it): from well back at
+  the baulk end, about 30 degrees down on a long lens (17.5 degrees) so the far end stays
+  wide, the table upright, about 80 % of the screen's height and centred, every pocket
+  clear of the controls. The view is cut to, never glided to, and stands still while the
+  balls run.
+- **Owner (M2), the shot cycle**, as in the mobile game he plays, with the timings measured
+  from his recording. Every change of view is an instant cut to a still camera; the
+  return is the only camera move.
   - **The pot:** when an object ball will drop within about 4 seconds of the strike (the
-    simulator knows at the strike), the view cuts just after the tip meets the cue ball
-    to a camera behind that pocket, low and looking back along the ball's path, and
-    holds while the ball drops. The ball's value (red 1 up to black 7) floats up out of
-    the pocket. The camera then moves smoothly up to the TV view. A shot that pots
-    nothing, only the cue ball, or a ball too late, rises straight to the TV view.
-  - **The settle:** the TV view holds until every ball stops.
+    simulator knows at the strike), the view cuts 0.1 s after the strike, or sooner to
+    stay ahead of a ball that drops before then, to a camera behind that pocket: low
+    (about a quarter of a metre above the bed) and close (a third of a metre beyond the
+    pocket) on a wide lens, the pocket low in the middle of the frame, its mouth about an
+    eighth of the screen's width, and the ball rolling down the screen into it. A
+    corner's camera stands on the ball's line in, at most 30 degrees off the pocket's
+    diagonal; a middle's stands square behind its pocket, looking across the table.
+    Either turns as little as it must to keep the ball in the frame all the way in. The
+    ball's value (red 1 up to black 7) floats up out of the pocket. The pocket view
+    holds until 0.7 s after the drop, and for at least a second, then cuts to the
+    full-table view. A shot that pots nothing, only the cue ball, or a ball too late,
+    cuts to the full-table view 0.1 s after the strike; so does every shot when "Pocket
+    camera" in Settings is off.
+  - **The settle:** the full-table view holds until every ball stops, and for at least
+    0.8 s.
   - **The return:** the aim turns to the easiest clear pot (a colour after a red, a red
     after a colour while reds remain; the nearest such ball when nothing is clear), and
-    the camera swoops back down behind the cue ball onto that aim in about a second.
+    the camera swoops back down behind the cue ball onto that aim in about a second,
+    eased in and out, closing in on the cue ball as it turns round the table.
     "Aim at the next ball" in Settings turns the aim turn off.
   - **The break:** a small counter shows the running break while it is above zero; a
     shot that pots nothing or the cue ball ends it. Full scoring and the opponent come
     with the rules (M3).
-- An overview button shows the same view (**Owner**, M2). A one-finger drag walks round
-  the table, keeping it all in view, and pinch zooms; a drag during a shot walks round
-  too. The button again, or a tilt, returns behind the cue ball.
+- An overview button shows the same view from the end behind the aim, eased into
+  (**Owner**, M2). A one-finger drag walks round the table, keeping it all in view, and
+  pinch zooms; a drag during a shot cuts to the full-table view and walks round too. The
+  button again, or a tilt, returns behind the cue ball.
 - Replays get more camera angles (section 12.3).
 
 ### 8.6 Ball in hand
