@@ -234,7 +234,9 @@ func test_parameters_from_the_pc_apply_at_the_next_shot() -> void:
 	var main: MainScript = await _spawn()
 	var old_text := Params.current_text()
 	var old_hash := Params.current_hash()
-	var new_text := old_text.replace('"roll_friction": 0.01,', '"roll_friction": 0.0105,')
+	var shipped := float(Physics.param("roll_friction", 0.0))
+	var roll := RegEx.create_from_string('"roll_friction":\\s*[0-9.eE+-]+,')
+	var new_text := roll.sub(old_text, '"roll_friction": 0.0123,')
 	check(new_text != old_text, "the test changes a value")
 	var files := '{"table_params":%s}' % new_text
 	var new_hash := OfsLog.content_hash(files)
@@ -252,7 +254,7 @@ func test_parameters_from_the_pc_apply_at_the_next_shot() -> void:
 			"physics took the new parameters: %s" % [configured])
 	var simulated := _logged("shot.simulated")
 	check(simulated.size() == 1 and simulated[0]["bundle"]["params_hash"] == new_hash, "the shot ran on them")
-	check_near(Physics.param("roll_friction", 0.0), 0.0105, 1e-12, "the new value in use")
+	check_near(Physics.param("roll_friction", 0.0), 0.0123, 1e-12, "the new value in use")
 	main.skip_shot()
 	await _until_idle(main)
 	# Back to the embedded parameters for the tests after this one.
@@ -260,7 +262,7 @@ func test_parameters_from_the_pc_apply_at_the_next_shot() -> void:
 	Params.apply_remote(old_files, old_hash)
 	Params.commit_pending("test-restore")
 	check_eq(Params.current_hash(), old_hash, "restored")
-	check_near(Physics.param("roll_friction", 0.0), 0.01, 1e-12, "restored value")
+	check_near(Physics.param("roll_friction", 0.0), shipped, 1e-12, "restored value")
 	_finish(main)
 
 

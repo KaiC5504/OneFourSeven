@@ -31,7 +31,7 @@ func test_configure_with_the_real_files() -> void:
 		check_eq(shape["arcs"][i]["name"], file["arcs"][i]["name"], "arc %d name" % i)
 		var pocket: int = shape["arcs"][i]["pocket"]
 		check_eq(shape["pockets"][pocket]["name"], file["arcs"][i]["pocket"], "arc %d pocket index" % i)
-	check_near(shape.get("rail_height", 0.0), 0.04, 1e-12, "rail_height")
+	check_near(shape.get("rail_height", 0.0), float(file["rail_height_m"]), 1e-12, "rail_height")
 	check(Physics.is_ready(), "the autoload configured itself at start")
 	check_eq(Physics.table_shape(), shape, "the autoload's outline")
 
@@ -174,7 +174,8 @@ func test_min_cue_elevation_over_the_baulk_cushion() -> void:
 	var sim := _configured()
 	var position := _position("cue_ball_on_baulk_cushion")
 	var degrees := rad_to_deg(sim.min_cue_elevation(position["balls"], position["cue_ball"], _strike(0.0, 2.0)))
-	check(degrees >= 38.0 and degrees <= 44.0, "about 41 degrees for tip_y 0, got %f" % degrees)
+	# The bought table's rail stands 44.5 mm above the cloth (it was 40 mm): about 6 degrees steeper.
+	check(degrees >= 44.0 and degrees <= 50.0, "about 47 degrees for tip_y 0, got %f" % degrees)
 	var high := _strike(0.0, 2.0)
 	high["tip_y"] = 0.4
 	check(sim.min_cue_elevation(position["balls"], position["cue_ball"], high) < deg_to_rad(degrees) - 0.1,

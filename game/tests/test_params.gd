@@ -196,7 +196,8 @@ func test_out_of_range_parameters_from_the_link_are_refused() -> void:
 	_changes.clear()
 	_mark_log()
 	# Earlier tests may leave the text as the binding re-serialised it, without spaces.
-	var roll := RegEx.create_from_string('"roll_friction":\\s*0\\.01,')
+	var shipped := float(Physics.param("roll_friction", 0.0))
+	var roll := RegEx.create_from_string('"roll_friction":\\s*[0-9.eE+-]+,')
 	var bad_text := roll.sub(old_text, '"roll_friction": 5.0,')
 	check(bad_text != old_text, "the test sets roll_friction out of range")
 	var bad_hash := OfsLog.content_hash('{"table_params":%s}' % bad_text)
@@ -215,7 +216,7 @@ func test_out_of_range_parameters_from_the_link_are_refused() -> void:
 	check_eq(Params.pending_hash(), "", "dropped")
 	check_eq(Link.applied_params_hash, saved_link, "the PC is not told the set is in use")
 	check_eq(Physics.sim.params_hash(), old_hash, "physics still on the old hash")
-	check_near(Physics.param("roll_friction", 0.0), 0.01, 1e-12, "and the old value")
+	check_near(Physics.param("roll_friction", 0.0), shipped, 1e-12, "and the old value")
 	check_eq(_changes.size(), 0, "changed not emitted")
 
 	var balls: Array[Dictionary] = [{"ball": "cue", "index": 0, "x": 0.0, "y": 0.4}, {"ball": "red", "index": 0, "x": 0.0, "y": 0.55}]
@@ -226,14 +227,14 @@ func test_out_of_range_parameters_from_the_link_are_refused() -> void:
 	check(simulated.size() == 1 and simulated[0]["bundle"]["params_hash"] == old_hash,
 			"its bundle carries the hash in use")
 
-	var good_text := roll.sub(old_text, '"roll_friction": 0.0105,')
+	var good_text := roll.sub(old_text, '"roll_friction": 0.0123,')
 	var good_hash := OfsLog.content_hash('{"table_params":%s}' % good_text)
 	Link.params_received.emit('{"table_params":%s}' % good_text, good_hash)
 	check(Params.commit_pending("s-good"), "a later valid set applies")
 	check_eq(Params.current_hash(), good_hash, "its hash")
 	check_eq(Link.applied_params_hash, good_hash, "Link has it")
 	check_eq(Physics.sim.params_hash(), good_hash, "physics runs on it")
-	check_near(Physics.param("roll_friction", 0.0), 0.0105, 1e-12, "the new value")
+	check_near(Physics.param("roll_friction", 0.0), 0.0123, 1e-12, "the new value")
 	check_eq(_changes, [good_hash] as Array[String], "changed emitted once")
 
 	Params.apply_remote('{"table_params":%s}' % old_text, old_hash)
