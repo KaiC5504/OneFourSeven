@@ -34,6 +34,7 @@
 {"ts":1793633431.25,"session":"20261102-153012-a1b2c3","build":"12","platform":"ios","subsystem":"settings","level":"info","event":"settings.loaded","data":{"path":"user://settings.json","version":1}}
 {"ts":1793633431.375,"session":"20261102-153012-a1b2c3","build":"12","platform":"ios","subsystem":"settings","level":"info","event":"settings.changed","data":{"key":"guide_level","new":3,"ok":true,"old":1}}
 {"ts":1793633431.5,"session":"20261102-153012-a1b2c3","build":"12","platform":"ios","subsystem":"ui","level":"info","event":"screen.changed","data":{"from":"","to":"free_table"}}
+{"ts":1793633431.5,"session":"20261102-153012-a1b2c3","build":"12","platform":"ios","subsystem":"ui","level":"info","event":"ui.layout","data":{"cue":[1732.0,16.0,120.0,822.0],"housing":"right","safe":[124.0,0.0,1664.0,838.0],"spin":[140.0,624.0,240.0,240.0]}}
 {"ts":1793633431.625,"session":"20261102-153012-a1b2c3","build":"12","platform":"ios","subsystem":"ui","level":"info","event":"overlay.toggled","data":{"via":"three_finger_tap","visible":true}}
 {"ts":1793633431.75,"session":"20261102-153012-a1b2c3","build":"12","platform":"ios","subsystem":"audio","level":"warn","event":"audio.error","data":{"reason":"file not found","sound":"click_03"}}
 {"ts":1793633431.875,"session":"20261102-153012-a1b2c3","build":"12","platform":"ios","subsystem":"audio","level":"info","event":"haptics.unavailable","data":{"reason":"not a handheld device"}}

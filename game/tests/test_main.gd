@@ -212,7 +212,7 @@ func test_the_opening_view_keeps_the_cue_ball_and_baulk_colours_clear() -> void:
 		var disc := Rect2(at, Vector2.ZERO).grow(at.distance_to(edge))
 		for control in controls:
 			if control.visible:
-				check(not control.get_global_rect().intersects(disc), "%s clear of %s (%s vs %s)" % [ball_name, control.name, disc, control.get_global_rect()])
+				check(not _overlaps(control.name, control.get_global_rect(), disc), "%s clear of %s (%s vs %s)" % [ball_name, control.name, disc, control.get_global_rect()])
 		check(not bar.row_rect().intersects(disc), "%s clear of the bar" % ball_name)
 		# The same view on the phone (the camera keeps its height), with its safe areas.
 		var scale := PHONE_CANVAS.y / viewport.y
@@ -221,8 +221,16 @@ func test_the_opening_view_keeps_the_cue_ball_and_baulk_colours_clear() -> void:
 			var safe := HudScript.safe_rect(safe_px, PHONE_SCREEN, PHONE_CANVAS)
 			var rects: Dictionary = HudScript.layout(safe, _row_size(), PHONE_CANVAS)
 			for key: String in ["bar", "spin", "elevation", "cue", "wheel"]:
-				check(not on_phone.intersects(rects[key]), "phone: %s clear of the %s (%s vs %s)" % [ball_name, key, on_phone, rects[key]])
+				check(not _overlaps(key, rects[key], on_phone), "phone: %s clear of the %s (%s vs %s)" % [ball_name, key, on_phone, rects[key]])
 	main.free()
+
+
+## The spin ball is round, and its square's corners pass touches to the table.
+static func _overlaps(control: String, rect: Rect2, disc: Rect2) -> bool:
+	if control != "spin" and control != "SpinWidget":
+		return rect.intersects(disc)
+	var apart := rect.get_center().distance_to(disc.get_center())
+	return apart < rect.size.x / 2.0 + disc.size.x / 2.0
 
 
 func test_the_debug_overlay_hides_no_control_on_the_phone() -> void:
@@ -252,7 +260,12 @@ func test_layout_fits_the_phones_safe_area_either_way_round() -> void:
 		var placed := {}
 		for key: String in ["bar", "spin", "elevation", "cue", "wheel"]:
 			placed[key] = rects[key]
-			check(safe.encloses(rects[key]), "%s %s inside the safe area %s" % [key, rects[key], safe])
+			if key != "cue" and key != "spin":
+				check(safe.encloses(rects[key]), "%s %s inside the safe area %s" % [key, rects[key], safe])
+		for key: String in ["cue", "spin"]:
+			check(Rect2(Vector2.ZERO, PHONE_CANVAS).encloses(rects[key]), "the %s on the screen: %s" % [key, rects[key]])
+		check((rects["spin"] as Rect2).position.x >= safe.position.x, "the spin ball clear of the rounded corner")
+		check_near(PHONE_CANVAS.y - (rects["spin"] as Rect2).end.y, HudScript.EDGE, 0.5, "and EDGE from the bottom")
 		var keys := placed.keys()
 		for i in keys.size():
 			for j in range(i + 1, keys.size()):
@@ -267,7 +280,9 @@ func test_layout_fits_the_phones_safe_area_either_way_round() -> void:
 				"the elevation right above it")
 		check(elevation.size.y - ElevationControl.PAD_TOP - ElevationControl.PAD_BOTTOM >= 200.0,
 				"its track at least 200 units: %s" % elevation)
-		check(safe.end.x - cue.end.x <= HudScript.EDGE, "the cue at the right edge")
+		# The housing's side unknown: its centre line on the safe edge, clear of an island there.
+		check_near(cue.get_center().x, minf(safe.end.x, PHONE_CANVAS.x - HudScript.CUE_FROM_EDGE), 0.5,
+				"the cue at the right edge")
 		check(cue.size.y > safe.size.y * 0.9, "the cue the full usable height")
 		check(cue.size.x >= 88.0, "a 44 pt touch target")
 		check(cue.size.y - CueStrip.TIP_REST >= PullControl.FULL_PULL, "room to pull to full power")
@@ -318,3 +333,26 @@ func test_the_menu_opens_over_the_controls_and_reaches_its_items() -> void:
 			"the open menu above the shot controls")
 	bar.close_menu()
 	main.free()
+
+
+func test_the_cue_stands_at_the_screens_edge_away_from_the_island() -> void:
+	# KaiC: the power cue at the very right, as in the game he pointed to. iPhone 17 Pro Max: the
+	# island spans 11 to 48 pt from its edge (22 to 96 units), the safe area starts at 62 pt.
+	var safe: Rect2 = HudScript.safe_rect(PHONE_SAFE_AREAS[0], PHONE_SCREEN, PHONE_CANVAS)
+	var island_clear := 96.0
+	var clear: Rect2 = HudScript.layout(safe, _row_size(), PHONE_CANVAS, "left")["cue"]
+	check_near(PHONE_CANVAS.x - clear.get_center().x, HudScript.CUE_FROM_EDGE, 0.5, "island on the left: at the edge")
+	check_near(clear.end.x, PHONE_CANVAS.x, 0.5, "its touch area reaches the screen's edge")
+	for housing: String in ["right", ""]:
+		var cue: Rect2 = HudScript.layout(safe, _row_size(), PHONE_CANVAS, housing)["cue"]
+		var drawn_right := cue.get_center().x + CueStrip.BUTT_WIDTH / 2.0
+		check(PHONE_CANVAS.x - drawn_right > island_clear, "island %s: the drawn cue clear of it (%s)" % [housing, cue])
+		check(cue.get_center().x > clear.get_center().x - 2.0 * HudScript.CUE_FROM_EDGE, "still at the right edge")
+	# Windows: no safe margins, the cue at the window's edge.
+	var desk: Rect2 = HudScript.layout(Rect2(Vector2.ZERO, PHONE_CANVAS), _row_size(), PHONE_CANVAS)["cue"]
+	check_near(PHONE_CANVAS.x - desk.get_center().x, HudScript.CUE_FROM_EDGE, 0.5, "desktop: at the edge")
+	for rects: Dictionary in [HudScript.layout(safe, _row_size(), PHONE_CANVAS, "left"),
+			HudScript.layout(safe, _row_size(), PHONE_CANVAS, "right")]:
+		check(not (rects["wheel"] as Rect2).intersects(rects["cue"]), "the wheel beside the cue")
+		check(safe.encloses(rects["wheel"]), "the wheel inside the safe area")
+

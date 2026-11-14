@@ -278,44 +278,50 @@ func _make_spin(setup: ShotSetup) -> SpinWidget:
 
 
 func test_spin_is_set_directly_on_the_ball() -> void:
-	# spec 8.2 had "tap it to enlarge, then drag"; KaiC (M2 phone session): one ball, adjusted
-	# directly by dragging on it, no tap-to-enlarge step.
+	# spec 8.2 had "tap it to enlarge, then drag"; KaiC (M2 phone sessions): one ball, adjusted
+	# directly by dragging on it, the crosshair moving with the finger's movement rather than
+	# jumping under it.
 	var setup := ShotSetup.new()
 	var spin := _make_spin(setup)
 	var size := spin.size
 	var centre := spin.ball_centre()
 	var r := spin.ball_radius()
-	_gui(spin, _button(MOUSE_BUTTON_LEFT, true, centre + Vector2(0.0, r * 0.6)))
-	check_near(setup.tip_y, -0.6, 1e-4, "the first press sets screw")
-	_gui(spin, _motion(centre + Vector2(r * 0.3, r * 0.6), Vector2(r * 0.3, 0.0), MOUSE_BUTTON_MASK_LEFT))
-	_gui(spin, _button(MOUSE_BUTTON_LEFT, false, centre + Vector2(r * 0.3, r * 0.6)))
-	check_near(setup.tip_x, 0.3, 1e-4, "dragging adds side")
+	var gain := SpinWidget.DRAG_GAIN * spin.reach()
+	_gui(spin, _button(MOUSE_BUTTON_LEFT, true, centre + Vector2(0.0, -r * 0.6)))
+	check_eq(Vector2(setup.tip_x, setup.tip_y), Vector2.ZERO, "the press alone sets nothing")
+	_gui(spin, _motion(centre + Vector2(0.0, -r * 0.2), Vector2(0.0, r * 0.4), MOUSE_BUTTON_MASK_LEFT))
+	check_near(setup.tip_y, -0.4 * gain, 1e-4, "dragging down sets screw")
+	_gui(spin, _motion(centre + Vector2(r * 0.3, -r * 0.2), Vector2(r * 0.3, 0.0), MOUSE_BUTTON_MASK_LEFT))
+	_gui(spin, _button(MOUSE_BUTTON_LEFT, false, centre + Vector2(r * 0.3, -r * 0.2)))
+	check_near(setup.tip_x, 0.3 * gain, 1e-4, "dragging right adds side")
 	check_eq(spin.size, size, "the widget never changes size")
 	_free_all()
 
 
-func test_spin_tip_for_local_is_clamped_to_max_tip() -> void:
-	# spec 8.2 and contract: x right, y up, ball radii, clamped to MAX_TIP
+func test_spin_tip_for_local_is_clamped_to_the_reach() -> void:
+	# spec 8.2 and contract: x right, y up, ball radii, clamped to the reach at the ball's edge
 	var spin := _make_spin(ShotSetup.new())
 	var centre := spin.size * 0.5
+	var reach := spin.reach()
 	var right := spin.tip_for_local(centre + Vector2(1.0e5, 0.0))
-	check_near(right.x, SpinWidget.MAX_TIP, 1e-3, "far right: tip x")
+	check_near(right.x, reach, 1e-3, "far right: tip x")
 	check_near(right.y, 0.0, 1e-3, "far right: tip y")
 	var up := spin.tip_for_local(centre + Vector2(0.0, -1.0e5))
 	check_near(up.x, 0.0, 1e-3, "far up: tip x")
-	check_near(up.y, SpinWidget.MAX_TIP, 1e-3, "far up (topspin): tip y")
+	check_near(up.y, reach, 1e-3, "far up (topspin): tip y")
 	var down_left := spin.tip_for_local(centre + Vector2(-1.0e5, 1.0e5))
-	check_near(down_left.length(), SpinWidget.MAX_TIP, 1e-3, "far down-left: clamped to MAX_TIP")
+	check_near(down_left.length(), reach, 1e-3, "far down-left: clamped to the reach")
 	check(down_left.x < 0.0 and down_left.y < 0.0, "far down-left is left side and screw")
 	_free_all()
 
 
-func test_spin_marker_goes_past_the_miscue_ring_up_to_max_tip() -> void:
-	# spec 7.3 and 8.2: the miscue limit is a ring; offsets beyond it are allowed (and miscue)
+func test_spin_crosshair_goes_past_the_miscue_limit_to_the_balls_edge() -> void:
+	# spec 7.3 and 8.2: offsets beyond the miscue limit are allowed (and miscue); the limit is a
+	# thin rim inside the drawn ball's edge
 	var limit := Physics.param("miscue_limit", 0.55)
-	check(limit < SpinWidget.MAX_TIP, "the miscue ring (%f) lies inside MAX_TIP" % limit)
 	var setup := ShotSetup.new()
 	var spin := _make_spin(setup)
+	check(limit < spin.reach(), "the miscue limit (%f) lies inside the reach" % limit)
 	var pos := spin.size * 0.5
 	_gui(spin, _button(MOUSE_BUTTON_LEFT, true, pos))
 	for _i: int in 10:
@@ -323,8 +329,8 @@ func test_spin_marker_goes_past_the_miscue_ring_up_to_max_tip() -> void:
 		_gui(spin, _motion(pos, Vector2(100.0, 0.0), MOUSE_BUTTON_MASK_LEFT))
 	_gui(spin, _button(MOUSE_BUTTON_LEFT, false, pos))
 	var tip := Vector2(setup.tip_x, setup.tip_y)
-	check(tip.length() > limit, "the marker passes the miscue ring: tip %s" % tip)
-	check_near(tip.length(), SpinWidget.MAX_TIP, 1e-3, "and stops at MAX_TIP")
+	check(tip.length() > limit, "the crosshair passes the miscue limit: tip %s" % tip)
+	check_near(tip.length(), spin.reach(), 1e-3, "and stops at the reach")
 	check_near(setup.tip_y, 0.0, 1e-3, "pure side")
 	_free_all()
 

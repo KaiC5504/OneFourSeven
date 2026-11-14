@@ -95,3 +95,19 @@ func test_disabled_ignores_drags() -> void:
 	r.drag(Vector2(500, 400), Vector2(400, 400))
 	check_near(r.setup.aim_rad, 100.0 * AimControl.BASE_RAD_PER_PX, 1e-12, "aim after re-enabling")
 	r.free_all()
+
+
+func test_aim_is_finer_while_the_line_meets_a_ball() -> void:
+	# KaiC: fine while aiming at a ball, full speed elsewhere.
+	var r := Rig.new()
+	var state := {"on_ball": false}
+	r.aim.on_ball = func() -> bool: return state["on_ball"]
+	r.drag(Vector2(500, 400), Vector2(400, 400))
+	check_near(r.setup.aim_rad, 100.0 * AimControl.BASE_RAD_PER_PX, 1e-12, "full speed off a ball")
+	state["on_ball"] = true
+	var before := r.setup.aim_rad
+	r.drag(Vector2(500, 400), Vector2(400, 400))
+	check_near(r.setup.aim_rad - before, 100.0 * AimControl.BASE_RAD_PER_PX * AimControl.ON_BALL_SCALE, 1e-12,
+			"finer on a ball")
+	check(AimControl.ON_BALL_SCALE < 0.5, "clearly finer")
+	r.free_all()

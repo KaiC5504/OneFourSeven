@@ -23,11 +23,11 @@ func _ready() -> void:
 	add_child(cloth)
 
 	var centred := SpinWidget.new()
-	centred.position = Vector2(40.0, 660.0)
+	centred.position = Vector2(40.0, 620.0)
 	_place(centred, ShotSetup.new(), "spin, centre ball")
 
 	var spin := SpinWidget.new()
-	spin.position = Vector2(300.0, 660.0)
+	spin.position = Vector2(300.0, 620.0)
 	var spin_setup := ShotSetup.new()
 	spin_setup.set_tip(-0.2, -0.4)
 	_place(spin, spin_setup, "spin, screw and left")

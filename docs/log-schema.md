@@ -103,6 +103,7 @@ New subsystems: `input`, `ui`, `audio`, `settings`, `freetable`. A played shot l
 | `settings.loaded` | info/warn | settings read at start (warn when a value was refused or migrated, or the file unreadable) | `path`, `version`, `problems` (a saved `strike_mode` of `power_bar` reads as `pull` and is listed as `strike_mode "power_bar" migrated to "pull"`; the file is saved at once, so it happens once) |
 | `settings.changed` | info/warn | a setting changed (warn when the value was refused) | `key`, `old`, `new`, `ok`, `reason` |
 | `screen.changed` | info | the screen changed | `from`, `to` |
+| `ui.layout` | info | the free table's controls were laid out for a new sensor housing side: at start, and when the phone turns round | `housing` (`left`, `right`, or `""` when unknown or not a phone), `safe` (the safe area), `cue` and `spin` (their rects), all `[x, y, w, h]` in canvas units |
 | `overlay.toggled` | info | the debug overlay opened or closed | `visible`, `via` (`three_finger_tap`, `key`, `harness`) |
 | `audio.error` | warn | a sound failed to load or play | `sound`, `reason` |
 | `haptics.unavailable` | info | once per session when vibration can't be used | `reason` |

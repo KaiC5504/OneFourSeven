@@ -885,3 +885,20 @@ func _logged(event: String) -> Array[Dictionary]:
 		if parsed is Dictionary and (parsed as Dictionary).get("event") == event:
 			found.append((parsed as Dictionary).get("data", {}))
 	return found
+
+
+func test_aim_turns_finer_while_the_line_meets_a_ball() -> void:
+	var main: MainScript = await _spawn()
+	var aim: AimControl = main.get_node("AimControl")
+	check(main.harness_load_position([{"ball": "cue", "index": 0, "x": -1.0, "y": 0.0},
+			{"ball": "red", "index": 0, "x": 0.5, "y": 0.0}], 0), "the position")
+	await tree.process_frame
+	var full := AimControl.BASE_RAD_PER_PX * float(Settings.get_value("aim_sensitivity"))
+	main.setup.set_aim(0.0)
+	var on_ball := aim.rad_per_px()
+	main.setup.set_aim(PI / 2.0)
+	var off_ball := aim.rad_per_px()
+	check(on_ball < off_ball, "finer on the red (%f) than away from it (%f)" % [on_ball, off_ball])
+	check_near(on_ball / off_ball, AimControl.ON_BALL_SCALE, 1e-9, "by ON_BALL_SCALE")
+	check(off_ball > 0.0 and off_ball <= full, "full speed (or finer when zoomed) away from it")
+	_finish(main)

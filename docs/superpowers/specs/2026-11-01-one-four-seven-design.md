@@ -362,16 +362,22 @@ same input layer (section 8.8).
 
 ### 8.1 Aiming. **Owner:** drag plus fine-tune
 - Dragging anywhere on the table area swings the cue around the cue ball. Sensitivity
-  scales with camera zoom, so zoomed in means finer control.
+  scales with camera zoom, so zoomed in means finer control. **Owner (M2):** while the aim
+  line meets a ball, the drag turns the aim a quarter as fast, for the last adjustments of
+  a pot; elsewhere it swings at full speed.
 - A **fine-tune control** (a thumb wheel along the right screen edge, or a similar
   control the builder may choose) turns the aim in very small steps, about 0.01°, for
   thin cuts. Its sensitivity is in settings.
-- Aim never snaps to balls or pockets. There is no hidden assistance.
+- Aim never snaps to balls or pockets, and never moves by itself. There is no hidden
+  assistance.
 
 ### 8.2 Spin and elevation. **Owner:** widget plus elevation
-- A cue ball in the bottom-left corner, always the same size. **Owner (M2):** drag on it
-  directly for top, screw and side, with no enlarge step; a double tap returns to centre
-  ball. The miscue limit is drawn as a ring.
+- A cue ball in the bottom-left corner, always the same size. **Owner (M2):** a big ball
+  (120 pt) with a red crosshair, adjusted directly for top, screw and side, with no enlarge
+  step. A finger anywhere on it moves the crosshair by the finger's own movement, so the
+  finger never covers the point; a double tap returns to centre ball. The whole drawn ball
+  is the striking face: its edge is the furthest reach, and a thin red rim inside the edge,
+  past the miscue limit, miscues.
 - An elevation control next to it, from the minimum allowed by obstruction (section 7.3)
   up to near-vertical for masse. It shows when obstruction has forced the cue up.
 - Both reset to centre ball and minimum elevation after each shot. **Owner (M2):** a
@@ -386,7 +392,9 @@ same input layer (section 8.8).
   power cue at the right edge; the pull distance sets the power through a curve that is
   fine at low power, shown as it pulls. Release strikes. Sliding back to the start or out
   sideways cancels.
-- Both strike modes use the same tall power cue on the right screen edge.
+- Both strike modes use the same tall power cue on the right screen edge. **Owner (M2):**
+  at the very edge of the screen, as far out as the rounded corners allow; on a phone
+  with a Dynamic Island or notch on that side, just clear of it.
 - **Claude's call:** an optional setting, off by default, that adds a small aim error
   when the finger stroke wanders sideways, like a crooked cue action.
 - Maximum cue speed is tuned so a full-power shot matches a strong real break-off or

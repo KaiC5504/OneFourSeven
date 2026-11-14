@@ -17,4 +17,7 @@ public:
     // The process's memory footprint in MB: phys_footprint on iOS, PrivateUsage (private
     // committed bytes) on Windows, -1 if the OS call fails; works in release builds, unlike OS.get_static_memory_usage().
     static double memory_footprint_mb();
+    // Which side of the screen the sensor housing (Dynamic Island or notch) is on in landscape:
+    // "left" or "right" on iOS, "" in portrait, when unknown and elsewhere.
+    static godot::String housing_side();
 };

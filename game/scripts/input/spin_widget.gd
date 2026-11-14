@@ -1,33 +1,38 @@
 class_name SpinWidget
 extends Control
-## The cue-ball widget (spec 8.2, KaiC's M2 phone session): a ball at the bottom-left, always the
-## same size, dragged on directly for top, screw and side. A press on the marker keeps it under
-## the finger; a press anywhere else on the ball puts it there; a double tap returns to centre
-## ball. The miscue limit (Physics.param("miscue_limit")) is drawn as a ring; the marker can go
-## past it, up to MAX_TIP, and such a shot miscues. A readout beside the ball, such as
-## "screw 0.40" over "left 0.20", shows while dragging or while the tip is off centre.
+## The cue-ball widget (spec 8.2, KaiC's phone sessions): a big ball at the bottom-left with a red
+## crosshair where the tip meets the cue ball. The whole drawn ball is the striking face: its edge
+## is the furthest a tip can reach (reach()), with the miscue limit just inside it, so only a thin
+## red rim miscues. A finger anywhere on the ball moves the crosshair by the finger's own movement
+## (DRAG_GAIN), never jumping to it, so the finger never hides the point it sets; a double tap
+## returns to centre ball. A readout beside the ball, such as "screw 0.40" over "left 0.20", shows
+## while dragging or while the tip is off centre.
 
 signal tip_changed(tip: Vector2)
 
-## Furthest tip offset the marker reaches, in ball radii.
-const MAX_TIP := 0.8
-## Canvas units, square: 90 pt on the phone.
-const SIZE := 180.0
+## Canvas units, square: 120 pt on the phone.
+const SIZE := 240.0
 const MARGIN := 4.0
-# 44 pt touch target round the marker.
-const GRAB_RADIUS := 44.0
-const MARKER_RADIUS := 11.0
+## The outer part of the drawn radius lying past the miscue limit.
+const MISCUE_RIM := 0.12
+## Crosshair movement per unit of finger movement: below 1, so the finger travels further than
+## the point and sets it finely.
+const DRAG_GAIN := 0.75
+const CROSS_ARM := 20.0
+const CROSS_WIDTH := 5.0
 const FONT_SIZE := 24
 const READOUT_GAP := 10.0
 const READOUT_PAD := Vector2(14.0, 8.0)
 const LINE_HEIGHT := 30.0
 
-const BALL_COLOUR := Color(0.93, 0.92, 0.86)
-const BALL_SHADE := Color(0.72, 0.71, 0.66)
+const BALL_COLOUR := Color(0.95, 0.94, 0.9)
+const BALL_SHADE := Color(0.7, 0.69, 0.65)
 const PANEL_COLOUR := Color(0.05, 0.06, 0.07, 0.78)
-const CROSSHAIR_COLOUR := Color(0.0, 0.0, 0.0, 0.16)
-const RING_COLOUR := Color(0.78, 0.2, 0.15, 0.6)
-const MARKER_COLOUR := Color(0.16, 0.36, 0.78)
+const GUIDE_COLOUR := Color(0.0, 0.0, 0.0, 0.1)
+const RIM_COLOUR := Color(0.85, 0.2, 0.15, 0.28)
+const CROSS_COLOUR := Color(0.88, 0.1, 0.08)
+const CROSS_OUTLINE := Color(0.0, 0.0, 0.0, 0.4)
+const HALO_COLOUR := Color(1.0, 1.0, 1.0, 0.55)
 const MISCUE_COLOUR := Color(0.86, 0.22, 0.16)
 const TEXT_COLOUR := Color(0.9, 0.92, 0.9, 0.92)
 
@@ -37,7 +42,7 @@ const _MOUSE := -2
 var _setup: ShotSetup
 var _tip := Vector2.ZERO
 var _pointer := _NO_POINTER
-var _grab_offset := Vector2.ZERO
+var _last_finger := Vector2.ZERO
 
 
 func _ready() -> void:
@@ -73,19 +78,24 @@ func current_tip() -> Vector2:
 	return Vector2(_setup.tip_x, _setup.tip_y) if _setup != null else _tip
 
 
+## The tip offset at the drawn ball's edge, in ball radii: the miscue limit sits MISCUE_RIM inside.
+func reach() -> float:
+	return minf(_miscue_limit() / (1.0 - MISCUE_RIM), 1.0)
+
+
 ## A point in this control's local coordinates to tip offsets (x right, y up, ball radii),
-## clamped to MAX_TIP.
+## clamped to reach().
 func tip_for_local(local: Vector2) -> Vector2:
 	var radius := ball_radius()
 	if radius <= 0.0:
 		return Vector2.ZERO
-	var tip := (local - ball_centre()) / radius
+	var tip := (local - ball_centre()) / radius * reach()
 	tip.y = -tip.y
-	return tip.limit_length(MAX_TIP)
+	return tip.limit_length(reach())
 
 
 func local_for_tip(tip: Vector2) -> Vector2:
-	return ball_centre() + Vector2(tip.x, -tip.y) * ball_radius()
+	return ball_centre() + Vector2(tip.x, -tip.y) / reach() * ball_radius()
 
 
 func ball_centre() -> Vector2:
@@ -97,7 +107,7 @@ func ball_radius() -> float:
 
 
 func miscue_ring_radius() -> float:
-	return _miscue_limit() * ball_radius()
+	return _miscue_limit() / reach() * ball_radius()
 
 
 ## The readout, such as "screw 0.40 · left 0.20"; drawn a part to a line.
@@ -174,15 +184,16 @@ func _on_press(pointer: int, pos: Vector2, double: bool) -> void:
 		_apply_tip(Vector2.ZERO)
 		return
 	_pointer = pointer
-	var marker := local_for_tip(current_tip())
-	_grab_offset = marker - pos if pos.distance_to(marker) <= GRAB_RADIUS else Vector2.ZERO
-	_apply_tip(tip_for_local(pos + _grab_offset))
+	_last_finger = pos
 	queue_redraw()
 
 
 func _on_move(pointer: int, pos: Vector2) -> void:
-	if pointer == _pointer:
-		_apply_tip(tip_for_local(pos + _grab_offset))
+	if pointer != _pointer:
+		return
+	var moved := pos - _last_finger
+	_last_finger = pos
+	_apply_tip(tip_for_local(local_for_tip(current_tip()) + moved * DRAG_GAIN))
 
 
 func _end_press() -> void:
@@ -218,16 +229,22 @@ func _draw() -> void:
 	var limit := _miscue_limit()
 	var tip := current_tip()
 	var miscue := tip.length() > limit
-	draw_circle(centre, radius + 2.5, Color(0.0, 0.0, 0.0, 0.35))
+	draw_circle(centre, radius + 3.0, Color(0.0, 0.0, 0.0, 0.35))
 	draw_circle(centre, radius, BALL_SHADE)
 	# Lit from above-left, so it reads as a ball rather than a disc.
-	draw_circle(centre - Vector2(radius, radius) * 0.05, radius * 0.93, BALL_COLOUR)
-	draw_line(centre - Vector2(radius, 0.0), centre + Vector2(radius, 0.0), CROSSHAIR_COLOUR, 1.5, true)
-	draw_line(centre - Vector2(0.0, radius), centre + Vector2(0.0, radius), CROSSHAIR_COLOUR, 1.5, true)
-	draw_arc(centre, limit * radius, 0.0, TAU, 96, RING_COLOUR, 2.0, true)
-	var marker := local_for_tip(tip)
-	draw_circle(marker, MARKER_RADIUS + 2.0, Color(1.0, 1.0, 1.0, 0.9))
-	draw_circle(marker, MARKER_RADIUS, MISCUE_COLOUR if miscue else MARKER_COLOUR)
+	draw_circle(centre - Vector2(radius, radius) * 0.04, radius * 0.94, BALL_COLOUR)
+	var ring := miscue_ring_radius()
+	if ring < radius:
+		draw_arc(centre, (ring + radius) / 2.0, 0.0, TAU, 128, RIM_COLOUR, radius - ring, true)
+	draw_line(centre - Vector2(ring, 0.0), centre + Vector2(ring, 0.0), GUIDE_COLOUR, 1.5, true)
+	draw_line(centre - Vector2(0.0, ring), centre + Vector2(0.0, ring), GUIDE_COLOUR, 1.5, true)
+	var at := local_for_tip(tip)
+	if is_pressed():
+		draw_arc(at, CROSS_ARM + 6.0, 0.0, TAU, 48, HALO_COLOUR, 3.0, true)
+	for arm: Vector2 in [Vector2(CROSS_ARM + 1.5, 0.0), Vector2(0.0, CROSS_ARM + 1.5)]:
+		draw_line(at - arm, at + arm, CROSS_OUTLINE, CROSS_WIDTH + 3.0, true)
+	for arm: Vector2 in [Vector2(CROSS_ARM, 0.0), Vector2(0.0, CROSS_ARM)]:
+		draw_line(at - arm, at + arm, CROSS_COLOUR, CROSS_WIDTH, true)
 	var box := readout_rect()
 	if not box.has_area():
 		return

@@ -961,6 +961,30 @@
         }
       }
     },
+    "ui.layout": {
+      "subsystem": "ui",
+      "levels": [
+        "info"
+      ],
+      "fields": {
+        "housing": {
+          "type": "string",
+          "required": true
+        },
+        "safe": {
+          "type": "array",
+          "required": true
+        },
+        "cue": {
+          "type": "array",
+          "required": true
+        },
+        "spin": {
+          "type": "array",
+          "required": true
+        }
+      }
+    },
     "screen.changed": {
       "subsystem": "ui",
       "levels": [

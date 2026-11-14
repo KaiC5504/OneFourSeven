@@ -37,7 +37,8 @@ func test_always_the_same_size() -> void:
 	var setup := ShotSetup.new()
 	var widget := _make(setup)
 	check_eq(widget.size, Vector2.ONE * SpinWidget.SIZE, "its size")
-	check(SpinWidget.SIZE >= 180.0 and SpinWidget.SIZE <= 220.0, "180 to 220 units across")
+	# KaiC: bigger, so the hit point is easy to see; 120 pt on the phone.
+	check(SpinWidget.SIZE >= 230.0 and SpinWidget.SIZE <= 280.0, "230 to 280 units across")
 	var c := widget.ball_centre()
 	_tap(widget, c)
 	_tap(widget, c + Vector2(0.0, -40.0))
@@ -46,19 +47,72 @@ func test_always_the_same_size() -> void:
 	widget.free()
 
 
-func test_a_press_anywhere_on_the_ball_puts_the_tip_there() -> void:
-	# KaiC: the hit point adjusted directly, with no tap-to-enlarge step.
+func test_a_press_never_moves_the_crosshair() -> void:
+	# KaiC: the crosshair must not jump to the finger, which would hide the point it sets.
 	var setup := ShotSetup.new()
 	var widget := _make(setup)
 	var c := widget.ball_centre()
 	var r := widget.ball_radius()
-	_touch(widget, true, c + Vector2(0.0, -r * 0.6))
-	check_near(setup.tip_y, 0.6, 1e-4, "top at the first touch")
+	_touch(widget, true, c + Vector2(r * 0.5, r * 0.5))
+	check_eq(Vector2(setup.tip_x, setup.tip_y), Vector2.ZERO, "pressing off centre leaves centre ball")
+	check_eq(_tips.size(), 0, "no tip change")
+	_touch(widget, false, c + Vector2(r * 0.5, r * 0.5))
+	setup.set_tip(0.1, -0.2)
+	_tap(widget, c)
+	check(Vector2(setup.tip_x, setup.tip_y).is_equal_approx(Vector2(0.1, -0.2)), "a tap elsewhere keeps the tip")
+	widget.free()
+
+
+func test_the_crosshair_moves_by_the_fingers_movement() -> void:
+	var setup := ShotSetup.new()
+	var widget := _make(setup)
+	var c := widget.ball_centre()
+	var r := widget.ball_radius()
+	var reach := widget.reach()
+	# Start low on the ball and move up: the crosshair moves up from centre, not to the finger.
+	var start := c + Vector2(0.0, r * 0.6)
+	_touch(widget, true, start)
+	_drag(widget, start + Vector2(0.0, -r * 0.4))
+	check_near(setup.tip_y, 0.4 * SpinWidget.DRAG_GAIN * reach, 1e-4, "top by the finger's movement times the gain")
 	check_near(setup.tip_x, 0.0, 1e-4, "no side")
-	_drag(widget, c + Vector2(-r * 0.3, r * 0.5))
-	check_near(setup.tip_x, -0.3, 1e-4, "dragged: left")
-	check_near(setup.tip_y, -0.5, 1e-4, "dragged: screw")
-	_touch(widget, false, c + Vector2(-r * 0.3, r * 0.5))
+	check(_tips[-1].is_equal_approx(Vector2(setup.tip_x, setup.tip_y)), "tip_changed")
+	# Movements add up, in any direction.
+	_drag(widget, start + Vector2(-r * 0.2, -r * 0.4))
+	check_near(setup.tip_x, -0.2 * SpinWidget.DRAG_GAIN * reach, 1e-4, "then left")
+	check_near(setup.tip_y, 0.4 * SpinWidget.DRAG_GAIN * reach, 1e-4, "top kept")
+	_touch(widget, false, start + Vector2(-r * 0.2, -r * 0.4))
+	# A second press carries on from where the crosshair is.
+	var before := Vector2(setup.tip_x, setup.tip_y)
+	_touch(widget, true, c)
+	_drag(widget, c + Vector2(r * 0.1, 0.0))
+	check_near(setup.tip_x, before.x + 0.1 * SpinWidget.DRAG_GAIN * reach, 1e-4, "from where it was")
+	_touch(widget, false, c + Vector2(r * 0.1, 0.0))
+	widget.free()
+
+
+func test_the_whole_ball_is_reachable_and_the_rim_miscues() -> void:
+	# KaiC: the whole ball can be hit, not only a middle part. The drawn edge is the reach, the
+	# miscue limit a thin rim inside it.
+	var setup := ShotSetup.new()
+	var widget := _make(setup)
+	var c := widget.ball_centre()
+	var r := widget.ball_radius()
+	var limit := Physics.param("miscue_limit", 0.55)
+	check_near(widget.reach(), limit / (1.0 - SpinWidget.MISCUE_RIM), 1e-6, "the reach")
+	check_near(widget.miscue_ring_radius(), (1.0 - SpinWidget.MISCUE_RIM) * r, 1e-4, "the rim's inner edge")
+	_touch(widget, true, c)
+	for i in range(1, 9):
+		_drag(widget, c + Vector2(0.0, -r * 0.5 * i))
+	check_near(setup.tip_y, widget.reach(), 1e-4, "dragged far up: stops at the reach")
+	check(widget.local_for_tip(Vector2(setup.tip_x, setup.tip_y)).distance_to(c + Vector2(0.0, -r)) < 1e-3,
+			"drawn on the ball's edge")
+	check_eq(SpinWidget.describe(Vector2(setup.tip_x, setup.tip_y), limit), "top %.2f · miscue" % widget.reach(),
+			"the rim warns")
+	# Straight back down by the finger's movement, no lag from the overshoot.
+	_drag(widget, c + Vector2(0.0, -r * 4.0 + r * 0.2))
+	check_near(setup.tip_y, widget.reach() - 0.2 * SpinWidget.DRAG_GAIN * widget.reach(), 1e-4, "back at once")
+	check(setup.tip_y < limit, "inside the limit again")
+	_touch(widget, false, c)
 	widget.free()
 
 
@@ -66,58 +120,37 @@ func test_tip_mapping() -> void:
 	var widget := _make()
 	var c := widget.ball_centre()
 	var r := widget.ball_radius()
+	var reach := widget.reach()
 	check_near(r, SpinWidget.SIZE / 2.0 - SpinWidget.MARGIN, 1e-9, "the ball fills the widget")
 	check_eq(widget.tip_for_local(c), Vector2.ZERO, "centre is centre ball")
-	check(widget.tip_for_local(c + Vector2(r * 0.5, 0.0)).is_equal_approx(Vector2(0.5, 0.0)), "right is +x")
-	check(widget.tip_for_local(c + Vector2(0.0, -r * 0.4)).is_equal_approx(Vector2(0.0, 0.4)), "up is top, +y")
-	check(widget.tip_for_local(c + Vector2(-r * 0.2, r * 0.3)).is_equal_approx(Vector2(-0.2, -0.3)), "left and screw")
+	check(widget.tip_for_local(c + Vector2(r * 0.5, 0.0)).is_equal_approx(Vector2(0.5 * reach, 0.0)), "right is +x")
+	check(widget.tip_for_local(c + Vector2(0.0, -r * 0.4)).is_equal_approx(Vector2(0.0, 0.4 * reach)), "up is top, +y")
+	check(widget.tip_for_local(c + Vector2(-r * 0.2, r * 0.3)).is_equal_approx(Vector2(-0.2, -0.3) * reach), "left and screw")
 	var tip := Vector2(0.31, -0.42)
 	check(widget.tip_for_local(widget.local_for_tip(tip)).is_equal_approx(tip), "round trip")
 	widget.free()
 
 
-func test_tip_clamped_to_max() -> void:
+func test_tip_clamped_to_the_reach() -> void:
 	var widget := _make()
 	var c := widget.ball_centre()
 	var tip := widget.tip_for_local(c + Vector2(1000.0, -1000.0))
-	check_near(tip.length(), SpinWidget.MAX_TIP, 1e-5, "clamped to MAX_TIP")
+	check_near(tip.length(), widget.reach(), 1e-5, "clamped to the reach")
 	check_near(tip.angle(), PI / 4.0, 1e-5, "in the dragged direction")
+	check(widget.reach() <= 1.0, "never past the ball's edge")
 	widget.free()
 
 
-func test_miscue_ring_radius() -> void:
-	var widget := _make()
-	var limit := Physics.param("miscue_limit", 0.55)
-	check_near(widget.miscue_ring_radius(), limit * widget.ball_radius(), 1e-4, "ring at the miscue limit")
-	check(SpinWidget.MAX_TIP > limit, "the marker can pass the ring")
-	widget.free()
-
-
-func test_drag_writes_the_tip() -> void:
+func test_double_tap_centres() -> void:
 	var setup := ShotSetup.new()
 	var widget := _make(setup)
 	var c := widget.ball_centre()
-	var r := widget.ball_radius()
-	# Grab the marker a little off its centre: it doesn't jump to the finger.
-	_touch(widget, true, c + Vector2(10.0, 10.0))
-	check_eq(_tips.size(), 0, "grabbing doesn't move it")
-	_drag(widget, c + Vector2(10.0 - r * 0.2, 10.0 + r * 0.4))
-	check_near(setup.tip_x, -0.2, 1e-4, "setup tip x")
-	check_near(setup.tip_y, -0.4, 1e-4, "setup tip y")
-	check(_tips[-1].is_equal_approx(Vector2(setup.tip_x, setup.tip_y)), "tip_changed")
-	# Past the ring is allowed.
-	_drag(widget, c + Vector2(10.0, 10.0 + r * 0.7))
-	check_near(setup.tip_y, -0.7, 1e-4, "past the miscue ring")
-	_touch(widget, false, c + Vector2(10.0, 10.0 + r * 0.7))
-	check_eq(SpinWidget.describe(Vector2(setup.tip_x, setup.tip_y), 0.55), "screw 0.70 · miscue", "readout warns")
-	# A press away from the marker puts it there.
-	_tap(widget, c + Vector2(r * 0.3, -r * 0.1))
-	check_near(setup.tip_x, 0.3, 1e-4, "tap places x")
-	check_near(setup.tip_y, 0.1, 1e-4, "tap places y")
-	_touch(widget, true, c + Vector2(r * 0.3, -r * 0.1), true)
+	setup.set_tip(0.2, 0.3)
+	_touch(widget, true, c + Vector2(30.0, 0.0), true)
 	check_eq(Vector2(setup.tip_x, setup.tip_y), Vector2.ZERO, "double tap centres")
-	_drag(widget, c + Vector2(r * 0.5, 0.0))
+	_drag(widget, c + Vector2(90.0, 0.0))
 	check_eq(Vector2(setup.tip_x, setup.tip_y), Vector2.ZERO, "and the rest of that touch does nothing")
+	_touch(widget, false, c + Vector2(90.0, 0.0))
 	widget.free()
 
 
@@ -173,8 +206,8 @@ func test_focus_lost_frees_the_widget() -> void:
 		check(not widget.is_pressed(), "the press ends on %d" % what)
 		_drag(widget, c + Vector2(60.0, 0.0))
 		check_eq(setup.tip_x, 0.0, "the lost finger moves nothing on %d" % what)
-		# Further than GRAB_RADIUS from the marker, so the press places it.
-		_touch(widget, true, c + Vector2(60.0, 0.0))
+		_touch(widget, true, c)
+		_drag(widget, c + Vector2(60.0, 0.0))
 		check(setup.tip_x > 0.0, "a new press works after %d" % what)
 		widget.free()
 
@@ -187,8 +220,9 @@ func test_cancel_press_ends_a_press() -> void:
 	widget.cancel_press("shot started")
 	_drag(widget, c + Vector2(widget.ball_radius() * 0.7, 0.0))
 	check_eq(setup.tip_x, 0.0, "the old finger moves nothing")
-	_touch(widget, true, c + Vector2(widget.ball_radius() * 0.7, 0.0))
-	check_near(setup.tip_x, 0.7, 1e-4, "a new press does")
+	_touch(widget, true, c)
+	_drag(widget, c + Vector2(widget.ball_radius() * 0.4, 0.0))
+	check_near(setup.tip_x, 0.4 * SpinWidget.DRAG_GAIN * widget.reach(), 1e-4, "a new press does")
 	widget.free()
 
 
@@ -202,8 +236,16 @@ func test_emulated_mouse_is_ignored() -> void:
 	e.pressed = true
 	widget._gui_input(e)
 	check_eq(setup.tip_x, 0.0, "emulated mouse ignored")
+	var motion := InputEventMouseMotion.new()
+	motion.device = InputEvent.DEVICE_ID_EMULATION
+	motion.position = e.position + Vector2(40.0, 0.0)
+	widget._gui_input(motion)
+	check_eq(setup.tip_x, 0.0, "emulated drag ignored")
 	e = e.duplicate()
 	e.device = 0
 	widget._gui_input(e)
-	check(setup.tip_x > 0.0, "a real mouse press places the tip")
+	motion = motion.duplicate()
+	motion.device = 0
+	widget._gui_input(motion)
+	check(setup.tip_x > 0.0, "a real mouse drag moves the tip")
 	widget.free()

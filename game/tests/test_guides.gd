@@ -410,3 +410,16 @@ func test_the_ghost_ring_is_a_tube_round_the_ghost_ball() -> void:
 		check_near((ring.inner_radius + ring.outer_radius) / 2.0, R, 1e-6, "round the ghost ball")
 		check_near(ring.outer_radius - ring.inner_radius, 2.0 * Guides.RING_TUBE_RADIUS, 1e-6, "the tube's thickness")
 	guides.free()
+
+
+func test_aims_at_ball_is_true_only_when_a_ball_comes_first() -> void:
+	var guides := Guides.new()
+	guides.table_shape = _shape()
+	guides.ball_radius = R
+	var balls: Array[Dictionary] = [{"ball": "cue", "index": 0, "x": 0.0, "y": 0.0},
+			{"ball": "red", "index": 0, "x": 0.5, "y": 0.0}]
+	check(guides.aims_at_ball(balls, 0, 0.0), "straight at the red")
+	check(guides.aims_at_ball(balls, 0, atan2(1.9 * R, 0.5)), "a thin edge of it")
+	check(not guides.aims_at_ball(balls, 0, PI / 2.0), "away from it: a cushion first")
+	check(not guides.aims_at_ball(balls, 0, PI), "behind the cue ball")
+	guides.free()

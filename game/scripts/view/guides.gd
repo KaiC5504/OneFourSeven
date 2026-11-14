@@ -178,6 +178,11 @@ func last_predict_us() -> float:
 	return _last_predict_us
 
 
+## Whether the straight aim line from the cue ball meets a ball before anything else.
+func aims_at_ball(balls: Array[Dictionary], cue_ball: int, aim_rad: float) -> bool:
+	return first_contact(balls, cue_ball, aim_rad, _shape(), _radius())["kind"] == "ball"
+
+
 ## The straight-line first contact along aim_rad from the cue ball (radius r in metres): {kind:
 ## "ball" | "cushion" | "pocket" | "none", index (the ball, else -1), ghost: Vector2 (the cue
 ## ball's centre at contact, core xy), distance (metres the cue ball travels), object_dir: Vector2

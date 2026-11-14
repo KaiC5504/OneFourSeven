@@ -10,6 +10,7 @@
 // gdext/ios/device_info.mm
 extern "C" const char *ofs_ios_thermal_state();
 extern "C" double ofs_ios_memory_footprint_mb();
+extern "C" const char *ofs_ios_housing_side();
 #elif defined(_WIN32)
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -30,6 +31,7 @@ using namespace godot;
 void OfsDevice::_bind_methods() {
     ClassDB::bind_static_method("OfsDevice", D_METHOD("thermal_state"), &OfsDevice::thermal_state);
     ClassDB::bind_static_method("OfsDevice", D_METHOD("memory_footprint_mb"), &OfsDevice::memory_footprint_mb);
+    ClassDB::bind_static_method("OfsDevice", D_METHOD("housing_side"), &OfsDevice::housing_side);
 }
 
 String OfsDevice::thermal_state() {
@@ -55,5 +57,13 @@ double OfsDevice::memory_footprint_mb() {
     return double(counters.PrivateUsage) / 1e6;
 #else
     return 0.0;
+#endif
+}
+
+String OfsDevice::housing_side() {
+#if defined(__APPLE__) && TARGET_OS_IOS
+    return String(ofs_ios_housing_side());
+#else
+    return "";
 #endif
 }

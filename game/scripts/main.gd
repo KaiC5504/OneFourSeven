@@ -37,6 +37,8 @@ var _last_shot := {}
 var _refresh_queued := false
 var _next_watch_t := 0.0
 var _tilt_hint_shown := false
+# The sensor housing's side the controls were last laid out for; "unset" logs the first layout.
+var _housing := "unset"
 ## Edit mode: list positions of the ball under the finger and of the selected ball, or -1.
 var _dragged := -1
 var _selected := -1
@@ -85,6 +87,7 @@ func _ready() -> void:
 
 	setup.strike_mode = String(Settings.get_value("strike_mode"))
 	_aim.bind(setup, _gestures, _rig)
+	_aim.on_ball = func() -> bool: return _guides.aims_at_ball(_free.balls, _free.cue_ball, setup.aim_rad)
 	_wheel.bind(setup)
 	_spin.bind(setup)
 	_elevation.bind(setup)
@@ -673,7 +676,12 @@ func _layout() -> void:
 	var canvas := get_viewport().get_visible_rect().size
 	var safe := HudScript.safe_rect(Rect2(DisplayServer.get_display_safe_area()),
 			Rect2(Vector2(window.position), Vector2(window.size)), canvas)
-	var rects := HudScript.layout(safe, _bar.row_rect().size, canvas)
+	var housing := OfsDevice.housing_side()
+	var rects := HudScript.layout(safe, _bar.row_rect().size, canvas, housing)
+	if housing != _housing:
+		_housing = housing
+		Log.info("ui", "ui.layout", {"housing": housing, "safe": [safe.position.x, safe.position.y, safe.size.x,
+				safe.size.y], "cue": _rect_list(rects["cue"]), "spin": _rect_list(rects["spin"])})
 	_put(_wheel, rects["wheel"])
 	_put(_stroke, rects["cue"])
 	_put(_pull, rects["cue"])
@@ -684,6 +692,10 @@ func _layout() -> void:
 	var notice_at := Vector2(safe.get_center().x - _notice.size.x / 2.0, safe.position.y + HudScript.EDGE).round()
 	if _notice.position != notice_at:
 		_notice.position = notice_at
+
+
+static func _rect_list(rect: Rect2) -> Array:
+	return [rect.position.x, rect.position.y, rect.size.x, rect.size.y]
 
 
 # Writes only what changed, so the safe-area poll never makes low-processor mode redraw.
