@@ -110,6 +110,10 @@ func test_an_object_ball_dropping_early_gets_the_pocket_camera() -> void:
 	check((plan["drop_centre"] as Vector2).is_equal_approx(_centre(top_left)), "the pocket's drop centre")
 	var expected := Vector2(1.0, 0.3).lerp(_centre(top_left), (1.1 - 0.4) / 1.2)
 	check((plan["from"] as Vector2).distance_to(expected) < 1e-9, "where it was half a second before: %s" % plan["from"])
+	var track: PackedVector2Array = plan["track"]
+	check_eq(track.size(), ShotCycle.TRACK_POINTS, "its run for the pocket camera to keep in frame")
+	check(track[0].distance_to(_centre(top_left)) < 1e-9 and track[-1].distance_to(Vector2(1.0, 0.3)) < 1e-9,
+			"from the drop back to where it stood at the cut: %s" % track)
 	check_eq(plan["pots"], [{"index": 1, "pocket": top_left, "t": 1.6, "ball": "red", "label": "red 3", "value": 1}],
 			"the pots")
 	check_eq(plan["cue_potted"], false, "the cue ball stayed up")
@@ -167,6 +171,8 @@ func test_the_pocket_camera_frames_the_pocket_and_the_ball_coming_in() -> void:
 	var rig := _rig(false)
 	var half := Vector2(float(OfsTable.dimensions()["playing_length"]), float(OfsTable.dimensions()["playing_width"])) / 2.0
 	var r := float(OfsTable.dimensions()["ball_radius"])
+	var screen := Rect2(Vector2.ZERO, CANVAS)
+	check(CameraRig.POCKET_HEIGHT_M <= 0.45, "low: %.2f m above the bed, well under the lamp" % CameraRig.POCKET_HEIGHT_M)
 	for pocket: Dictionary in _pockets():
 		var c: Array = pocket["drop_centre"]
 		var centre := Vector2(float(c[0]), float(c[1]))
@@ -175,30 +181,58 @@ func test_the_pocket_camera_frames_the_pocket_and_the_ball_coming_in() -> void:
 		# cushion round to along the other.
 		var ways_in: Array[Vector2] = []
 		if middle:
-			for off_deg: float in [-40.0, -20.0, 0.0, 20.0, 40.0]:
+			for off_deg: float in [-50.0, -40.0, -20.0, 0.0, 20.0, 40.0, 50.0]:
 				ways_in.append(Vector2(0.0, -signf(centre.y)).rotated(deg_to_rad(off_deg)))
 		else:
 			var along_long := Vector2(-signf(centre.x), 0.0)
 			var along_end := Vector2(0.0, -signf(centre.y))
-			for f: float in [0.08, 0.3, 0.5, 0.7, 0.92]:
+			for f: float in [0.03, 0.08, 0.3, 0.5, 0.7, 0.92, 0.97]:
 				ways_in.append(along_long.slerp(along_end, f))
 		for way: Vector2 in ways_in:
-			for run: float in [0.6, 1.5]:
-				var from := centre + way * run
-				var what := "%s from %s" % [pocket["name"], from]
-				var pose := rig.pocket_pose(centre, from, middle)
+			# As far back along its line as the table goes: a long pot from the far end.
+			var furthest := INF
+			if absf(way.x) > 1e-9:
+				furthest = minf(furthest, (signf(way.x) * (half.x - r) - centre.x) / way.x)
+			if absf(way.y) > 1e-9:
+				furthest = minf(furthest, (signf(way.y) * (half.y - r) - centre.y) / way.y)
+			for run: float in [0.3, 0.6, 1.5, furthest]:
+				# The ball's run as ShotCycle.track_of gives it: from the pocket back to its start.
+				var track := PackedVector2Array()
+				for k in ShotCycle.TRACK_POINTS:
+					track.append(centre + way * run * float(k) / (ShotCycle.TRACK_POINTS - 1))
+				var from := centre + way * minf(run, 1.0)
+				var what := "%s from %s" % [pocket["name"], track[-1]]
+				var pose := rig.pocket_pose(centre, from, middle, track)
 				var eye_xy := TableSpace.godot_to_core(pose.origin)
 				check(absf(eye_xy.x) > half.x or absf(eye_xy.y) > half.y, "%s: outside the cushions at %s" % [what, eye_xy])
-				check(pose.origin.y >= CameraRig.POCKET_HEIGHT_M - 1e-6, "%s: above the bed, %.2f m" % [what, pose.origin.y])
+				check_near(pose.origin.y, CameraRig.POCKET_HEIGHT_M, 1e-6, "%s: low above the bed" % what)
+				check(eye_xy.distance_to(centre) < 0.6, "%s: close behind the pocket, %.2f m" % [what, eye_xy.distance_to(centre)])
 				check(rig.in_room(pose.origin), "%s: in the room at %s" % [what, pose.origin])
 				check((-pose.basis.z).y < 0.0, "%s: looking down" % what)
-				var at_pocket := rig.project(pose, TableSpace.core_to_godot(centre.x, centre.y), CameraRig.POCKET_FOV_DEG)
-				check(Rect2(Vector2.ZERO, CANVAS).has_point(at_pocket) and at_pocket.y > CANVAS.y * 0.6,
-						"%s: the pocket low in the frame at %s" % [what, at_pocket])
+				var at_bed := TableSpace.core_to_godot(centre.x, centre.y)
+				var at_pocket := rig.project(pose, at_bed, CameraRig.POCKET_FOV_DEG)
+				check(screen.has_point(at_pocket) and at_pocket.y > CANVAS.y * 0.75 and absf(at_pocket.x - CANVAS.x / 2.0) < CANVAS.x * 0.26,
+						"%s: the pocket low and central in the frame at %s" % [what, at_pocket])
+				var radius := float(pocket["drop_radius"])
+				var mouth := rig.project(pose, at_bed + pose.basis.x * radius, CameraRig.POCKET_FOV_DEG).distance_to(
+						rig.project(pose, at_bed - pose.basis.x * radius, CameraRig.POCKET_FOV_DEG))
+				check(mouth > CANVAS.x * 0.07, "%s: close, the drop %.0f units across" % [what, mouth])
 				var at_ball := rig.project(pose, TableSpace.core_to_godot(from.x, from.y, r), CameraRig.POCKET_FOV_DEG)
 				check((pose.affine_inverse() * TableSpace.core_to_godot(from.x, from.y, r)).z < 0.0
-						and Rect2(Vector2.ZERO, CANVAS).has_point(at_ball) and at_ball.y < at_pocket.y,
+						and screen.has_point(at_ball) and at_ball.y < at_pocket.y,
 						"%s: the ball coming in above it at %s" % [what, at_ball])
+				for point in track:
+					var ball := TableSpace.core_to_godot(point.x, point.y, r)
+					var at := rig.project(pose, ball, CameraRig.POCKET_FOV_DEG)
+					check((pose.affine_inverse() * ball).z < 0.0 and screen.has_point(at),
+							"%s: in the frame all the way, at %s it is at %s" % [what, point, at])
+			var level := TableSpace.godot_to_core(-rig.pocket_pose(centre, centre + way * 0.6, middle).basis.z).normalized()
+			if middle:
+				var square := rig.pocket_pose(centre, centre + way * 0.6, true)
+				check_near(TableSpace.godot_to_core(square.origin).x, centre.x, 1e-6, "%s: a middle's camera square behind it" % pocket["name"])
+				check_near(level.dot(Vector2(0.0, -signf(centre.y))), 1.0, 1e-9, "%s: looking straight across" % pocket["name"])
+			else:
+				check(level.dot(way) > cos(deg_to_rad(16.0)), "%s: looking back up the ball's way in %s" % [pocket["name"], way])
 	# A ball nudged in from the jaws, and one that came round off a jaw from outside, still give a pose.
 	var top_left := _centre(_pocket("top_left"))
 	for from: Vector2 in [top_left, top_left + Vector2(0.3, 0.3)]:
@@ -206,25 +240,28 @@ func test_the_pocket_camera_frames_the_pocket_and_the_ball_coming_in() -> void:
 		var eye_xy := TableSpace.godot_to_core(pose.origin)
 		check(absf(eye_xy.x) > half.x or absf(eye_xy.y) > half.y, "from %s: outside the cushions at %s" % [from, eye_xy])
 		check(pose.origin.is_finite() and rig.in_room(pose.origin), "from %s: a pose in the room" % from)
+		var at_pocket := rig.project(pose, TableSpace.core_to_godot(top_left.x, top_left.y), CameraRig.POCKET_FOV_DEG)
+		check(screen.has_point(at_pocket), "from %s: the pocket in the frame at %s" % [from, at_pocket])
 	rig.free()
 
 
-func test_cut_hold_rise_and_settle_on_time() -> void:
+func test_a_pot_cuts_to_the_pocket_then_to_the_full_table_on_time() -> void:
 	var rig := _rig()
 	rig.follow(Vector2(-1.0, 0.1), 0.3)
 	var cycle := ShotCycle.new(rig)
 	var top_left := _pocket("top_left")
 	var plan := ShotCycle.plan(_pot(top_left, 0.4, 1.6), _balls(), 0, true, _pockets())
-	var pose := rig.pocket_pose(plan["drop_centre"], plan["from"], plan["middle"])
+	var pose := rig.pocket_pose(plan["drop_centre"], plan["from"], plan["middle"], plan["track"])
 	var moves := [0]
 	rig.moved.connect(func() -> void: moves[0] += 1)
 	var behind := rig.transform
+	check_near(ShotCycle.CUT_T, 0.1, 1e-9, "the cut comes a tenth of a second after the strike")
 	cycle.start(plan, pose)
 	check(rig.is_held() and rig.view_name() == "shot", "held for the shot")
 	check(rig.transform.is_equal_approx(behind) and not rig.is_easing(), "still behind the cue ball for the stroke")
 	cycle.update(ShotCycle.CUT_T - 0.01)
 	check(rig.transform.is_equal_approx(behind) and moves[0] == 0, "still there just before the cut")
-	cycle.update(ShotCycle.CUT_T + 0.01)
+	cycle.update(ShotCycle.CUT_T + 0.001)
 	check_eq(rig.view_name(), "pocket", "cut to the pocket")
 	check(rig.transform.is_equal_approx(pose) and not rig.is_easing(), "at once, no blend")
 	check_eq(moves[0], 1, "moved fired once, so the shadows refit")
@@ -233,62 +270,192 @@ func test_cut_hold_rise_and_settle_on_time() -> void:
 	check(not cycle.settle_ready(1.0), "no settle at the pocket")
 	cycle.update(1.6 + ShotCycle.HOLD_AFTER_DROP_S - 0.01)
 	check_eq(rig.view_name(), "pocket", "held until 0.7 s after the drop")
-	var rise_at := 1.6 + ShotCycle.HOLD_AFTER_DROP_S + 0.01
-	cycle.update(rise_at)
-	check(rig.view_name() == "shot" and rig.is_easing(), "moving up to the TV view")
-	var largest := 0.0
-	var travelled := 0.0
-	var turned := 0.0
-	var frames := 0
-	var last := rig.transform
-	while rig.is_easing() and frames < 200:
-		rig._process(DT)
-		frames += 1
-		var step := rig.transform.origin.distance_to(last.origin)
-		largest = maxf(largest, step)
-		travelled += step
-		turned = maxf(turned, rad_to_deg((-rig.transform.basis.z).angle_to(-last.basis.z)))
-		last = rig.transform
-	check(absf(frames - ShotCycle.RISE_S * 60.0) <= 2.0, "smoothly, over RISE_S: %d frames" % frames)
-	# From the far corner round to the TV camera at baulk is a long way in a second: smooth means no
-	# frame much over the smoothstep's peak, and the view turning no faster than the TV blend does.
-	check(largest < 1.75 * travelled / frames and turned < 3.5,
-			"no jump: at most %.3f m (%.3f on average) and %.2f° a frame" % [largest, travelled / frames, turned])
-	check(rig.transform.is_equal_approx(rig.broadcast_pose(CameraRig.end_behind(0.3))), "at the TV view behind the shot")
+	check(rig.transform.is_equal_approx(pose) and moves[0] == 1, "without moving")
+	var cut_at := 1.6 + ShotCycle.HOLD_AFTER_DROP_S + 0.001
+	cycle.update(cut_at)
+	check(rig.view_name() == "shot" and rig.is_broadcast(), "then the full-table view")
+	check(not rig.is_easing() and rig.transform.is_equal_approx(rig.broadcast_pose(CameraRig.FULL_TABLE_YAW)),
+			"cut there at once from baulk, no glide up")
+	check_eq(moves[0], 2, "one more move")
 	check_eq(rig.camera().fov, CameraRig.BROADCAST_FOV_DEG, "on its long lens")
-	check(not cycle.settle_ready(rise_at + ShotCycle.RISE_S + ShotCycle.MIN_TV_HOLD_S - 0.01), "the TV view holds a moment")
-	check(cycle.settle_ready(rise_at + ShotCycle.RISE_S + ShotCycle.MIN_TV_HOLD_S + 0.01), "then the settle may come")
+	check(not Perf._active.has(&"camera"), "still: nothing kept drawing")
+	check(ShotCycle.MIN_TV_HOLD_S >= 0.8, "the still full table is seen for at least 0.8 s: %.2f" % ShotCycle.MIN_TV_HOLD_S)
+	check(not cycle.settle_ready(cut_at + ShotCycle.MIN_TV_HOLD_S - 0.01), "the full-table view holds")
+	check(cycle.settle_ready(cut_at + ShotCycle.MIN_TV_HOLD_S + 0.01), "then the settle may come")
+	check_eq(moves[0], 2, "and it never moved while it held")
 	rig.free()
 
 
-func test_a_shot_with_no_pot_rises_at_the_strike() -> void:
+func test_the_pocket_view_lasts_at_least_a_second() -> void:
 	var rig := _rig()
 	rig.follow(Vector2(-1.0, 0.1), 0.3)
 	var cycle := ShotCycle.new(rig)
-	cycle.start({"sequence": "broadcast", "reason": "no pot", "pots": [], "cue_potted": false})
-	check(rig.view_name() == "shot" and rig.is_easing(), "rising to the TV view at once")
-	cycle.update(0.5)
-	check(rig.view_name() == "shot", "no pocket camera")
-	check(not cycle.settle_ready(CameraRig.BLEND_S + ShotCycle.MIN_TV_HOLD_S - 0.01), "not before the TV view has held")
-	check(cycle.settle_ready(CameraRig.BLEND_S + ShotCycle.MIN_TV_HOLD_S + 0.01), "the settle once it has")
+	var pocket := _pocket("bottom_right")
+	check_near(ShotCycle.MIN_POCKET_S, 1.0, 1e-9, "the shortest pocket view in the reference game")
+	# [the drop, the cut to the pocket, the cut on to the full table]
+	for entry: Array in [[1.6, 0.1, 2.3], [0.5, 0.1, 1.2], [0.4, 0.1, 1.1], [0.3, 0.1, 1.1], [0.15, 0.1, 1.1]]:
+		var drop_t: float = entry[0]
+		var plan := ShotCycle.plan(_pot(pocket, drop_t / 2.0, drop_t), _balls(), 0, true, _pockets())
+		var what := "a drop at %.2f s" % drop_t
+		check_near(ShotCycle.cut_time(plan), entry[1], 1e-9, "%s: the cut" % what)
+		check_near(ShotCycle.pocket_leave_time(plan), entry[2], 1e-9, "%s: the pocket view's end" % what)
+		check(ShotCycle.pocket_leave_time(plan) - ShotCycle.cut_time(plan) >= ShotCycle.MIN_POCKET_S - 1e-9
+				and ShotCycle.pocket_leave_time(plan) >= drop_t + ShotCycle.HOLD_AFTER_DROP_S - 1e-9,
+				"%s: a second at least, and 0.7 s after the drop" % what)
+		cycle.start(plan, rig.pocket_pose(plan["drop_centre"], plan["from"], plan["middle"], plan["track"]))
+		cycle.update(float(entry[1]) + 0.001)
+		check_eq(rig.view_name(), "pocket", "%s: at the pocket" % what)
+		cycle.update(float(entry[2]) - 0.01)
+		check_eq(rig.view_name(), "pocket", "%s: still there just before %.2f s" % [what, entry[2]])
+		cycle.update(float(entry[2]) + 0.001)
+		check(rig.view_name() == "shot" and rig.is_broadcast() and not rig.is_easing(), "%s: then cut to the full table" % what)
+		cycle.end_shot()
+		rig.hold(false)
+		rig._process(CameraRig.RETURN_S)
 	rig.free()
 
 
-func test_a_drag_at_the_pocket_goes_up_to_walk_round_and_a_skip_cancels() -> void:
+func test_a_ball_that_drops_before_the_usual_cut_is_still_seen_going_in() -> void:
+	var rig := _rig()
+	rig.follow(Vector2(1.2, 0.5), 0.6)
+	var cycle := ShotCycle.new(rig)
+	var top_left := _pocket("top_left")
+	# Logged drops come as early as 0.13 s; the old cut at 0.2 s missed them.
+	var plan := ShotCycle.plan(_pot(top_left, 0.05, 0.15), _balls(), 0, true, _pockets())
+	check_eq(plan["sequence"], "pocket", "a drop at 0.15 s gets the pocket camera")
+	check(ShotCycle.cut_time(plan) < 0.15 - 1e-9, "cut before it drops: %.2f s" % ShotCycle.cut_time(plan))
+	cycle.start(plan, rig.pocket_pose(plan["drop_centre"], plan["from"], plan["middle"], plan["track"]))
+	cycle.update(0.11)
+	check_eq(rig.view_name(), "pocket", "at the pocket before the drop")
+	cycle.update(0.15 + ShotCycle.HOLD_AFTER_DROP_S + 0.05)
+	check_eq(rig.view_name(), "pocket", "kept on past 0.7 s after the drop, for its full second")
+	cycle.update(ShotCycle.cut_time(plan) + ShotCycle.MIN_POCKET_S + 0.001)
+	check(rig.is_broadcast(), "then the full table")
+	cycle.end_shot()
+	rig.hold(false)
+	rig._process(CameraRig.RETURN_S)
+	# Sooner still: the cut comes forward to stay ahead of the drop, as far as the strike itself.
+	for entry: Array in [[0.12, 0.07], [0.08, 0.03], [0.05, 0.0], [0.02, 0.0]]:
+		var early := ShotCycle.plan(_pot(top_left, float(entry[0]) / 2.0, entry[0]), _balls(), 0, true, _pockets())
+		check_near(ShotCycle.cut_time(early), entry[1], 1e-9, "a drop at %.2f s: the cut" % entry[0])
+		check_near(ShotCycle.pocket_leave_time(early), float(entry[1]) + ShotCycle.MIN_POCKET_S, 1e-9,
+				"a drop at %.2f s: a full second at the pocket" % entry[0])
+	var at_once := ShotCycle.plan(_pot(top_left, 0.01, 0.02), _balls(), 0, true, _pockets())
+	cycle.start(at_once, rig.pocket_pose(at_once["drop_centre"], at_once["from"], at_once["middle"], at_once["track"]))
+	cycle.update(0.0)
+	check_eq(rig.view_name(), "pocket", "a ball on the lip: at the pocket from the first frame")
+	rig.free()
+
+
+func test_a_shot_with_no_pot_cuts_to_the_full_table() -> void:
+	var rig := _rig()
+	rig.follow(Vector2(-1.0, 0.1), 0.3)
+	var cycle := ShotCycle.new(rig)
+	var behind := rig.transform
+	var off := ShotCycle.plan(_pot(_pocket("top_left"), 0.4, 1.6), _balls(), 0, false, _pockets())
+	for plan: Dictionary in [{"sequence": "broadcast", "reason": "no pot", "pots": [], "cue_potted": false}, off]:
+		var what := String(plan["reason"])
+		check_near(ShotCycle.cut_time(plan), ShotCycle.CUT_T, 1e-9, "%s: the cut at 0.1 s" % what)
+		cycle.start(plan)
+		check(rig.view_name() == "shot" and not rig.is_easing() and rig.transform.is_equal_approx(behind),
+				"%s: still behind the cue ball for the stroke" % what)
+		cycle.update(ShotCycle.CUT_T - 0.01)
+		check(rig.transform.is_equal_approx(behind), "%s: until the cut" % what)
+		var cut_at := ShotCycle.CUT_T + 0.001
+		cycle.update(cut_at)
+		check(rig.is_broadcast() and not rig.is_easing() and rig.transform.is_equal_approx(rig.broadcast_pose(CameraRig.FULL_TABLE_YAW)),
+				"%s: then cut to the full table, no glide" % what)
+		check_eq(rig.camera().fov, CameraRig.BROADCAST_FOV_DEG, "%s: on its long lens" % what)
+		cycle.update(1.0)
+		cycle.update(3.0)
+		check(rig.view_name() == "shot" and rig.transform.is_equal_approx(rig.broadcast_pose(CameraRig.FULL_TABLE_YAW)),
+				"%s: no pocket camera, and still" % what)
+		check(not cycle.settle_ready(cut_at + ShotCycle.MIN_TV_HOLD_S - 0.01), "%s: not before the full table has held" % what)
+		check(cycle.settle_ready(cut_at + ShotCycle.MIN_TV_HOLD_S + 0.01), "%s: the settle once it has" % what)
+		cycle.end_shot()
+		rig.hold(false)
+		rig._process(CameraRig.RETURN_S)
+	rig.free()
+
+
+func test_only_the_swoop_back_moves_the_camera() -> void:
+	var rig := _rig()
+	var cycle := ShotCycle.new(rig)
+	var top_left := _pocket("top_left")
+	var pot := ShotCycle.plan(_pot(top_left, 0.4, 1.6), _balls(), 0, true, _pockets())
+	# [the plan, how many pictures the camera shows before the swoop]
+	for entry: Array in [[pot, 3], [{"sequence": "broadcast", "reason": "no pot", "pots": [], "cue_potted": false}, 2]]:
+		var plan: Dictionary = entry[0]
+		var what := String(plan["sequence"])
+		rig.follow(Vector2(-1.0, 0.1), 0.3)
+		rig._process(CameraRig.RETURN_S)
+		var pose := Transform3D.IDENTITY
+		if plan["sequence"] == "pocket":
+			pose = rig.pocket_pose(plan["drop_centre"], plan["from"], plan["middle"], plan["track"])
+		cycle.start(plan, pose)
+		var pictures: Array[Transform3D] = [rig.transform]
+		var blended: Array[String] = []
+		var t := 0.0
+		while not cycle.settle_ready(t) and t < 10.0:
+			cycle.update(t)
+			rig._process(DT)
+			if rig.is_easing() or Perf._active.has(&"camera"):
+				blended.append("%.2f s" % t)
+			if not rig.transform.is_equal_approx(pictures[-1]):
+				pictures.append(rig.transform)
+			t += DT
+		check_eq(blended, [] as Array[String], "%s: no blend from the strike to the settle" % what)
+		check_eq(pictures.size(), entry[1], "%s: only cuts between still pictures" % what)
+		check(pictures[-1].is_equal_approx(rig.broadcast_pose(CameraRig.FULL_TABLE_YAW)), "%s: the last of them the full table" % what)
+		cycle.end_shot()
+		rig.follow(Vector2(0.4, 0.5), 2.6)
+		rig.reset_view()
+		rig.hold(false)
+		check(rig.is_easing() and Perf._active.has(&"camera"), "%s: the swoop back is the one move" % what)
+		var steps: Array[float] = []
+		var last := rig.transform.origin
+		while rig.is_easing() and steps.size() < 200:
+			rig._process(DT)
+			steps.append(rig.transform.origin.distance_to(last))
+			last = rig.transform.origin
+		check(absf(steps.size() - CameraRig.RETURN_S * 60.0) <= 2.0, "%s: RETURN_S long, %d frames" % [what, steps.size()])
+		check(steps[0] < steps.max() * 0.1 and steps[-1] < steps.max() * 0.1,
+				"%s: eased in and out: %.4f and %.4f m against %.4f at its fastest" % [what, steps[0], steps[-1], steps.max()])
+		check(rig.transform.is_equal_approx(rig.pose_for(Vector2(0.4, 0.5), 2.6)), "%s: behind the cue ball on the new aim" % what)
+	rig.free()
+
+
+func test_a_drag_at_the_pocket_cuts_to_the_full_table_to_walk_round_and_a_skip_cancels() -> void:
 	var rig := _rig()
 	rig.follow(Vector2(-1.0, 0.1), 0.3)
 	var cycle := ShotCycle.new(rig)
 	var plan := ShotCycle.plan(_pot(_pocket("top_left"), 0.4, 1.6), _balls(), 0, true, _pockets())
-	cycle.start(plan, rig.pocket_pose(plan["drop_centre"], plan["from"], false))
+	var pose := rig.pocket_pose(plan["drop_centre"], plan["from"], false, plan["track"])
+	cycle.start(plan, pose)
 	cycle.update(0.5)
 	check_eq(rig.view_name(), "pocket", "at the pocket")
-	check(cycle.walk_round(0.6), "a drag goes up")
-	check(rig.is_broadcast() and rig.is_easing(), "to the TV view, where a drag walks round")
+	check(cycle.walk_round(0.6), "a drag leaves it")
+	check(rig.is_broadcast() and not rig.is_easing() and rig.transform.is_equal_approx(rig.broadcast_pose(CameraRig.FULL_TABLE_YAW)),
+			"cut to the full table, where a drag walks round")
 	check(not cycle.walk_round(0.7), "only once")
+	rig.orbit(200.0)
+	var walked := rig.transform
+	check(not walked.is_equal_approx(rig.broadcast_pose(CameraRig.FULL_TABLE_YAW)) and not rig.is_easing(), "walked round, at once")
 	cycle.update(1.6 + ShotCycle.HOLD_AFTER_DROP_S + 0.1)
-	check(rig.is_broadcast(), "no second rise at the drop")
-	check(cycle.settle_ready(0.6 + ShotCycle.RISE_S + ShotCycle.MIN_TV_HOLD_S + 0.01), "settles after the TV view held")
-	cycle.start(plan, rig.pocket_pose(plan["drop_centre"], plan["from"], false))
+	check(rig.is_broadcast() and rig.transform.is_equal_approx(walked), "no second cut at the drop")
+	check(not cycle.settle_ready(0.6 + ShotCycle.MIN_TV_HOLD_S - 0.01), "the full table holds from the drag")
+	check(cycle.settle_ready(0.6 + ShotCycle.MIN_TV_HOLD_S + 0.01), "then settles")
+	cycle.end_shot()
+	rig.hold(false)
+	rig._process(CameraRig.RETURN_S)
+	cycle.start(plan, pose)
+	check(cycle.walk_round(0.02) and rig.is_broadcast() and not rig.is_easing(), "a drag before the first cut does the same")
+	cycle.update(0.5)
+	check(rig.is_broadcast(), "and the pocket camera stays away")
+	cycle.end_shot()
+	rig.hold(false)
+	rig._process(CameraRig.RETURN_S)
+	cycle.start(plan, pose)
 	cycle.cancel()
 	check(cycle.settle_ready(0.0), "a skip settles at once")
 	cycle.update(1.0)
@@ -306,7 +473,7 @@ func test_the_swoop_back_lands_on_the_new_aim() -> void:
 		rig.follow(entry[0], entry[1])
 		rig._process(CameraRig.BLEND_S)
 		rig.hold(true)
-		rig._process(CameraRig.BLEND_S)
+		rig.show_broadcast()
 		# The aim is set before the camera moves.
 		rig.follow(cue, aim)
 		rig.reset_view()
@@ -330,7 +497,7 @@ func test_the_swoop_back_lands_on_the_new_aim() -> void:
 
 
 func test_a_shot_struck_mid_ease_holds_from_the_new_aim() -> void:
-	# A harness shot sets the aim and strikes in one frame; the camera mustn't rise from the old aim.
+	# A harness shot sets the aim and strikes in one frame; the camera mustn't be held at the old aim.
 	var rig := _rig()
 	rig.follow(Vector2(-1.0, 0.1), 0.3)
 	rig.follow(Vector2(-1.0, 0.1), 2.5)
@@ -338,9 +505,9 @@ func test_a_shot_struck_mid_ease_holds_from_the_new_aim() -> void:
 	rig.finish_ease()
 	check(not rig.is_easing() and not Perf._active.has(&"camera"), "ended at once")
 	check(rig.transform.is_equal_approx(rig.pose_for(Vector2(-1.0, 0.1), 2.5)), "behind the cue ball on the new aim")
+	var behind := rig.transform
 	rig.hold(true)
-	rig.finish_ease()
-	check(rig.is_easing(), "a blend between views runs on")
+	check(not rig.is_easing() and rig.transform.is_equal_approx(behind), "and the shot holds it there, still")
 	rig.free()
 
 

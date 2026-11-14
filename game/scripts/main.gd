@@ -212,8 +212,8 @@ func is_playing() -> bool:
 
 
 ## Ends the playing shot at once, as a tap on the table does: no pocket camera, straight to the
-## settle and the swoop back, also while the camera is still at the pocket or rising after the
-## balls have stopped.
+## settle and the swoop back, also while the camera is still at the pocket or holding the
+## full-table view after the balls have stopped.
 func skip_shot() -> void:
 	if not _playing:
 		return
@@ -247,7 +247,7 @@ func _strike(strike_mode: String) -> String:
 		return ""
 	_free.shot_started(setup.snapshot(), shot_id)
 	# An aim set this frame (a harness shot) would otherwise leave the camera held where it was, or
-	# rising from where an ease to it had got to.
+	# where an ease to it had got to.
 	_flush_refresh()
 	_rig.finish_ease()
 	_record = record
@@ -286,7 +286,7 @@ func _start_cycle(playback: ShotPlayback, shot_id: String) -> void:
 		fields["reason"] = _plan["reason"]
 	var pose := Transform3D.IDENTITY
 	if _plan["sequence"] == "pocket":
-		pose = _rig.pocket_pose(_plan["drop_centre"], _plan["from"], _plan["middle"])
+		pose = _rig.pocket_pose(_plan["drop_centre"], _plan["from"], _plan["middle"], _plan["track"])
 		fields["pose"] = ShotCycle.pose_fields(pose)
 	if _plan.has("problem"):
 		Log.warn("app", "app.error", {"kind": "message", "message": "main: shot %s has no pocket camera: %s (pockets %s)"
@@ -312,7 +312,7 @@ func _shot_input_fields(shot_id: String, strike_mode: String) -> Dictionary:
 func _on_frame(state: PackedFloat64Array, t: float, dt: float) -> void:
 	_balls.apply_state(state, dt)
 	_audio.on_frame(state, t, dt)
-	# A skip jumps to the end, past the cut and the rise.
+	# A skip jumps to the end, past the cuts.
 	if _playing and not _skip_requested:
 		_cycle_t = t
 		_cycle.update(t)
@@ -357,8 +357,8 @@ func _on_shot_finished(shot_id: String) -> void:
 	_settle()
 
 
-## Waits for the last drops into the pockets and the shot cycle's TV view, then hands the result to
-## the free table, turns the aim to the next ball and swoops back behind the cue ball.
+## Waits for the last drops into the pockets and the shot cycle's full-table view, then hands the
+## result to the free table, turns the aim to the next ball and swoops back behind the cue ball.
 func _settle() -> void:
 	if _balls.is_dropping() or not _cycle.settle_ready(_cycle_t):
 		set_process(true)
@@ -614,7 +614,7 @@ func _on_drag_started(at: Vector2) -> void:
 func _on_drag_moved(at: Vector2, relative: Vector2) -> void:
 	if _dragged < 0:
 		if _playing:
-			# At the pocket (or about to cut to it) a drag goes up to the TV view to walk round.
+			# At the pocket (or before the first cut) a drag cuts to the full-table view to walk round.
 			_cycle.walk_round(_cycle_t)
 		_rig.orbit(relative.x)
 		return
@@ -922,7 +922,7 @@ func _warn_out_of_range(strike: Dictionary) -> void:
 
 
 ## True while a shot is playing, a ball is still dropping into a pocket, or the shot cycle's camera
-## has yet to hold the TV view (spec 8.5).
+## has yet to hold the full-table view (spec 8.5).
 func harness_busy() -> bool:
 	return _playing
 
