@@ -186,12 +186,13 @@ One fixed, tournament-standard full-size table. **Owner**
   cushion's tip, 45 mm behind the nose line. From each tip a straight facing runs on along
   the tangent. This replaces M2's 1 in corner knuckles and 2.5 in middle jaws.
 - Corner and middle pockets differ in mouth width, not in jaw shape. Corner jaws start
-  100 mm short of the corner point (the model's 87 mm, drawn back 13 mm for the owner's
-  rule below) and are 82 mm apart at their narrowest; their facings open out behind the
-  tips. Middle jaws start 131 mm either side of the pocket's centre line; their tips are
-  93 mm apart and their facings close in behind them. The middle pockets are not set back.
+  103 mm short of the corner point (the model's 87 mm, drawn back 16 mm for the owner's
+  rule below) and are 86.4 mm apart at their narrowest, 33.9 mm more than a ball; their
+  facings open out behind the tips. Middle jaws start 131 mm either side of the pocket's
+  centre line; their tips are 93 mm apart and their facings close in behind them. The
+  middle pockets are not set back.
 - The fall is the hole cut in the bed, a circle at each pocket that spans it between the
-  jaws: it begins 4 mm beyond the corner point at a corner and 2 mm behind the nose line
+  jaws: it begins 0.5 mm beyond the corner point at a corner and 2 mm behind the nose line
   at a middle pocket, in front of the cushion tips at both.
 - **Owner check:** pockets feel "tournament tight". A ball hit firmly into the jaws
   rattles and stays out; a slow, accurate ball drops even when it touches a jaw.
