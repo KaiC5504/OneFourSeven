@@ -1,12 +1,13 @@
 extends Node3D
 ## The pockets up close, for screenshots: stage, table, the opening layout and a red at a corner
 ## and a middle pocket for scale. User argument --view=top|corner_top|corner_low|middle_top|
-## middle_low|tv (default top); tv is the broadcast camera's long lens, 30 degrees down from 5 m
-## behind baulk. --sunk adds a red at the end of its drop into the top left corner and the left
-## middle, where BallsView hides a potted ball.
+## middle_low|middle_back|tv (default top); middle_back looks over the rail into the left middle,
+## as the reference photo of a middle pocket does; tv is the broadcast camera's long lens, 30
+## degrees down from 5 m behind baulk. --sunk adds a red at the end of its drop into the top left
+## corner and the left middle, where BallsView hides a potted ball.
 ##   godot --path game --resolution 1912x880 res://scenes/dev/pockets_preview.tscn -- --view=corner_top --mute --no-link --screenshot=<path> --quit-after=6
 
-const VIEWS: Array[String] = ["top", "corner_top", "corner_low", "middle_top", "middle_low", "tv"]
+const VIEWS: Array[String] = ["top", "corner_top", "corner_low", "middle_top", "middle_low", "middle_back", "tv"]
 const OPENING_GAP := 0.0005
 const BALL_RADIUS := 0.02625
 const TV_DISTANCE := 5.0
@@ -80,6 +81,8 @@ func _ready() -> void:
 			_look(TableSpace.core_to_godot(0.0, 0.90, 0.40), TableSpace.core_to_godot(0.0, 0.95, 0.0), Vector3(0.0, 0.0, 1.0))
 		"middle_low":
 			_look(TableSpace.core_to_godot(-0.25, 0.55, 0.14), TableSpace.core_to_godot(0.0, 0.96, 0.0), Vector3.UP)
+		"middle_back":
+			_look(TableSpace.core_to_godot(0.0, 1.1, 0.19), TableSpace.core_to_godot(0.0, 0.975, 0.0), Vector3.UP)
 		"tv":
 			_camera.fov = TV_FOV
 			_camera.far = 20.0

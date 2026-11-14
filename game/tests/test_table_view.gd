@@ -131,7 +131,7 @@ func test_one_pocket_marker_at_each_drop_centre() -> void:
 	table.free()
 
 
-func test_each_pocket_holds_a_light_net_with_a_dark_opening() -> void:
+func test_each_pocket_holds_a_net_bag_light_above_a_dark_opening() -> void:
 	var shape := _shape()
 	var table := _build(shape)
 	var mesh := _mesh(table)
@@ -143,6 +143,7 @@ func test_each_pocket_holds_a_light_net_with_a_dark_opening() -> void:
 	var shades: PackedColorArray = arrays[Mesh.ARRAY_COLOR]
 	var cloth: PackedVector3Array = mesh.surface_get_arrays(TableView.SURFACE_CLOTH)[Mesh.ARRAY_VERTEX]
 	var ball := float(OfsTable.dimensions()["ball_radius"])
+	var rim := -TableView.FALL_DEPTH - 1e-4
 	# The crochet itself is light: brighter than the cloth, nothing like the black lining it replaced.
 	var material := mesh.surface_get_material(TableView.SURFACE_NET) as StandardMaterial3D
 	var image: Image = material.albedo_texture.get_image() if material != null and material.albedo_texture != null else null
@@ -160,9 +161,13 @@ func test_each_pocket_holds_a_light_net_with_a_dark_opening() -> void:
 		var reach := float(pocket["drop_radius"]) + 0.01
 		var count := 0
 		var deepest := 0.0
-		var rim_shade := 1.0
+		var deepest_lit := 0.0
+		var rim_shade := 0.0
+		var brightest := 0.0
 		var opening_shade := 1.0
 		var closest := INF
+		# How far the bag reaches from the pocket's centre at each depth below its rim, by 0.1 mm.
+		var widths := {}
 		# Where BallsView leaves a potted ball, at the end of its drop.
 		var potted := TableSpace.core_to_godot(centre.x, centre.y, ball - BallsView.DROP_DEPTH)
 		for i in net.size():
@@ -174,15 +179,43 @@ func test_each_pocket_holds_a_light_net_with_a_dark_opening() -> void:
 			deepest = minf(deepest, v.y)
 			closest = minf(closest, v.distance_to(potted))
 			if v.y >= -TableView.FALL_DEPTH - 1e-6:
-				rim_shade = minf(rim_shade, shades[i].v)
+				rim_shade = maxf(rim_shade, shades[i].v)
+			brightest = maxf(brightest, shades[i].v)
+			if shades[i].v > 0.1:
+				deepest_lit = minf(deepest_lit, v.y)
 			if flat.distance_to(centre) < 1e-4:
 				opening_shade = minf(opening_shade, shades[i].v)
+			if v.y < rim:
+				var depth := roundi(v.y * 1e4)
+				widths[depth] = maxf(float(widths.get(depth, 0.0)), flat.distance_to(centre))
 		check(count > 40, "%s has its net (%d vertices)" % [name, count])
-		check(deepest < -BallsView.DROP_DEPTH and deepest > -0.12,
-				"%s's net hangs just below where a potted ball comes to rest, not a deep pit: %f" % [name, deepest])
-		check(rim_shade > 0.9, "%s's net is light at its rim: %f" % [name, rim_shade])
+		check(deepest_lit < -0.05 and deepest_lit > -0.075,
+				"%s's net is lit down to 5-7.5 cm, a bag rather than a pit: %f" % [name, deepest_lit])
+		check(deepest < -BallsView.DROP_DEPTH and deepest > -0.1,
+				"%s's net's dark opening runs on just below where a potted ball comes to rest: %f" % [name, deepest])
+		check(brightest > 0.9, "%s's net is light where the light reaches into it: %f" % [name, brightest])
+		check(rim_shade > 0.4 and rim_shade < brightest, "%s's net is shaded under its rim, %f against %f" % [name, rim_shade, brightest])
 		check(opening_shade < 0.05, "%s's net has a dark opening at its bottom centre: %f" % [name, opening_shade])
 		check(closest >= ball - 1e-4, "%s's net holds a potted ball clear of it: %f" % [name, closest])
+		# A bag: from where it sags widest under the rim it narrows all the way down.
+		var depths := widths.keys()
+		depths.sort()
+		depths.reverse()
+		var widest := 0.0
+		var narrower := true
+		var previous := INF
+		for depth: int in depths:
+			var width := float(widths[depth])
+			if width >= widest:
+				widest = width
+				previous = width
+				continue
+			narrower = narrower and width <= previous + 1e-6
+			previous = width
+		var bottom_ring := float(widths[depths[depths.size() - 2]]) if depths.size() > 1 else INF
+		check(narrower, "%s's net narrows with depth below its widest" % name)
+		check(widest > _hole_radius(shape, pocket) and bottom_ring < 0.5 * widest,
+				"%s's net sags out under the rim (%f) and closes to under half that (%f)" % [name, widest, bottom_ring])
 		# No cloth at the cloth's level inside the hole.
 		var hole := _hole_radius(shape, pocket)
 		var inside := 0
@@ -270,9 +303,10 @@ func test_each_corner_has_a_horseshoe_behind_its_hole_in_mitred_rails() -> void:
 		var outer_corner := (half + Vector2.ONE * rail_width) * signs
 		var hole := _hole_radius(shape, pocket)
 		var band := hole + TableView.HORSESHOE_WIDTH
+		var inner_edge := half + Vector2.ONE * TableView.CUSHION_DEPTH
 		var count := 0
 		var widest := 0.0
-		var foremost := INF
+		var in_front := 0
 		var furthest_back := -INF
 		var sides := Vector2.ZERO
 		var by_the_corner := 0
@@ -282,14 +316,16 @@ func test_each_corner_has_a_horseshoe_behind_its_hole_in_mitred_rails() -> void:
 				continue
 			count += 1
 			widest = maxf(widest, p.distance_to(centre))
-			foremost = minf(foremost, (p - centre).dot(axis))
+			if absf(p.x) < inner_edge.x - 1e-6 and absf(p.y) < inner_edge.y - 1e-6:
+				in_front += 1
 			furthest_back = maxf(furthest_back, (p - centre).dot(axis))
 			sides = Vector2(minf(sides.x, (p - centre).dot(across)), maxf(sides.y, (p - centre).dot(across)))
 			if p.distance_to(outer_corner) < 0.05:
 				by_the_corner += 1
 		check(count > 100, "%s has its horseshoe (%d vertices)" % [name, count])
 		check(widest < band + 1e-4, "%s's horseshoe is a band round the hole, %f from its centre at most" % [name, widest])
-		check(foremost > -0.5 * float(pocket["drop_radius"]), "%s's horseshoe stays behind the drop: %f" % [name, foremost])
+		# Its arms run up the facings from where the cushions end on the rails' inner edges.
+		check_eq(in_front, 0, "%s's horseshoe vertices in front of both rails' inner edges" % name)
 		check(furthest_back > band - 0.005, "%s's horseshoe wraps round the back of the hole: %f" % [name, furthest_back])
 		check(sides.x < -hole and sides.y > hole, "%s's horseshoe reaches round both sides: %s" % [name, sides])
 		check_eq(by_the_corner, 0, "%s's fitting vertices at the rail's outer corner" % name)
@@ -421,6 +457,98 @@ func test_cushion_noses_follow_the_outline() -> void:
 		if nearest > NOSE_TOLERANCE:
 			uncovered += 1
 	check_eq(uncovered, 0, "points of the noses and jaws the drawn nose misses (farthest %.3f mm)" % (farthest * 1000.0))
+	table.free()
+
+
+# The cushion's cross-section where each straight nose starts and ends: nothing in front of the nose,
+# the face below it cut back under it towards the cloth, and a slim top back to the wood, flush with
+# it at rail height. The rails' outer edges are rail_width behind the noses whatever the cushion
+# gives up (test_rails_reach_rail_width_behind_the_noses).
+func test_cushions_are_slim_undercut_wedges() -> void:
+	var shape := _shape()
+	var table := _build(shape)
+	var mesh := _mesh(table)
+	if mesh == null:
+		table.free()
+		return
+	var rail_height := float(shape["rail_height"])
+	var contact := minf(Physics.param("cushion_contact_height_m", TableView.CONTACT_HEIGHT_FALLBACK), rail_height - 0.001)
+	var cloth: PackedVector3Array = mesh.surface_get_arrays(TableView.SURFACE_CLOTH)[Mesh.ARRAY_VERTEX]
+	var wood: PackedVector3Array = mesh.surface_get_arrays(TableView.SURFACE_WOOD)[Mesh.ARRAY_VERTEX]
+	var sections := 0
+	for line: Dictionary in shape["lines"]:
+		if String(line["kind"]) != "nose":
+			continue
+		var n := _v2(line["normal"])
+		for end: Vector2 in [_v2(line["p1"]), _v2(line["p2"])]:
+			var name := "%s at %s" % [line["name"], end]
+			var nose := 0
+			var in_front := 0
+			var shallowest_undercut := INF
+			var lowest_face := Vector2(0.0, INF)
+			var top := Vector2(-INF, 0.0)
+			for v in cloth:
+				var p := _flat(v) - end
+				if absf(p.dot(n.orthogonal())) > 1e-5 or v.y < 1e-4:
+					continue
+				var behind := -p.dot(n)
+				if behind > 0.06 or behind < -0.01:
+					continue
+				if absf(v.y - contact) < 1e-6:
+					nose += 1
+				if behind < -1e-4:
+					in_front += 1
+				if v.y < contact - 0.002:
+					shallowest_undercut = minf(shallowest_undercut, behind)
+					if v.y < lowest_face.y:
+						lowest_face = Vector2(behind, v.y)
+				if v.y > contact and behind > top.x:
+					top = Vector2(behind, v.y)
+			var wood_starts := INF
+			for v in wood:
+				var p := _flat(v) - end
+				if absf(p.dot(n.orthogonal())) < 1e-5 and absf(v.y - rail_height) < 1e-6 and absf(p.dot(n)) < 0.2:
+					wood_starts = minf(wood_starts, -p.dot(n))
+			sections += 1
+			check(nose > 0, "%s: the cushion's nose is drawn at the contact height" % name)
+			check_eq(in_front, 0, "%s: cushion vertices in front of the nose" % name)
+			check(shallowest_undercut > 0.001, "%s: the face below the nose is cut back under it: %f" % [name, shallowest_undercut])
+			check(lowest_face.x > 0.012, "%s: the undercut deepens towards the cloth, %f behind at %f" % [name, lowest_face.x, lowest_face.y])
+			check(top.x >= 0.036 and top.x <= 0.044, "%s: the cushion's top is a slim 36-44 mm: %f" % [name, top.x])
+			check(absf(top.y - rail_height) < 0.001, "%s: the cushion's back is flush with the rail: %f" % [name, top.y])
+			check(absf(wood_starts - top.x) < 1e-4, "%s: the wood starts where the cushion's top ends: %f" % [name, wood_starts])
+	check_eq(sections, 12, "cushion cross-sections checked")
+	table.free()
+
+
+# At a middle pocket the cushion fills its jaw up to the wood's square end and runs on down the
+# facing a strip wide; it doesn't jut into the rail.
+func test_the_middle_cushions_curve_into_their_pockets() -> void:
+	var shape := _shape()
+	var table := _build(shape)
+	var mesh := _mesh(table)
+	if mesh == null:
+		table.free()
+		return
+	var half := _half()
+	var cloth: PackedVector3Array = mesh.surface_get_arrays(TableView.SURFACE_CLOTH)[Mesh.ARRAY_VERTEX]
+	for pocket: Dictionary in shape["pockets"]:
+		if bool(pocket["corner"]):
+			continue
+		var centre := _v2(pocket["drop_centre"])
+		var gap := _hole_radius(shape, pocket)
+		var inner_edge := half.y + TableView.CUSHION_DEPTH
+		var in_the_rail := 0
+		var outside_the_strip := 0
+		for v in cloth:
+			var p := _flat(v)
+			if v.y < 1e-3 or p.distance_to(centre) > 0.15 or absf(p.y) <= inner_edge + 1e-6:
+				continue
+			in_the_rail += 1
+			if absf(p.x - centre.x) > gap + TableView.JAW_STRIP + 1e-4:
+				outside_the_strip += 1
+		check(in_the_rail > 20, "%s's cushions run down its facings (%d vertices)" % [pocket["name"], in_the_rail])
+		check_eq(outside_the_strip, 0, "%s cushion vertices in the rail past the wood's square end" % pocket["name"])
 	table.free()
 
 

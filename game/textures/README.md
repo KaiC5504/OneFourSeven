@@ -77,11 +77,12 @@ this PC: a 64 x 64 albedo and normal map, two diamonds of round cord across a **
 diamond about 12 mm), a knot where the cords cross and the cords swelling three times per diamond
 side like crochet stitches. Cord sRGB (0.94, 0.91, 0.84), the gaps (0.2, 0.18, 0.16) for the dark
 under the table; the normal map (OpenGL style) comes from the cords' heights. Roughness is
-`cloth/cloth_roughness.jpg` with `roughness` 1.0 and `metallic_specular` 0.2: matt cotton. The net's
-vertex colour shades it from 1.0 at the rim to 0.36 low down and near black (0.012) at the opening at
-its bottom, and its normals lean up like a shallow bowl's (`NET_TILT`), so the key light from straight
-above reaches into it. Its texture keeps a whole number of tiles round each hole and its diamonds
-shrink down the net as fast as round it.
+`cloth/cloth_roughness.jpg` with `roughness` 1.0 and `metallic_specular` 0.2: matt cotton. The net
+hangs as a bag; its vertex colour shades it 0.6 at the rim, in the shade of the fitting's lip, up to
+0.95 in its bowl, 0.3 low down and near black (0.012) at the opening at its bottom. Its normals are
+the bag's own leaned a little further up (`NET_TILT`), so the key light from straight above reaches
+into the bowl while the sag under the lip stays in shade. Its texture keeps a whole number of tiles
+round each hole and its diamonds shrink down the net as fast as round it.
 
 ### Cue (`cue/`)
 
