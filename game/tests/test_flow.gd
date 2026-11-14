@@ -717,6 +717,12 @@ func test_the_overview_button_shows_the_broadcast_view_to_walk_round() -> void:
 	check(notice.visible and notice.text == MainScript.OVERVIEW_HINT, "a one-line hint about walking round")
 	rig._process(CameraRig.BLEND_S)
 	check(rig.transform.is_equal_approx(rig.broadcast_pose(CameraRig.end_behind(start_aim))), "blended there")
+	# The hint covered the far rail at the old, higher view.
+	var hint := notice.get_global_rect()
+	for pocket: Dictionary in Physics.table_shape()["pockets"]:
+		var c: Array = pocket["drop_centre"]
+		var at := rig.camera().unproject_position(TableSpace.core_to_godot(float(c[0]), float(c[1])))
+		check(at.y > hint.end.y, "the %s pocket at %s below the hint %s" % [pocket["name"], at, hint])
 	var forward := -rig.transform.basis.z
 	_table_drag(TABLE_POINT, Vector2(-400.0, 0.0), 20)
 	check_eq(main.setup.aim_rad, start_aim, "the aim unchanged")

@@ -352,6 +352,18 @@ const PHONE_SAFE_AREAS: Array[Rect2] = [
 ## A blend's frame at 60 fps: the most the eye may move and the view may turn.
 const STEP_MAX_M := 0.2
 const TURN_MAX_DEG := 3.0
+## The bottom of main.gd's notice line ("Drag to walk round the table"): 16 down, about 60 deep.
+const NOTICE_BOTTOM := 80.0
+
+
+## The table's outline as main.gd gives it to the rig.
+func _table_bounds() -> AABB:
+	var table := TableView.new()
+	tree.root.add_child(table)
+	table.build(Physics.table_shape(), OfsTable.dimensions())
+	var bounds := table.bounds()
+	table.free()
+	return bounds
 
 
 ## The controls' rectangles: Windows (the whole canvas safe), then the phone either way round.
@@ -400,18 +412,28 @@ func _under(at: Vector2, controls: Array[Rect2]) -> String:
 	return ""
 
 
-func _rail_corners_in_view(rig: CameraRig, pose: Transform3D, what: String) -> void:
-	var bounds := Stage.DEFAULT_BOUNDS
+func _rail_corners_in_view(rig: CameraRig, pose: Transform3D, what: String, bounds := Stage.DEFAULT_BOUNDS) -> void:
 	for i in 8:
 		var corner := bounds.get_endpoint(i)
 		var at := rig.project(pose, Vector3(corner.x, bounds.end.y, corner.z))
 		check(_on_canvas(at), "%s: rail corner %s on screen at %s" % [what, corner, at])
 
 
+## The projected width of the outline's rail-top edge at the end the view at `pose` stands behind.
+func _near_rail_width(rig: CameraRig, pose: Transform3D, bounds: AABB, yaw: float) -> float:
+	var z := bounds.end.z if cos(yaw) > 0.0 else bounds.position.z
+	return rig.project(pose, Vector3(bounds.end.x, bounds.end.y, z)).distance_to(
+			rig.project(pose, Vector3(bounds.position.x, bounds.end.y, z)))
+
+
 func test_the_broadcast_view_shows_every_pocket_and_cushion_end_clear_of_the_controls() -> void:
+	# KaiC: "Make the table bigger", from a TV frame whose near rail spans about 65 % of its width.
 	var rig := _loose_rig()
+	var bounds := _table_bounds()
+	rig.set_table_bounds(bounds)
 	var markers := _markers()
 	check_eq(markers.size(), 6 + 12, "six pockets and six cushions' ends")
+	check(CameraRig.BROADCAST_PITCH_DEG >= 25.0 and CameraRig.BROADCAST_PITCH_DEG <= 35.0, "the TV camera's low angle")
 	for controls: Array[Rect2] in _control_layouts():
 		rig.keep_clear(controls)
 		for yaw: float in [0.0, PI]:
@@ -423,10 +445,14 @@ func test_the_broadcast_view_shows_every_pocket_and_cushion_end_clear_of_the_con
 				check(_on_canvas(at), "%s on screen at %s (yaw %.2f)" % [marker[0], at, yaw])
 				var under := _under(at, controls)
 				check(under.is_empty(), "%s at %s not under the control %s (yaw %.2f)" % [marker[0], at, under, yaw])
-			_rail_corners_in_view(rig, pose, "yaw %.2f" % yaw)
+				check(at.y > NOTICE_BOTTOM, "%s at %s below the notice line (yaw %.2f)" % [marker[0], at, yaw])
+			_rail_corners_in_view(rig, pose, "yaw %.2f" % yaw, bounds)
 			var forward := -pose.basis.z
 			check_near(rad_to_deg(asin(-forward.y)), CameraRig.BROADCAST_PITCH_DEG, 1e-4, "looking down at the TV angle")
 			check_near(_core_dir(forward).dot(Vector2(cos(yaw), sin(yaw))), 1.0, 1e-9, "along the table")
+			var near_rail := _near_rail_width(rig, pose, bounds, yaw)
+			check(near_rail > CANVAS.x * 0.55 and near_rail < CANVAS.x * 0.7,
+					"the near rail about two thirds of the width: %.0f (yaw %.2f, %s)" % [near_rail, yaw, controls])
 			var near_end := TableSpace.core_to_godot(-1.7845 * cos(yaw), 0.0)
 			var far_end := TableSpace.core_to_godot(1.7845 * cos(yaw), 0.0)
 			var side := Vector3(0.889, 0.0, 0.0)
@@ -435,6 +461,51 @@ func test_the_broadcast_view_shows_every_pocket_and_cushion_end_clear_of_the_con
 			check(far_width < near_width * 0.85, "the far end narrower: %.0f vs %.0f" % [far_width, near_width])
 			check(rig.project(pose, near_end).y > rig.project(pose, far_end).y, "the near cushion at the bottom")
 			check(tops.max() - tops.min() > CANVAS.y * 0.7, "the table fills the height: %.0f" % [tops.max() - tops.min()])
+	rig.free()
+
+
+func test_the_walk_round_fits_the_table_clear_of_the_controls_at_every_yaw() -> void:
+	var rig := _loose_rig()
+	var bounds := _table_bounds()
+	rig.set_table_bounds(bounds)
+	var markers := _markers()
+	var pockets := markers.slice(0, 6)
+	for controls: Array[Rect2] in _control_layouts():
+		rig.keep_clear(controls)
+		var last := rig.broadcast_pose(0.0)
+		var side_on := 0.0
+		var jumps: Array[String] = []
+		var faults: Array[String] = []
+		for k in range(1, 361):
+			var yaw := deg_to_rad(k)
+			var pose := rig.broadcast_pose(yaw)
+			for marker: Array in markers:
+				var at := rig.project(pose, marker[1])
+				if not _on_canvas(at) or not _under(at, controls).is_empty():
+					faults.append("%s at %s (yaw %d)" % [marker[0], at, k])
+			for marker: Array in pockets:
+				var at := rig.project(pose, marker[1])
+				if at.y <= NOTICE_BOTTOM:
+					faults.append("%s at %s under the notice line (yaw %d)" % [marker[0], at, k])
+			for i in 8:
+				var corner := bounds.get_endpoint(i)
+				var at := rig.project(pose, Vector3(corner.x, bounds.end.y, corner.z))
+				if not _on_canvas(at):
+					faults.append("rail corner %s at %s (yaw %d)" % [corner, at, k])
+			# A degree round is about 7 cm along the walk. A fit springing in or out, as one did with a
+			# pocket slipping round a control's corner, moves the eye several times that in one step.
+			var reach := Vector2(pose.origin.x, pose.origin.z).length() - Vector2(last.origin.x, last.origin.z).length()
+			var rise := pose.origin.y - last.origin.y
+			if absf(reach) > 0.1 or absf(rise) > 0.1:
+				jumps.append("yaw %d: %.3f m out, %.3f m up" % [k, reach, rise])
+			if k == 90:
+				var left := rig.project(pose, Vector3(bounds.end.x, bounds.end.y, bounds.end.z))
+				var right := rig.project(pose, Vector3(bounds.end.x, bounds.end.y, bounds.position.z))
+				side_on = left.distance_to(right)
+			last = pose
+		check_eq(faults, [] as Array[String], "every pocket, cushion end and rail corner in view and clear (%s)" % [controls])
+		check_eq(jumps, [] as Array[String], "the fit changes smoothly with the walk (%s)" % [controls])
+		check(side_on > CANVAS.x * 0.6, "side-on the long rail across most of the screen: %.0f (%s)" % [side_on, controls])
 	rig.free()
 
 
@@ -453,7 +524,7 @@ func test_the_broadcast_end_is_behind_the_shot() -> void:
 			check(eye.x < -1.95, "aiming towards the black: the baulk end (%s)" % eye)
 		else:
 			check(eye.x > 1.95, "aiming towards baulk: the black end (%s)" % eye)
-		check(_height(rig) > 2.5, "high up: %.2f m" % _height(rig))
+		check(_height(rig) > 1.0, "looking down from above the table: %.2f m" % _height(rig))
 		rig.follow(Vector2(0.6, -0.2), aim + 1.0)
 		check(rig.transform.is_equal_approx(rig.broadcast_pose(entry[1])), "steady while the shot plays")
 		rig.hold(false)
