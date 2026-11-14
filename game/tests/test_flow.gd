@@ -882,7 +882,10 @@ func test_a_pot_cuts_to_the_pocket_scores_and_swoops_back_onto_the_next_ball() -
 	check(absf(frames - CameraRig.RETURN_S * 60.0) <= 2.0, "in RETURN_S: %d frames" % frames)
 	check(rig.transform.is_equal_approx(rig.pose_for(main._cue_xy(), 0.7, main.setup.effective_elevation())),
 			"behind the cue ball on the blue's aim")
-	check(not Perf._active.has(&"camera"), "and the game can idle")
+	popups._process(PotPopups.LIFE_S)
+	check(not Perf._active.has(&"camera") and not Perf._active.has(&"pot_popup") and not Perf._active.has(&"shot"),
+			"and the game can idle: %s" % [Perf._active.keys()])
+	check(not main.is_processing(), "the scene does nothing a frame")
 	_key(KEY_R)
 	check(not pill.visible and main.harness_state()["break"] == 0, "a retake starts the break again")
 	_finish(main)

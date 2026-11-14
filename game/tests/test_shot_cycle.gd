@@ -329,6 +329,21 @@ func test_the_swoop_back_lands_on_the_new_aim() -> void:
 	rig.free()
 
 
+func test_a_shot_struck_mid_ease_holds_from_the_new_aim() -> void:
+	# A harness shot sets the aim and strikes in one frame; the camera mustn't rise from the old aim.
+	var rig := _rig()
+	rig.follow(Vector2(-1.0, 0.1), 0.3)
+	rig.follow(Vector2(-1.0, 0.1), 2.5)
+	check(rig.is_easing(), "a big aim change eases")
+	rig.finish_ease()
+	check(not rig.is_easing() and not Perf._active.has(&"camera"), "ended at once")
+	check(rig.transform.is_equal_approx(rig.pose_for(Vector2(-1.0, 0.1), 2.5)), "behind the cue ball on the new aim")
+	rig.hold(true)
+	rig.finish_ease()
+	check(rig.is_easing(), "a blend between views runs on")
+	rig.free()
+
+
 func test_prefer_a_colour_after_a_red_and_a_red_while_any_remain() -> void:
 	var cycle := ShotCycle.new()
 	var with_reds := _balls()

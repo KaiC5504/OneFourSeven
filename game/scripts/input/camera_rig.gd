@@ -85,18 +85,19 @@ const RETURN_S := 1.1
 ## pocket's drop centre and swung POCKET_SWING_DEG round it off the ball's line (straight down the
 ## line the pocket's own fitting hides the ball), looking back up the ball's way in, turned half
 ## the swing back towards the pocket and pitched to put the pocket POCKET_FRAME_Y down the frame.
-## The reference frames have the pocket about 30 % of the width across, so close, and three
-## quarters down.
+## The reference frames have the pocket about 30 % of the width across, so close, three quarters
+## down, and the view well round towards one cushion; from here the line of sight still clears
+## the pocket's fitting.
 const POCKET_FOV_DEG := 40.0
-const POCKET_HEIGHT_M := 0.3
-const POCKET_BACK_M := 0.65
+const POCKET_HEIGHT_M := 0.28
+const POCKET_BACK_M := 0.55
 const POCKET_FRAME_Y := 0.75
-## A middle pocket's camera stands higher and further back, looking down across the table at both
-## ends as the reference game's does, the pocket low in the frame, above the break counter.
-const POCKET_MIDDLE_HEIGHT_M := 0.75
-const POCKET_MIDDLE_BACK_M := 1.1
-const POCKET_MIDDLE_FRAME_Y := 0.8
-const POCKET_SWING_DEG := 12.0
+## A middle pocket's camera stands high, looking down across the table at both ends as the
+## reference game's does, the pocket low in the frame, above the break counter.
+const POCKET_MIDDLE_HEIGHT_M := 1.1
+const POCKET_MIDDLE_BACK_M := 1.0
+const POCKET_MIDDLE_FRAME_Y := 0.82
+const POCKET_SWING_DEG := 20.0
 ## A way in shorter than this (a ball nudged in from the jaws) gives no direction; the pocket's own
 ## line out from the table centre stands in.
 const POCKET_MIN_RUN_M := 0.05
@@ -491,6 +492,13 @@ func in_room(eye: Vector3) -> bool:
 
 func is_easing() -> bool:
 	return _ease >= 0.0
+
+
+## Ends an ease behind the cue ball at once, at its goal; a blend between views runs on.
+func finish_ease() -> void:
+	if _ease >= 0.0 and not _blending:
+		_show(_target_cue, _target_aim, _target_elevation)
+		_stop_ease()
 
 
 func camera() -> Camera3D:

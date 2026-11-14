@@ -246,8 +246,10 @@ func _strike(strike_mode: String) -> String:
 		_queue_refresh()
 		return ""
 	_free.shot_started(setup.snapshot(), shot_id)
-	# An aim set this frame (a harness shot) would otherwise leave the camera held where it was.
+	# An aim set this frame (a harness shot) would otherwise leave the camera held where it was, or
+	# rising from where an ease to it had got to.
 	_flush_refresh()
+	_rig.finish_ease()
 	_record = record
 	_shot_id = shot_id
 	_skip_requested = false
