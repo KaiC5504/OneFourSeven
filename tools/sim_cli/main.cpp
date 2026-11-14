@@ -22,6 +22,7 @@ const char* const kUsage =
     "  bench [--check] [--baseline FILE] [--write-baseline] [--runs N] [--budget-us U]\n"
     "        [--params P] [--table T] [--force-table]\n"
     "  calibrate --out DIR [--breaks N] [--params P] [--table T]\n"
+    "  pots [--against OTHER_TABLE] [--step-mm S] [--distance M] [--out FILE] [--params P] [--table T]\n"
     "\n"
     "Exit codes: 0 ok, 1 a check failed, 2 bad arguments or input.\n";
 
@@ -41,6 +42,7 @@ int main(int argc, char** argv) {
         if (command == "fuzz") code = sim_cli::cmd_fuzz(args);
         if (command == "bench") code = sim_cli::cmd_bench(args);
         if (command == "calibrate") code = sim_cli::cmd_calibrate(args);
+        if (command == "pots") code = sim_cli::cmd_pots(args);
         if (code >= 0) {
             std::fflush(stdout);
             return code;

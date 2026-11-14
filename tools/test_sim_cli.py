@@ -106,7 +106,7 @@ class ArgumentTest(CliTestCase):
     def test_help_lists_every_command(self):
         result = run("help")
         self.assert_exit(result, 0)
-        for command in ("simulate", "replay", "fuzz", "bench", "calibrate"):
+        for command in ("simulate", "replay", "fuzz", "bench", "calibrate", "pots"):
             self.assertIn(command, result.stdout)
 
     def test_unknown_command(self):
@@ -127,7 +127,7 @@ class ArgumentTest(CliTestCase):
     def test_bad_numbers(self):
         for args in (("fuzz", "--shots", "many"), ("fuzz", "--shots", "0"), ("fuzz", "--threads", "-2"),
                      ("simulate", STRAIGHT, "--seed", "1.5"), ("replay", STRAIGHT, "--tolerance", "nan"),
-                     ("bench", "--runs", "1e3")):
+                     ("bench", "--runs", "1e3"), ("pots", "--step-mm", "0"), ("pots", "--distance", "far")):
             with self.subTest(args=args):
                 result = run(*args)
                 self.assert_exit(result, 2)
@@ -716,6 +716,63 @@ class CalibrateTest(CliTestCase):
         # On the real table the top cushion is 1.3 m past the red, so no follow could run half its length.
         follow = max(row[2] for row in data["rows"] if row[2] is not None)
         self.assertGreater(follow, data["summary"]["playing_length_m"] / 2.0)
+
+
+class PotsTest(CliTestCase):
+    def pots(self, *extra):
+        out = self.tmp / "pots.json"
+        result = run("pots", "--step-mm", 1, "--out", out, *extra, timeout=120)
+        self.assert_exit(result, 0)
+        return result, json.loads(out.read_text(encoding="utf-8"))
+
+    def test_a_row_for_each_pocket_angle_and_pace(self):
+        result, data = self.pots()
+        rows = {(row["pocket"], row["angle_deg"], row["speed_m_s"]): row for row in data["rows"]}
+        self.assertEqual(len(rows), 24)
+        self.assertEqual({key[1] for key in rows if key[0] == "corner"}, {0.0, 15.0, 30.0, 43.0})
+        self.assertEqual({key[1] for key in rows if key[0] == "middle"}, {0.0, 20.0, 40.0, 60.0})
+        self.assertEqual({key[2] for key in rows}, {0.5, 1.5, 4.0})
+        self.assertEqual((data["table_hash"], data["anomalies"]), (table_hash(), 0))
+        self.assertIn("corner      0 deg   0.5 m/s", result.stdout)
+        for key, row in rows.items():
+            with self.subTest(key=key):
+                # No line inside the band stays out, so the band's ends are its width apart.
+                self.assertEqual(row["out_inside"], 0)
+                if row["width_mm"] > 0:
+                    self.assertAlmostEqual(row["hi_mm"] - row["lo_mm"] + data["step_mm"], row["width_mm"], places=6)
+        # Straight in, the band is as good as centred on the pocket, and a ball's width or more at 0.5 m/s.
+        for pocket in ("corner", "middle"):
+            row = rows[(pocket, 0.0, 0.5)]
+            self.assertLessEqual(abs(row["lo_mm"] + row["hi_mm"]), 2.0, row)
+            self.assertGreater(row["width_mm"], 52.5, row)
+        # The steeper the approach, the less of the pocket there is.
+        for pocket, angles in (("corner", (0.0, 15.0, 30.0, 43.0)), ("middle", (0.0, 20.0, 40.0, 60.0))):
+            widths = [rows[(pocket, angle, 1.5)]["width_mm"] for angle in angles]
+            self.assertEqual(widths, sorted(widths, reverse=True), pocket)
+
+    def test_a_ball_along_the_cushion(self):
+        _, data = self.pots()
+        self.assertEqual([row["speed_m_s"] for row in data["along_cushion"]], [0.5, 1.5, 4.0])
+        for row in data["along_cushion"]:
+            with self.subTest(speed=row["speed_m_s"]):
+                self.assertEqual(row["frozen_drops"], row["width_mm"] > 0 and row["lo_mm"] == 0.0)
+
+    def test_against_another_table_gives_both_widths_and_their_ratio(self):
+        other = other_table(self.tmp)
+        result, data = self.pots("--against", other)
+        self.assertEqual(data["against_table_hash"], table_hash(other))
+        self.assertIn(f"against    table {table_hash(other)} (other_table.json), the same parameters", result.stdout)
+        for row in data["rows"] + data["along_cushion"]:
+            # The same outline under another hash: the same band.
+            self.assertEqual({k: row.get(k) for k in ("width_mm", "lo_mm", "hi_mm", "lines")},
+                             {k: row["against"].get(k) for k in ("width_mm", "lo_mm", "hi_mm", "lines")})
+        self.assertIn(" 1.00", result.stdout)
+        self.assertNotIn(" new ", result.stdout)
+
+    def test_a_table_that_does_not_load_is_an_error(self):
+        result = run("pots", "--against", self.tmp / "nowhere.json")
+        self.assert_exit(result, 2)
+        self.assertIn("nowhere.json", result.stderr)
 
 
 if __name__ == "__main__":
