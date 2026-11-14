@@ -45,7 +45,7 @@ static func safe_rect(safe_area: Rect2, window_rect: Rect2, canvas_size: Vector2
 ##   nudge of the aim runs straight into the stroke;
 ## - "bottom": edit mode's row, along the bottom (the shot controls are hidden then);
 ## - "break": the band the running break's pill (spec 8.5) is centred in, at the bottom of the safe
-##   area between the spin ball and the wheel: above the home indicator, and between the TV view's
+##   area between the spin ball and the wheel: above the home indicator, and between the full-table view's
 ##   near pockets.
 ## canvas, when given, lets the bottom controls use the margin the phone's home indicator leaves
 ## below the safe area, which keeps the spin ball below the green at the opening view.

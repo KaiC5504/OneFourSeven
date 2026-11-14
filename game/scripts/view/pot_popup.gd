@@ -3,8 +3,8 @@ extends Node3D
 ## A potted ball's value floating up out of its pocket (spec 8.5, the shot cycle): white with a dark
 ## outline, facing whichever camera is on and drawn over the rails and fittings, rising RISE_M and
 ## fading over LIFE_S. Sized in metres, as the reference game's are, so it reads bigger from the
-## pocket camera than from the TV view, but never under MIN_VIEW_SHARE of the view's height, which
-## keeps it legible on the phone from the TV view.
+## pocket camera than from the full-table view, but never under MIN_VIEW_SHARE of the view's height, which
+## keeps it legible on the phone from the full-table view.
 
 const LIFE_S := 1.0
 const RISE_M := 0.12

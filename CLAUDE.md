@@ -111,8 +111,8 @@ x86_64-only and the Mac has no Rosetta.
   extension in CI (export fails on script errors), and the idle cap (30 fps, never while a
   finger is down). Progress record: `docs/m1-progress.md`.
   For KaiC's M2 feel check: a dying ball (about 0.12 m/s or less) clipping the far jaw hangs
-  instead of dropping (`drop_set_back_m`); cloth pace (roll 0.010); jaw liveliness, nap drift,
-  miscue and hard-hit cushion loss are starting guesses.
+  instead of dropping; jaw liveliness, nap drift, miscue and hard-hit cushion loss are starting
+  guesses. (The pockets and the cloth pace noted here were replaced on 2026-11-15, below.)
   Before the next TestFlight build: `testflight.yml` changed in M1, so `testflight.py start
   --dry-run` first.
 - M2 built (2026-11-13, the feel build): the free table is playable on Windows and the iPhone.
@@ -128,3 +128,22 @@ x86_64-only and the Mac has no Rosetta.
   TestFlight. Open for his feel session: stroke curve (6000 units/s fastest push, exponent 1.5),
   the phone's first-launch hitch (was 3.4 s; probe atlas cut, shader baker not yet on), haptics
   crispness (Godot's continuous events; Core Haptics plugin if mushy), plus the M1 notes above.
+- The bought table and the reference game's shot cycle (2026-11-15, on M2): KaiC bought Studio-Lab's
+  "Snooker Table" and the game uses all of it when `game/licensed/` is there: table, nets, racks,
+  chalk, lamp (fades out above 0.55 m of camera height), balls (our six dots and soft highlight
+  kept on their cue ball) and cue. `tools/fit_table.py` (Blender, see the script's top) lengthens the
+  model's straight runs to the full playing area, opens the corner mouths 16 mm to an 86.4 mm gap
+  and paints out the baked markings; `tools/make_table_shape.py` builds the physics outline from the
+  fitted model (jaws: one 101 mm arc through 56.4 degrees; drop circle: the hole in the bed). Pot
+  widths against the old outline (`ofs_sim_cli pots --against <old file>`): corners 1.04 to 1.27 to
+  30 degrees off the diagonal, middles 1.5 to 2.8; a dying ball along a cushion drops less often.
+  Without the folder (CI, TestFlight) `procedural_table.gd` draws the same outline; a headless run
+  always uses it. `OFS_TABLE=procedural` forces it; `game/scenes/dev/table_preview.tscn` pictures both.
+  KaiC's cloth values are committed (roll friction 0.015, cushion restitution 0.85): calibration C7
+  and C11 are now his values, not the papers'. The shot cycle follows his recording of the mobile
+  game he plays (spec 8.5): instant cuts to a low pocket camera and to a still full-table view from
+  the black end, and a 1.1 s swoop back as the only animated move. `scripts/mac.py phone` copies the
+  fitted model to the Mac. Open: the model on the phone is unmeasured (frame time, first launch, about
+  90 MB more memory); iPhone-logged shots replay on Windows with the same events but times up to 22 ns
+  apart on 10 m/s break-offs (libm rounding), over `ofs_sim_cli replay`'s 1 ns limit; a private way
+  to give CI the bought files, so TestFlight shows the table too.
