@@ -8,6 +8,7 @@
 | nlohmann/json | 3.12.0 | MIT | `thirdparty/nlohmann/json.hpp` | https://github.com/nlohmann/json |
 | App icon | generated | ours | `game/icons/icon.png` | `tools/make_icon.py` (Pillow, numpy), no third-party artwork |
 | Table sounds | generated | ours, no licence needed | `game/audio/*.wav` | `tools/make_sounds.py` (plain Python modal synthesis), no recordings or third-party samples |
+| Pocket nets | generated | ours | drawn when the table is built, no file | `game/scripts/view/table_view.gd` (`_net_maps`: crochet albedo and normal map), no third-party artwork |
 | pooltool | main, 2026 | Apache-2.0 | physics in `core/src/physics/` and `core/src/math/` ported from or checked against its models (each file names the module); reference numbers in `core/tests/fixtures/reference/` | https://github.com/ekiefl/pooltool (Evan Kiefl) |
 
 ## Textures and lighting (CC0)
@@ -19,7 +20,7 @@ each file was derived is in `game/textures/README.md`.
 | --- | --- | --- | --- | --- |
 | Fabric 034 (felt) | https://ambientcg.com/view?id=Fabric034 | ambientCG | CC0 1.0 | `game/textures/cloth/`: the cloth's grain (albedo made neutral grey, normal, roughness) |
 | Dark Wood | https://polyhaven.com/a/dark_wood | Dario Barresi, Dimitrios Savva, Rico Cilliers | CC0 1.0 | `game/textures/rail/`: the mahogany rails |
-| Leather 030 | https://ambientcg.com/view?id=Leather030 | ambientCG | CC0 1.0 | `game/textures/leather/`: pocket leathers (albedo darkened) |
+| Leather 030 | https://ambientcg.com/view?id=Leather030 | ambientCG | CC0 1.0 | `game/textures/leather/`: the pocket fittings' grain (normal, roughness; albedo darkened, in the materials preview) |
 | Ash Veneer | https://polyhaven.com/a/ash_veneer | Jenelle van Heerden | CC0 1.0 | `game/textures/cue/ash_*`: the cue's shaft |
 | Flamed Black Veneer | https://polyhaven.com/a/flamed_black_veneer | Jenelle van Heerden | CC0 1.0 | `game/textures/cue/ebony_*`: the cue's butt (albedo darkened to ebony) |
 | Studio Small 04 (HDRI) | https://polyhaven.com/a/studio_small_04 | Greg Zaal | CC0 1.0 | `game/env/studio_small_04_1k.hdr`: ambient light and the dim room the balls reflect |
