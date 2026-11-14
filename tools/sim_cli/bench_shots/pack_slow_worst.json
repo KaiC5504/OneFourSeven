@@ -479,7 +479,7 @@
    "tip_x": -0.22835314051951053,
    "tip_y": 0.11632614700220861
   },
-  "table_hash": "be31d0fb68386452",
+  "table_hash": "ef1f74eadbf947d6",
   "v": 2
  },
  "result": {
@@ -2741,7 +2741,7 @@
   },
   "miscue": false,
   "potted": [],
-  "sim_us": 989.5,
+  "sim_us": 976.6,
   "t_end": 1.6372179702335903
  },
  "stress": {

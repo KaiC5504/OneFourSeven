@@ -1,26 +1,26 @@
 # Calibration report
 
-Physics parameters `588862c086c7b2c1`, table outline `cf92efd6db3fff39`, core 0.1.0, release build, from `calibration`.
+Physics parameters `8f1c5349b38d880b`, table outline `ef1f74eadbf947d6`, core 0.1.0, release build, from `calibration`.
 
 ## In plain words
 
 Speeds are the cue ball's speed as it leaves the tip unless a figure says cue speed (how fast the cue is moving). A centre-ball hit sends the cue ball off 1.39 times as fast as the cue; with the tip 0.5 off centre (above, below or to one side) it leaves only 67% as fast as that for the same cue speed. Tip positions are fractions of the ball's radius from its centre: 0.5 is half-way to the edge, just inside the miscue limit of 0.55. Distances between two balls are from centre to centre, and the table is 3.57 m long.
 
-- **Pace.** A centre-ball cue ball left to run: at 1 m/s it runs 2.7 m (76% of the table's length); at 2 m/s it would run 10.9 m on an endless table (3.0 table lengths); at 3 m/s it would run 24.5 m on an endless table (6.9 table lengths).
-- **Stun.** A cue ball arriving full-ball at 2 m/s with no spin stops almost dead: it keeps 3.0% of its speed and creeps on 1.0 cm. Striking a third of the way from centre to the bottom of the cue ball (tip -0.33), it stuns from 50 cm when it leaves at 1.83 m/s (it then creeps on 0.4 cm) and from 1 m at 2.66 m/s: from further away you hit harder, because the cloth rubs the backspin off on the way. From 50 cm, hit a tenth harder (2.01 m/s) and it comes back 0.5 cm; a tenth softer (1.65 m/s) and it runs on 5.3 cm. Centre ball from 50 cm at 3 m/s is a stun-run-through: the cue ball arrives still sliding and runs on 23 cm.
-- **Screw needs pace.** The cloth takes backspin off quickly. Striking 0.5 below centre, from 50 cm at 2 m/s it comes back 30 cm, at 3 m/s it comes back 2.4 m and at 4 m/s it would come back 5.6 m on an endless table; from 1 m at 2 m/s it runs on 17 cm, at 3 m/s it comes back 83 cm and at 4 m/s it would come back 3.7 m on an endless table. At 2 m/s from 1 m the backspin is gone before the cue ball arrives, so it runs on.
-- **Follow.** Striking 0.5 above centre, from 1 m at 2 m/s it follows through 1.7 m and at 3 m/s it would follow through 3.9 m on an endless table. A cue ball already rolling when it hits a ball full keeps 27% of its speed, close to the textbook 2/7 (29%).
+- **Pace.** A centre-ball cue ball left to run: at 1 m/s it runs 1.9 m (52% of the table's length); at 2 m/s it would run 7.4 m on an endless table (2.1 table lengths); at 3 m/s it would run 16.7 m on an endless table (4.7 table lengths).
+- **Stun.** A cue ball arriving full-ball at 2 m/s with no spin stops almost dead: it keeps 3.0% of its speed and creeps on 0.7 cm. Striking a third of the way from centre to the bottom of the cue ball (tip -0.33), it stuns from 50 cm when it leaves at 1.83 m/s (it then creeps on 0.2 cm) and from 1 m at 2.66 m/s: from further away you hit harder, because the cloth rubs the backspin off on the way. From 50 cm, hit a tenth harder (2.01 m/s) and it comes back 0.3 cm; a tenth softer (1.65 m/s) and it runs on 3.6 cm. Centre ball from 50 cm at 3 m/s is a stun-run-through: the cue ball arrives still sliding and runs on 16 cm.
+- **Screw needs pace.** The cloth takes backspin off quickly. Striking 0.5 below centre, from 50 cm at 2 m/s it comes back 20 cm, at 3 m/s it comes back 1.6 m and at 4 m/s it would come back 3.8 m on an endless table; from 1 m at 2 m/s it runs on 12 cm, at 3 m/s it comes back 57 cm and at 4 m/s it comes back 2.6 m. At 2 m/s from 1 m the backspin is gone before the cue ball arrives, so it runs on.
+- **Follow.** Striking 0.5 above centre, from 1 m at 2 m/s it follows through 1.1 m and at 3 m/s it follows through 2.6 m. A cue ball already rolling when it hits a ball full keeps 27% of its speed, close to the textbook 2/7 (29%).
 - **Cut angles.** A rolling cue ball arriving at 1 m/s and cut between a quarter and three-quarter ball comes off 29-34 degrees from the aim line (the 30-degree rule). Stunned, the two balls part at 80-84 degrees, a little under 90 because the balls are not perfectly elastic and the friction between them drags the object ball along.
 - **Throw.** On a half-ball cut, friction between the balls drags the object ball a little the way the cue ball is going, so it goes fuller than the line through the two centres: 4.9 degrees with a stunned cue ball arriving at 0.45 m/s, 4.2 at 1.34 m/s and 3.4 at 3.13 m/s. Over 1 m that is 8.5 cm on the slow cut and 5.9 cm on the firm one, so aim that much thinner. A rolling cue ball throws less: 1.7 degrees at 1.34 m/s.
 - **Side and squirt.** Side pushes the cue ball off the aim line, away from the side used: with the most side before a miscue (tip 0.55 off centre) it leaves 2.0 degrees off, 3.5 cm over 1 m.
-- **Swerve.** With the cue raised and side, the cue ball first squirts away from the side, then curves back towards it from the moment it is struck while it slides, bending most just before it grips the cloth; once it rolls it runs straight. Raised 30 degrees with the tip 0.4 right of centre, at a cue speed of 1.5 m/s, it squirts 1.4 degrees left, turns 12.9 degrees right over the first 26 cm and then holds its line: 0.1 degrees more over the next 1.7 m, the nap's drift on a slowing ball.
-- **Cushions.** A rolling ball arriving straight into a cushion at 1 m/s comes off with 91% of its speed; firm hits lose more, 70% at 4 m/s. (The one set of measurements on a snooker table, by Mathavan and colleagues, averaged 82% below 1.5 m/s, where their own cushion model, which the game uses, gives 91%.) Rolling into a side cushion at 45 degrees with no side, the ball leaves at 37.3 degrees just after the impact, then bends out to 50.1 as it grips the cloth again: that is the line you see. Running side widens both (46.6 and 58.8 degrees, with as much side as a tip 0.4 off centre gives) and check side narrows them (35.7 and 49.5).
-- **Cloth speed.** A lag (from the baulk line up to the top cushion and back down to the baulk cushion) needs the cue ball to leave at 2.14 m/s, a cue speed of 1.54 m/s; coming back down from the top cushion to the baulk cushion takes 8.4 seconds.
-- **Still starting guesses, for you to judge by feel in M2:** how lively the pocket jaws are (firm balls rattling, slow ones dropping), the nap drift on slow balls with and against the nap, what a miscue does, how much a very hard ball dies on a cushion, and the cloth's overall pace (the one snooker measurement found a slower cloth; tournament tables are heated and faster, so this sits between the two).
+- **Swerve.** With the cue raised and side, the cue ball first squirts away from the side, then curves back towards it from the moment it is struck while it slides, bending most just before it grips the cloth; once it rolls it runs straight. Raised 30 degrees with the tip 0.4 right of centre, at a cue speed of 1.5 m/s, it squirts 1.4 degrees left, turns 12.9 degrees right over the first 27 cm and then holds its line: 0.1 degrees more over the next 1.7 m, the nap's drift on a slowing ball.
+- **Cushions.** A rolling ball arriving straight into a cushion at 1 m/s comes off with 80% of its speed; firm hits lose more, 67% at 4 m/s. (This bounce is set by feel: with the cushion value Mathavan and colleagues fitted, their model, which the game uses, gives 91%; their one set of measurements on a snooker table averaged 82% below 1.5 m/s.) Rolling into a side cushion at 45 degrees with no side, the ball leaves at 42.0 degrees just after the impact, then bends out to 55.6 as it grips the cloth again: that is the line you see. Running side widens both (50.4 and 62.4 degrees, with as much side as a tip 0.4 off centre gives) and check side narrows them (40.4 and 55.4).
+- **Cloth speed.** A lag (from the baulk line up to the top cushion and back down to the baulk cushion) needs the cue ball to leave at 2.87 m/s, a cue speed of 2.07 m/s; coming back down from the top cushion to the baulk cushion takes 6.8 seconds. This pace is set by feel; it is slower than the published range for a fast cloth (C11 below has both).
+- **Still starting guesses, for you to judge by feel in M2:** how lively the pocket jaws are (firm balls rattling, slow ones dropping), the nap drift on slow balls with and against the nap, what a miscue does and how much a very hard ball dies on a cushion. The cloth's pace and the cushions' bounce are already yours (KaiC's feel sessions on the iPhone, 2026-11-13 to 15).
 
 ## Results against the targets
 
-What this report measured itself, from `ofs_sim_cli calibrate` and its own shots. The calibration suite (`ofs_calibration_tests`, run by the gate) checks the same targets with the exact tolerances in `docs/calibration/targets.md`.
+What this report measured itself, from `ofs_sim_cli calibrate` and its own shots. The calibration suite (`ofs_calibration_tests`, run by the gate) checks the same targets with the exact tolerances in `docs/calibration/targets.md`. "Owner's value" means the number is off its published target because of a value the owner set by feel, and inside the band the suite holds his table to; the published target is shown beside it.
 
 | # | What | Measured | Target | Verdict |
 | --- | --- | --- | --- | --- |
@@ -30,22 +30,24 @@ What this report measured itself, from `ofs_sim_cli calibrate` and its own shots
 | C4 | Rolling cut, 1/4 to 3/4 ball, cue ball at 1 m/s | 29.1-34.2 deg off the aim line | 30-degree rule, inside 24-36 | met |
 | C5 | Stun cut, 1/4 to 3/4 ball, cue ball at 1 m/s | 80.3-84.1 deg between the balls | 90-degree rule less restitution and throw: 80-92 | met |
 | C6 | Half-ball stun throw at 0.447 / 1.341 / 3.129 m/s | 4.86 / 4.16 / 3.39 deg | Alciatore 4.5 / 4.1 / 3.45, Jewett 6 / 4.1 / 3.45 (+- 0.75); slow above fast by 0.25 | met |
-| C7 | Cushion rebound, rolling, no side, 0.5-4 m/s, 0-80 deg | worst 0.05 deg and 0.08% of the speed off the fine-step Mathavan solution over 36 cases | 1 deg, 2% (the suite also checks side, stun and screw) | met |
-| C8 | Running and check side, into the cushion at 45 deg at 1.5 m/s | check 35.7 < none 37.3 < running 46.6 deg | angles ordered check < plain < running (Mathavan Fig. 8) | met |
+| C7 | Cushion rebound, rolling, no side, 0.5-4 m/s, 0-80 deg | worst 0.06 deg and 0.06% of the speed off the fine-step Mathavan solution over 36 cases; straight in at 1 m/s the ball keeps 79.7% of its speed | 1 deg, 2% of the model at the owner's `cushion_restitution` 0.85 (the suite also checks side, stun and screw); with the paper's 0.98 the ball keeps 91.1%, so this is -12.5% | owner's value |
+| C8 | Running and check side, into the cushion at 45 deg at 1.5 m/s | check 40.4 < none 42.0 < running 50.4 deg | angles ordered check < plain < running (Mathavan Fig. 8) | met |
 | C9 | Squirt at maximum side (tip 0.55) | 2.01 deg | 1-3 deg | met |
-| C10 | Swerve, cue raised 15-45 deg with side | while sliding pulled at 2.080 m/s^2 in a direction fixed to 0.00 deg, turning towards the side; once rolling at most 0.07 deg more | TP A.4 parabola: mu_s g = 2.080 m/s^2 in one direction (0.5%, 0.2 deg); straight once rolling apart from the nap | met |
-| C11 | Lag: baulk line to the top cushion and back to baulk | cue ball 2.14 m/s; back down from the top cushion in 8.4 s, effective slope 0.0101 | 1.55-2.32 m/s (TP B.6 for slopes 0.0055-0.0105, +-5%); slope 0.0055-0.0105 | met |
+| C10 | Swerve, cue raised 15-45 deg with side | while sliding pulled at 2.079-2.080 m/s^2 in a direction fixed to 0.00 deg, turning towards the side; once rolling at most 0.12 deg more | TP A.4 parabola: mu_s g = 2.080 m/s^2 in one direction (0.5%, 0.2 deg); straight once rolling apart from the nap | met |
+| C11 | Lag: baulk line to the top cushion and back to baulk | cue ball 2.87 m/s; back down from the top cushion in 6.8 s, effective slope 0.0153: 24% above the published speeds, the slope 46% above the published slopes | published: 1.55-2.32 m/s (TP B.6 for slopes 0.0055-0.0105, +-5%); slope 0.0055-0.0105; the owner's cloth (KaiC's feel sessions on the iPhone, 2026-11-13 to 15): 2.87 m/s, slope 0.0153, +-5% | owner's value |
 | C12-C14 | Energy, determinism, robustness | not measured by this report | ofs_calibration_tests and `ofs_sim_cli fuzz` in the gate | - |
 
 ## What changed
 
-What changed in M1's tuning from the starting values, each with its source in `core/data/table_params.json`:
+What changed from the starting values: M1's tuning to the published sources, then the owner's feel sessions, each with its source in `core/data/table_params.json`:
 
 - Ball-ball friction (`ball_friction_a` 0.009951 to 0.058, `ball_friction_b` 0.108 to 0.092, `ball_friction_c` 1.088 to 2.73): refitted by least squares to the published half-ball stun throw (Alciatore, Billiards Digest Sept 2006; Jewett 1995). The old fit threw 1.7 degrees on a firm cut against 3.45 measured.
 - Sliding friction and ball mass (`slide_friction` 0.2 to 0.212, `ball_mass_kg` 0.141 to 0.1406): Mathavan, Jackson & Parkin's measurements on a snooker table and ball (Am. J. Phys. 2009; Proc. IMechE 2010), the same source as the cushion model.
 - Rolling resistance (`roll_friction` 0.008 to 0.01): the fast end of the snooker evidence that the lag target allows (Mathavan measured 0.0127 on an unheated lab table).
 - Cue end mass (`cue_end_mass_kg` 0.0075 to 0.0047): pooltool's snooker cue (ball mass / 30): squirt at maximum side drops from 3.05 to 2.0 degrees, inside C9's 1-3.
-- Cushion restitution on hard hits (`cushion_restitution_slope_per_m_s` 0.0 to 0.16, `cushion_restitution_min` new, 0.7): the slope is a least-squares fit to Mathavan's measured rebounds above 2.5 m/s (Proc. IMechE 2010, Fig. 7b); the floor is Alciatore's typical rail restitution (TP B.6), reached at 4.25 m/s into the cushion.
+- Cushion restitution on hard hits (`cushion_restitution_slope_per_m_s` 0.0 to 0.16, `cushion_restitution_min` new, 0.7): the slope is a least-squares fit to Mathavan's measured rebounds above 2.5 m/s (Proc. IMechE 2010, Fig. 7b); the floor is Alciatore's typical rail restitution (TP B.6).
+- The cloth's pace, by the owner's feel (`roll_friction` 0.01 to 0.015): KaiC's feel sessions on the iPhone, 2026-11-13 to 15, tuned live over the phone link. Slower than the published fast-cloth range the lag target (C11) was built from, and a little slower than the one snooker measurement (0.0127); C11 now holds the lag to his table and shows the published range beside it.
+- The cushions' bounce, by the owner's feel (`cushion_restitution` 0.98 to 0.85): the same sessions. Mathavan, Jackson & Parkin fitted 0.98 to their measured rebounds; with 0.85 a ball rolling straight in keeps 80% of its speed instead of 91%, and hard hits reach the 0.7 floor at 3.4 m/s into the cushion instead of 4.25. C7 and C8 check the model at his value; the paper's rebounds stay in the cushion reference and are checked with the paper's value.
 
 ## Charts
 
@@ -55,11 +57,11 @@ Each chart says what it shows and whether it meets its target from spec 7.11. "F
 | --- | --- | --- |
 | C4, C5 | [Cue ball deflection against cut, rolling and stunned](#c4-c5-cue-ball-deflection-against-cut-rolling-and-stunned) | met |
 | C6 | [Cut-induced throw against cut](#c6-cut-induced-throw-against-cut) | met |
-| C7 | [Cushion rebound angle and speed against incidence](#c7-cushion-rebound-angle-and-speed-against-incidence) | met |
+| C7 | [Cushion rebound angle and speed against incidence](#c7-cushion-rebound-angle-and-speed-against-incidence) | owner's value |
 | C8 | [Running and check side off a cushion](#c8-running-and-check-side-off-a-cushion) | met |
 | C9 | [Squirt against side](#c9-squirt-against-side) | met |
 | C10 | [Swerve paths with an elevated cue and side](#c10-swerve-paths-with-an-elevated-cue-and-side) | met |
-| C11 | [The lag: cue speed to reach the top cushion and back to baulk](#c11-the-lag-cue-speed-to-reach-the-top-cushion-and-back-to-baulk) | met |
+| C11 | [The lag: cue speed to reach the top cushion and back to baulk](#c11-the-lag-cue-speed-to-reach-the-top-cushion-and-back-to-baulk) | owner's value |
 | 7.12 | [Screw-back and follow distance against tip height](#712-screw-back-and-follow-distance-against-tip-height) | for review |
 | 7.13 | [Simulation time of break-offs](#713-simulation-time-of-break-offs) | met |
 
@@ -83,7 +85,7 @@ Setup: Stun shots (no spin at contact): throw is the angle between the object ba
 
 ![Cushion rebound angle and speed against incidence](cushion_rebound.png)
 
-The angle a plain rolling cue ball comes off the side cushion at, against the angle it goes in at, at 0.5, 1, 2 and 4 m/s, and how much of its speed it keeps. Rebound angles run 0.0 to 79.7 degrees and the ball keeps 70.2 to 94.3% of its speed. Up to 2 m/s the speeds give the same angles to within 0.05 degrees, so their lines lie on top of each other; only the firm hit's restitution falls. Against the target (C7): worst 0.05 deg and 0.08% of the speed off the fine-step Mathavan solution over 36 cases; the target is 1 deg, 2% (the suite also checks side, stun and screw).
+The angle a plain rolling cue ball comes off the side cushion at, against the angle it goes in at, at 0.5, 1, 2 and 4 m/s, and how much of its speed it keeps. Rebound angles run 0.0 to 81.1 degrees and the ball keeps 66.7 to 94.3% of its speed. Up to 2 m/s the speeds give the same angles to within 0.06 degrees, so their lines lie on top of each other; only the firm hit's restitution falls. Against the target (C7): worst 0.06 deg and 0.06% of the speed off the fine-step Mathavan solution over 36 cases; straight in at 1 m/s the ball keeps 79.7% of its speed; the target is 1 deg, 2% of the model at the owner's `cushion_restitution` 0.85 (the suite also checks side, stun and screw); with the paper's 0.98 the ball keeps 91.1%, so this is -12.5%.
 
 Setup: A rolling ball without side into the left side cushion. Angles from the cushion normal; rebound_deg just after the impact, rebound_rolling_deg once the ball rolls again.
 
@@ -91,7 +93,7 @@ Setup: A rolling ball without side into the left side cushion. Angles from the c
 
 ![Running and check side off a cushion](cushion_side.png)
 
-The rebound angle of a ball rolling into the cushion at 45 degrees at 1.5 m/s with check side (left), none and running side (right). Side 1 is as much as a tip 0.4 R off centre gives. Into the cushion at 45 degrees, running side sends the ball off at 46.6 degrees just after the impact, no side at 37.3 degrees and check side at 35.7 degrees. Once the ball grips the cloth again its path opens out to 58.8, 50.1 and 49.5 degrees. Running side should widen the angle and check side narrow it (it does) (C8).
+The rebound angle of a ball rolling into the cushion at 45 degrees at 1.5 m/s with check side (left), none and running side (right). Side 1 is as much as a tip 0.4 R off centre gives. Into the cushion at 45 degrees, running side sends the ball off at 50.4 degrees just after the impact, no side at 42.0 degrees and check side at 40.4 degrees. Once the ball grips the cloth again its path opens out to 62.4, 55.6 and 55.4 degrees. Running side should widen the angle and check side narrow it (it does) (C8).
 
 Setup: side is w_z R / v at the start, positive for running side, negative for check side.
 
@@ -107,7 +109,7 @@ Setup: A level cue at 3 m/s. squirt_deg is signed from the aim line.
 
 ![Swerve paths with an elevated cue and side](swerve.png)
 
-The cue ball's path seen from above with the cue raised and side applied, aiming up the table at a cue speed of 1.5 m/s; the right-hand panel is the first 40 cm, with a dot where each starts to roll. With a raised cue, 15 deg, tip +0.40 turns 6.0 degrees right over its first 29 cm and 0.0 more in the 1.7 m after it grips; 30 deg, tip +0.40 turns 12.9 degrees right over its first 26 cm and 0.1 more in the 1.7 m after it grips; 30 deg, tip -0.40 turns 12.9 degrees left over its first 26 cm and 0.1 more in the 1.7 m after it grips; 45 deg, tip +0.40 turns 21.6 degrees right over its first 22 cm and 0.1 more in the 1.9 m after it grips. Each curves towards its side while it slides, on a parabola (a fixed pull of 2.08 m/s^2, the cloth's sliding friction), bending most just before it grips, and runs straight once it rolls apart from the nap's slight drift. (C10)
+The cue ball's path seen from above with the cue raised and side applied, aiming up the table at a cue speed of 1.5 m/s; the right-hand panel is the first 40 cm, with a dot where each starts to roll. With a raised cue, 15 deg, tip +0.40 turns 6.0 degrees right over its first 29 cm and 0.1 more in the 1.7 m after it grips; 30 deg, tip +0.40 turns 12.9 degrees right over its first 27 cm and 0.1 more in the 1.7 m after it grips; 30 deg, tip -0.40 turns 12.9 degrees left over its first 27 cm and 0.1 more in the 1.7 m after it grips; 45 deg, tip +0.40 turns 21.6 degrees right over its first 22 cm and 0.1 more in the 1.9 m after it grips. Each curves towards its side while it slides, on a parabola (a fixed pull of 2.08 m/s^2, the cloth's sliding friction), bending most just before it grips, and runs straight once it rolls apart from the nap's slight drift. (C10)
 
 Setup: Aiming along +x at 1.5 m/s from (-0.20, 0.00); positive tip_x is right of centre as the player sees it, which is towards -y. Each path stops at the cue ball's first contact.
 
@@ -115,7 +117,7 @@ Setup: Aiming along +x at 1.5 m/s from (-0.20, 0.00); positive tip_x is right of
 
 ![The lag: cue speed to reach the top cushion and back to baulk](lag.png)
 
-Where a centre-ball cue ball stops for each cue speed, played from the baulk line to the top cushion and back. A lag, up to the top cushion and back to baulk, needs a cue speed of 1.54 m/s, sending the cue ball off at 2.14 m/s. Against the target (C11): cue ball 2.14 m/s; back down from the top cushion in 8.4 s, effective slope 0.0101; the target is 1.55-2.32 m/s (TP B.6 for slopes 0.0055-0.0105, +-5%); slope 0.0055-0.0105.
+Where a centre-ball cue ball stops for each cue speed, played from the baulk line to the top cushion and back. A lag, up to the top cushion and back to baulk, needs a cue speed of 2.07 m/s, sending the cue ball off at 2.87 m/s. Against the target (C11): cue ball 2.87 m/s; back down from the top cushion in 6.8 s, effective slope 0.0153: 24% above the published speeds, the slope 46% above the published slopes; the target is published: 1.55-2.32 m/s (TP B.6 for slopes 0.0055-0.0105, +-5%); slope 0.0055-0.0105; the owner's cloth (KaiC's feel sessions on the iPhone, 2026-11-13 to 15): 2.87 m/s, slope 0.0153, +-5%.
 
 Setup: Centre ball from the middle of the baulk line straight up the table. The lag is the slowest cue speed whose cue ball touches the top cushion and then the baulk cushion.
 
@@ -123,7 +125,7 @@ Setup: Centre ball from the middle of the baulk line straight up the table. The 
 
 ![Screw-back and follow distance against tip height](screw_follow.png)
 
-How far the cue ball screws back or follows through after a full-ball hit on a red 1 m away, against how high or low the tip strikes, at three cue speeds. After a full-ball hit the cue ball travels at a cue speed of 1 m/s from +0.02 m (tip -0.4) to +0.30 m (tip +0.5); at a cue speed of 2 m/s from +0.14 m (tip -0.5) to +1.44 m (tip +0.5); at a cue speed of 3 m/s from -0.41 m (tip -0.5) to +3.33 m (tip +0.5), negative being screw back. At a cue speed of 1 m/s with the tip -0.5 the cue ball never reaches the red, stopping 0.74 m from where it started: the screw slows it too much, so the chart shows that point as missing. The owner judges screw and follow by feel (spec 7.12).
+How far the cue ball screws back or follows through after a full-ball hit on a red 1 m away, against how high or low the tip strikes, at three cue speeds. After a full-ball hit the cue ball travels at a cue speed of 1 m/s from +0.03 m (tip -0.3) to +0.18 m (tip +0.5); at a cue speed of 2 m/s from +0.09 m (tip -0.5) to +0.96 m (tip +0.5); at a cue speed of 3 m/s from -0.28 m (tip -0.5) to +2.25 m (tip +0.5), negative being screw back. At a cue speed of 1 m/s with the tip -0.5 the cue ball never reaches the red, stopping 0.55 m from where it started: the screw slows it too much, so the chart shows that point as missing. At a cue speed of 1 m/s with the tip -0.4 the cue ball never reaches the red, stopping 0.91 m from where it started: the screw slows it too much, so the chart shows that point as missing. The owner judges screw and follow by feel (spec 7.12).
 
 Setup: Full-ball hit on a red 1 m away (centre to centre), simulated by this report on an endless table (the real outline scaled up 20 times), so no cushion is in reach. Distance from the contact to where the cue ball stops, along the aim: negative is screw back. The speeds are cue speeds; the cue ball leaves slower the further the tip is from centre.
 
@@ -131,6 +133,6 @@ Setup: Full-ball hit on a red 1 m away (centre to centre), simulated by this rep
 
 ![Simulation time of break-offs](break_sim_time.png)
 
-How long the simulation of each break-off took on this PC. Over 200 break-offs the simulation took a median of 254 us and at most 483 us, within the 2000 us budget (spec 7.13).
+How long the simulation of each break-off took on this PC. Over 200 break-offs the simulation took a median of 248 us and at most 777 us, within the 2000 us budget (spec 7.13).
 
 Setup: Wall-clock time of simulate() per break-off, measured in a release build; only release timings count against the budget.
