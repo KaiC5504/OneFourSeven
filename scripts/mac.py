@@ -13,6 +13,10 @@ replaces the TestFlight install. Release by default, as TestFlight ships; --debu
 export. Its build number is the clock (yymmddHHMM), and the phone's report of what it has installed
 is printed, so a new build landing is checked, not assumed. The phone must be on the Mac's Wi-Fi.
 
+The bought table model (game/licensed/, fitted by tools/fit_table.py and never in git) is copied
+straight to the Mac's checkout over SSH when it differs from what the Mac has, so the phone gets
+the table the PC shows. Without that folder the build draws the game's own table.
+
 Nothing runs unless the Mac's sound is muted: a run that finds it unmuted stops before touching
 anything and leaves the volume as it is.
 """
@@ -20,14 +24,19 @@ anything and leaves the volume as it is.
 from __future__ import annotations
 
 import argparse
+import hashlib
+import io
 import subprocess
 import sys
+import tarfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 BUNDLE_ID = "com.kaichuan.onefourseven"
+LICENSED = ROOT / "game" / "licensed"
+STAMP = ".stamp"
 
-PREPARE = r"""
+MUTED = r"""
 set -euo pipefail
 # KaiC: our runs must never make a sound on the Mac, which someone else also uses. Its sound is
 # left alone (not ours to change); a run only goes ahead while it is muted.
@@ -36,6 +45,23 @@ if [ "$muted" != true ]; then
   echo "stopped: the Mac's sound is not muted (output muted: $muted); nothing was run"
   exit 3
 fi
+"""
+
+MAC_GAME = '"$HOME/.mac-dev/onefourseven/OneFourSeven/game"'
+
+HAS_STAMP = MUTED + f"""
+cat {MAC_GAME}/licensed/{STAMP} 2>/dev/null || true
+"""
+
+# Unpacked beside the old folder and swapped in, so a broken transfer leaves the old one whole.
+UNPACK = f"""set -euo pipefail
+game={MAC_GAME}
+rm -rf "$game/licensed.new" && mkdir -p "$game/licensed.new"
+tar -xf - -C "$game/licensed.new"
+rm -rf "$game/licensed" && mv "$game/licensed.new" "$game/licensed"
+"""
+
+PREPARE = MUTED + r"""
 export LANG=en_US.UTF-8 PATH="/opt/homebrew/bin:$HOME/.local/bin:$PATH"
 APP_DIR="$HOME/.mac-dev/onefourseven"
 LOGS="$APP_DIR/logs"
@@ -125,6 +151,50 @@ def push_head() -> None:
     subprocess.run(["git", "push", "-q", "--force", "mac", "HEAD:refs/heads/build"], cwd=ROOT, check=True)
 
 
+def licensed_files() -> list[Path]:
+    """What the Mac needs of game/licensed: not Godot's .import files, which it writes itself."""
+    return sorted(f for f in LICENSED.rglob("*") if f.is_file() and f.suffix != ".import" and f.name != STAMP)
+
+
+def licensed_stamp(files: list[Path]) -> str:
+    digest = hashlib.sha256()
+    for f in files:
+        digest.update(f.relative_to(LICENSED).as_posix().encode() + b"\0")
+        digest.update(hashlib.sha256(f.read_bytes()).digest())
+    return digest.hexdigest()
+
+
+def licensed_archive(files: list[Path], stamp: str) -> bytes:
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w") as tar:
+        for f in files:
+            tar.add(f, arcname=f.relative_to(LICENSED).as_posix())
+        info = tarfile.TarInfo(STAMP)
+        info.size = len(stamp)
+        tar.addfile(info, io.BytesIO(stamp.encode()))
+    return buffer.getvalue()
+
+
+def send_licensed() -> int:
+    """Brings the Mac's game/licensed in line with this PC's; 0 when the build can go ahead."""
+    files = licensed_files() if LICENSED.is_dir() else []
+    if not files:
+        print("note: no game/licensed here; the Mac builds with whatever table it already has", file=sys.stderr)
+        return 0
+    stamp = licensed_stamp(files)
+    there = subprocess.run(["ssh", "-o", "BatchMode=yes", "mac", "bash", "-s"], input=HAS_STAMP.encode(),
+                           capture_output=True)
+    if there.returncode != 0:
+        sys.stdout.write(there.stdout.decode(errors="replace"))
+        sys.stderr.write(there.stderr.decode(errors="replace"))
+        return there.returncode
+    if there.stdout.decode(errors="replace").strip() == stamp:
+        return 0
+    archive = licensed_archive(files, stamp)
+    print(f"sending the bought table to the Mac ({len(files)} files, {len(archive) / 1e6:.0f} MB)", flush=True)
+    return subprocess.run(["ssh", "-o", "BatchMode=yes", "mac", UNPACK], input=archive).returncode
+
+
 def on_mac(script: str) -> int:
     # Bytes, not text: on Windows a text pipe sends \r\n, and bash then reads `set -e\r`.
     return subprocess.run(["ssh", "-o", "BatchMode=yes", "mac", "bash", "-s"], input=script.encode()).returncode
@@ -140,6 +210,9 @@ def main() -> int:
     args = parser.parse_args()
 
     push_head()
+    sent = send_licensed()
+    if sent != 0:
+        return sent
     script = PREPARE + BUILD.format(variant="debug" if args.debug else "release")
     if args.command == "phone":
         script += INSTALL.format(bundle=BUNDLE_ID, launch="yes" if args.launch else "no")

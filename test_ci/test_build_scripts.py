@@ -12,6 +12,7 @@ import shutil
 import struct
 import subprocess
 import sys
+import tarfile
 import tempfile
 import time
 import unittest
@@ -23,6 +24,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 import godot_tools  # noqa: E402
+import mac  # noqa: E402
 import run_debug  # noqa: E402
 import sync_data  # noqa: E402
 
@@ -575,6 +577,65 @@ class RunDebug(unittest.TestCase):
     def test_anything_before_the_separator_is_refused(self):
         with mock.patch("sys.stderr", io.StringIO()):
             self.assertEqual(2, run_debug.main(["--demo-screen=table"]))
+
+
+class MacLicensedAssets(unittest.TestCase):
+    """mac.py carries the bought table (game/licensed, never in git) to the Mac's checkout."""
+
+    def folder(self, temp: str) -> Path:
+        folder = Path(temp) / "licensed"
+        folder.mkdir()
+        (folder / "table.gltf").write_text("{}")
+        (folder / "table.gltf.import").write_text("[remap]")
+        (folder / "SnookerTable_D.jpg").write_bytes(b"\xff\xd8")
+        return folder
+
+    def ssh(self, replies: list):
+        calls = []
+
+        def run(command, input=None, capture_output=False, **_):
+            calls.append((command, input))
+            code, out = replies[len(calls) - 1]
+            return mock.Mock(returncode=code, stdout=out, stderr=b"")
+        return calls, run
+
+    def test_sends_what_the_mac_lacks_without_godots_import_files(self):
+        with tempfile.TemporaryDirectory() as temp:
+            folder = self.folder(temp)
+            calls, run = self.ssh([(0, b""), (0, b"")])
+            with mock.patch.object(mac, "LICENSED", folder), mock.patch.object(mac.subprocess, "run", run),                     mock.patch("sys.stdout", io.StringIO()):
+                self.assertEqual(0, mac.send_licensed())
+            self.assertIn("output muted", calls[0][1].decode())
+            names = tarfile.open(fileobj=io.BytesIO(calls[1][1])).getnames()
+            self.assertEqual(["SnookerTable_D.jpg", "table.gltf", ".stamp"], names)
+            self.assertIn("licensed.new", calls[1][0][-1])
+
+    def test_skips_the_transfer_when_the_mac_is_current(self):
+        with tempfile.TemporaryDirectory() as temp:
+            folder = self.folder(temp)
+            with mock.patch.object(mac, "LICENSED", folder):
+                stamp = mac.licensed_stamp(mac.licensed_files())
+                calls, run = self.ssh([(0, stamp.encode() + b"\n")])
+                with mock.patch.object(mac.subprocess, "run", run):
+                    self.assertEqual(0, mac.send_licensed())
+                self.assertEqual(1, len(calls))
+                (folder / "table.gltf").write_text("{ }")
+                self.assertNotEqual(stamp, mac.licensed_stamp(mac.licensed_files()))
+
+    def test_an_unmuted_mac_stops_before_anything_is_sent(self):
+        with tempfile.TemporaryDirectory() as temp:
+            folder = self.folder(temp)
+            calls, run = self.ssh([(3, b"stopped: the Mac's sound is not muted\n")])
+            with mock.patch.object(mac, "LICENSED", folder), mock.patch.object(mac.subprocess, "run", run),                     mock.patch("sys.stdout", io.StringIO()), mock.patch("sys.stderr", io.StringIO()):
+                self.assertEqual(3, mac.send_licensed())
+            self.assertEqual(1, len(calls))
+
+    def test_no_folder_leaves_the_mac_alone(self):
+        with tempfile.TemporaryDirectory() as temp:
+            calls, run = self.ssh([])
+            with mock.patch.object(mac, "LICENSED", Path(temp) / "licensed"), mock.patch.object(mac.subprocess, "run", run),                     mock.patch("sys.stderr", io.StringIO()):
+                self.assertEqual(0, mac.send_licensed())
+            self.assertEqual([], calls)
 
 
 if __name__ == "__main__":
