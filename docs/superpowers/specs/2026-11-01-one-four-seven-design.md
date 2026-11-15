@@ -431,7 +431,11 @@ same input layer (section 8.8).
 - **Claude's call:** an optional setting, off by default, that adds a small aim error
   when the finger stroke wanders sideways, like a crooked cue action.
 - Maximum cue speed is tuned so a full-power shot matches a strong real break-off or
-  power shot.
+  power shot. **Owner (2026-11-15):** at 10 m/s a full-power screw or follow carried far
+  too far (nearly two table lengths back; the cue ball left at 31 mph, a pool break). It is
+  6.5 m/s: the cue ball leaves at 20 mph and a full screw from close comes back about a
+  length and a half. The pull's curve went from squared to the power 1.5 with it, so the
+  paces he plays most stay where they were on the bar.
 
 ### 8.4 Guide lines. **Owner:** adjustable in settings
 Levels 0–2 are **straight-line geometry only**. **Owner:** they ignore squirt, swerve,

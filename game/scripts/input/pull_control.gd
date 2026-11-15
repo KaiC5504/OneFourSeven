@@ -15,7 +15,9 @@ signal power_changed(power: float)
 signal struck(speed_m_s: float)
 signal cancelled(reason: String)
 
-const POWER_EXPONENT := 2.0
+## With the 6.5 m/s top, 1.5 keeps the paces KaiC plays most (1.4 to 3.6 m/s) within 0.07 of where
+## they sat on the bar under the first curve (10 m/s, squared).
+const POWER_EXPONENT := 1.5
 ## The pull for full power: about 42 mm on the phone (1 canvas unit is about 0.088 mm), reachable
 ## from a press anywhere in the strip's upper half.
 const FULL_PULL := 480.0

@@ -32,7 +32,7 @@
     "cue_length_m": 1.45,
     "cue_clearance_m": 0.002,
     "max_elevation_rad": 1.3962634015954636,
-    "max_cue_speed_m_s": 10.0,
+    "max_cue_speed_m_s": 6.5,
     "nap_tick_ratio": 0.5,
     "nap_lateral_coeff": 0.00012,
     "nap_spin_coeff": 0.0002,
@@ -199,8 +199,8 @@
     },
     "max_cue_speed_m_s": {
       "unit": "m/s",
-      "source": "starting guess: above the hardest snooker shots",
-      "note": "Caps the stroke: a centre-ball hit at 10 m/s sends the cue ball off at 13.9 m/s; starting guess; KaiC tunes by feel in M2."
+      "source": "The owner's feel session on the iPhone, 2026-11-15: full-power screw and follow carried too far. Dr. Dave (drdavepoolinfo.com, 'How fast does the CB travel'): a power shot is 7-10 mph, a powerful pool break 25-30 mph",
+      "note": "Caps the stroke: a centre-ball hit at 6.5 m/s sends the cue ball off at 9.0 m/s (20 mph), and a full screw from 0.3 m comes back about 1.5 table lengths. Was 10 (a starting guess): 13.9 m/s, a strong pool break, and the same screw had the spin for 8 lengths on an open table. No measured snooker figure was found; KaiC tunes by feel."
     },
     "nap_tick_ratio": {
       "unit": "",

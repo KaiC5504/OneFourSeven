@@ -241,7 +241,7 @@ std::vector<BenchShot> bench_shots(const Setup& setup) {
     const double half_length = ofs::table::kPlayingLength / 2.0;
     const double half_width = ofs::table::kPlayingWidth / 2.0;
 
-    for (double speed : {4.5, 7.0, 10.0}) {
+    for (double speed : {3.0, 4.5, 6.5}) {
         for (std::uint64_t seed : {1, 2, 3}) {
             const phys::TableState rack = phys::opening_rack(seed, setup.params);
             add(format("break_%.1fms_rack%llu", speed, static_cast<unsigned long long>(seed)), rack,
@@ -253,7 +253,7 @@ std::vector<BenchShot> bench_shots(const Setup& setup) {
         phys::CueStrike c;
         c.aim_rad = 0.35;
         c.tip_x = 0.3;
-        c.speed_m_s = 8.0;
+        c.speed_m_s = 6.5;
         add("long_multi_cushion", {{ball_at(Ball::cue, 0, -1.2, -0.5)}}, c);
     }
 

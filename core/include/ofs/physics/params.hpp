@@ -57,7 +57,7 @@ struct PhysicsParams {
     double cue_length_m = 1.45;
     double cue_clearance_m = 0.002;  // margin the cue keeps over a rail or ball
     double max_elevation_rad = 1.3962634015954636;  // 80 degrees
-    double max_cue_speed_m_s = 10.0;
+    double max_cue_speed_m_s = 6.5;
 
     // Nap (spec 7.8). A rolling ball's nap acceleration is held constant until its speed falls
     // to the next threshold of the series nap_speed_max_m_s * nap_tick_ratio^k, then re-evaluated

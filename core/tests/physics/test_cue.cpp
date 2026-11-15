@@ -176,7 +176,7 @@ auto ball_solid(const BallState& b) {
 TEST_CASE("cue: a centre-ball hit gives (1 + e) V / (1 + m/M) and no spin") {
     // Marlow / Alciatore TP A-30 (pooltool cue_strike with the restitution): v = (1 + e) V / (1 + m/M).
     const PhysicsParams p;
-    for (double V : {0.25, 0.5, 1.0, 2.0, 3.0, 5.0, 7.5, 10.0}) {
+    for (double V : {0.25, 0.5, 1.0, 2.0, 3.0, 5.0, p.max_cue_speed_m_s}) {
         CAPTURE(V);
         const StrikeOutcome o = hit({0.0, 0.0, 0.0, 0.0, V});
         const double expected = (1.0 + p.cue_tip_restitution) * V / (1.0 + p.ball_mass_kg / p.cue_mass_kg);

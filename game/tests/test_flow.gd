@@ -557,15 +557,15 @@ func test_a_harness_shot_sets_the_pull_power_too() -> void:
 	await tree.process_frame
 	var pull: PullControl = main.get_node("Hud/PullCue")
 	var max_speed := Physics.param("max_cue_speed_m_s", 10.0)
-	main.harness_play_shot({"aim_rad": 0.0, "tip_x": 0.0, "tip_y": 0.0, "elevation_rad": 0.0, "speed_m_s": 7.0})
-	check_near(main.setup.power, PullControl.power_for_speed(7.0, max_speed), 1e-12, "power for 7 m/s")
+	main.harness_play_shot({"aim_rad": 0.0, "tip_x": 0.0, "tip_y": 0.0, "elevation_rad": 0.0, "speed_m_s": 5.0})
+	check_near(main.setup.power, PullControl.power_for_speed(5.0, max_speed), 1e-12, "power for 5 m/s")
 	main.skip_shot()
 	await _until_idle(main)
-	check_near(pull.speed(), 7.0, 1e-9, "the last power is the harness's")
+	check_near(pull.speed(), 5.0, 1e-9, "the last power is the harness's")
 	_mark_log()
 	_key(KEY_SPACE)
 	var inputs := _logged("shot.input")
-	check(inputs.size() == 1 and absf(float(inputs[0]["speed_m_s"]) - 7.0) < 1e-9,
+	check(inputs.size() == 1 and absf(float(inputs[0]["speed_m_s"]) - 5.0) < 1e-9,
 			"Space plays it: %s" % [inputs])
 	main.skip_shot()
 	await _until_idle(main)

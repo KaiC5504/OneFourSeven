@@ -455,7 +455,7 @@ class FuzzTest(CliTestCase):
 
 GENERATED_SHOTS = 15
 SHOTS = GENERATED_SHOTS + len(BENCH_SHOTS)
-BIG_SHOT = "break_7.0ms_rack2"
+BIG_SHOT = "break_6.5ms_rack2"
 
 
 class BenchTest(CliTestCase):
@@ -487,7 +487,7 @@ class BenchTest(CliTestCase):
 
     def test_lists_every_shot_and_writes_a_baseline(self):
         self.assert_exit(self.written, 0)
-        for name in ("break_4.5ms_rack1", "break_10.0ms_rack3", "long_multi_cushion", "cluster_split",
+        for name in ("break_4.5ms_rack1", "break_6.5ms_rack3", "long_multi_cushion", "cluster_split",
                      "pot_black_corner", "slow_roll_nap", *(path.stem for path in BENCH_SHOTS)):
             self.assertIn(name, self.written.stdout)
         self.assertNotIn("check:", self.written.stdout)

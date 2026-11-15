@@ -58,7 +58,7 @@ func test_curve() -> void:
 	var top := 10.0
 	check_eq(PullControl.speed_for_power(0.0, top), 0.0, "0 at 0")
 	check_near(PullControl.speed_for_power(1.0, top), top, 1e-9, "max at 1")
-	check_near(PullControl.speed_for_power(0.5, top), top / 4.0, 1e-9, "finer at the low end")
+	check_near(PullControl.speed_for_power(0.5, top), top * pow(0.5, 1.5), 1e-9, "finer at the low end")
 	check_near(PullControl.speed_for_power(1.5, top), top, 1e-9, "clamped")
 	for p: float in [0.0, 0.1, 0.387, 0.75, 1.0]:
 		check_near(PullControl.power_for_speed(PullControl.speed_for_power(p, top), top), p, 1e-9, "inverse at %s" % p)
@@ -86,7 +86,7 @@ func test_a_pull_of_300_units_fires_at_its_speed() -> void:
 	check_eq(_struck.size(), 0, "no shot before the release")
 	_touch(pull, false, at)
 	var power := 300.0 / PullControl.FULL_PULL
-	var want := _max_speed() * power * power
+	var want := _max_speed() * pow(power, PullControl.POWER_EXPONENT)
 	check_eq(_struck.size(), 1, "the release fires once")
 	if _struck.size() == 1:
 		check_near(_struck[0], want, want * 0.01, "speed for a 300-unit pull")

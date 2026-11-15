@@ -165,3 +165,8 @@ x86_64-only and the Mac has no Rosetta.
   back the last 0.06 s, up to 10 canvas units): unproven on the phone, so each lift logs
   `aim.lift`; read those after his next session and tune `LIFT_S` and `LIFT_MAX_UNITS`. The spin
   ball is plain and see-through with no miscue rim: its edge is 0.98 of the miscue limit.
+- After his third session (2026-11-15): full-power screw and follow went too far, so the top cue
+  speed is 6.5 m/s (was 10, a guess) and the pull curve is power^1.5 (was squared), which leaves
+  his usual paces (1.4 to 3.6 m/s) within 0.07 of their old place on the bar. A full screw from
+  0.3 m now comes back about 1.5 table lengths (was 1.9, with spin for 8 on an open table). The
+  bench's break-offs are 3, 4.5 and 6.5 m/s. His to judge: 6.5 itself (live over the link).

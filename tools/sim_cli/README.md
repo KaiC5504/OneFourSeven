@@ -103,7 +103,7 @@ ofs_sim_cli fuzz --shots 100000 --seed 1 --threads 8 --out build/fuzz-failures
 
 ## bench
 
-Times fixed shots against the 2 ms budget of spec 7.13: break-offs at 4.5, 7 and 10 m/s on three
+Times fixed shots against the 2 ms budget of spec 7.13: break-offs at 3, 4.5 and 6.5 m/s (the hardest the game plays) on three
 seeded racks, a long multi-cushion shot, a six-ball cluster split, three pots with the colours on
 their spots, a slow roll with side and nap, and the recorded pack-heavy shots in `bench_shots/`
 (bundles as `fuzz` writes them, each run with the parameters it carries and named after its file):
