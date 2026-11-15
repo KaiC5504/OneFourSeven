@@ -121,3 +121,41 @@ Wave 2: K integrator: `game/scripts/main.gd`, `game/scenes/main.tscn`, `game/scr
 - 2026-11-16: check round, eleven checkers, no high-severity finding. Two rulebook reviews
   re-derived about 51,000 stand-in strokes independently with no difference; the logging check
   re-judged 2,926 decisions and replayed 2,926 shots with none diverging; 33 gap tests added.
+- 2026-11-16: fix round, four agents (engine, binding and logs, match flow, HUD and screens), then
+  a seam review and a second Windows run. Rulings added: the colour of choice's 7 counts only for
+  the striker when asking who needs penalty points; a foul stroke counts neither towards a
+  re-rack offer nor towards the strokes after a refusal; the match is conceded on the frame's
+  terms; a player who may concede at any time may also do it while a choice is theirs; a place in
+  the D is searched on a 2 mm lattice before FREE BALL is called from hand. The second Windows run
+  passed every item it reached (the pause menu's availability in each state, conceding from a
+  pending choice, the match conceded in one tap, sizes and wording, the ring, a centre-ball cue at
+  the start, the aiming view under the scoreboard with a level cue, the placer, the harness
+  answers, clean logs). Not reached on a screen: a claim by the person, the toss, the touching
+  ball call, the three-miss warning, the re-rack offer.
+
+## KaiC's play checklist
+
+1. Home, Play, best of 3, you to break, Start. The cue ball is in hand: drag it in the D (it will
+   not leave it), Confirm, break off.
+2. Pot a red, then a colour. Aim at the colour and its ring appears in that colour; tap another
+   colour to change it. The colour comes back to its spot and the break counts both.
+3. With a red on, play the blue first: FOUL 5, and the computer takes its choice. While aiming,
+   the guides are red on a ball you may not play.
+4. Go in-off: the computer plays from the D. After the computer's in-off, you place the cue ball.
+5. When the computer's foul leaves you snookered: FREE BALL. Take it and play any ball.
+6. With a red you could hit full ball, miss three times: FOUL AND A MISS each time, the computer
+   may have the balls replaced, a warning after the second and the frame awarded on the third.
+7. From a snooker, fail to hit the ball on: a miss, and the balls may be put back.
+8. Leave the cue ball touching a ball: TOUCHING BALL, and it must be played away from.
+9. Fall behind by more than is left on the table: the scoreboard says you need snookers, and a
+   failed escape is then a foul with no miss.
+10. Level on the final black: the black is re-spotted and the lot's winner chooses who plays.
+11. Pause, Concede frame (it asks): the frame summary, Continue, and the other player breaks the
+    next frame. Play on to the match summary, then Home.
+12. Pause, Quit asks first and discards the match. With only the black left and more than seven
+    ahead, the pause menu has Claim frame.
+13. The computer's pace: about a second to think, the cue on its line for half a second, the
+    stroke, and no hitch as it chooses.
+
+Only the phone can show: whether a tap picks the colour you meant, the cue-ball drag under a
+finger, the bottom buttons against the home indicator, and the text at arm's length.
