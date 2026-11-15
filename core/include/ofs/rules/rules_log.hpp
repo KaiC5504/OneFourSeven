@@ -65,6 +65,10 @@ private:
 // The innermost live scope's context on this thread; an empty object when there is none.
 const nlohmann::json& scoped_log_context();
 
+// The referee's values of a logged line. A line from before d_fine_step_m existed was judged with
+// no fine pass, which is the fine step equal to the coarse one.
+bool logged_ref_params(const nlohmann::json& values, RefParams& out, std::vector<std::string>& problems);
+
 // Re-judges a rules.decision line's data: judge(pre, input, facts) with its "ref" and a geometry
 // oracle for `table`, compared with the logged judgement and post_hash. Returns "" when they
 // agree, else one line a person can read saying what differs first.

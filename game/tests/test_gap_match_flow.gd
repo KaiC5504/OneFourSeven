@@ -104,13 +104,14 @@ func test_gap_no_concession_while_a_stroke_is_in_play() -> void:
 	_free_all()
 
 
-# docs/rules/README.md (S4.2): concede_match only with nothing pending; Quit is the way out then.
-func test_gap_binding_concede_match_waits_for_the_pending_choice() -> void:
+# docs/rules/README.md (S4.2): while a choice is pending only its decider may concede, and only
+# with the leave to concede at any time. Here the choice is the computer's.
+func test_gap_binding_concede_match_waits_for_the_others_choice() -> void:
 	var m := _fouled(41)
 	var before := m.match_state()
 	for player in 2:
 		var answer := m.decide("concede_match", player)
-		check_eq(answer.get("ok"), false, "player %d may not concede the match with a choice pending" % player)
+		check_eq(answer.get("ok"), false, "player %d may not concede the match while the computer chooses" % player)
 		check(not m.last_error().is_empty(), "with a reason")
 	check_eq(m.match_state(), before, "nothing changed")
 	check_eq(m.decide("play", 1).get("ok"), true, "the choice")

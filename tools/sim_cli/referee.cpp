@@ -85,7 +85,7 @@ void replay(const Line& decision, const Line& shot, const phys::TableShape& tabl
     // rejudge has already reported a line these cannot be read from.
     if (!rules::frame_from_json(decision.data["pre"], pre, error) ||
         !rules::facts_from_json(decision.data["facts"], logged, error) ||
-        !rules::ref_params_from_values(decision.data["ref"], ref, problems)) {
+        !rules::logged_ref_params(decision.data["ref"], ref, problems)) {
         return;
     }
     const phys::ShotRecord record = phys::simulate(in, table, params);

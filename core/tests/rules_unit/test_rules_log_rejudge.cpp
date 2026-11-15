@@ -75,6 +75,21 @@ TEST_CASE("a logged decision re-judges to itself") {
     CHECK(rejudged(decision_data(pre, {true, Ball::blue}, facts)) == "");
 }
 
+TEST_CASE("a line logged before the fine step existed is still re-judged") {
+    json data = missed_everything();
+    REQUIRE(data["ref"].erase("d_fine_step_m") == 1);
+    CHECK(rejudged(data) == "");
+
+    RefParams ref;
+    std::vector<std::string> problems;
+    REQUIRE(logged_ref_params(data["ref"], ref, problems));
+    CHECK(ref.d_fine_step_m == ref.d_sample_step_m);
+
+    // Only that one field is filled in.
+    data["ref"].erase("touching_gap_m");
+    CHECK(starts_with(rejudged(data), "ref: "));
+}
+
 TEST_CASE("rejudge names the first part of the judgement that differs") {
     json data = missed_everything();
     data["judgement"]["penalty"] = 99;

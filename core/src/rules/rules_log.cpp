@@ -185,6 +185,15 @@ ScopedLogContext::~ScopedLogContext() { t_log_context = std::move(previous_); }
 
 const nlohmann::json& scoped_log_context() { return t_log_context; }
 
+bool logged_ref_params(const nlohmann::json& values, RefParams& out, std::vector<std::string>& problems) {
+    if (values.is_object() && !values.contains("d_fine_step_m") && values.contains("d_sample_step_m")) {
+        nlohmann::json filled = values;
+        filled["d_fine_step_m"] = values["d_sample_step_m"];
+        return ref_params_from_values(filled, out, problems);
+    }
+    return ref_params_from_values(values, out, problems);
+}
+
 std::string rejudge(const nlohmann::json& decision_data, const phys::TableShape& table) {
     if (!decision_data.is_object()) return "data: want an object";
     for (const char* key : {"pre", "input", "facts", "judgement", "post_hash", "ref"}) {
@@ -206,7 +215,7 @@ std::string rejudge(const nlohmann::json& decision_data, const phys::TableShape&
     if (!input_from_json(decision_data["input"], input, error)) return "input." + error;
     if (!facts_from_json(decision_data["facts"], facts, error)) return "facts." + error;
     std::vector<std::string> problems;
-    if (!ref_params_from_values(decision_data["ref"], ref, problems)) {
+    if (!logged_ref_params(decision_data["ref"], ref, problems)) {
         return "ref: " + (problems.empty() ? std::string("refused") : problems.front());
     }
     if (facts.rest.size() != pre.balls.size()) {

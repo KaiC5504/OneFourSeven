@@ -632,7 +632,7 @@ func test_a_third_miss_ends_the_match_from_the_stroke() -> void:
 
 func test_a_stalemate_racks_the_frame_again() -> void:
 	# Two quiet strokes bring the offer and one more after an objection the re-rack; with 10 m of
-	# travel allowed every stroke that pots nothing is quiet.
+	# travel allowed every stroke that pots nothing is quiet. A foul stroke counts for neither.
 	var referee := _text(REFEREE_PATH).replace('"stalemate_offer_strokes": 12', '"stalemate_offer_strokes": 2')
 	referee = referee.replace('"stalemate_quiet_travel_m": 0.6', '"stalemate_quiet_travel_m": 10.0')
 	referee = referee.replace('"stalemate_grace_strokes": 6', '"stalemate_grace_strokes": 1')
@@ -643,16 +643,21 @@ func test_a_stalemate_racks_the_frame_again() -> void:
 		check_eq(m.start(_config(3, 0, 147), id).get("ok"), true, "started")
 		var first_rack := m.balls()
 		check_eq(m.place_cue(IN_THE_D.x, IN_THE_D.y).get("ok"), true, "the cue ball is placed")
-		check_eq(_stroke(m, _strike(PI, 0.2), 7, "quiet-1")[1].get("ok"), true, "a stroke that moves nothing")
+		check_eq(_stroke(m, _strike(PI, 0.2), 7, "foul-1")[1].get("ok"), true, "a stroke that hits nothing")
 		check_eq(m.decide("play_again", 1).get("ok"), true, "the offender plays again")
-		var roll: Dictionary = _stroke(m, _strike(0.0, 1.5), 8, "quiet-2")[1]
-		check_eq(roll.get("ok"), true, "a roll up to the pack: " + str(roll.get("error")))
+		check_eq(_stroke(m, _strike(0.0, 1.5), 8, "quiet-1")[1].get("ok"), true, "a roll up to the pack")
+		var roll: Dictionary = _stroke(m, _strike(_aim_at_nearest_red(m), 0.5), 10, "quiet-2")[1]
+		check_eq(roll.get("ok"), true, "and another: " + str(roll.get("error")))
 		var frame := m.frame()
 		if frame.get("pending") != "rerack":
 			check(false, "a re-rack is offered after two quiet strokes; the roll was judged %s" % [roll.get("judgement")])
 			return
 		var decider: int = frame["decider"]
-		check_eq(frame["view"]["options"][decider], ["accept_rerack", "refuse_rerack"], "the offer's answers")
+		var answers := ["accept_rerack", "refuse_rerack"]
+		if decider == 0:
+			# Player 0 may concede at any time, so also while the offer is theirs to answer.
+			answers += ["concede_frame", "concede_match"]
+		check_eq(frame["view"]["options"][decider], answers, "the offer's answers")
 		var scores: Array = frame["scores"]
 		check(scores != [0, 0], "the frame has a score to lose")
 		_mark_log()
@@ -669,7 +674,7 @@ func test_a_stalemate_racks_the_frame_again() -> void:
 		else:
 			check_eq(m.decide("refuse_rerack", decider).get("ok"), true, "the offer is refused")
 			check_eq(m.frame()["pending"], "none", "and play goes on")
-			answer = _stroke(m, _strike(PI, 0.2), 9, "quiet-3")[1]
+			answer = _stroke(m, _strike(_aim_at_nearest_red(m), 0.5), 9, "quiet-3")[1]
 		check_eq(answer.get("ok"), true, "then: " + str(answer.get("error")))
 		check_eq(answer.get("event"), "reracked", "the frame is racked again")
 		var state := m.match_state()
@@ -784,8 +789,8 @@ func test_a_record_from_other_balls_is_refused() -> void:
 func test_conceding_frames_to_the_end_of_the_match() -> void:
 	var m := _started(_config(3, 0, 147))
 	var id := _last_id()
-	check_eq(m.frame()["view"]["options"], [["concede_frame", "concede_match"], ["concede_match"]],
-			"only the player allowed to may concede the frame")
+	check_eq(m.frame()["view"]["options"], [["concede_frame", "concede_match"], []],
+			"only the player allowed to may concede")
 	check_eq(m.decide("concede_frame", 1).get("ok"), false, "the other may not")
 	check_eq(m.next_frame().get("ok"), false, "no next frame while one is in play")
 	check(m.last_error().contains("not over"), "the error says so: " + m.last_error())
@@ -888,13 +893,15 @@ func test_conceding_frames_to_the_end_of_the_match() -> void:
 func test_conceding_the_match() -> void:
 	var m := _started(_config(5, 0, 147))
 	_mark_log()
-	var conceded := m.decide("concede_match", 1)
+	check_eq(m.decide("concede_match", 1).get("ok"), false, "not open to the player who needs no snookers")
+	_mark_log()
+	var conceded := m.decide("concede_match", 0)
 	check_eq(conceded.get("ok"), true, "conceded: " + str(conceded.get("error")))
 	check_eq(conceded.get("event"), "match_ended", "the match ends at once")
 	check(not m.in_progress(), "no longer in progress")
 	var state := m.match_state()
 	check_eq(state["over"], true, "over")
-	check_eq(state["winner"], 0, "the other player wins")
+	check_eq(state["winner"], 1, "the other player wins")
 	check_eq(state["history"][0]["reason"] if (state["history"] as Array).size() == 1 else "", "match_conceded",
 			"the frame in play is closed as conceded with the match")
 	check_eq(_logged("frame.ended").size(), 1, "frame.ended")
@@ -902,7 +909,7 @@ func test_conceding_the_match() -> void:
 	check_eq(finished.size(), 1, "match.ended")
 	if finished.size() == 1:
 		check_eq(finished[0]["reason"], "conceded", "as conceded")
-		check_eq(int(finished[0]["winner"]), 0, "with its winner")
+		check_eq(int(finished[0]["winner"]), 1, "with its winner")
 	_check_schema()
 
 
@@ -1130,6 +1137,21 @@ func _without(config: Dictionary, key: String) -> Dictionary:
 
 func _strike(aim: float, speed: float) -> Dictionary:
 	return {"aim_rad": aim, "tip_x": 0.0, "tip_y": 0.0, "elevation_rad": 0.0, "speed_m_s": speed}
+
+
+## The aim from the cue ball at the centre of the red nearest it.
+func _aim_at_nearest_red(m: OfsMatch) -> float:
+	var balls := m.balls()
+	var cue: Dictionary = balls[m.cue_ball()]
+	var from := Vector2(cue["x"], cue["y"])
+	var to := from
+	var nearest := INF
+	for b: Dictionary in balls:
+		var at := Vector2(b["x"], b["y"])
+		if b["ball"] == "red" and from.distance_to(at) < nearest:
+			nearest = from.distance_to(at)
+			to = at
+	return (to - from).angle()
 
 
 func _context(shot_id: String, strike_mode: String = "harness") -> Dictionary:

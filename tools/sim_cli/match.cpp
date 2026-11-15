@@ -338,10 +338,7 @@ std::string frame_problem(const Run& run, const FrameState& s) {
         return "the cue ball in hand lies where it may not be placed";
     }
 
-    if (s.pending == rules::Pending::none) {
-        if (rules::options(s, s.striker).empty()) return "the striker is offered nothing";
-        return "";
-    }
+    if (s.pending == rules::Pending::none) return "";
     if (s.decider != 0 && s.decider != 1) return format("the decider is player %d", s.decider);
     const std::string pending = "pending " + std::string(rules::pending_name(s.pending));
     if (rules::options(s, s.decider).empty()) return pending + " offers its decider nothing";
