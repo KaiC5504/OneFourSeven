@@ -28,12 +28,12 @@
     "push_contact_time_s": {
       "unit": "s",
       "source": "Section 2 Rule 19; Alciatore, 'The Illustrated Principles of Pool and Billiards', high-speed video HSV A.76 and technical proof TP A.9: a tip stays on the ball for about 0.001 s",
-      "note": "A first contact with an object ball sooner than this after the strike is a push: the tip would still be on the cue ball. At 2 m/s that is a gap of about 1 mm."
+      "note": "A first contact with an object ball sooner than this after the strike is a push: the tip would still be on the cue ball. The simulator's strike takes no time, so a cue ball leaving at 2 m/s reaches a ball 2 mm away in this time. 0 turns the test off (a touching ball that moves is still reported)."
     },
     "push_fine_edge_rad": {
       "unit": "rad",
       "source": "Section 2 Rule 19(b): no push when the cue ball hits a very fine edge of an almost touching ball; the value (80 degrees) is ours",
-      "note": "The cut angle between the cue ball's direction and the line of centres beyond which the contact is a very fine edge."
+      "note": "The cut at the moment of contact (the angle between the cue ball's direction and the line of centres towards the object ball) from which the contact is a very fine edge. With several balls met at once, one contact thicker than this makes the push."
     },
     "miss_lenient_gap_m": {
       "unit": "m",
