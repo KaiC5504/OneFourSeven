@@ -6,6 +6,8 @@ const FRAME_VIEW := "res://data/rules/example_frame_view.json"
 const JUDGEMENT := "res://data/rules/example_judgement.json"
 const MATCH := "res://data/rules/example_match.json"
 const COLOURS: Array[String] = ["yellow", "green", "brown", "blue", "pink", "black"]
+## A colour of the striker's choice is on: one must be declared.
+const CHOICE_OF_COLOUR := {"on": {"kind": "any_colour"}, "nominations": COLOURS}
 const CONFIG := {"best_of": 3, "first_breaker": "you", "seed": 147}
 
 
@@ -447,7 +449,7 @@ func test_nearest_placement_without_an_answer() -> void:
 
 
 func test_nomination() -> void:
-	var e := _engine(_turn(0, {"nominations": COLOURS}))
+	var e := _engine(_turn(0, CHOICE_OF_COLOUR))
 	var c := _started(e)
 	check_eq(c.nominations(), COLOURS, "the frame view's nominations")
 	check_eq(c.nominated(), "", "nothing declared")
@@ -470,28 +472,47 @@ func test_nomination() -> void:
 	c.shot_started("s-1")
 	check_eq(c.nominations(), [] as Array[String], "nothing to declare once struck")
 	check(not c.nominate("black", "tap"), "the declaration can't change after the strike")
-	e.judgements.append(_judged(_turn(0, {"nominations": COLOURS}), _legal()))
+	e.judgements.append(_judged(_turn(0, CHOICE_OF_COLOUR), _legal()))
 	c.shot_finished(null)
 	check_eq(_last_call(e, "judge")[2], {"nominated": "pink"}, "the referee is given the declared colour")
-	check_eq(c.nominated(), "", "the choice resets at the new turn")
+	check_eq(c.nominated(), "", "the declaration lasts one stroke")
 	check_eq(c.strike_blocked(), "nominate", "and must be made again")
 
 	_mark_log()
-	check(c.nominate_none("aim"), "declaring nothing on purpose")
-	check_eq(c.strike_blocked(), "", "lets the stroke go")
-	check_eq(_logged("match.nominated").size(), 0, "nothing changed, nothing logged")
 	check(c.nominate("green", "tap"), "green")
 	check(c.nominate_none("aim"), "withdrawn")
 	check_eq(c.nominated(), "", "nothing declared")
-	lines = _logged("match.nominated")
-	check(lines.size() == 2 and lines[1]["ball"] == "", "the withdrawal is logged")
+	check_eq(c.strike_blocked(), "nominate", "a colour of choice still needs one")
+	check(c.nominate_none("aim"), "withdrawn again")
+	var withdrawn := _logged("match.nominated")
+	check(withdrawn.size() == 2 and withdrawn[1]["ball"] == "", "the withdrawal is logged, once")
+
+	c.nominate("black", "tap")
 	c.shot_started("s-2")
+	e.judgements.append(_judged(_json(FRAME_VIEW), _legal()))
+	c.shot_finished(null)
+	check_eq(c.harness_state()["waiting"], "choice", "a stroke that leaves a choice")
+	check_eq(c.nominated(), "", "clears the declaration too")
+	e.decisions.append(_decided(_turn(0)))
+	c.choose("play_again")
+	check_eq(c.strike_blocked(), "", "no nomination open: not blocked")
+	check(not c.nominate("blue", "tap"), "and nothing to nominate")
+	check(not c.nominate_none("tap"), "or to withdraw")
+	c.free()
+
+
+func test_a_free_ball_need_not_be_nominated() -> void:
+	var e := _engine(_turn(0, {"free_ball": true, "nominations": COLOURS}))
+	var c := _started(e)
+	check_eq(c.nominations(), COLOURS, "any colour may be the free ball")
+	check_eq(c.strike_blocked(), "", "but a ball on may be played with nothing declared")
+	check(c.nominate("blue", "aim"), "the blue as the free ball")
+	check(c.nominate_none("aim"), "the aim left it for a ball on")
+	check_eq(c.strike_blocked(), "", "still free to strike")
+	c.shot_started("s-1")
 	e.judgements.append(_judged(_turn(0), _legal()))
 	c.shot_finished(null)
 	check_eq(_last_call(e, "judge")[2], {"nominated": ""}, "judged with no declaration")
-	check_eq(c.strike_blocked(), "", "no nomination open: not blocked")
-	check(not c.nominate("blue", "tap"), "and nothing to nominate")
-	check(not c.nominate_none("tap"), "or to decline")
 	c.free()
 
 
@@ -511,7 +532,7 @@ func test_the_opponents_nomination() -> void:
 
 
 func test_strike_blocked_reasons() -> void:
-	var e := _engine(_turn(0, {"cue_in_hand": true, "nominations": COLOURS}))
+	var e := _engine(_turn(0, {"cue_in_hand": true, "on": {"kind": "any_colour"}, "nominations": COLOURS}))
 	var c := _controller(e)
 	check_eq(c.strike_blocked(), "inactive", "no match")
 	check_eq(c.harness_state()["blocked"], "inactive", "in the harness state too")
@@ -802,25 +823,15 @@ func test_concede() -> void:
 	check_eq(_errors_with("engine.decide(\"concede_frame\", 0) refused").size(), 1, "logged")
 	check(c.person_to_play(), "and play goes on")
 
-	e.decisions.append(_decided(_turn(0), [], "match_ended"))
-	check(c.concede_match(), "concede_match")
-	check_eq(_names(), ["frame_changed", "match_ended"], "the match ends with no frame finished")
-	check(not c.is_active(), "over")
-	c.free()
-
-
-func test_conceded_match_whose_frame_the_engine_summarised() -> void:
-	var e := _engine(_turn(0))
-	var c := _started(e)
-	_events.clear()
 	var summary: Dictionary = (e.match_view["history"][0] as Dictionary).duplicate(true)
-	summary["number"] = 2
+	summary["number"] = 3
 	summary["reason"] = "match_conceded"
 	(e.match_view["history"] as Array).append(summary)
-	e.decisions.append(_decided(_turn(0), [], "match_ended"))
+	e.decisions.append(_decided(_turn(0, {"over": true, "end_reason": "match_conceded"}), [], "match_ended"))
 	check(c.concede_match(), "concede_match")
-	check_eq(_names(), ["frame_changed", "frame_ended", "match_ended"], "the frame's summary comes first")
-	check_eq(_events[1][1], summary, "the new summary")
+	check_eq(_names(), ["frame_changed", "frame_ended", "match_ended"], "the last frame's summary, then the match")
+	check_eq(_events[1][1], summary, "the frame as the engine summarised it")
+	check(not c.is_active(), "over")
 	c.free()
 
 
@@ -851,7 +862,7 @@ func test_frame_end_without_a_summary_is_logged() -> void:
 
 
 func test_harness_state() -> void:
-	var e := _engine(_turn(0, {"cue_in_hand": true, "nominations": COLOURS}))
+	var e := _engine(_turn(0, {"cue_in_hand": true, "on": {"kind": "any_colour"}, "nominations": COLOURS}))
 	var c := _started(e)
 	c.confirm_cue()
 	c.nominate("blue", "harness")

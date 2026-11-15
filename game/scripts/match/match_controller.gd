@@ -87,10 +87,6 @@ var _playing := false
 var _shot_id := ""
 var _placing := false
 var _nominated := ""
-## The striker chose to declare nothing (nominate_none).
-var _undeclared := false
-## Frame summaries already announced.
-var _summaries := 0
 var _refusals := 0
 ## Counts every change of what play waits for: an announcement stops when a listener made one.
 var _moves := 0
@@ -233,7 +229,7 @@ func nominations() -> Array[String]:
 	return out
 
 
-## The declared colour, "" for none.
+## The declared colour, "" for none. It lasts one stroke: shot_finished clears it.
 func nominated() -> String:
 	return _nominated
 
@@ -243,26 +239,24 @@ func nominated() -> String:
 func nominate(ball: String, how: String) -> bool:
 	if not nominations().has(ball):
 		return false
-	_undeclared = false
 	_declare(ball, how)
 	return true
 
 
-## Declares nothing on purpose, as when a free ball is not taken: the engine then reads the first
-## ball hit (docs/rules/README.md), and strike_blocked no longer asks for a colour. False when no
-## nomination is open.
+## Withdraws the declaration, as when the aim leaves a free ball for a ball on: the engine then
+## reads the first ball hit (docs/rules/README.md). False when no nomination is open.
 func nominate_none(how: String) -> bool:
 	if nominations().is_empty():
 		return false
-	_undeclared = true
 	_declare("", how)
 	return true
 
 
 ## Why the person's stroke may not be played yet: "" when it may, else "placing" (the cue ball is
-## not confirmed), "nominate" (a colour must be declared and none is), "choice" (the person has a
-## decision to make), "opponent" (the opponent, or autoplay, is to act), "playing" (a stroke is in
-## play) or "inactive" (no frame is in play: no match, or a summary is showing).
+## not confirmed), "nominate" (a colour of choice is on and none is declared; a free ball need not
+## be), "choice" (the person has a decision to make), "opponent" (the opponent, or autoplay, is to
+## act), "playing" (a stroke is in play) or "inactive" (no frame is in play: no match, or a summary
+## is showing).
 func strike_blocked() -> String:
 	if not _active:
 		return "inactive"
@@ -272,7 +266,7 @@ func strike_blocked() -> String:
 		"shot":
 			if _placing:
 				return "placing"
-			if _nominated.is_empty() and not _undeclared and not nominations().is_empty():
+			if _nominated.is_empty() and str(_dict(_frame.get("on")).get("kind", "")) == "any_colour":
 				return "nominate"
 			return ""
 		"choice", "opponent":
@@ -312,6 +306,7 @@ func shot_finished(record: OfsShotRecord) -> Dictionary:
 	_moves += 1
 	var input := {"nominated": _nominated}
 	var context := {"shot_id": shot_id}
+	_nominated = ""
 	var answer := _dict(engine.judge(record, input, context))
 	var judged := bool(answer.get("ok", false))
 	var judgement := {}
@@ -333,7 +328,7 @@ func shot_finished(record: OfsShotRecord) -> Dictionary:
 	tells.append(frame_changed.emit.bind(_frame))
 	if _announce(tells):
 		if judged:
-			_settle(event, true)
+			_settle(event)
 		else:
 			_advance()
 	return judgement
@@ -403,7 +398,6 @@ func _start(engine_config: Dictionary) -> bool:
 	_nearest_failed = false
 	var state := _dict(engine.match_state())
 	_frame_number = int(state.get("frame_number", 1))
-	_summaries = _list(state.get("history")).size()
 	_frame = _dict(engine.frame())
 	_sync_balls()
 	if _announce([table_changed.emit.bind(balls, cue_ball, &"frame"), frame_changed.emit.bind(_frame)]):
@@ -452,7 +446,6 @@ func _leave() -> void:
 	_shot_id = ""
 	_placing = false
 	_nominated = ""
-	_undeclared = false
 
 
 func _concede(kind: String) -> bool:
@@ -486,12 +479,12 @@ func _decide(kind: String, player: int, severe: bool = true) -> bool:
 		tells.append(table_changed.emit.bind(balls, cue_ball, &"replaced"))
 	tells.append(frame_changed.emit.bind(_frame))
 	if _announce(tells):
-		_settle(event, false)
+		_settle(event)
 	return true
 
 
 ## After a stroke or a choice changed the frame: `event` is the engine's match event.
-func _settle(event: String, struck: bool) -> void:
+func _settle(event: String) -> void:
 	var frame_over := event == "frame_ended" or bool(_frame.get("over", false))
 	if event != "match_ended" and not frame_over:
 		_advance()
@@ -502,13 +495,11 @@ func _settle(event: String, struck: bool) -> void:
 	var history := _list(state.get("history"))
 	var match_over := event == "match_ended" or bool(state.get("over", false))
 	var tells: Array[Callable] = []
-	# A match conceded during a frame ends with no frame finished unless the engine summarised one;
-	# conceded at a frame's summary, that frame's end has been announced.
-	if _waiting != "frame_summary" and (frame_over or struck or history.size() > _summaries):
+	# A match conceded at a frame's summary ends with that frame's end already announced.
+	if _waiting != "frame_summary":
 		if history.is_empty():
 			_error("frame %d ended (event \"%s\") with no summary in the match's history" % [_frame_number, event])
 		tells.append(frame_ended.emit.bind(_dict(history.back()) if not history.is_empty() else {}, state))
-	_summaries = history.size()
 	if match_over:
 		_active = false
 		tells.append(match_ended.emit.bind(state))
@@ -533,7 +524,6 @@ func _advance() -> void:
 			_ask_standin()
 		return
 	_nominated = ""
-	_undeclared = false
 	var striker := int(_frame.get("striker", 0))
 	var by_hand := striker == PERSON and not autoplay
 	_placing = by_hand and bool(_frame.get("cue_in_hand", false))
