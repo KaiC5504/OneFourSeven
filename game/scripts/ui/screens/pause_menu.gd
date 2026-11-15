@@ -3,7 +3,7 @@ extends Control
 ## The match's pause menu (spec 11.1): Resume, Concede frame, Concede match, Settings and Quit, and
 ## Claim frame while the person can't be caught (S2.1(b)).
 ## Quit asks to confirm in place, on the same card, since the match is discarded (spec 11.2); so do
-## the two concessions, which cannot be withdrawn (Section 4 Rule 2(e)). A modal card in the middle
+## the two concessions, which cannot be withdrawn (S4.2(e)). A modal card in the middle
 ## of the safe area; tapping outside it resumes.
 ##
 ## The card keeps its size while it asks, with Confirm at the bottom left and Cancel at the bottom
@@ -28,8 +28,8 @@ const TITLES := {
 	"quit": "Quit",
 }
 const CONSEQUENCES := {
-	"concede_frame": "Your opponent wins the frame",
-	"concede_match": "Your opponent wins the match",
+	"concede_frame": "Computer wins the frame",
+	"concede_match": "Computer wins the match",
 	"claim_frame": "You win the frame",
 	"quit": "The match will be discarded",
 }

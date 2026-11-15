@@ -147,6 +147,7 @@ func test_11_1_snookers_required_shows_only_when_relevant() -> void:
 	board.show_frame(_frame({"scores": [63, 20]}, {"points_remaining": 35, "required": [0, 8], "leader": 0}), match_view, 0)
 	var theirs := str(board.texts().get("required", ""))
 	check(theirs.to_lower().contains("snooker"), "said when the opponent needs them: '%s'" % theirs)
+	check(theirs != mine and theirs.contains("Computer"), "and whose: '%s', '%s'" % [mine, theirs])
 	board.show_frame(_frame(), match_view, 0)
 	check_eq(board.texts().get("required"), "", "gone again once nobody does")
 	_free_all()
@@ -302,9 +303,9 @@ func test_11_1_the_foul_prompt_offers_exactly_the_decisions_given() -> void:
 func test_11_1_the_prompts_buttons_say_what_they_do() -> void:
 	# spec 9: after a foul, the free ball, the miss rule's replacing, the re-rack, the re-spotted black
 	var plain := _frame()
-	var words := {"play": "Play", "play_again": "Put them back in", "replace": "Replace the balls",
+	var words := {"play": "Play", "play_again": "Computer plays again", "replace": "Replace the balls",
 			"accept_rerack": "Re-rack", "refuse_rerack": "Play on", "play_first": "Play first",
-			"play_second": "Opponent first", "claim_frame": "Claim the frame"}
+			"play_second": "Computer first", "claim_frame": "Claim the frame"}
 	for kind: String in words:
 		check_eq(ChoiceStrip.label_for(kind, plain), words[kind], kind)
 	check_eq(ChoiceStrip.label_for("play", _fixture(FRAME_VIEW_PATH)), "Take the free ball", "play when a free ball was called")
@@ -391,7 +392,7 @@ func test_11_1_pot_success_is_pots_of_attempts() -> void:
 func test_11_1_the_frame_summary_says_why_the_frame_ended_and_goes_on_by_one_button() -> void:
 	# spec 11.1: a short summary, then the next frame
 	var words := {"black": "On the black", "respotted_black": "On the re-spotted black", "claimed": "Frame claimed",
-			"awarded": "Frame claimed", "conceded": "Conceded", "three_misses": "Three misses",
+			"awarded": "Frame awarded", "conceded": "Frame conceded", "three_misses": "Three misses: frame awarded",
 			"match_conceded": "Match conceded"}
 	var card := _frame_summary()
 	var match_view := _fixture(MATCH_PATH)

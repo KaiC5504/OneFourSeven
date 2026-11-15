@@ -1,22 +1,24 @@
 extends TestCase
-## The M3 screens (spec 11.1): Home, match setup, the pause menu and the two summaries. Every
+## The match screens (spec 11.1): Home, match setup, the pause menu and the two summaries. Every
 ## button emits its signal, setup sends what was chosen, pause asks before conceding or quitting,
 ## the summaries say what the example match holds from either chair, each screen sits inside the
 ## safe area it is given, and a malformed Dictionary shows what is there and is logged once.
 
+const HudKit := preload("res://scripts/match/hud/hud_kit.gd")
 const MATCH_PATH := "res://data/rules/example_match.json"
 const END_REASONS := {
 	"black": "On the black",
 	"respotted_black": "On the re-spotted black",
 	"claimed": "Frame claimed",
-	"awarded": "Frame claimed",
-	"conceded": "Conceded",
-	"three_misses": "Three misses",
+	"awarded": "Frame awarded",
+	"conceded": "Frame conceded",
+	"three_misses": "Three misses: frame awarded",
 	"match_conceded": "Match conceded",
 }
 ## The phone's canvas with the Dynamic Island's insets, and a narrow canvas.
 const SAFE_RECTS: Array[Rect2] = [Rect2(120.0, 0.0, 1672.0, 880.0), Rect2(0.0, 0.0, 1200.0, 880.0)]
-const MIN_FONT_SIZE := 22
+## 28 units is 30 px in its capitals on the phone (1.5 px a unit).
+const MIN_FONT_SIZE := 28
 
 var _log_start := 0
 
@@ -124,8 +126,8 @@ func test_pause_resume_and_settings_emit_at_once() -> void:
 
 func test_pause_asks_before_conceding_or_quitting() -> void:
 	var asks := {
-		"concede_frame": ["concede_frame_confirmed", "Your opponent wins the frame"],
-		"concede_match": ["concede_match_confirmed", "Your opponent wins the match"],
+		"concede_frame": ["concede_frame_confirmed", "Computer wins the frame"],
+		"concede_match": ["concede_match_confirmed", "Computer wins the match"],
 		"quit": ["quit_confirmed", "The match will be discarded"],
 	}
 	for action: String in asks:
@@ -227,7 +229,7 @@ func test_frame_summary_of_a_conceded_frame() -> void:
 	var card := FrameSummary.new()
 	card.show_summary(summary, match_state)
 	var texts := card.texts()
-	check_eq([texts["title"], texts["reason"]], ["You won the frame", "Conceded"], "won by a concession, behind on points")
+	check_eq([texts["title"], texts["reason"]], ["You won the frame", "Frame conceded"], "won by a concession, behind on points")
 	check_eq([texts["score_you"], texts["score_opponent"]], [41, 63], "the scores as they stood")
 	check_eq(texts["pots_you"], "0 of 0", "no attempts")
 	card.free()
@@ -238,6 +240,29 @@ func test_reason_text_for_every_end_reason() -> void:
 		check_eq(FrameSummary.reason_text(reason), END_REASONS[reason], reason)
 	check_eq(FrameSummary.reason_text("none"), "", "a frame still in play has no reason")
 	check_eq(FrameSummary.reason_text("nonsense"), "", "an unknown reason")
+	for reason: String in END_REASONS:
+		if reason != "black" and reason != "respotted_black":
+			check_eq(FrameSummary.reason_text(reason), RefereeLine.text_for({"kind": "frame_over", "detail": reason}),
+					"%s as the referee says it" % reason)
+
+
+func test_a_frame_summary_with_an_end_reason_it_has_no_words_for() -> void:
+	HudKit.forget_reported()
+	var match_state := _example_match()
+	var summary: Dictionary = (match_state["history"][0] as Dictionary).duplicate(true)
+	summary["reason"] = "abandoned"
+	var card := FrameSummary.new()
+	_mark_log()
+	card.show_summary(summary, match_state)
+	card.show_summary(summary, match_state)
+	check_eq([card.texts()["title"], card.texts()["reason"]], ["You lost the frame", "Frame over"], "no empty line")
+	check(_says(card, "Frame over"), "the card says so: %s" % [_shown(card)])
+	var said := 0
+	for data in _logged("app.error"):
+		if String(data.get("message", "")).contains("abandoned"):
+			said += 1
+	check_eq(said, 1, "said once in the log")
+	card.free()
 
 
 func test_match_summary_won_and_lost() -> void:
@@ -246,16 +271,121 @@ func test_match_summary_won_and_lost() -> void:
 	_mark_log()
 	card.show_summary(match_state, 0)
 	check(card.visible, "showing opens it")
-	check_eq(card.texts(), {"title": "You lost", "frames_you": 0, "frames_opponent": 2, "frames": ["41-63", "24-70"],
-			"break_you": 16, "break_opponent": 45}, "as player 0")
+	check_eq(card.texts(), {"title": "You lost", "reason": "Frame conceded", "frames_you": 0, "frames_opponent": 2,
+			"frames": ["41-63", "24-70"], "break_you": 16, "break_opponent": 45}, "as player 0")
 	for words: String in ["You lost", "Frame 1", "Frame 2", "41", "63", "24", "70", "16", "45", "Highest break", "Frames"]:
 		check(_says(card, words), "the card says %s: %s" % [words, _shown(card)])
 	card.show_summary(match_state, 1)
-	check_eq(card.texts(), {"title": "You won", "frames_you": 2, "frames_opponent": 0, "frames": ["63-41", "70-24"],
-			"break_you": 45, "break_opponent": 16}, "as player 1")
+	check_eq(card.texts(), {"title": "You won", "reason": "Frame conceded", "frames_you": 2, "frames_opponent": 0,
+			"frames": ["63-41", "70-24"], "break_you": 45, "break_opponent": 16}, "as player 1")
 	check(not _says(card, "You lost"), "the earlier match's words are gone")
 	check_eq(_logged("app.error"), [], "nothing missing")
 	card.free()
+
+
+func test_match_summary_says_why_unless_it_ended_on_a_pot() -> void:
+	var match_state := _finished_match()
+	var card := MatchSummary.new()
+	(match_state["history"][1] as Dictionary)["reason"] = "match_conceded"
+	card.show_summary(match_state, 0)
+	check_eq([card.texts()["title"], card.texts()["reason"]], ["You lost", "Match conceded"], "a conceded match")
+	check(_says(card, "Match conceded"), "the card says so: %s" % [_shown(card)])
+	(match_state["history"][1] as Dictionary)["reason"] = "black"
+	card.show_summary(match_state, 0)
+	check_eq(card.texts()["reason"], "", "on the black, the title is enough")
+	check(not _says(card, "Match conceded") and not _says(card, "On the black"), "and the line goes: %s" % [_shown(card)])
+	card.free()
+
+
+func test_both_columns_of_a_long_match_have_the_names() -> void:
+	var short_card := MatchSummary.new()
+	short_card.show_summary(_finished_match(6))
+	check_eq(_count_shown(short_card, "Computer"), 1, "one column: the totals' names serve: %s" % [_shown(short_card)])
+	var long_card := MatchSummary.new()
+	long_card.auto_place = false
+	tree.root.add_child(long_card)
+	long_card.show_summary(_finished_match(11))
+	check_eq(_count_shown(long_card, "Computer"), 3, "the totals' and each column's: %s" % [_shown(long_card)])
+	check_eq(_count_shown(long_card, "You"), 3, "and You over each")
+	await tree.process_frame
+	long_card.place_in(SAFE_RECTS[0])
+	await tree.process_frame
+	var columns := (long_card.find_child("Card", true, false) as Control).find_children("*", "GridContainer", true, false)
+	var tops: Array[float] = []
+	for column: Node in columns:
+		var cells := (column as GridContainer).get_children()
+		if cells.size() >= 3 and (cells[2] as Label).text == "Computer":
+			tops.append((cells[2] as Label).get_global_rect().position.y)
+	check_eq(tops.size(), 3, "three tables headed")
+	if tops.size() == 3:
+		check_near(tops[1], tops[2], 0.5, "the two columns' names on one line")
+	# The phone's safe area is 838 units tall: the fullest card, with a reason line, keeps clear of its edges.
+	var card := long_card.get_node("Card") as Control
+	check(card.get_combined_minimum_size().y <= 838.0 - 32.0, "the card fits the phone: %s" % card.get_combined_minimum_size())
+	short_card.free()
+	long_card.queue_free()
+	await tree.process_frame
+
+
+func test_pause_offers_only_what_the_engine_offers() -> void:
+	var pause := PauseMenu.new()
+	pause.open(true, true, false)
+	check(not pause.button("concede_frame").disabled and not pause.button("concede_match").disabled, "both concessions on")
+	check(not _shows(pause, pause.button("claim_frame")), "no Claim frame when it isn't offered")
+	pause.open(false, true, false)
+	check(pause.button("concede_frame").disabled and not pause.button("concede_match").disabled, "a frame not offered is disabled")
+	pause.open(true, false, false)
+	check(not pause.button("concede_frame").disabled and pause.button("concede_match").disabled, "a match not offered is disabled")
+	pause.open(true, true, true)
+	check(_shows(pause, pause.button("claim_frame")), "Claim frame shows when offered")
+	check(pause.button("resume").get_index() < pause.button("claim_frame").get_index(), "under Resume")
+	pause.set_available(true, true, false)
+	check(not _shows(pause, pause.button("claim_frame")), "and goes when no longer offered")
+	pause.set_available(false, false, false)
+	check(pause.button("concede_frame").disabled and pause.button("concede_match").disabled, "set_available disables both")
+	check(not pause.button("quit").disabled and not pause.button("resume").disabled, "Quit and Resume stay on")
+	pause.free()
+
+
+func test_pause_a_question_about_something_no_longer_offered_goes_back_to_the_menu() -> void:
+	for action: String in ["concede_frame", "concede_match", "claim_frame"]:
+		var pause := PauseMenu.new()
+		var got := _pause_signals(pause)
+		pause.open(true, true, true)
+		pause.button(action).pressed.emit()
+		check_eq(pause.confirming(), action, "%s is asked" % action)
+		pause.set_available(action != "concede_frame", action != "concede_match", action == "concede_match")
+		check_eq(pause.confirming(), "", "%s withdrawn: back to the menu" % action)
+		check(_shows(pause, pause.button("resume")) and pause.button("confirm") == null, "%s: the menu shows" % action)
+		check_eq(got, [], "%s: nothing confirmed" % action)
+		pause.free()
+	var still := PauseMenu.new()
+	still.open(true, true, true)
+	still.button("quit").pressed.emit()
+	still.set_available(false, false, false)
+	check_eq(still.confirming(), "quit", "Quit is always offered: its question stays")
+	still.free()
+
+
+func test_pause_each_confirm_emits_its_signal_once() -> void:
+	var asks := {
+		"concede_frame": ["concede_frame_confirmed", "Computer wins the frame", "Concede frame"],
+		"concede_match": ["concede_match_confirmed", "Computer wins the match", "Concede match"],
+		"claim_frame": ["claim_frame_confirmed", "You win the frame", "Claim frame"],
+		"quit": ["quit_confirmed", "The match will be discarded", "Quit"],
+	}
+	for action: String in asks:
+		var pause := PauseMenu.new()
+		var got := _pause_signals(pause)
+		pause.open(true, true, true)
+		pause.button(action).pressed.emit()
+		check(_says(pause, asks[action][1]) and _says(pause, asks[action][2]), "%s asks: %s" % [action, _shown(pause)])
+		var confirm := pause.button("confirm")
+		confirm.pressed.emit()
+		confirm.pressed.emit()
+		check_eq(got, [asks[action][0]], "%s: one signal for two presses" % action)
+		check_eq(pause.confirming(), "", "%s: back to the menu" % action)
+		pause.free()
 
 
 func test_summary_buttons_emit_their_signals() -> void:
@@ -404,8 +534,8 @@ func test_a_malformed_match_summary_shows_what_is_there_and_is_logged_once() -> 
 	_mark_log()
 	card.show_summary({})
 	check(card.visible, "it still shows")
-	check_eq(card.texts(), {"title": "Match over", "frames_you": -1, "frames_opponent": -1, "frames": [], "break_you": -1,
-			"break_opponent": -1}, "nothing to show")
+	check_eq(card.texts(), {"title": "Match over", "reason": "", "frames_you": -1, "frames_opponent": -1, "frames": [],
+			"break_you": -1, "break_opponent": -1}, "nothing to show")
 	var logged := _logged("app.error")
 	check_eq(logged.size(), 1, "one app.error")
 	if logged.size() == 1:
@@ -418,8 +548,8 @@ func test_a_malformed_match_summary_shows_what_is_there_and_is_logged_once() -> 
 	match_state.erase("winner")
 	_mark_log()
 	card.show_summary(match_state)
-	check_eq(card.texts(), {"title": "Match over", "frames_you": 0, "frames_opponent": 2, "frames": ["41-63", "–-–", "–-–"],
-			"break_you": 16, "break_opponent": 45}, "what is there shows")
+	check_eq(card.texts(), {"title": "Match over", "reason": "", "frames_you": 0, "frames_opponent": 2,
+			"frames": ["41-63", "–-–", "–-–"], "break_you": 16, "break_opponent": 45}, "what is there shows")
 	logged = _logged("app.error")
 	check_eq(logged.size(), 1, "one app.error for the lot")
 	if logged.size() == 1:
@@ -436,6 +566,7 @@ func _pause_signals(pause: PauseMenu) -> Array:
 	pause.settings_pressed.connect(func() -> void: got.append("settings"))
 	pause.concede_frame_confirmed.connect(func() -> void: got.append("concede_frame_confirmed"))
 	pause.concede_match_confirmed.connect(func() -> void: got.append("concede_match_confirmed"))
+	pause.claim_frame_confirmed.connect(func() -> void: got.append("claim_frame_confirmed"))
 	pause.quit_confirmed.connect(func() -> void: got.append("quit_confirmed"))
 	return got
 
@@ -504,6 +635,10 @@ func _shown(screen: Control) -> Array[String]:
 
 func _says(screen: Control, words: String) -> bool:
 	return _shown(screen).has(words)
+
+
+func _count_shown(screen: Control, words: String) -> int:
+	return _shown(screen).count(words)
 
 
 func _mark_log() -> void:

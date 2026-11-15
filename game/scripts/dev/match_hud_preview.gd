@@ -3,14 +3,21 @@ extends Control
 ## ring, cue placer) over a plain cloth, with the shot controls where they sit in play, laid out
 ## in the iPhone 17 Pro Max's landscape safe area whatever the window is:
 ##   python scripts/background.py <godot> --path game --resolution 1912x880 res://scenes/dev/match_hud_preview.tscn -- --state=foul_choice --mute --no-link --screenshot=<abs path> --quit-after=2
-## States: play (the default), foul_choice, free_ball, placing, placed, snookers, rerack, toss.
-## The table is flat colour seen from a fixed camera, not the game's: only the pieces are judged.
+## States: play (the default), foul_choice, free_ball, placing, placed, snookers (the person needs
+## them), snookers_computer, over (the frame just ended), rerack, toss, and nominate_<colour> (that
+## colour declared and aimed at, its ghost ball's ring beside it as the guides draw it).
+## The table is flat colour, not the game's: only the pieces are judged. placed and nominate_ look
+## from behind the cue ball over a cloth of the game's green, with a stand-in cue; the rest from a
+## fixed camera down the table.
 
 const HudScript := preload("res://scripts/hud.gd")
 const FRAME_PATH := "res://data/rules/example_frame_view.json"
 const MATCH_PATH := "res://data/rules/example_match.json"
 const STATE_ARG := "--state="
+const NOMINATE := "nominate_"
 const CLOTH := Color(0.05, 0.25, 0.11)
+const LIT_CLOTH := Color(0.16, 0.56, 0.15)
+const CUE_COLOUR := Color(0.78, 0.6, 0.38)
 ## The phone in landscape: 440 pt tall, safe insets 62 pt left and right (Dynamic Island) and
 ## 21 pt at the bottom (home indicator).
 const PHONE_HEIGHT_PT := 440.0
@@ -63,14 +70,20 @@ func _ready() -> void:
 			_move_ball(frame, "cue", Vector2(-1.2, 0.08))
 			if state == "placing":
 				calls = [{"kind": "foul", "value": 4, "detail": "in_off"}]
-		"snookers":
-			frame["scores"] = [12, 58]
-			frame["striker"] = 1
+		"snookers", "snookers_computer":
+			var behind := 0 if state == "snookers" else 1
+			frame["scores"] = [12, 58] if behind == 0 else [58, 12]
+			frame["striker"] = 1 - behind
 			frame["break_points"] = 22
 			frame["on"] = {"kind": "colour", "colour": "yellow"}
 			frame["balls"] = _without(frame, "red")
 			(frame["view"] as Dictionary)["points_remaining"] = 27
-			(frame["view"] as Dictionary)["required"] = [20, 0]
+			(frame["view"] as Dictionary)["required"] = [20, 0] if behind == 0 else [0, 20]
+		"over":
+			frame["over"] = true
+			frame["scores"] = [70, 31]
+			frame["break_points"] = 16
+			(frame["view"] as Dictionary)["required"] = [0, 20]
 		"rerack":
 			frame["pending"] = "rerack"
 			calls = [{"kind": "rerack_offer", "value": 0, "detail": ""}]
@@ -86,15 +99,41 @@ func _ready() -> void:
 			(frame["view"] as Dictionary)["points_remaining"] = 7
 			calls = [{"kind": "respotted_black", "value": 0, "detail": ""}]
 			options = ["play_first", "play_second"]
+		_ when state.begins_with(NOMINATE):
+			ringed = state.substr(NOMINATE.length())
+			frame["scores"] = [33, 31]
+			frame["break_points"] = 1
+			frame["on"] = {"kind": "any_colour"}
 		_:
 			push_error("match_hud_preview: unknown state %s" % state)
 
-	_build_table(frame)
-	_nomination.name = "Nomination"
-	add_child(_nomination)
+	var radius := float(OfsTable.dimensions().get("ball_radius", BallsView.RADIUS_FALLBACK))
+	var target := Vector2.INF
 	for ball: Dictionary in frame["balls"]:
 		if ball["ball"] == ringed:
-			_nomination.mark(Vector2(ball["x"], ball["y"]))
+			target = Vector2(ball["x"], ball["y"])
+	if state.begins_with(NOMINATE):
+		if target == Vector2.INF:
+			push_error("match_hud_preview: no %s ball to declare" % ringed)
+			target = Vector2.ZERO
+		# A cut from 0.9 m, the cue ball a little off the line to the pocket.
+		_move_ball(frame, "cue", target + Vector2(-0.85, 0.3))
+	var cue := _ball_at(frame, "cue")
+	var aiming := state == "placed" or state.begins_with(NOMINATE)
+	_build_table(frame, LIT_CLOTH if aiming else CLOTH, radius)
+	if aiming:
+		var aim_at := target if target != Vector2.INF else cue + Vector2(1.0, 0.0)
+		var along := (aim_at - cue).normalized()
+		if state.begins_with(NOMINATE):
+			# The cue ball's place at contact, ringed as the guides ring it.
+			add_child(_ghost_ring(aim_at - along * 2.0 * radius, radius))
+		_aim_view(cue, along, radius)
+	else:
+		_table_view()
+	_nomination.name = "Nomination"
+	add_child(_nomination)
+	if target != Vector2.INF:
+		_nomination.mark(target, ringed)
 	for control: Control in [_spin, _elevation, _stroke]:
 		add_child(control)
 		control.call("bind", _setup)
@@ -139,14 +178,13 @@ func _place() -> void:
 
 
 # A flat cloth and flat balls: nothing here is lit, so no stage is needed.
-func _build_table(frame: Dictionary) -> void:
+func _build_table(frame: Dictionary, cloth_colour: Color, radius: float) -> void:
 	var cloth := MeshInstance3D.new()
 	var plane := PlaneMesh.new()
 	plane.size = Vector2(400.0, 400.0)
-	plane.material = _flat(CLOTH)
+	plane.material = _flat(cloth_colour)
 	cloth.mesh = plane
 	add_child(cloth)
-	var radius := float(OfsTable.dimensions().get("ball_radius", BallsView.RADIUS_FALLBACK))
 	for ball: Dictionary in frame["balls"]:
 		var sphere := SphereMesh.new()
 		sphere.radius = radius
@@ -156,11 +194,61 @@ func _build_table(frame: Dictionary) -> void:
 		node.mesh = sphere
 		node.position = TableSpace.core_to_godot(ball["x"], ball["y"], radius)
 		add_child(node)
+
+
+func _table_view() -> void:
 	var camera := Camera3D.new()
 	camera.fov = 30.0
 	add_child(camera)
 	camera.look_at_from_position(TableSpace.core_to_godot(-4.1, 0.0, 1.55), TableSpace.core_to_godot(-0.45, 0.0, 0.0))
 	camera.current = true
+
+
+# Roughly the aiming camera, with the cue lying behind the cue ball along the aim.
+func _aim_view(cue: Vector2, along: Vector2, radius: float) -> void:
+	var camera := Camera3D.new()
+	camera.fov = 50.0
+	add_child(camera)
+	var eye := cue - along * 0.62
+	camera.look_at_from_position(TableSpace.core_to_godot(eye.x, eye.y, 0.36), TableSpace.core_to_godot(
+			cue.x + along.x * 1.1, cue.y + along.y * 1.1, 0.0))
+	camera.current = true
+	var stick := CylinderMesh.new()
+	stick.top_radius = 0.0055
+	stick.bottom_radius = 0.014
+	stick.height = 1.45
+	stick.material = _flat(CUE_COLOUR)
+	var node := MeshInstance3D.new()
+	node.mesh = stick
+	add_child(node)
+	var tip := cue - along * (radius + 0.01)
+	var butt := tip - along * stick.height
+	var tip_at := TableSpace.core_to_godot(tip.x, tip.y, radius)
+	var butt_at := TableSpace.core_to_godot(butt.x, butt.y, radius + 0.12)
+	node.position = (tip_at + butt_at) / 2.0
+	# A cylinder stands along +y: turn that onto the line from the butt to the tip.
+	node.basis = Basis(Quaternion(Vector3.UP, (tip_at - butt_at).normalized()))
+
+
+# The guides' ghost-ball ring: a thin white line one ball radius round the contact place.
+func _ghost_ring(at: Vector2, radius: float) -> MeshInstance3D:
+	var tube := 0.0018
+	var torus := TorusMesh.new()
+	torus.inner_radius = radius - tube
+	torus.outer_radius = radius + tube
+	torus.rings = 48
+	torus.material = _flat(Color(1.0, 1.0, 1.0, 0.8))
+	var ring := MeshInstance3D.new()
+	ring.mesh = torus
+	ring.position = TableSpace.core_to_godot(at.x, at.y, tube)
+	return ring
+
+
+static func _ball_at(frame: Dictionary, kind: String) -> Vector2:
+	for ball: Dictionary in frame["balls"]:
+		if ball["ball"] == kind:
+			return Vector2(ball["x"], ball["y"])
+	return Vector2.ZERO
 
 
 static func _flat(colour: Color) -> StandardMaterial3D:

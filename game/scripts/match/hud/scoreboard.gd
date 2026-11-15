@@ -8,16 +8,17 @@ extends Control
 ## in brackets round "best of N" in the middle, which stands at the middle of the screen; a dot
 ## marks whoever is at the table and their name is the brighter one. Under that, smaller: the
 ## break below the striker's name, then the ball on as a disc in its colour with its word, the
-## points remaining and, when a player requires penalty points, "Snookers required". The pause
-## button is its own tile at the strip's left end. Everything is read from the frame view and the
-## match; no rule is worked out here.
+## points remaining and, when a player requires penalty points, whose snookers they are. Once the
+## frame is over only the scores and frames stay. The pause button is its own tile at the strip's
+## left end. Everything is read from the frame view and the match; no rule is worked out here.
 
 signal pause_pressed
 
 const Kit := preload("res://scripts/match/hud/hud_kit.gd")
 const YOU := "You"
 const OPPONENT := "Computer"
-const SNOOKERS := "Snookers required"
+const YOU_NEED_SNOOKERS := "You need snookers"
+const OPPONENT_NEEDS_SNOOKERS := OPPONENT + " needs snookers"
 const FREE_BALL := "Free ball"
 const HEIGHT := 88.0
 const EDGE_MARGIN := 16.0
@@ -33,6 +34,7 @@ var auto_place := true
 
 var _strip := Strip.new()
 var _pause: Button
+var _area := Rect2()
 
 
 ## The strip itself, drawn rather than built from labels so the sizes share a baseline.
@@ -43,8 +45,8 @@ class Strip extends Control:
 	const NAME_SIZE := 28
 	const SCORE_SIZE := 38
 	const FRAMES_SIZE := 28
-	const BEST_SIZE := 22
-	const DETAIL_SIZE := 24
+	const BEST_SIZE := 28
+	const DETAIL_SIZE := 28
 	const NAME_GAP := 20.0
 	const SCORE_GAP := 24.0
 	const FRAMES_GAP := 14.0
@@ -79,8 +81,10 @@ class Strip extends Control:
 	var _bold: FontVariation
 
 	## Where the frames block is centred, from the strip's left edge. The strip is as wide as its
-	## longest contents on each side of that, so it never changes width in a match, and the shorter
-	## name gives the shorter side: with the pause button there, the two sides come out about level.
+	## longest contents on each side of that, so it keeps one width while nobody needs snookers,
+	## and the shorter name gives the shorter side: with the pause button there, the two sides come
+	## out about level. Whose snookers widens it while they show, rather than leaving that room
+	## empty all match.
 	func centre_x() -> float:
 		var font := get_theme_default_font()
 		return _side(font, YOU) + _spare(font) / 2.0
@@ -94,11 +98,19 @@ class Strip extends Control:
 		var name_and_score := _width(font, player, NAME_SIZE) + NAME_GAP + _width(_scores(), "147", SCORE_SIZE)
 		return PAD + MARKER_SLOT + name_and_score + SCORE_GAP + _middle_half(font)
 
-	# What the fullest lower line needs beyond the upper line's width.
+	# What the fullest lower line needs beyond the upper line's width. A free ball starts a turn, so
+	# it never shows with a break.
 	func _spare(font: Font) -> float:
-		var detail := 2.0 * PAD + MARKER_SLOT + 2.0 * DISC_RADIUS + WORD_GAP + 3.0 * DETAIL_GAP
-		for words: String in ["Break 147", FREE_BALL, "Remaining 147", SNOOKERS]:
-			detail += _width(font, words, DETAIL_SIZE)
+		var colour := 0.0
+		for ball: String in BALLS:
+			colour = maxf(colour, _width(font, ball.capitalize(), DETAIL_SIZE))
+		colour = maxf(colour, _width(font, "Colour", DETAIL_SIZE))
+		var first := maxf(_width(font, "Break 147", DETAIL_SIZE) + DETAIL_GAP + colour, _width(font, FREE_BALL, DETAIL_SIZE))
+		var detail := 2.0 * PAD + MARKER_SLOT + 2.0 * DISC_RADIUS + WORD_GAP + first + DETAIL_GAP \
+				+ _width(font, "Remaining 147", DETAIL_SIZE)
+		var required := String(said.get("required", ""))
+		if not required.is_empty():
+			detail += DETAIL_GAP + _width(font, required, DETAIL_SIZE)
 		return maxf(detail - _side(font, YOU) - _side(font, OPPONENT), 0.0)
 
 	func _draw() -> void:
@@ -270,12 +282,17 @@ func _ready() -> void:
 func show_frame(frame: Dictionary, match_state: Dictionary, person: int = 0) -> void:
 	person = clampi(person, 0, 1)
 	var other := 1 - person
+	# A frame view with no "over" is one in play.
+	var over: bool = frame.get("over") == true
 	var view := Kit.dictionary(frame, "view", FRAME)
-	var required := false
+	var required := ""
 	var remaining := -1
 	if not view.is_empty():
 		remaining = Kit.integer(view, "points_remaining", FRAME)
-		required = Kit.integer_at(view, "required", 0, FRAME, 0) > 0 or Kit.integer_at(view, "required", 1, FRAME, 0) > 0
+		if Kit.integer_at(view, "required", person, FRAME, 0) > 0:
+			required = YOU_NEED_SNOOKERS
+		elif Kit.integer_at(view, "required", other, FRAME, 0) > 0:
+			required = OPPONENT_NEEDS_SNOOKERS
 	var config := Kit.dictionary(match_state, "config", MATCH)
 	var striker := Kit.integer(frame, "striker", FRAME)
 	var said := {
@@ -286,21 +303,31 @@ func show_frame(frame: Dictionary, match_state: Dictionary, person: int = 0) -> 
 		"best_of": Kit.integer(config, "best_of", MATCH) if not config.is_empty() else -1,
 		"break": maxi(Kit.integer(frame, "break_points", FRAME, 0), 0),
 		"remaining": remaining,
-		"required": SNOOKERS if required else "",
+		"required": required,
 		"on": on_text(frame),
 		"turn": "you" if striker == person else ("opponent" if striker == other else ""),
 	}
 	var on_ball := _on_ball(frame)
+	if over:
+		said.merge({"break": 0, "remaining": -1, "required": "", "on": "", "turn": ""}, true)
+		on_ball = ""
 	if said == _strip.said and on_ball == _strip.on_ball:
 		return
+	var widened: bool = said["required"] != _strip.said.get("required", "")
 	_strip.said = said
 	_strip.on_ball = on_ball
 	_strip.queue_redraw()
+	if widened:
+		if _area.has_area():
+			place_in(_area)
+		else:
+			Kit.put(_strip, _strip.position, Vector2(_strip.design_width(), HEIGHT))
 
 
 ## Puts the scoreboard along the top of `area` (canvas units), the frames in the strip's middle
 ## at the area's centre and the pause button at the strip's left end, writing only what changed.
 func place_in(area: Rect2) -> void:
+	_area = area
 	var x := maxf(area.get_center().x - _strip.centre_x(), area.position.x + EDGE_MARGIN + HEIGHT + PAUSE_GAP)
 	var top := area.position.y + EDGE_MARGIN
 	Kit.put(_strip, Vector2(x, top).round(), Vector2(_strip.design_width(), HEIGHT))
@@ -318,10 +345,12 @@ func pause_button() -> Button:
 
 
 ## What the scoreboard says, for tests: {you, opponent, frames_you, frames_opponent, best_of,
-## break, remaining, required (the words shown, "" when nobody requires penalty points), on (the
-## ball on in words: "Red", "Colour", "Blue", "Free ball"), turn ("you" | "opponent")}. The
-## numbers are ints: break is 0 when none shows, and a number the frame or the match did not give
-## is -1 and is left blank; turn is "" when the frame names no striker. {} before any frame.
+## break, remaining, required ("You need snookers", "Computer needs snookers" or "" when nobody
+## requires penalty points), on (the ball on in words: "Red", "Colour", "Blue", "Free ball"), turn
+## ("you" | "opponent")}. The numbers are ints: break is 0 when none shows, and a number the frame
+## or the match did not give is -1 and is left blank; turn is "" when the frame names no striker.
+## Once the frame is over, break is 0, remaining -1, and required, on and turn are "". {} before
+## any frame.
 func texts() -> Dictionary:
 	return _strip.said.duplicate()
 

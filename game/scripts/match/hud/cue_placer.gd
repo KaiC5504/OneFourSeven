@@ -20,7 +20,7 @@ const HINT := "Drag the cue ball in the D"
 const CONFIRM_SIZE := Vector2(190.0, 88.0)
 const MOVE_SIZE := Vector2(130.0, 88.0)
 const FONT_SIZE := 28
-const HINT_FONT_SIZE := 26
+const HINT_FONT_SIZE := 28
 const GAP := 18
 const MARGIN := 10.0
 const MOVE_MARGIN := 6.0
@@ -114,7 +114,8 @@ func button(id: String) -> Button:
 	return null
 
 
-## Puts the control centred along the bottom of `area` (canvas units).
+## Puts the control centred along the bottom of `area` (canvas units); Move alone at its bottom
+## right.
 func place_in(area: Rect2) -> void:
 	_area = area
 	_fit()
@@ -165,4 +166,6 @@ func _show() -> void:
 
 func _fit() -> void:
 	var extent := _panel.get_combined_minimum_size()
-	Kit.put(_panel, Vector2(_area.get_center().x - extent.x / 2.0, _area.end.y - extent.y).round(), extent)
+	# Move alone goes to the area's right end: centred it would sit on the butt of the cue.
+	var x := _area.end.x - extent.x if _state == PLACED else _area.get_center().x - extent.x / 2.0
+	Kit.put(_panel, Vector2(x, _area.end.y - extent.y).round(), extent)

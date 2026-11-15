@@ -1,10 +1,13 @@
 extends Control
-## Dev preview of one of the M3 screens over a plain dark green background, laid out in the
+## Dev preview of one of the match screens over a plain dark green background, laid out in the
 ## iPhone 17 Pro Max's landscape safe area whatever the window is:
 ##   godot --path game --resolution 1912x880 res://scenes/dev/screens_preview.tscn -- --mute --screen=pause
 ## --screen is home (the default), setup, pause, pause_confirm, frame_summary or match_summary.
 ## The summaries are filled from the example match; --frames=<n> makes the match summary's match
-## n frames long and --person=1 shows either summary from the other chair.
+## n frames long and --person=1 shows either summary from the other chair. --state= says more:
+## for pause, claim (Claim frame offered), no_concede_frame or no_concession; for pause_confirm,
+## the question (quit, the default, concede_frame, concede_match or claim_frame); for
+## frame_summary, the frame's end reason; for match_summary, conceded (the person conceded it).
 
 const MATCH_PATH := "res://data/rules/example_match.json"
 const SCREENS: Array[String] = ["home", "setup", "pause", "pause_confirm", "frame_summary", "match_summary"]
@@ -29,6 +32,7 @@ func _ready() -> void:
 		name_ = "home"
 	var match_state := _example_match()
 	var person := clampi(_argument("--person", "0").to_int(), 0, 1)
+	var state := _argument("--state", "")
 	match name_:
 		"home":
 			_screen = HomeScreen.new()
@@ -46,16 +50,25 @@ func _ready() -> void:
 		"home", "setup":
 			_screen.call("open")
 		"pause":
-			(_screen as PauseMenu).open(true)
+			(_screen as PauseMenu).open(state != "no_concede_frame" and state != "no_concession",
+					state != "no_concession", state == "claim")
 		"pause_confirm":
-			(_screen as PauseMenu).open(true)
-			(_screen as PauseMenu).button("quit").pressed.emit()
+			var question := state if not state.is_empty() else "quit"
+			(_screen as PauseMenu).open(true, true, question == "claim_frame")
+			var asking := (_screen as PauseMenu).button(question)
+			if asking == null:
+				push_error("screens_preview: no question '%s'" % question)
+			else:
+				asking.pressed.emit()
 		"frame_summary":
 			var history: Array = match_state.get("history", [])
-			(_screen as FrameSummary).show_summary(history[0] if not history.is_empty() else {}, match_state, person)
+			var summary: Dictionary = (history[0] as Dictionary).duplicate(true) if not history.is_empty() else {}
+			if not state.is_empty():
+				summary["reason"] = state
+			(_screen as FrameSummary).show_summary(summary, match_state, person)
 		"match_summary":
 			(_screen as MatchSummary).show_summary(
-					_finished(match_state, maxi(_argument("--frames", "3").to_int(), 1)), person)
+					_finished(match_state, maxi(_argument("--frames", "3").to_int(), 1), state == "conceded"), person)
 	get_viewport().size_changed.connect(_place)
 	_place()
 
@@ -84,8 +97,9 @@ func _example_match() -> Dictionary:
 
 
 ## The example match played out to `frames` frames: its finished frame and the one in play, over
-## and over, two to the first player and then two as they stand.
-func _finished(match_state: Dictionary, frames: int) -> Dictionary:
+## and over, two to the first player and then two as they stand. `conceded`: player 0 conceded the
+## match in the last frame.
+func _finished(match_state: Dictionary, frames: int, conceded: bool = false) -> Dictionary:
 	var out := match_state.duplicate(true)
 	var in_play: Dictionary = out.get("frame", {})
 	var sources: Array = out.get("history", [])
@@ -102,10 +116,13 @@ func _finished(match_state: Dictionary, frames: int) -> Dictionary:
 		frame["number"] = i + 1
 		frame["winner"] = 0 if int(scores[0]) > int(scores[1]) else 1
 		frame["reason"] = "black"
+		if conceded and i == frames - 1:
+			frame["winner"] = 1
+			frame["reason"] = "match_conceded"
 		won[int(frame["winner"])] += 1
 		history.append(frame)
 	out["history"] = history
 	out["frames"] = won
 	out["over"] = true
-	out["winner"] = 0 if won[0] > won[1] else 1
+	out["winner"] = 1 if conceded else (0 if won[0] > won[1] else 1)
 	return out

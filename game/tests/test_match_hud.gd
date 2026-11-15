@@ -13,12 +13,12 @@ const RADIUS := 0.02625
 const COLOURS: Array[String] = ["yellow", "green", "brown", "blue", "pink", "black"]
 const DECISIONS := {
 	"play": "Play",
-	"play_again": "Put them back in",
+	"play_again": "Computer plays again",
 	"replace": "Replace the balls",
 	"accept_rerack": "Re-rack",
 	"refuse_rerack": "Play on",
 	"play_first": "Play first",
-	"play_second": "Opponent first",
+	"play_second": "Computer first",
 	"claim_frame": "Claim the frame",
 }
 
@@ -69,13 +69,32 @@ func test_on_text_names_the_ball_on() -> void:
 	board.free()
 
 
-func test_snookers_required_shows_only_when_a_player_requires_them() -> void:
+func test_snookers_required_says_whose_and_shows_only_when_a_player_requires_them() -> void:
 	var board := Scoreboard.new()
 	var frame := _frame()
-	for case: Array in [[[0, 0], ""], [[20, 0], "Snookers required"], [[0, 5], "Snookers required"], [[0, 0], ""]]:
+	for case: Array in [[[0, 0], 0, ""], [[20, 0], 0, "You need snookers"], [[0, 5], 0, "Computer needs snookers"],
+			[[20, 0], 1, "Computer needs snookers"], [[0, 5], 1, "You need snookers"], [[0, 0], 1, ""]]:
 		(frame["view"] as Dictionary)["required"] = case[0]
-		board.show_frame(frame, _match(), 0)
-		check_eq(board.texts()["required"], case[1], "required %s" % [case[0]])
+		board.show_frame(frame, _match(), case[1])
+		check_eq(board.texts()["required"], case[2], "required %s, the person player %d" % [case[0], case[1]])
+	board.free()
+
+
+func test_once_the_frame_is_over_only_the_scores_and_frames_stay() -> void:
+	var board := Scoreboard.new()
+	var frame := _frame()
+	frame["break_points"] = 16
+	(frame["view"] as Dictionary)["required"] = [0, 20]
+	board.show_frame(frame, _match(), 0)
+	check(board.texts()["turn"] == "you" and board.texts()["break"] == 16 and not board.texts()["required"].is_empty(),
+			"in play: %s" % [board.texts()])
+	frame["over"] = true
+	board.show_frame(frame, _match(), 0)
+	check_eq(board.texts(), {"you": 24, "opponent": 31, "frames_you": 0, "frames_opponent": 1, "best_of": 3,
+			"break": 0, "remaining": -1, "required": "", "on": "", "turn": ""}, "over")
+	frame["over"] = false
+	board.show_frame(frame, _match(), 0)
+	check_eq(board.texts()["turn"], "you", "the next frame shows it all again")
 	board.free()
 
 
@@ -144,10 +163,42 @@ func test_scoreboard_sits_at_the_top_centre_of_its_area() -> void:
 	await tree.process_frame
 
 
-func test_scoreboard_text_is_big_enough_to_read() -> void:
+func test_whose_snookers_widens_the_strip_about_the_middle_while_it_shows() -> void:
+	var board := Scoreboard.new()
+	board.auto_place = false
+	tree.root.add_child(board)
+	var frame := _frame()
+	board.show_frame(frame, _match(), 0)
+	board.place_in(SAFE)
+	var strip := board.get_node("Strip") as Scoreboard.Strip
+	var plain := Rect2(strip.position, strip.size)
+	var middle := strip.position.x + strip.centre_x()
+	check_near(middle, SAFE.get_center().x, 1.0, "the frames at the middle")
+	(frame["view"] as Dictionary)["required"] = [0, 20]
+	board.show_frame(frame, _match(), 0)
+	var wide := Rect2(strip.position, strip.size)
+	check(wide.size.x > plain.size.x, "wider for the words: %s after %s" % [wide, plain])
+	check(SAFE.encloses(board.covered_rect()), "still inside the area: %s" % board.covered_rect())
+	check_near(strip.position.x + strip.centre_x(), middle, 1.0, "the frames stay at the middle")
+	var font := strip.get_theme_default_font()
+	var words := font.get_string_size(Scoreboard.OPPONENT_NEEDS_SNOOKERS, HORIZONTAL_ALIGNMENT_LEFT, -1.0,
+			Scoreboard.Strip.DETAIL_SIZE).x
+	check(wide.size.x - plain.size.x <= words + Scoreboard.Strip.DETAIL_GAP + 1.0, "by no more than the words need")
+	check_eq(board.pause_button().position.x + board.pause_button().size.x + Scoreboard.PAUSE_GAP, strip.position.x,
+			"the pause button keeps to its end")
+	(frame["view"] as Dictionary)["required"] = [0, 0]
+	board.show_frame(frame, _match(), 0)
+	check_eq(Rect2(strip.position, strip.size), plain, "back as it was once nobody needs them")
+	board.queue_free()
+	await tree.process_frame
+
+
+func test_hud_text_is_big_enough_to_read() -> void:
+	# 28 units is 30 px in its capitals on the phone (1.5 px a unit).
 	for font_size: int in [Scoreboard.Strip.NAME_SIZE, Scoreboard.Strip.SCORE_SIZE, Scoreboard.Strip.FRAMES_SIZE,
-			Scoreboard.Strip.BEST_SIZE, Scoreboard.Strip.DETAIL_SIZE]:
-		check(font_size >= 22, "no text under 22 units: %d" % font_size)
+			Scoreboard.Strip.BEST_SIZE, Scoreboard.Strip.DETAIL_SIZE, CuePlacer.HINT_FONT_SIZE, CuePlacer.FONT_SIZE,
+			ChoiceStrip.FONT_SIZE, RefereeLine.FONT_SIZE]:
+		check(font_size >= 28, "no text under 28 units: %d" % font_size)
 	check(Scoreboard.Strip.SCORE_SIZE > Scoreboard.Strip.NAME_SIZE, "the scores are the biggest thing on it")
 	check(Scoreboard.Strip.DETAIL_BASELINE < Scoreboard.HEIGHT, "both lines inside the strip")
 
@@ -315,7 +366,7 @@ func test_label_for_every_decision() -> void:
 		check_eq(ChoiceStrip.label_for(kind, _frame_without_free_ball()), DECISIONS[kind], kind + " with a frame")
 	var free := _frame()
 	check_eq(ChoiceStrip.label_for("play", free), "Take the free ball", "play with a free ball called")
-	check_eq(ChoiceStrip.label_for("play_again", free), "Put them back in", "the others keep their words")
+	check_eq(ChoiceStrip.label_for("play_again", free), "Computer plays again", "the others keep their words")
 	check_eq(ChoiceStrip.label_for("replace", free), "Replace the balls", "replace too")
 	check_eq(ChoiceStrip.label_for("concede_frame"), "", "not a choice the strip offers")
 	check_eq(ChoiceStrip.label_for("resign"), "", "an unknown kind")
@@ -344,7 +395,7 @@ func test_an_offer_asks_the_question_over_a_button_for_each_option() -> void:
 	var toss: Array[String] = ["play_first", "play_second"]
 	strip.offer(toss, _frame())
 	check_eq(strip.prompt(), "You won the toss", "the toss")
-	check_eq([strip.button("play_first").text, strip.button("play_second").text], ["Play first", "Opponent first"], "its buttons")
+	check_eq([strip.button("play_first").text, strip.button("play_second").text], ["Play first", "Computer first"], "its buttons")
 	var claim: Array[String] = ["claim_frame"]
 	strip.offer(claim, _frame())
 	check(not strip.prompt().is_empty() and strip.button("claim_frame").text == "Claim the frame", "claiming the frame")
@@ -509,7 +560,9 @@ func test_the_ring_marks_the_declared_ball() -> void:
 	check(ring.global_position.y > 0.0 and ring.global_position.y < 0.01, "lying on the cloth: %f" % ring.global_position.y)
 	check_eq(ring.layers, Stage.MOVING_LAYER, "on the moving layer, out of the reflections")
 	var torus := ring.mesh as TorusMesh
-	check(torus != null and torus.inner_radius > RADIUS, "a ring round the ball, clear of it")
+	# The guides' ghost-ball ring is a line one ball radius round.
+	check(torus != null and torus.inner_radius > 1.5 * RADIUS, "a ring well outside the ball and the ghost ring: %f" % torus.inner_radius)
+	check(torus.outer_radius - torus.inner_radius > 0.3 * RADIUS, "a broad band, not a line")
 	var material := torus.material as StandardMaterial3D
 	check_eq(material.shading_mode, BaseMaterial3D.SHADING_MODE_UNSHADED, "unshaded")
 	var selection: Color = MainScript.SELECTION_COLOUR
@@ -518,6 +571,42 @@ func test_the_ring_marks_the_declared_ball() -> void:
 	check_near(ring.global_position.z, TableSpace.core_to_godot(-1.0, 0.3).z, 1.0e-6, "it follows a new declaration")
 	nomination.mark(null)
 	check(not nomination.is_marking() and not ring.visible, "null hides it")
+	nomination.queue_free()
+	await tree.process_frame
+
+
+func test_the_ring_is_in_the_declared_balls_colour() -> void:
+	Kit.forget_reported()
+	_mark_log()
+	var nomination := Nomination.new()
+	tree.root.add_child(nomination)
+	var ring := nomination.get_node("Ring") as MeshInstance3D
+	var material := (ring.mesh as TorusMesh).material as StandardMaterial3D
+	var rims: Array[MeshInstance3D] = [nomination.get_node("RimInside"), nomination.get_node("RimOutside")]
+	var white := Color(1.0, 1.0, 1.0)
+	var wrong := Color(1.0, 0.16, 0.12)
+	for colour in COLOURS:
+		nomination.mark(Vector2(0.2, 0.1), colour)
+		var shown := material.albedo_color
+		check_eq(shown, Nomination.COLOURS[colour], colour)
+		# The guides are white on a ball that may be played, red on one that may not.
+		check(_distance(shown, white) > 0.3 and _distance(shown, wrong) > 0.3, "%s reads apart from the guides: %s" % [colour, shown])
+		var rimmed := colour == "black" or colour == "brown"
+		for rim in rims:
+			check_eq(rim.visible, rimmed, "%s: %s" % [colour, "a lighter rim" if rimmed else "no rim"])
+			check_near(rim.global_position.x, ring.global_position.x, 1.0e-6, "%s: the rim with the ring" % colour)
+			if rimmed:
+				var edge := ((rim.mesh as TorusMesh).material as StandardMaterial3D).albedo_color
+				check(edge.get_luminance() > shown.get_luminance() + 0.25, "%s: the rim is lighter: %s" % [colour, edge])
+				check(_distance(edge, white) > 0.3, "%s: but not the ghost ring's white: %s" % [colour, edge])
+	check((rims[0].mesh as TorusMesh).outer_radius <= (ring.mesh as TorusMesh).inner_radius
+			and (rims[1].mesh as TorusMesh).inner_radius >= (ring.mesh as TorusMesh).outer_radius, "the rims edge the band")
+	nomination.mark(null)
+	check(not rims[0].visible and not rims[1].visible, "null hides the rims too")
+	nomination.mark(Vector2(0.2, 0.1), "purple")
+	nomination.mark(Vector2(0.2, 0.1), "purple")
+	check(nomination.is_marking(), "a ball with no colour is still ringed")
+	check_eq(_count(_errors(), "purple"), 1, "and said once in the log")
 	nomination.queue_free()
 	await tree.process_frame
 
@@ -608,11 +697,16 @@ func test_the_cue_placer_sits_low_and_centred_and_shrinks_to_move() -> void:
 	check(move.size.x >= 88.0 and move.size.y >= 88.0, "still big enough to touch: %s" % move.size)
 	check(placed.size.x < 0.5 * placing.size.x, "small: %s after %s" % [placed, placing])
 	check(placed.encloses(Rect2(move.global_position, move.size)), "inside the control")
-	check(area.encloses(placed) and placed.end.y == area.end.y, "in the same place: %s" % placed)
-	check_near(placed.get_center().x, area.get_center().x, 1.0, "still centred")
+	check(area.encloses(placed) and placed.end.y == area.end.y, "still along the bottom: %s" % placed)
+	# Centred, it would sit on the butt of the cue.
+	check_eq(placed.end.x, area.end.x, "at the area's right end")
+	check(placed.position.x > area.get_center().x + 0.25 * area.size.x, "well clear of the middle: %s" % placed)
 	for id: String in ["move"]:
 		check_eq(placer.button(id).focus_mode, Control.FOCUS_NONE, "%s takes no keyboard focus" % id)
 	check_eq(_takes_touches(placer), [] as Array[String], "only the buttons take touches")
+	move.pressed.emit()
+	await tree.process_frame
+	check_eq(placer.covered_rect(), placing, "Move puts the hint and Confirm back in the middle")
 	placer.end()
 	check(not (placer.get_node("Panel") as Control).visible, "end hides it")
 	placer.queue_free()
@@ -684,6 +778,10 @@ func _errors() -> PackedStringArray:
 	for data in _logged("app.error"):
 		messages.append(str(data.get("message", "")))
 	return messages
+
+
+static func _distance(a: Color, b: Color) -> float:
+	return Vector3(a.r - b.r, a.g - b.g, a.b - b.b).length()
 
 
 func _count(messages: PackedStringArray, part: String) -> int:
