@@ -192,8 +192,10 @@ func _ready() -> void:
 
 	setup.strike_mode = String(Settings.get_value("strike_mode"))
 	_aim.bind(setup, _gestures, _rig)
-	_aim.on_ball = func() -> bool: return _guides.aims_at_ball(_table_balls(), _table_cue(), setup.aim_rad)
+	# The slower turn is for the last adjustments of a pot: not on a ball that may not be played.
+	_aim.on_ball = func() -> bool: return _may_play(_guides.aimed_ball(_table_balls(), _table_cue(), setup.aim_rad))
 	_guides.allowance = _allowing_for_side
+	_guides.playable = _may_play
 	_wheel.bind(setup)
 	_spin.bind(setup)
 	_elevation.bind(setup)
@@ -1735,6 +1737,17 @@ func _preselect() -> void:
 	elif first >= 0 and bool(_match.frame().get("free_ball", false)) and _is_on(first):
 		_match.nominate_none("aim")
 	_mark_nominated()
+
+
+## Whether the ball at `place` may be played at now: any ball outside a match; in one, a ball on
+## or a colour the striker may declare. False for no ball (-1).
+func _may_play(place: int) -> bool:
+	if place < 0:
+		return false
+	if _mode != MATCH or _is_on(place):
+		return true
+	var balls := _match.balls
+	return place < balls.size() and _match.nominations().has(String(balls[place].get("ball", "")))
 
 
 func _is_on(place: int) -> bool:

@@ -23,6 +23,11 @@ const MOVED_M := 0.001
 const LINE_COLOUR := Color(1.0, 1.0, 1.0, 0.8)
 const OBJECT_LINE_COLOUR := Color(1.0, 1.0, 1.0, 0.6)
 const GHOST_COLOUR := Color(1.0, 1.0, 1.0, 0.18)
+## The line, ring and ghost ball when the first ball on the line is one that may not be played at
+## (a match's ball that is not on): white means the right ball (KaiC, 2026-11-16).
+const WRONG_COLOUR := Color(1.0, 0.16, 0.12, 0.9)
+const WRONG_OBJECT_LINE_COLOUR := Color(1.0, 0.16, 0.12, 0.6)
+const WRONG_GHOST_COLOUR := Color(1.0, 0.16, 0.12, 0.34)
 ## Each ball's colour, lifted where the real one would vanish into the green cloth.
 const PATH_COLOURS := {
 	"cue": Color(1.0, 1.0, 1.0, 0.85),
@@ -62,6 +67,9 @@ var predictor: Callable = Physics.predict
 ## (strike: Dictionary) -> Dictionary: the strike as it will be played (main.gd turns the aim for
 ## side); unset, the strike is predicted as it stands.
 var allowance := Callable()
+## (place: int) -> bool: whether the ball at that place in the balls shown may be played at. Not
+## set, every ball may.
+var playable := Callable()
 ## Seconds; tests replace it.
 var clock: Callable = func() -> float: return Time.get_ticks_usec() / 1.0e6
 ## OfsPhysics.table_shape(); while empty, show_for reads Physics.table_shape().
@@ -78,6 +86,10 @@ var _pace_label := Label3D.new()
 var _ribbon_material := StandardMaterial3D.new()
 var _level := 0
 var _contact: Dictionary = {"kind": "none"}
+## Whether the line, ring and ghost ball drawn are in WRONG_COLOUR, and the same for the level 3
+## paths asked for.
+var _wrong := false
+var _paths_wrong := false
 var _geometry_key: Array = []
 var _built_radius := 0.0
 ## The inputs the drawn paths show; a different key needs a prediction.
@@ -148,16 +160,23 @@ func show_for(balls: Array[Dictionary], cue_ball: int, setup: ShotSetup, level: 
 	if _level < 3:
 		_pending = {}
 		set_process(false)
-		if geometry_key != _geometry_key or r != _built_radius:
+		var rebuild := geometry_key != _geometry_key or r != _built_radius
+		if rebuild:
 			_geometry_key = geometry_key
 			_contact = first_contact(balls, cue_ball, setup.aim_rad, _shape(), r)
+		# Which balls may be played changes without the table changing (a nomination, a decision).
+		var wrong := _not_playable(_contact)
+		if rebuild or wrong != _wrong:
+			_wrong = wrong
 			_build_geometry(balls, r)
 		var has_contact: bool = _contact["kind"] != "none"
 		_set_visible_nodes(has_contact, _level == 2 and _contact["kind"] == "ball", false)
 		return
-	var key: Array = geometry_key + [setup.tip_x, setup.tip_y, setup.elevation_rad, setup.guide_pace_m_s()]
+	var off_ball := playable.is_valid() and _not_playable(first_contact(balls, cue_ball, setup.aim_rad, _shape(), r))
+	var key: Array = geometry_key + [setup.tip_x, setup.tip_y, setup.elevation_rad, setup.guide_pace_m_s(), off_ball]
+	_paths_wrong = off_ball
 	if key != _predicted_key:
-		_request_prediction(key, balls, cue_ball, setup)
+		_request_prediction(key, balls, cue_ball, setup, off_ball)
 	elif not _pending.is_empty():
 		# Back where the drawn paths already are: an older wait would only draw a stale aim.
 		_pending = {}
@@ -183,7 +202,22 @@ func last_predict_us() -> float:
 
 ## Whether the straight aim line from the cue ball meets a ball before anything else.
 func aims_at_ball(balls: Array[Dictionary], cue_ball: int, aim_rad: float) -> bool:
-	return first_contact(balls, cue_ball, aim_rad, _shape(), _radius())["kind"] == "ball"
+	return aimed_ball(balls, cue_ball, aim_rad) >= 0
+
+
+## The place in `balls` of the ball the straight aim line meets before anything else, or -1.
+func aimed_ball(balls: Array[Dictionary], cue_ball: int, aim_rad: float) -> int:
+	var contact := first_contact(balls, cue_ball, aim_rad, _shape(), _radius())
+	return int(contact["index"]) if contact["kind"] == "ball" else -1
+
+
+## Whether the line is drawn in WRONG_COLOUR now.
+func shows_wrong_ball() -> bool:
+	return _paths_wrong if _level == 3 else _wrong
+
+
+func _not_playable(contact: Dictionary) -> bool:
+	return playable.is_valid() and contact["kind"] == "ball" and not bool(playable.call(int(contact["index"])))
 
 
 ## The straight-line first contact along aim_rad from the cue ball (radius r in metres): {kind:
@@ -306,11 +340,11 @@ func _process(_delta: float) -> void:
 		_predict_pending(now)
 
 
-func _request_prediction(key: Array, balls: Array[Dictionary], cue_ball: int, setup: ShotSetup) -> void:
+func _request_prediction(key: Array, balls: Array[Dictionary], cue_ball: int, setup: ShotSetup, off_ball: bool = false) -> void:
 	var strike := setup.to_strike()
 	strike["aim_rad"] = setup.aim_rad
 	strike["speed_m_s"] = setup.guide_pace_m_s()
-	_pending = {"key": key, "balls": balls.duplicate(true), "cue_ball": cue_ball, "strike": strike}
+	_pending = {"key": key, "balls": balls.duplicate(true), "cue_ball": cue_ball, "strike": strike, "wrong": off_ball}
 	var now := float(clock.call())
 	if now - _last_predict_s >= 1.0 / PREDICT_MAX_PER_S:
 		_predict_pending(now)
@@ -346,7 +380,8 @@ func _predict_pending(now: float) -> void:
 	var paths := _moving_paths(record)
 	for i: int in paths:
 		lines.append(paths[i])
-		colours.append(PATH_COLOURS.get(String(balls[i].get("ball", "")) if i < balls.size() else "", Color.WHITE))
+		var colour: Color = PATH_COLOURS.get(String(balls[i].get("ball", "")) if i < balls.size() else "", Color.WHITE)
+		colours.append(WRONG_COLOUR if bool(job.get("wrong", false)) and i == int(job["cue_ball"]) else colour)
 	_set_ribbons(_paths, lines, colours)
 
 
@@ -382,14 +417,18 @@ func _build_geometry(balls: Array[Dictionary], r: float) -> void:
 		return
 	var cue: Dictionary = balls[int(_geometry_key[0])]
 	var ghost: Vector2 = _contact["ghost"]
-	_set_ribbons(_aim_line, [PackedVector2Array([Vector2(float(cue["x"]), float(cue["y"])), ghost])], [LINE_COLOUR])
+	var line_colour := WRONG_COLOUR if _wrong else LINE_COLOUR
+	_set_ribbons(_aim_line, [PackedVector2Array([Vector2(float(cue["x"]), float(cue["y"])), ghost])], [line_colour])
+	(_ghost_ring.material_override as StandardMaterial3D).albedo_color = line_colour
+	(_ghost_ball.material_override as StandardMaterial3D).albedo_color = WRONG_GHOST_COLOUR if _wrong else GHOST_COLOUR
 	_ghost_ring.position = TableSpace.core_to_godot(ghost.x, ghost.y, RING_TUBE_RADIUS)
 	_ghost_ball.position = TableSpace.core_to_godot(ghost.x, ghost.y, r)
 	if _contact["kind"] == "ball":
 		var target: Dictionary = balls[int(_contact["index"])]
 		var from := Vector2(float(target["x"]), float(target["y"]))
 		var dir: Vector2 = _contact["object_dir"]
-		_set_ribbons(_object_line, [PackedVector2Array([from, from + dir * OBJECT_LINE_LENGTH])], [OBJECT_LINE_COLOUR])
+		_set_ribbons(_object_line, [PackedVector2Array([from, from + dir * OBJECT_LINE_LENGTH])],
+				[WRONG_OBJECT_LINE_COLOUR if _wrong else OBJECT_LINE_COLOUR])
 
 
 func _set_pace_text(setup: ShotSetup) -> void:

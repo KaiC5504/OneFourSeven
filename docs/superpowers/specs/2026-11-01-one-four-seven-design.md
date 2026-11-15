@@ -471,6 +471,14 @@ and object balls, taking account of squirt, swerve, throw, spin and nap.
   every frame. Recomputation is limited to a handful of simulations per second while
   aiming.
 
+**The wrong ball (Owner, 2026-11-16).** In a match the guides are white only when the
+first ball on the aim line is one the striker may play: a ball on, or a colour they may
+declare. On any other ball the aim line, the ghost ball and its ring, the object-ball
+line and at level 3 the cue ball's predicted path are red, and the aim turns at its
+ordinary speed, not the fine one kept for the last adjustments of a pot (8.1). On a
+cushion or the free table nothing changes. The shot can still be played: the referee
+calls the foul.
+
 Guides never alter the shot. Applies in every mode. **Claude's call:** the default is
 level 1.
 

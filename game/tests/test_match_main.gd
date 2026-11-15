@@ -302,6 +302,41 @@ func test_the_aim_turns_to_a_ball_on() -> void:
 	main.free()
 
 
+func test_a_ball_not_on_shows_red_and_turns_at_full_speed() -> void:
+	# A red is on (places 1 and 2). On the blue the line is red and the aim swings as it does off a
+	# ball; on a red it is white and fine.
+	var main: MainScript = await _spawn(_frame(0))
+	var m := _start(main)
+	var guides: Guides = main.get_node("Guides")
+	var aim: AimControl = main.get_node("AimControl")
+	Settings.set_value("guide_level", 2)
+	main.setup.set_aim(_aim_at(m, BLUE))
+	await tree.process_frame
+	check_eq(guides.aimed_ball(m.balls, m.cue_ball, main.setup.aim_rad), BLUE, "the line meets the blue")
+	check(guides.shows_wrong_ball(), "the blue is not on: red")
+	var coarse := aim.rad_per_px()
+	main.setup.set_aim(_aim_at(m, RED))
+	await tree.process_frame
+	check_eq(guides.aimed_ball(m.balls, m.cue_ball, main.setup.aim_rad), RED, "the line meets a red")
+	check(not guides.shows_wrong_ball(), "a red is on: white")
+	check(aim.rad_per_px() < coarse, "and the turn is the fine one: %s against %s" % [aim.rad_per_px(), coarse])
+	main.free()
+	# A colour of choice: every colour may be declared, so the blue is white and a red is not.
+	main = await _spawn(_frame(0, COLOUR_OF_CHOICE))
+	m = _start(main)
+	guides = main.get_node("Guides")
+	Settings.set_value("guide_level", 2)
+	main.setup.set_aim(_aim_at(m, BLUE))
+	await tree.process_frame
+	check(not guides.shows_wrong_ball(), "a colour is on: the blue is white")
+	main.setup.set_aim(_aim_at(m, RED))
+	await tree.process_frame
+	check_eq(guides.aimed_ball(m.balls, m.cue_ball, main.setup.aim_rad), RED, "the line meets a red")
+	check(guides.shows_wrong_ball(), "and a red is red")
+	Settings.set_value("guide_level", Settings.DEFAULTS["guide_level"])
+	main.free()
+
+
 func test_the_persons_stroke_is_logged_and_judged_as_a_match_stroke() -> void:
 	var main: MainScript = await _spawn(_frame(0))
 	var m := _start(main)

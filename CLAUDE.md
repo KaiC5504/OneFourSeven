@@ -230,6 +230,9 @@ x86_64-only and the Mac has no Rosetta.
   (`ShotCycle.journey`), matches included. For M4 he wants a sixth tier, the 147 (perfect aim and
   position, plays only for a maximum), and views to watch the opponent from above and walk round
   the table (spec 10.1, 10.5).
+  In a match the guides go red, and the aim stops turning fine, on a ball that may not be played
+  (not on and not one he may declare): white means the right ball (`Guides.playable`,
+  `main._may_play`; spec 8.4).
   The link server reads the log schema when it starts: restart it (`uv run tools/devlink.py`)
   after adding an event or field, or the phone's lines land in `logs/<date>/rejected.jsonl`.
   No workflow runs on push any more (above).

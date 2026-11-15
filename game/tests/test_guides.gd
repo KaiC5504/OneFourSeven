@@ -430,6 +430,72 @@ func test_the_ghost_ring_is_a_tube_round_the_ghost_ball() -> void:
 	guides.free()
 
 
+func _albedo(guides: Guides, node: String) -> Color:
+	return ((guides.get_node(node) as MeshInstance3D).material_override as StandardMaterial3D).albedo_color
+
+
+## Ribbon colours are stored a byte a channel.
+func _same(a: Color, b: Color) -> bool:
+	return absf(a.r - b.r) < 0.01 and absf(a.g - b.g) < 0.01 and absf(a.b - b.b) < 0.01 and absf(a.a - b.a) < 0.01
+
+
+func _ribbon_colour(guides: Guides, node: String) -> Color:
+	var mesh := (guides.get_node(node) as MeshInstance3D).mesh as ArrayMesh
+	var colours: PackedColorArray = mesh.surface_get_arrays(0)[Mesh.ARRAY_COLOR]
+	return colours[0]
+
+
+func test_a_ball_that_may_not_be_played_turns_the_line_and_ghost_red() -> void:
+	var record := FakeRecord.new()
+	record.paths = [PackedVector2Array([Vector2(-1.0, 0.0), Vector2(-0.1, 0.0)]), PackedVector2Array([Vector2(0.0, 0.0), Vector2(0.4, 0.0)])]
+	var predictor := _predictor(record)
+	var guides := _guides(predictor)
+	# The cue ball, a blue straight ahead and a red off to the side.
+	var balls := _balls([Vector2(-1.0, 0.0), Vector2(0.0, 0.0), Vector2(-0.5, 0.5)])
+	var on: Array[int] = [2]
+	guides.playable = func(place: int) -> bool: return on.has(place)
+	var setup := ShotSetup.new()
+	setup.set_aim(0.0)
+	guides.show_for(balls, 0, setup, 2)
+	check(guides.shows_wrong_ball(), "the ball on the line is not on")
+	check(_same(_ribbon_colour(guides, "AimLine"), Guides.WRONG_COLOUR), "red line")
+	check(_same(_ribbon_colour(guides, "ObjectLine"), Guides.WRONG_OBJECT_LINE_COLOUR), "red object line")
+	check_eq(_albedo(guides, "GhostRing"), Guides.WRONG_COLOUR, "red ring")
+	check_eq(_albedo(guides, "GhostBall"), Guides.WRONG_GHOST_COLOUR, "red ghost ball")
+	# The same aim once that ball is on (a nomination): white again, though the table hasn't changed.
+	on.append(1)
+	guides.show_for(balls, 0, setup, 2)
+	check(not guides.shows_wrong_ball(), "now on")
+	check(_same(_ribbon_colour(guides, "AimLine"), Guides.LINE_COLOUR), "white line")
+	check(_same(_ribbon_colour(guides, "ObjectLine"), Guides.OBJECT_LINE_COLOUR), "white object line")
+	check_eq(_albedo(guides, "GhostRing"), Guides.LINE_COLOUR, "white ring")
+	check_eq(_albedo(guides, "GhostBall"), Guides.GHOST_COLOUR, "white ghost ball")
+	on.erase(1)
+	# Turned on to the ball that is on, and on to a cushion: white.
+	setup.set_aim(atan2(0.5, 0.5))
+	guides.show_for(balls, 0, setup, 1)
+	check(not guides.shows_wrong_ball() and _same(_ribbon_colour(guides, "AimLine"), Guides.LINE_COLOUR), "the ball on is white")
+	setup.set_aim(-1.0)
+	guides.show_for(balls, 0, setup, 1)
+	check(not guides.shows_wrong_ball() and _same(_ribbon_colour(guides, "AimLine"), Guides.LINE_COLOUR), "a cushion is white")
+	# Level 3 draws the cue ball's predicted path red instead.
+	setup.set_aim(0.0)
+	guides.show_for(balls, 0, setup, 3)
+	check(guides.shows_wrong_ball(), "level 3: not on")
+	check(_same(_ribbon_colour(guides, "Paths"), Guides.WRONG_COLOUR), "level 3: the cue ball's path is red")
+	on.append(1)
+	predictor.clock.now += 1.0
+	guides.show_for(balls, 0, setup, 3)
+	check(not guides.shows_wrong_ball(), "level 3: now on")
+	check(_same(_ribbon_colour(guides, "Paths"), Guides.PATH_COLOURS["cue"]), "level 3: white once it is on")
+	# With no rule given every ball may be played.
+	guides.playable = Callable()
+	on.clear()
+	guides.show_for(balls, 0, setup, 2)
+	check(not guides.shows_wrong_ball() and _same(_ribbon_colour(guides, "AimLine"), Guides.LINE_COLOUR), "no rule: white")
+	guides.free()
+
+
 func test_aims_at_ball_is_true_only_when_a_ball_comes_first() -> void:
 	var guides := Guides.new()
 	guides.table_shape = _shape()
@@ -440,4 +506,6 @@ func test_aims_at_ball_is_true_only_when_a_ball_comes_first() -> void:
 	check(guides.aims_at_ball(balls, 0, atan2(1.9 * R, 0.5)), "a thin edge of it")
 	check(not guides.aims_at_ball(balls, 0, PI / 2.0), "away from it: a cushion first")
 	check(not guides.aims_at_ball(balls, 0, PI), "behind the cue ball")
+	check_eq(guides.aimed_ball(balls, 0, 0.0), 1, "which ball")
+	check_eq(guides.aimed_ball(balls, 0, PI / 2.0), -1, "none off a cushion")
 	guides.free()
