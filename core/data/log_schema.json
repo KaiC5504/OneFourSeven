@@ -928,6 +928,62 @@
         }
       }
     },
+    "aim.lift": {
+      "subsystem": "input",
+      "levels": [
+        "info"
+      ],
+      "fields": {
+        "moved": {
+          "type": "number",
+          "required": true
+        },
+        "turned_rad": {
+          "type": "number",
+          "required": true
+        },
+        "taken_back": {
+          "type": "boolean",
+          "required": true
+        }
+      }
+    },
+    "shot.side_allowed": {
+      "subsystem": "shot",
+      "levels": [
+        "info"
+      ],
+      "fields": {
+        "shot_id": {
+          "type": "string",
+          "required": true
+        },
+        "turned_rad": {
+          "type": "number",
+          "required": true
+        },
+        "target": {
+          "type": "string",
+          "required": true
+        },
+        "residual_rad": {
+          "type": "number",
+          "required": true
+        },
+        "reason": {
+          "type": "string",
+          "required": true
+        },
+        "sims": {
+          "type": "integer",
+          "required": true
+        },
+        "us": {
+          "type": "integer",
+          "required": true
+        }
+      }
+    },
     "settings.loaded": {
       "subsystem": "settings",
       "levels": [

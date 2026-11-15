@@ -59,6 +59,9 @@ const SEGMENT_EPS := 1.0e-9
 
 ## (balls: Array[Dictionary], cue_ball: int, strike: Dictionary) -> OfsShotRecord; tests replace it.
 var predictor: Callable = Physics.predict
+## (strike: Dictionary) -> Dictionary: the strike as it will be played (main.gd turns the aim for
+## side); unset, the strike is predicted as it stands.
+var allowance := Callable()
 ## Seconds; tests replace it.
 var clock: Callable = func() -> float: return Time.get_ticks_usec() / 1.0e6
 ## OfsPhysics.table_shape(); while empty, show_for reads Physics.table_shape().
@@ -321,8 +324,11 @@ func _predict_pending(now: float) -> void:
 	set_process(false)
 	_last_predict_s = now
 	var balls: Array[Dictionary] = job["balls"]
+	if allowance.is_valid():
+		job["strike"] = allowance.call(job["strike"])
+	var began := float(clock.call())
 	var record: Variant = predictor.call(balls, job["cue_ball"], job["strike"])
-	_last_predict_us = (float(clock.call()) - now) * 1.0e6
+	_last_predict_us = (float(clock.call()) - began) * 1.0e6
 	if _last_predict_us > PREDICT_BUDGET_US:
 		Log.warn("ui", "guide.predict_slow", {"sim_us": _last_predict_us, "budget_us": PREDICT_BUDGET_US, "level": _level})
 	_predicted_key = job["key"]

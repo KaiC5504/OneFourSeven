@@ -102,6 +102,7 @@ func _ready() -> void:
 	setup.strike_mode = String(Settings.get_value("strike_mode"))
 	_aim.bind(setup, _gestures, _rig)
 	_aim.on_ball = func() -> bool: return _guides.aims_at_ball(_free.balls, _free.cue_ball, setup.aim_rad)
+	_guides.allowance = _allowing_for_side
 	_wheel.bind(setup)
 	_spin.bind(setup)
 	_elevation.bind(setup)
@@ -235,7 +236,11 @@ func _strike(strike_mode: String) -> String:
 	Params.commit_pending(shot_id)
 	_update_elevation_min()
 	Log.info("shot", "shot.input", _shot_input_fields(shot_id, strike_mode))
-	var record := Physics.simulate(_free.balls, _free.cue_ball, setup.to_strike(),
+	var strike := setup.to_strike()
+	# A harness shot plays exactly as given.
+	if strike_mode != HARNESS_STRIKE:
+		strike = _allowing_for_side(strike, shot_id)
+	var record := Physics.simulate(_free.balls, _free.cue_ball, strike,
 			{"shot_id": shot_id, "mode": MODE, "strike_mode": strike_mode})
 	if record == null:
 		# The binding has logged shot.rejected with the reason.
@@ -298,6 +303,22 @@ func _start_cycle(playback: ShotPlayback, shot_id: String) -> void:
 
 ## The logger truncates a long line from its last values, so the identity fields go first and the
 ## gesture samples last.
+## The strike with its aim turned for the side on it (SpinAim); shot_id "" for a guide's
+## prediction, which logs nothing.
+func _allowing_for_side(strike: Dictionary, shot_id: String = "") -> Dictionary:
+	if not bool(Settings.get_value("allow_for_side")):
+		return strike
+	var began := Time.get_ticks_usec()
+	var solved := SpinAim.solve(Physics.predict, _free.balls, _free.cue_ball, strike, setup.elevation_min_rad)
+	if int(solved["sims"]) > 0 and not shot_id.is_empty():
+		Log.info("shot", "shot.side_allowed", {"shot_id": shot_id, "turned_rad": solved["turned_rad"],
+				"target": solved["target"], "residual_rad": solved["residual_rad"], "reason": solved["reason"],
+				"sims": solved["sims"], "us": Time.get_ticks_usec() - began})
+	var allowed := strike.duplicate()
+	allowed["aim_rad"] = solved["aim_rad"]
+	return allowed
+
+
 func _shot_input_fields(shot_id: String, strike_mode: String) -> Dictionary:
 	var fields := {"shot_id": shot_id, "mode": MODE, "guide_level": _guide_level(), "strike_mode": strike_mode}
 	var known := setup.log_fields()

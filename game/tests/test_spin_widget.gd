@@ -90,24 +90,25 @@ func test_the_crosshair_moves_by_the_fingers_movement() -> void:
 	widget.free()
 
 
-func test_the_whole_ball_is_reachable_and_the_rim_miscues() -> void:
-	# KaiC: the whole ball can be hit, not only a middle part. The drawn edge is the reach, the
-	# miscue limit a thin rim inside it.
+func test_the_whole_ball_can_be_struck_and_none_of_it_miscues() -> void:
+	# KaiC: the whole ball can be hit, with no miscue rim: the drawn edge is the reach, just
+	# inside the miscue limit.
 	var setup := ShotSetup.new()
 	var widget := _make(setup)
 	var c := widget.ball_centre()
 	var r := widget.ball_radius()
 	var limit := Physics.param("miscue_limit", 0.55)
-	check_near(widget.reach(), limit / (1.0 - SpinWidget.MISCUE_RIM), 1e-6, "the reach")
-	check_near(widget.miscue_ring_radius(), (1.0 - SpinWidget.MISCUE_RIM) * r, 1e-4, "the rim's inner edge")
+	check_near(widget.reach(), limit * SpinWidget.EDGE, 1e-6, "the reach")
+	check(widget.reach() < limit, "inside the miscue limit")
 	_touch(widget, true, c)
 	for i in range(1, 9):
 		_drag(widget, c + Vector2(0.0, -r * 0.5 * i))
 	check_near(setup.tip_y, widget.reach(), 1e-4, "dragged far up: stops at the reach")
 	check(widget.local_for_tip(Vector2(setup.tip_x, setup.tip_y)).distance_to(c + Vector2(0.0, -r)) < 1e-3,
 			"drawn on the ball's edge")
-	check_eq(SpinWidget.describe(Vector2(setup.tip_x, setup.tip_y), limit), "top %.2f · miscue" % widget.reach(),
-			"the rim warns")
+	check_eq(SpinWidget.describe(Vector2(setup.tip_x, setup.tip_y), limit), "top %.2f" % widget.reach(),
+			"no miscue at the edge")
+	check(Vector2(setup.tip_x, setup.tip_y).length() <= limit, "the edge is a fair hit")
 	# Straight back down by the finger's movement, no lag from the overshoot.
 	_drag(widget, c + Vector2(0.0, -r * 4.0 + r * 0.2))
 	check_near(setup.tip_y, widget.reach() - 0.2 * SpinWidget.DRAG_GAIN * widget.reach(), 1e-4, "back at once")

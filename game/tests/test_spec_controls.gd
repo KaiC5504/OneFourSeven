@@ -318,13 +318,13 @@ func test_spin_tip_for_local_is_clamped_to_the_reach() -> void:
 	_free_all()
 
 
-func test_spin_crosshair_goes_past_the_miscue_limit_to_the_balls_edge() -> void:
-	# spec 7.3 and 8.2: offsets beyond the miscue limit are allowed (and miscue); the limit is a
-	# thin rim inside the drawn ball's edge
+func test_spin_crosshair_stops_at_the_balls_edge_short_of_a_miscue() -> void:
+	# spec 8.2 (Owner, 2026-11-15): the whole drawn ball is a fair hit; its edge sits just inside
+	# the miscue limit
 	var limit := Physics.param("miscue_limit", 0.55)
 	var setup := ShotSetup.new()
 	var spin := _make_spin(setup)
-	check(limit < spin.reach(), "the miscue limit (%f) lies inside the reach" % limit)
+	check(spin.reach() < limit, "the reach lies inside the miscue limit (%f)" % limit)
 	var pos := spin.size * 0.5
 	_gui(spin, _button(MOUSE_BUTTON_LEFT, true, pos))
 	for _i: int in 10:
@@ -332,7 +332,7 @@ func test_spin_crosshair_goes_past_the_miscue_limit_to_the_balls_edge() -> void:
 		_gui(spin, _motion(pos, Vector2(100.0, 0.0), MOUSE_BUTTON_MASK_LEFT))
 	_gui(spin, _button(MOUSE_BUTTON_LEFT, false, pos))
 	var tip := Vector2(setup.tip_x, setup.tip_y)
-	check(tip.length() > limit, "the crosshair passes the miscue limit: tip %s" % tip)
+	check(tip.length() <= limit, "the crosshair never passes the miscue limit: tip %s" % tip)
 	check_near(tip.length(), spin.reach(), 1e-3, "and stops at the reach")
 	check_near(setup.tip_y, 0.0, 1e-3, "pure side")
 	_free_all()

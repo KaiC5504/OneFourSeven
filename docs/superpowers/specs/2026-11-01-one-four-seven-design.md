@@ -386,7 +386,9 @@ same input layer (section 8.8).
   a pot; elsewhere it swings at full speed. **Owner (2026-11-15):** "Fine-tune sensitivity"
   in Settings scales the drag on a ball ("Aim sensitivity" the swing elsewhere), and the
   aim starts from rest under a new touch, so a correction can be as small as the finger
-  makes it.
+  makes it. The aim stays where it was when the finger lifts: what it turned in the last
+  0.06 s before the release, up to 5 pt of movement, is the finger's roll and is taken
+  back.
 - A **fine-tune control** (a thumb wheel beside the cue) turns the aim in very small
   steps, about 0.01°, for thin cuts, at the same sensitivity. **Owner (2026-11-15):** it
   is off unless "Fine-tune wheel" in Settings is on, and goes if the drag on a ball
@@ -398,9 +400,17 @@ same input layer (section 8.8).
 - A cue ball in the bottom-left corner, always the same size. **Owner (M2):** a big ball
   (120 pt) with a red crosshair, adjusted directly for top, screw and side, with no enlarge
   step. A finger anywhere on it moves the crosshair by the finger's own movement, so the
-  finger never covers the point; a double tap returns to centre ball. The whole drawn ball
-  is the striking face: its edge is the furthest reach, and a thin red rim inside the edge,
-  past the miscue limit, miscues.
+  finger never covers the point; a double tap returns to centre ball. **Owner
+  (2026-11-15):** the ball is plain and see-through, and all of it can be struck: its edge
+  is the furthest reach, just inside the miscue limit, so the control never miscues.
+- **Side doesn't move the pot (Owner, 2026-11-15).** A little side was costing pots (5% of
+  side sent a straight 1.5 m pot 3.7° wide through squirt, swerve and throw). The cue
+  action now allows for it, as a player does: at the strike the aim is turned so the first
+  ball hit leaves as it does with the same strike without side, or, with no ball in the
+  way, the cue ball reaches the same point of the cushion. Side shows after the contact.
+  Top and screw are left alone; so is a cue raised above its forced minimum, which is a
+  swerve shot. The physics is unchanged, and the turned aim is the one logged in the
+  shot's bundle.
 - An elevation control next to it, from the minimum allowed by obstruction (section 7.3)
   up to near-vertical for masse. It shows when obstruction has forced the cue up.
 - Both reset to centre ball and minimum elevation after each shot. **Owner (M2):** a
@@ -425,7 +435,8 @@ same input layer (section 8.8).
 
 ### 8.4 Guide lines. **Owner:** adjustable in settings
 Levels 0–2 are **straight-line geometry only**. **Owner:** they ignore squirt, swerve,
-throw and nap. The player allows for side and throw, as on a real table.
+throw and nap. The player allows for throw, as on a real table; side is allowed for by
+the cue action (8.2), so it doesn't take the shot off these lines.
 - Level 0: no guides, only the cue.
 - Level 1: a straight aim line to the first contact plus a ghost ball at the geometric
   contact position.

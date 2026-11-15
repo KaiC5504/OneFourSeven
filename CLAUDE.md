@@ -156,3 +156,12 @@ x86_64-only and the Mac has no Rosetta.
   longer jumps it). The fine-tune wheel is off by a setting with no row in the panel
   (`fine_tune_wheel`): delete it, its tests and spec text once KaiC confirms the drag is fine
   enough, or turn the default back on.
+- After his second session (2026-11-15): side no longer moves the pot. `SpinAim` turns the aim at
+  the strike so the first ball hit leaves as it does without side (physics untouched; setting
+  `allow_for_side`, no row in the panel; harness shots play as given; logged as
+  `shot.side_allowed`). Measured before: 5% of side sent a straight 1.5 m pot 3.7 degrees wide.
+  Throw on a cut with no side (1.7 to 3.3 degrees off the guide's line at 30 degrees) is still
+  the player's to allow for. The aim no longer moves when the finger lifts (`AimControl` takes
+  back the last 0.06 s, up to 10 canvas units): unproven on the phone, so each lift logs
+  `aim.lift`; read those after his next session and tune `LIFT_S` and `LIFT_MAX_UNITS`. The spin
+  ball is plain and see-through with no miscue rim: its edge is 0.98 of the miscue limit.

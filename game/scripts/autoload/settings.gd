@@ -18,6 +18,8 @@ const DEFAULTS := {
 	# which has no room for it: here until KaiC says whether the wheel goes for good.
 	"fine_tune_wheel": false,
 	"stroke_wander": false,
+	# The aim turned so side doesn't move the pot (SpinAim). No row in the panel.
+	"allow_for_side": true,
 	"reset_spin_after_shot": true,
 	"volume": 0.8,
 	"haptics": true,

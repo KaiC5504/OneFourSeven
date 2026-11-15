@@ -9,9 +9,15 @@ class Rig:
 	var gestures := Gestures.new()
 	var camera_rig := CameraRig.new()
 	var aim := AimControl.new()
+	## Seconds between the clock's readings: long by default, so no move counts as the lift's.
+	var tick_s := 1.0
+	var _now := 0.0
 
 	func _init() -> void:
 		aim.bind(setup, gestures, camera_rig)
+		aim.clock = func() -> float:
+			_now += tick_s
+			return _now
 
 	func drag(from: Vector2, to: Vector2, steps: int = 1) -> void:
 		var down := InputEventScreenTouch.new()
@@ -144,4 +150,44 @@ func test_a_new_touch_starts_the_aim_from_rest() -> void:
 	r.setup.set_aim(0.0)
 	r.drag(Vector2(500, 400), Vector2(480, 400), 20)
 	check_near(r.setup.aim_rad, (20.0 - SLOP) * AimControl.BASE_RAD_PER_PX, 1e-12, "then one for one")
+	r.free_all()
+
+
+func test_the_fingers_roll_as_it_lifts_is_taken_back() -> void:
+	# KaiC: the line moved by itself after he let go.
+	var r := Rig.new()
+	r.drag(Vector2(500, 400), Vector2(400, 400), 4)
+	var settled := r.setup.aim_rad
+	# A new touch, a slow correction, then 6 units of roll in the last moments before the lift.
+	var down := InputEventScreenTouch.new()
+	down.position = Vector2(500, 400)
+	down.pressed = true
+	r.gestures.feed(down)
+	for x: float in [480.0, 470.0]:
+		var move := InputEventScreenDrag.new()
+		move.position = Vector2(x, 400)
+		r.gestures.feed(move)
+	var held := r.setup.aim_rad
+	check(held != settled, "the correction turned the aim")
+	# The finger rests before it lifts.
+	r._now += 1.0
+	r.tick_s = 0.008
+	for x: float in [468.0, 466.0]:
+		var move := InputEventScreenDrag.new()
+		move.position = Vector2(x, 400)
+		r.gestures.feed(move)
+	check(r.setup.aim_rad != held, "the roll turns the aim while the finger is down")
+	var up := InputEventScreenTouch.new()
+	# The release itself reports a further jump.
+	up.position = Vector2(464, 400)
+	r.gestures.feed(up)
+	check_near(r.setup.aim_rad, held, 1e-12, "and is taken back at the lift")
+	r.free_all()
+
+
+func test_a_drag_let_go_on_the_move_keeps_its_turn() -> void:
+	var r := Rig.new()
+	r.tick_s = 0.008
+	r.drag(Vector2(500, 400), Vector2(440, 400), 6)
+	check_near(r.setup.aim_rad, (60.0 - SLOP) * AimControl.BASE_RAD_PER_PX, 1e-12, "further than a roll: kept")
 	r.free_all()

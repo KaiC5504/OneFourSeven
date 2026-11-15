@@ -80,7 +80,7 @@ with Harness(resolution="1912x880", extra_args=["--no-link"]) as game:
 | --- | --- | --- |
 | `ping` | | `"pong"` |
 | `load_position` | `{"name"}`, or `{"balls", "cue_ball"}` | `{"balls": n, "cue_ball"}`; an error when the scene refuses the position |
-| `play_shot` | `aim_rad`, `tip_x`, `tip_y`, `elevation_rad`, `speed_m_s` (all required, finite) | `{"shot_id"}`; an error when the scene refuses the shot |
+| `play_shot` | `aim_rad`, `tip_x`, `tip_y`, `elevation_rad`, `speed_m_s` (all required, finite) | `{"shot_id"}`; an error when the scene refuses the shot. The strike plays exactly as given: the aim is not turned for side as a player's shot is |
 | `wait_idle` | `timeout_s` (default 30) | `{"waited_s"}` once no shot is playing; an error at the timeout |
 | `set_setting` | `key`, `value` | `{"key", "value"}` as stored; an error when Settings refuses it (`settings.changed` says why) |
 | `dump_state` | `path` (optional) | the state, also written to `path` when given (the result then has `path`) |

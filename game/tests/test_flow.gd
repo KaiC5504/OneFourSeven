@@ -94,7 +94,11 @@ func test_drag_fine_tune_and_stroke_play_a_shot_that_retake_undo_and_redo_walk_b
 	check(not (input["stroke_samples"] as Array).is_empty(), "stroke samples recorded")
 	var bundle: Dictionary = simulated[0]["bundle"]
 	var strike: Dictionary = bundle["strike"]
-	check_near(strike["aim_rad"], expected_aim, 1e-9, "simulated aim")
+	# Side is on: the simulated aim is the player's turned by the allowance for it (SpinAim).
+	var allowed := _logged("shot.side_allowed")
+	check_eq(allowed.size(), 1, "the allowance for side is logged")
+	check(absf(float(allowed[0]["turned_rad"])) > 1e-4, "and turned the aim")
+	check_near(strike["aim_rad"], expected_aim + float(allowed[0]["turned_rad"]), 1e-9, "simulated aim")
 	check_eq(strike["speed_m_s"], input["speed_m_s"], "simulated speed is the logged one")
 	check_eq(simulated[0]["context"], {"shot_id": input["shot_id"], "mode": "free_table", "strike_mode": "stroke"}, "context")
 	check_eq((bundle["start"]["balls"] as Array).size(), before.size(), "every ball in the repro bundle")

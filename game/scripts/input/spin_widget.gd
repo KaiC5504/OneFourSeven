@@ -1,9 +1,9 @@
 class_name SpinWidget
 extends Control
 ## The cue-ball widget (spec 8.2, KaiC's phone sessions): a big ball at the bottom-left with a red
-## crosshair where the tip meets the cue ball. The whole drawn ball is the striking face: its edge
-## is the furthest a tip can reach (reach()), with the miscue limit just inside it, so only a thin
-## red rim miscues. A finger anywhere on the ball moves the crosshair by the finger's own movement
+## crosshair where the tip meets the cue ball. The ball is see-through and plain, and all of it can
+## be struck (KaiC, 2026-11-15): its edge is the furthest a tip can reach (reach()), just inside
+## the miscue limit. A finger anywhere on the ball moves the crosshair by the finger's own movement
 ## (DRAG_GAIN), never jumping to it, so the finger never hides the point it sets; a double tap
 ## returns to centre ball. A readout beside the ball, such as "screw 0.40" over "left 0.20", shows
 ## while dragging or while the tip is off centre.
@@ -13,8 +13,8 @@ signal tip_changed(tip: Vector2)
 ## Canvas units, square: 120 pt on the phone.
 const SIZE := 240.0
 const MARGIN := 4.0
-## The outer part of the drawn radius lying past the miscue limit.
-const MISCUE_RIM := 0.12
+## The drawn edge as a fraction of the miscue limit: short of it, so rounding never miscues.
+const EDGE := 0.98
 ## Crosshair movement per unit of finger movement: below 1, so the finger travels further than
 ## the point and sets it finely.
 const DRAG_GAIN := 0.75
@@ -25,11 +25,10 @@ const READOUT_GAP := 10.0
 const READOUT_PAD := Vector2(14.0, 8.0)
 const LINE_HEIGHT := 30.0
 
-const BALL_COLOUR := Color(0.95, 0.94, 0.9)
-const BALL_SHADE := Color(0.7, 0.69, 0.65)
+const BALL_COLOUR := Color(1.0, 1.0, 1.0, 0.3)
+const EDGE_COLOUR := Color(1.0, 1.0, 1.0, 0.55)
 const PANEL_COLOUR := Color(0.05, 0.06, 0.07, 0.78)
-const GUIDE_COLOUR := Color(0.0, 0.0, 0.0, 0.1)
-const RIM_COLOUR := Color(0.85, 0.2, 0.15, 0.28)
+const GUIDE_COLOUR := Color(1.0, 1.0, 1.0, 0.22)
 const CROSS_COLOUR := Color(0.88, 0.1, 0.08)
 const CROSS_OUTLINE := Color(0.0, 0.0, 0.0, 0.4)
 const HALO_COLOUR := Color(1.0, 1.0, 1.0, 0.55)
@@ -78,9 +77,9 @@ func current_tip() -> Vector2:
 	return Vector2(_setup.tip_x, _setup.tip_y) if _setup != null else _tip
 
 
-## The tip offset at the drawn ball's edge, in ball radii: the miscue limit sits MISCUE_RIM inside.
+## The tip offset at the drawn ball's edge, in ball radii.
 func reach() -> float:
-	return minf(_miscue_limit() / (1.0 - MISCUE_RIM), 1.0)
+	return _miscue_limit() * EDGE
 
 
 ## A point in this control's local coordinates to tip offsets (x right, y up, ball radii),
@@ -104,10 +103,6 @@ func ball_centre() -> Vector2:
 
 func ball_radius() -> float:
 	return maxf(minf(size.x, size.y) / 2.0 - MARGIN, 0.0)
-
-
-func miscue_ring_radius() -> float:
-	return _miscue_limit() / reach() * ball_radius()
 
 
 ## The readout, such as "screw 0.40 · left 0.20"; drawn a part to a line.
@@ -229,15 +224,10 @@ func _draw() -> void:
 	var limit := _miscue_limit()
 	var tip := current_tip()
 	var miscue := tip.length() > limit
-	draw_circle(centre, radius + 3.0, Color(0.0, 0.0, 0.0, 0.35))
-	draw_circle(centre, radius, BALL_SHADE)
-	# Lit from above-left, so it reads as a ball rather than a disc.
-	draw_circle(centre - Vector2(radius, radius) * 0.04, radius * 0.94, BALL_COLOUR)
-	var ring := miscue_ring_radius()
-	if ring < radius:
-		draw_arc(centre, (ring + radius) / 2.0, 0.0, TAU, 128, RIM_COLOUR, radius - ring, true)
-	draw_line(centre - Vector2(ring, 0.0), centre + Vector2(ring, 0.0), GUIDE_COLOUR, 1.5, true)
-	draw_line(centre - Vector2(0.0, ring), centre + Vector2(0.0, ring), GUIDE_COLOUR, 1.5, true)
+	draw_circle(centre, radius, BALL_COLOUR)
+	draw_arc(centre, radius - 1.5, 0.0, TAU, 128, EDGE_COLOUR, 3.0, true)
+	draw_line(centre - Vector2(radius, 0.0), centre + Vector2(radius, 0.0), GUIDE_COLOUR, 1.5, true)
+	draw_line(centre - Vector2(0.0, radius), centre + Vector2(0.0, radius), GUIDE_COLOUR, 1.5, true)
 	var at := local_for_tip(tip)
 	if is_pressed():
 		draw_arc(at, CROSS_ARM + 6.0, 0.0, TAU, 48, HALO_COLOUR, 3.0, true)
