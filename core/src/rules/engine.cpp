@@ -330,6 +330,20 @@ bool first_impact(const Stroke& k, const ShotFacts& facts, const std::vector<int
     return reached;
 }
 
+// How far the cue ball must run to arrive at the nearest of `could`; 0 when there is none.
+double reach_m(const Position& p, const std::vector<int>& could) {
+    const Vec2 cue = p.balls[std::size_t(p.cue_ball)].pos;
+    double nearest = table::kBallDiameter;
+    bool any = false;
+    for (int place : could) {
+        const Vec2 pos = p.balls[std::size_t(place)].pos;
+        const double apart = std::hypot(pos.x - cue.x, pos.y - cue.y);
+        if (!any || apart < nearest) nearest = apart;
+        any = true;
+    }
+    return nearest - table::kBallDiameter;
+}
+
 // S3.14, in the order of docs/rules/README.md. `could` is every ball that is or could be on.
 bool miss_called(const FrameState& pre, const FrameState& post, const ShotFacts& facts, const std::vector<int>& could,
                  const TableOracle& oracle, const RefParams& ref, std::string& reason) {
@@ -343,8 +357,14 @@ bool miss_called(const FrameState& pre, const FrameState& post, const ShotFacts&
         return false;
     }
     if (!oracle.can_hit(pre.balls, pre.cue_ball, could)) {
-        reason = "S3.14(a)(ii)";
-        return false;
+        // The attempt is taken for granted only of a stroke with the strength to have got there:
+        // one a ball stopped, or one that ran as far as the nearest ball on is away.
+        if (!facts.first_hit.empty() || facts.cue_travel_m >= reach_m(pre, could)) {
+            reason = "S3.14(a)(ii)";
+            return false;
+        }
+        reason = "S3.14(a)";
+        return true;
     }
     if (oracle.clear_path(pre.balls, pre.cue_ball, could)) {
         reason = "S3.14(c)";
@@ -661,14 +681,17 @@ bool decide(FrameState& s, Decision d, const TableOracle& oracle, const RefParam
     }
     error.clear();
 
+    bool warned = false;
     switch (d.kind) {
         case DecisionKind::play:
         case DecisionKind::play_again:
         case DecisionKind::replace:
             if (replacing) {
                 static_cast<Position&>(s) = s.original;
-                // S3.14(d)(ii): asked to play a third time from where a full ball was missed twice.
-                if (s.miss_run >= 2) s.miss_warned = true;
+                // S3.14(d)(ii): asked to play again from where a full ball was missed twice, or at
+                // the first chance after that if no warning was given.
+                warned = s.miss_run >= 2 && !s.miss_warned;
+                s.miss_warned = s.miss_warned || warned;
             } else {
                 s.miss_run = 0;
                 s.miss_warned = false;
@@ -685,7 +708,7 @@ bool decide(FrameState& s, Decision d, const TableOracle& oracle, const RefParam
             if (replacing) {
                 if (s.free_ball) calls.push_back({CallKind::free_ball, 0, ""});
                 if (!s.touching.empty()) calls.push_back({CallKind::touching_ball, 0, touching_names(s)});
-                if (s.miss_warned) calls.push_back({CallKind::warning, 0, ""});
+                if (warned) calls.push_back({CallKind::warning, 0, ""});
             }
             if (award_if_trailing(s)) calls.push_back(frame_over(s));
             break;

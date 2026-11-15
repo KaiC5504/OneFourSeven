@@ -1,5 +1,7 @@
 #include <doctest/doctest.h>
 
+#include <algorithm>
+#include <cmath>
 #include <string>
 #include <vector>
 
@@ -14,6 +16,23 @@ namespace {
 // Player 0 misses every ball with red on.
 Judgement missed(const FrameState& s, const FakeOracle& oracle, const RefParams& ref = {}) {
     return judge(s, {}, scenario::quiet_facts(s), oracle, ref);
+}
+
+// No ball hit, the cue ball's path that long.
+ShotFacts rolled(const FrameState& s, double travel_m) {
+    ShotFacts f = scenario::quiet_facts(s);
+    f.cue_travel_m = travel_m;
+    return f;
+}
+
+double nearest_red_m(const FrameState& s) {
+    const Vec2 cue = s.balls[std::size_t(s.cue_ball)].pos;
+    double nearest = 1.0e9;
+    for (int place : places_on(s)) {
+        const Vec2 pos = s.balls[std::size_t(place)].pos;
+        nearest = std::min(nearest, std::hypot(pos.x - cue.x, pos.y - cue.y));
+    }
+    return nearest;
 }
 
 bool chosen(FrameState& s, DecisionKind kind, const FakeOracle& oracle, std::vector<Call>* calls = nullptr) {
@@ -104,15 +123,61 @@ TEST_CASE("a lenient gap spares a snookered player who came that close, and nobo
     CHECK(j.miss_reason == "S3.14(c)");
 }
 
-TEST_CASE("no miss when the ball on cannot be hit at all (S3.14(a)(ii))") {
+TEST_CASE("the ball on impossible to hit: no miss for a stroke that ran far enough to reach it (S3.14(a)(ii))") {
     FakeOracle oracle;
     oracle.reachable = false;
+    oracle.has_full_ball = false;
     const FrameState s = open_table(6);
-    const Judgement j = missed(s, oracle);
+    REQUIRE(nearest_red_m(s) == doctest::Approx(0.92195).epsilon(1e-4));
+    const Judgement j = judge(s, {}, rolled(s, nearest_red_m(s) - table::kBallDiameter), oracle, RefParams{});
+    CHECK(j.penalty == 4);
     CHECK_FALSE(j.miss);
     CHECK(j.miss_reason == "S3.14(a)(ii)");
     CHECK(j.post.pending == Pending::after_foul);
     CHECK(options(j.post, 1) == std::vector<DecisionKind>{DecisionKind::play, DecisionKind::play_again});
+}
+
+TEST_CASE("the ball on impossible to hit: no miss for a stroke a ball stopped (S3.14(a)(ii))") {
+    FakeOracle oracle;
+    oracle.reachable = false;
+    oracle.has_full_ball = false;
+    const FrameState s = open_table(6);
+    ShotFacts f = hit(s, Ball::blue);
+    f.cue_travel_m = 0.1;
+    const Judgement j = judge(s, {}, f, oracle, RefParams{});
+    CHECK(j.penalty == 5);
+    CHECK_FALSE(j.miss);
+    CHECK(j.miss_reason == "S3.14(a)(ii)");
+}
+
+TEST_CASE("the ball on impossible to hit: a stroke too soft to have reached it is still a miss (S3.14(a))") {
+    FakeOracle oracle;
+    oracle.reachable = false;
+    oracle.has_full_ball = false;
+    const FrameState s = open_table(6);
+    const Judgement j = judge(s, {}, rolled(s, nearest_red_m(s) - table::kBallDiameter - 0.01), oracle, RefParams{});
+    CHECK(j.miss);
+    CHECK(j.miss_reason == "S3.14(a)");
+    CHECK(j.post.miss_run == 0);
+    CHECK(listed(options(j.post, 1), DecisionKind::replace));
+    CHECK(missed(s, oracle).miss_reason == "S3.14(a)");
+}
+
+TEST_CASE("with a free ball available the strength is measured to the nearest object ball") {
+    FakeOracle oracle;
+    oracle.reachable = false;
+    oracle.has_full_ball = false;
+    FrameState s = open_table(6);
+    const Vec2 cue = s.balls[0].pos;
+    const Vec2 green = table::spot(Ball::green);
+    const double to_green = std::hypot(green.x - cue.x, green.y - cue.y);
+    REQUIRE(to_green < nearest_red_m(s) - 0.2);
+    const ShotFacts f = rolled(s, to_green - table::kBallDiameter + 0.01);
+    CHECK(judge(s, {}, f, oracle, RefParams{}).miss_reason == "S3.14(a)");
+    s.free_ball = true;
+    const Judgement j = judge(s, scenario::nominate(Ball::black), f, oracle, RefParams{});
+    CHECK_FALSE(j.miss);
+    CHECK(j.miss_reason == "S3.14(a)(ii)");
 }
 
 TEST_CASE("no miss when a player needed penalty points before the stroke (S3.14(a)(i))") {
@@ -147,9 +212,30 @@ TEST_CASE("the miss tests run in order: penalty points, then impossible, then a 
     oracle.reachable = false;
     FrameState s = open_table(3);
     s.scores = {70, 10};
-    CHECK(missed(s, oracle).miss_reason == "S3.14(a)(i)");
+    CHECK(judge(s, {}, rolled(s, 2.0), oracle, RefParams{}).miss_reason == "S3.14(a)(i)");
     s.scores = {0, 0};
-    CHECK(missed(s, oracle).miss_reason == "S3.14(a)(ii)");
+    CHECK(judge(s, {}, rolled(s, 2.0), oracle, RefParams{}).miss_reason == "S3.14(a)(ii)");
+}
+
+TEST_CASE("a red pocketed in the foul and left down counts towards needing penalty points (S3.14(a)(i))") {
+    FakeOracle oracle;
+    FrameState s = open_table(3);
+    s.scores = {10, 50};
+    ShotFacts f = hit(s, Ball::blue);
+    Judgement j = judge(s, {}, f, oracle, RefParams{});
+    REQUIRE(j.penalty == 5);
+    CHECK(penalty_points_required(j.post, 0) == 0);
+    CHECK(j.miss);
+    CHECK(j.miss_reason == "S3.14(c)");
+
+    pot(f, at(s, Ball::red, 2));
+    j = judge(s, {}, f, oracle, RefParams{});
+    REQUIRE(j.penalty == 5);
+    CHECK(balls_count(j.post, Ball::red) == 2);
+    CHECK(points_remaining(j.post) == 43);
+    CHECK(penalty_points_required(j.post, 0) == 2);
+    CHECK_FALSE(j.miss);
+    CHECK(j.miss_reason == "S3.14(a)(i)");
 }
 
 TEST_CASE("a miss with a full ball there to be hit starts the run (S3.14(d))") {
@@ -293,6 +379,36 @@ TEST_CASE("a third miss after the warning loses the frame (S3.14(d)(ii))") {
     CHECK(options(j.post, 1).empty());
 }
 
+TEST_CASE("without the warning a further miss does not lose the frame; the warning comes at the next replace") {
+    FakeOracle oracle;
+    FrameState s = open_table(6);
+    s.miss_run = 2;
+    const Judgement j = missed(s, oracle);
+    CHECK(j.miss);
+    CHECK(j.miss_reason == "S3.14(d)");
+    CHECK_FALSE(j.post.over);
+    CHECK(j.post.miss_run == 3);
+    CHECK_FALSE(j.post.miss_warned);
+
+    FrameState back = j.post;
+    std::vector<Call> calls;
+    REQUIRE(chosen(back, DecisionKind::replace, oracle, &calls));
+    CHECK(kinds(calls) == std::vector<CallKind>{CallKind::warning});
+    CHECK(back.miss_warned);
+    CHECK(missed(back, oracle).post.end_reason == EndReason::three_misses);
+}
+
+TEST_CASE("a warning that stands is not given again") {
+    FakeOracle oracle;
+    FrameState s = missed(open_table(6), oracle).post;
+    s.miss_run = 2;
+    s.miss_warned = true;
+    std::vector<Call> calls;
+    REQUIRE(chosen(s, DecisionKind::replace, oracle, &calls));
+    CHECK(calls.empty());
+    CHECK(s.miss_warned);
+}
+
 TEST_CASE("after the warning, a ball on hit first ends the run") {
     FakeOracle oracle;
     FrameState s = open_table(6);
@@ -371,8 +487,9 @@ TEST_CASE("replace with no position kept is refused") {
 TEST_CASE("a choice that is not offered is refused and nothing changes") {
     FakeOracle oracle;
     FrameState s = open_table(6);
-    oracle.reachable = false;
-    s = missed(s, oracle).post;
+    ShotFacts f = hit(s, Ball::red, 0);
+    in_off(f);
+    s = judge(s, {}, f, oracle, RefParams{}).post;
     REQUIRE_FALSE(s.last_miss);
     const FrameState before = s;
     std::vector<Call> calls;
