@@ -11,17 +11,20 @@ extends Control
 signal continue_pressed
 
 const Kit := preload("res://scripts/ui/screens/screen_kit.gd")
+const HudKit := preload("res://scripts/match/hud/hud_kit.gd")
 const SCORE_FONT_SIZE := 56
 const VALUE_FONT_SIZE := 30
+## Past the two that end on a pot, the referee's words for each (RefereeLine.FRAME_OVER).
 const REASON_TEXT := {
 	"black": "On the black",
 	"respotted_black": "On the re-spotted black",
 	"claimed": "Frame claimed",
-	"awarded": "Frame claimed",
-	"conceded": "Conceded",
-	"three_misses": "Three misses",
+	"awarded": "Frame awarded",
+	"conceded": "Frame conceded",
+	"three_misses": "Three misses: frame awarded",
 	"match_conceded": "Match conceded",
 }
+const NO_REASON := "Frame over"
 
 var auto_place := true
 
@@ -57,11 +60,17 @@ func show_summary(summary: Dictionary, match_state: Dictionary, person: int = 0)
 	if winner == 0 or winner == 1:
 		title = "You won the frame" if winner == you else "You lost the frame"
 	var reason: Variant = summary.get("reason")
+	var why := ""
 	if reason is not String:
 		missing.append("summary.reason")
+	else:
+		why = reason_text(reason)
+		if why.is_empty():
+			HudKit.problem("FrameSummary: no words for the end reason \"%s\"" % reason)
+			why = NO_REASON
 	_texts = {
 		"title": title,
-		"reason": reason_text(reason) if reason is String else "",
+		"reason": why,
 		"score_you": Kit.number(summary, "summary", ["scores", you], missing),
 		"score_opponent": Kit.number(summary, "summary", ["scores", them], missing),
 		"break_you": Kit.number(summary, "summary", ["stats", you, "highest_break"], missing),
@@ -108,9 +117,7 @@ func place_in(safe_rect: Rect2) -> void:
 	Kit.centre(_card, safe_rect)
 
 
-## Why a frame ended, in words, for an end reason name: black "On the black", respotted_black "On
-## the re-spotted black", claimed and awarded "Frame claimed", conceded "Conceded", three_misses
-## "Three misses", match_conceded "Match conceded".
+## Why a frame ended, in words, for an end reason name; "" for one with no words.
 static func reason_text(reason: String) -> String:
 	return String(REASON_TEXT.get(reason, ""))
 

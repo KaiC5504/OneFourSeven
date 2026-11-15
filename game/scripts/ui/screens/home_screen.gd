@@ -1,8 +1,7 @@
 class_name HomeScreen
 extends Control
-## Home (spec 11.1), where the app opens from M3: Play, Free table and Settings, over the table
-## seen from above. Stats arrive in M5 and get no button until then. Covers the canvas and takes
-## every touch while it shows.
+## Home (spec 11.1), where the app opens: Play, Free table and Settings, over the table seen from
+## above. Covers the canvas and takes every touch while it shows.
 ##
 ## The name sits at the top of the safe area and the buttons along its bottom, with the canvas
 ## darkened most at those two edges, so the bed of the table stays clear between them (spec 8.9).

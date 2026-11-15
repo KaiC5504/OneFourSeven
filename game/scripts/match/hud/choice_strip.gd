@@ -1,7 +1,7 @@
 class_name ChoiceStrip
 extends Control
-## The rule decisions the game requires (spec 11.1, 11.2): after the opponent's foul (play, put
-## them back in, replace the balls), a re-rack offer, the toss for a re-spotted black. A row of
+## The rule decisions the game requires (spec 11.1, 11.2): after the computer's foul (play, have it
+## play again, replace the balls), a re-rack offer, the toss for a re-spotted black. A row of
 ## buttons low in the safe area, one per option, with one line saying what is being asked. It is
 ## not modal: the table stays visible, and nothing else is tappable through the buttons.
 ##
@@ -13,12 +13,12 @@ signal chosen(kind: String)
 const Kit := preload("res://scripts/match/hud/hud_kit.gd")
 const LABELS := {
 	"play": "Play",
-	"play_again": "Put them back in",
+	"play_again": "Computer plays again",
 	"replace": "Replace the balls",
 	"accept_rerack": "Re-rack",
 	"refuse_rerack": "Play on",
 	"play_first": "Play first",
-	"play_second": "Opponent first",
+	"play_second": "Computer first",
 	"claim_frame": "Claim the frame",
 }
 const FREE_BALL_PLAY := "Take the free ball"
@@ -127,10 +127,8 @@ func covered_rect() -> Rect2:
 	return Rect2(_panel.position, _panel.size) if _offering else Rect2()
 
 
-## A decision's button text: play "Play", play_again "Put them back in", replace "Replace the
-## balls", accept_rerack "Re-rack", refuse_rerack "Play on", play_first "Play first", play_second
-## "Opponent first", claim_frame "Claim the frame". `frame` picks "Take the free ball" for play
-## when a free ball was called. "" for an unknown kind.
+## A decision's button text (LABELS), or "Take the free ball" for play when `frame` called one; ""
+## for an unknown kind.
 static func label_for(kind: String, frame: Dictionary = {}) -> String:
 	if kind == "play" and frame.get("free_ball") == true:
 		return FREE_BALL_PLAY

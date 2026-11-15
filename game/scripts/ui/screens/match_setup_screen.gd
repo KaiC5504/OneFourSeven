@@ -1,9 +1,8 @@
 class_name MatchSetupScreen
 extends Control
 ## Match setup (spec 11.1): match length (best of 1, 3, 5, 7, 9 or 11 frames) and who breaks first
-## (random, you or the computer; random by default), then Start. The opponent's level arrives with
-## the opponent in M4 and has no row until then. The last choices are remembered for the session:
-## the screen keeps them from one opening to the next.
+## (random, you or the computer; random by default), then Start. The last choices are remembered
+## for the session: the screen keeps them from one opening to the next.
 ##
 ## A modal card in the middle of the safe area, in the settings panel's look.
 
