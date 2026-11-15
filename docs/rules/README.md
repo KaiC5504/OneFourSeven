@@ -46,8 +46,10 @@ arise.
   two (S3.11(c)). "At once" is within `simultaneous_hit_s`.
 - Touching ball (S3.8): when the cue ball started touching a ball that is on, or that could be on
   and is the declared one, and that ball did not move, the first impact is taken as made on it:
-  whatever the cue ball hits afterwards, or nothing, is no foul for the first impact. Any ball that
-  touched the cue ball before the stroke and moved makes it a `push_stroke` (S3.8(b)).
+  whatever the cue ball hits afterwards, or nothing, is no foul for the first impact. A ball that
+  touched the cue ball before the stroke and was moved by it as the cue ball left makes it a
+  `push_stroke` (S3.8(b)); one the cue ball was played away from and that is moved later in the
+  stroke, by another ball or the returning cue ball, does not.
 - Push stroke otherwise (S2.19): `ShotFacts::push`, by `push_contact_time_s` and
   `push_fine_edge_rad`; the ball on or the ball concerned (S3.11(b)(v)).
 
@@ -62,6 +64,8 @@ arise.
 - The cue ball in a pocket: `in_off`, the value of the ball on; it is then in hand.
 - A foul stroke scores nothing. Reds pocketed in it stay off; colours pocketed in it are spotted
   (S3.7), also once the reds are gone.
+- Spotting (S3.7(e) to (j)): every colour whose own spot is free goes on it; S3.7(f)'s order,
+  highest value first, applies to the colours whose own spots are occupied.
 
 ## The penalty (S3.10(g), S3.11)
 

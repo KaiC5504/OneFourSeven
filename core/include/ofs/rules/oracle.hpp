@@ -46,11 +46,12 @@ public:
     virtual std::vector<int> touching(const std::vector<BallOnTable>& balls, int cue_ball) const = 0;
 
     // S3.7: where each of `colours` is spotted on a table holding `on_table` (the cue ball left
-    // out while it is in hand). The highest value is spotted first (f); its own spot, else the
-    // highest-value spot available (e); else as near its own spot as possible between that spot
-    // and the nearest part of the top cushion (g); pink and black, with no room there, as near
-    // their own spot as possible on the centre line towards baulk (h); never touching another
-    // ball (i). Returns the placements in the order of `colours`.
+    // out while it is in hand). Every colour whose own spot is available goes on it (j). The
+    // rest, highest value first (f), each go to the highest-value spot still available (e); else
+    // as near its own spot as possible between that spot and the nearest part of the top cushion
+    // (g); pink and black, with no room there, as near their own spot as possible on the centre
+    // line towards baulk (h); never touching another ball (i). Returns the placements in the
+    // order of `colours`.
     virtual std::vector<BallOnTable> spot(const std::vector<BallOnTable>& on_table,
                                           const std::vector<Ball>& colours) const = 0;
 
