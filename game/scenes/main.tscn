@@ -1,4 +1,4 @@
-[gd_scene load_steps=23 format=3]
+[gd_scene load_steps=34 format=3]
 
 [ext_resource type="Script" path="res://scripts/main.gd" id="1_main"]
 [ext_resource type="Script" path="res://scripts/view/stage.gd" id="3_stage"]
@@ -22,6 +22,17 @@
 [ext_resource type="Script" path="res://scripts/ui/settings_panel.gd" id="21_settings"]
 [ext_resource type="Script" path="res://scripts/ui/debug_overlay.gd" id="22_overlay"]
 [ext_resource type="Script" path="res://scripts/free_table/edit_palette.gd" id="23_palette"]
+[ext_resource type="Script" path="res://scripts/match/match_controller.gd" id="24_match"]
+[ext_resource type="Script" path="res://scripts/match/hud/nomination.gd" id="25_nomination"]
+[ext_resource type="Script" path="res://scripts/match/hud/scoreboard.gd" id="26_scoreboard"]
+[ext_resource type="Script" path="res://scripts/match/hud/referee_line.gd" id="27_referee"]
+[ext_resource type="Script" path="res://scripts/match/hud/choice_strip.gd" id="28_choices"]
+[ext_resource type="Script" path="res://scripts/match/hud/cue_placer.gd" id="29_placer"]
+[ext_resource type="Script" path="res://scripts/ui/screens/home_screen.gd" id="30_home"]
+[ext_resource type="Script" path="res://scripts/ui/screens/match_setup_screen.gd" id="31_setup"]
+[ext_resource type="Script" path="res://scripts/ui/screens/pause_menu.gd" id="32_pause"]
+[ext_resource type="Script" path="res://scripts/ui/screens/frame_summary.gd" id="33_frame"]
+[ext_resource type="Script" path="res://scripts/ui/screens/match_summary.gd" id="34_summary"]
 
 [node name="Main" type="Node3D"]
 script = ExtResource("1_main")
@@ -69,6 +80,12 @@ script = ExtResource("13_haptics")
 [node name="FreeTable" type="Node" parent="."]
 script = ExtResource("14_free")
 
+[node name="Match" type="Node" parent="."]
+script = ExtResource("24_match")
+
+[node name="Nomination" type="Node3D" parent="."]
+script = ExtResource("25_nomination")
+
 [node name="Hud" type="CanvasLayer" parent="."]
 
 [node name="ElevationControl" type="Control" parent="Hud"]
@@ -95,13 +112,41 @@ visible = false
 script = ExtResource("23_palette")
 mouse_filter = 2
 
-[node name="Notice" type="Label" parent="Hud"]
-visible = false
-horizontal_alignment = 1
-
 [node name="FreeTableBar" type="Control" parent="Hud"]
 script = ExtResource("20_bar")
 mouse_filter = 2
+
+[node name="Scoreboard" type="Control" parent="Hud"]
+visible = false
+script = ExtResource("26_scoreboard")
+
+[node name="RefereeLine" type="Control" parent="Hud"]
+script = ExtResource("27_referee")
+
+[node name="ChoiceStrip" type="Control" parent="Hud"]
+script = ExtResource("28_choices")
+
+[node name="CuePlacer" type="Control" parent="Hud"]
+script = ExtResource("29_placer")
+
+[node name="HomeScreen" type="Control" parent="Hud"]
+script = ExtResource("30_home")
+
+[node name="MatchSetupScreen" type="Control" parent="Hud"]
+script = ExtResource("31_setup")
+
+[node name="PauseMenu" type="Control" parent="Hud"]
+script = ExtResource("32_pause")
+
+[node name="FrameSummary" type="Control" parent="Hud"]
+script = ExtResource("33_frame")
+
+[node name="MatchSummary" type="Control" parent="Hud"]
+script = ExtResource("34_summary")
+
+[node name="Notice" type="Label" parent="Hud"]
+visible = false
+horizontal_alignment = 1
 
 [node name="SettingsPanel" type="Control" parent="Hud"]
 script = ExtResource("21_settings")

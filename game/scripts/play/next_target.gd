@@ -50,15 +50,17 @@ const POCKET_STRIDE := 6 + 2 * MOUTH_SIDE
 ## "colour" or "any". Returns {"index", "ball", "pocket", "aim_rad", "cut_deg", "score",
 ## "reason"}; pocket is -1 and reason "no clear pot" when it aims straight at the nearest
 ## preferred ball instead. {} when there is no object ball.
-static func choose(balls: Array[Dictionary], cue_ball: int, prefer: String) -> Dictionary:
-	return choose_on(Physics.table_shape(), OfsTable.dimensions(), balls, cue_ball, prefer)
+## among, when not empty, is the places in `balls` it may choose from (a match's balls on); places
+## that hold no object ball are passed over, and with none left it chooses as if among were empty.
+static func choose(balls: Array[Dictionary], cue_ball: int, prefer: String, among: Array = []) -> Dictionary:
+	return choose_on(Physics.table_shape(), OfsTable.dimensions(), balls, cue_ball, prefer, among)
 
 
 ## choose on a given table: shape as OfsPhysics.table_shape(), dims as OfsTable.dimensions().
 ## Bad input (a malformed ball list, cue_ball not the cue ball, an unknown prefer, no shape) logs
 ## app.error and returns {}.
 static func choose_on(shape: Dictionary, dims: Dictionary, balls: Array[Dictionary], cue_ball: int,
-		prefer: String) -> Dictionary:
+		prefer: String, among: Array = []) -> Dictionary:
 	var problem := _input_problem(shape, dims, balls, cue_ball, prefer)
 	if not problem.is_empty():
 		Log.warn("app", "app.error", {"kind": "message", "message": "NextTarget: %s; the aim stays where it was" % problem})
@@ -88,6 +90,18 @@ static func choose_on(shape: Dictionary, dims: Dictionary, balls: Array[Dictiona
 			preferred.append(i)
 	if objects.is_empty():
 		return {}
+	var listed: Array[int] = []
+	for place: Variant in among:
+		# Places read from JSON are floats.
+		if (place is int or place is float) and objects.has(int(place)) and not listed.has(int(place)):
+			listed.append(int(place))
+	listed.sort()
+	if not listed.is_empty():
+		var wanted: Array[int] = []
+		for i in preferred:
+			if listed.has(i):
+				wanted.append(i)
+		preferred = wanted if not wanted.is_empty() else listed
 	if preferred.is_empty():
 		preferred = objects
 

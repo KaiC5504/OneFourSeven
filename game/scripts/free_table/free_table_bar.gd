@@ -3,7 +3,7 @@ extends Control
 ## The free table's buttons (KaiC's M2 phone session: less clutter). A row of small icon buttons
 ## at the safe area's top-left: the menu, the overview, then Retake and Undo, with Redo only while
 ## there is something to redo and Done only in edit mode. The menu opens a compact list below it:
-## Rack, Empty table, Practice, Edit balls, Settings, and the phone link's status in words; the
+## Rack, Empty table, Practice, Edit balls, Settings, Home, and the phone link's status in words; the
 ## menu button carries the link status as a dot. Practice swaps the list for the practice shots,
 ## two to a row. A press outside the open list closes it and does nothing else.
 ##
@@ -19,6 +19,7 @@ signal setup_chosen(name: String)
 ## The practice shot's place in the list given to set_practices.
 signal practice_chosen(index: int)
 signal settings_pressed
+signal home_pressed
 signal overview_toggled(on: bool)
 
 ## 88 canvas units is 44 pt on the phone, the minimum touch target.
@@ -146,7 +147,7 @@ func _ready() -> void:
 
 
 ## "menu", "overview", "retake", "undo", "redo", "done", a menu item: "rack", "empty", "practice",
-## "edit", "settings", or a practice shot: "practice_0" and up.
+## "edit", "settings", "home", or a practice shot: "practice_0" and up.
 func button(id: String) -> Button:
 	return _buttons.get(id)
 
@@ -317,6 +318,7 @@ func _build() -> void:
 	edit.toggle_mode = true
 	edit.toggled.connect(func(on: bool) -> void: _from_menu(edit_toggled.emit.bind(on)))
 	_text_button(items, "settings", "Settings", ITEM_SIZE).pressed.connect(_from_menu.bind(settings_pressed.emit))
+	_text_button(items, "home", "Home", ITEM_SIZE).pressed.connect(_from_menu.bind(home_pressed.emit))
 	var link := HBoxContainer.new()
 	link.add_theme_constant_override("separation", 10)
 	link.custom_minimum_size.y = 52.0

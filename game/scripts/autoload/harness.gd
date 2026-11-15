@@ -7,7 +7,8 @@ extends Node
 ## --quit-after=<seconds>, --demo-screen=<name>, --demo-position=<name>, --mute,
 ## --harness-port=<port>. iOS launch arguments: -DemoScreen <name>, -DemoPosition <name>.
 ## Relative paths land under user://. A flag given twice keeps its last value. Every command
-## logs harness.command.
+## logs harness.command. The scene's part is its harness_* hooks (main.gd): the screens, the free
+## table's positions and shots, a match's start, strokes, choices and summaries.
 ##
 ## The channel (Windows only) listens on 127.0.0.1: newline-delimited JSON requests
 ## {"id", "cmd", "args"}, each answered {"id", "ok", "result" | "error"} in order, one at a time
@@ -15,8 +16,19 @@ extends Node
 
 signal captures_done
 
-const SCREENS: Array[String] = ["table"]
+## What --demo-screen takes. The first three open as open_screen does; "match" starts DEMO_MATCH,
+## the person to break; the last three are shown for pictures, the summaries filled from
+## EXAMPLE_MATCH_PATH, with no match behind them.
+const SCREENS: Array[String] = ["home", "match_setup", "table", "match", "pause", "frame_summary", "match_summary"]
+const OPEN_SCREENS: Array[String] = ["home", "match_setup", "table"]
+const DEMO_SCREENS: Array[String] = ["pause", "frame_summary", "match_summary"]
+const DEMO_MATCH := {"best_of": 3, "first_breaker": "you", "seed": 147}
+const EXAMPLE_MATCH_PATH := "res://data/rules/example_match.json"
+const BREAKERS: Array[String] = ["random", "you", "computer"]
+const MATCH_LENGTHS: Array[int] = [1, 3, 5, 7, 9, 11]
 const STABLE_SECONDS := 1.0
+## The longest a capture or open_screen waits for the camera to land.
+const SETTLE_TIMEOUT_SECONDS := 5.0
 const CAPTURE_TIMEOUT_SECONDS := 10.0
 const FLAGS := {
 	"--screenshot": "screenshot",
@@ -31,12 +43,17 @@ const SWITCHES := {"--mute": "mute"}
 const LAUNCH_FLAGS := {"-DemoScreen": "--demo-screen", "-DemoPosition": "--demo-position"}
 # Read by other autoloads (Link reads --no-link), so the harness accepts them silently.
 const OTHER_FLAGS: Array[String] = ["--no-link"]
+# The dev preview scenes' own (scripts/dev/screens_preview.gd, match_hud_preview.gd), with a value.
+const PREVIEW_FLAGS: Array[String] = ["--screen", "--state", "--frames", "--person"]
 const POSITIONS_DIR := "res://data/positions"
 const MAX_LINE_BYTES := 1 << 20
 const WAIT_IDLE_DEFAULT_SECONDS := 30.0
 const MAX_FRAMES_BETWEEN := 600
 const KEY_MODIFIERS: Array[String] = ["ctrl", "shift", "alt", "meta"]
 const STRIKE_KEYS: Array[String] = ["aim_rad", "tip_x", "tip_y", "elevation_rad", "speed_m_s"]
+const COMMANDS: Array[String] = ["ping", "load_position", "play_shot", "wait_idle", "set_setting", "dump_state",
+		"screenshot", "overlay", "input", "open_screen", "start_match", "match_state", "match_shot", "match_choose",
+		"match_wait", "match_autoplay", "match_continue", "quit"]
 const OVERLAY_PATH := "Hud/Overlay"
 
 ## The scene commands act on; tests swap in a fake one.
@@ -86,6 +103,8 @@ static func parse_args(user_args: PackedStringArray, launch_args: PackedStringAr
 		var eq := arg.find("=")
 		var key := arg.substr(0, eq) if eq >= 0 else arg
 		var value := arg.substr(eq + 1) if eq >= 0 else ""
+		if PREVIEW_FLAGS.has(key) and eq >= 0:
+			continue
 		var ok := FLAGS.has(key) and not value.is_empty()
 		if ok and key == "--quit-after":
 			ok = value.is_valid_float() and is_finite(value.to_float()) and value.to_float() >= 0.0
@@ -318,18 +337,18 @@ func _run(os_name: String, args: Dictionary) -> void:
 		_report("unknown", [arg], false, "unrecognised or malformed argument")
 	for flag: String in args["repeated"]:
 		_report("repeated", [flag], false, "given more than once; the last value is used")
-	var demo: String = args["demo_screen"]
-	if not demo.is_empty():
-		var known := SCREENS.has(demo)
-		_report("demo-screen", [demo], known, demo if known else "unknown screen; known: %s" % ", ".join(SCREENS))
-		if known:
-			_screen = demo
 	var port: int = args["harness_port"]
 	if port >= 0:
 		if os_name == "Windows":
 			start_channel(port)
 		else:
 			_report("harness-port", [port], false, "the command channel runs only on Windows, not %s" % os_name)
+	var demo: String = args["demo_screen"]
+	if not demo.is_empty():
+		# One frame, so the scene's own setup has run and Home is up before the screen replaces it.
+		await get_tree().process_frame
+		var shown: Dictionary = await _show_demo_screen(demo)
+		_report("demo-screen", [demo], shown["ok"], shown.get("result", shown.get("error")))
 	var position: String = args["demo_position"]
 	if not position.is_empty():
 		# One frame, so the scene's own setup has run before the position replaces its balls.
@@ -345,6 +364,7 @@ func _run(os_name: String, args: Dictionary) -> void:
 		return
 	_captures_pending = true
 	await get_tree().create_timer(STABLE_SECONDS, true, false, true).timeout
+	await _settled(_scene())
 	# The state needs no rendering, so it doesn't wait for a frame a headless run never draws.
 	if not dump.is_empty():
 		var written := _write_state(resolve_path(dump))
@@ -603,14 +623,40 @@ func run_command(cmd: String, args: Dictionary) -> Dictionary:
 			outcome = _overlay(args)
 		"input":
 			outcome = await _send_input(args)
+		"open_screen":
+			outcome = await _open_screen(args)
+		"start_match":
+			outcome = _start_match(args)
+		"match_state":
+			outcome = _ask_scene("harness_match_state", [])
+		"match_shot":
+			outcome = _match_shot(args)
+		"match_choose":
+			if args.get("kind") is String:
+				outcome = _ask_scene("harness_match_choose", [args["kind"]])
+			else:
+				outcome = _fail("kind must be a decision name, got %s" % JSON.stringify(args.get("kind")))
+		"match_wait":
+			outcome = await _match_wait(args)
+		"match_autoplay":
+			if args.get("on") is bool and args.get("fast", false) is bool:
+				outcome = _ask_scene("harness_match_autoplay", [args["on"], args.get("fast", false)])
+			else:
+				outcome = _fail("on must be true or false, and fast when given")
+		"match_continue":
+			outcome = _ask_scene("harness_match_continue", [])
 		"quit":
 			_quitting = true
 			outcome = _ok("quitting")
 		_:
-			outcome = _fail("unknown command %s; known: ping, load_position, play_shot, wait_idle, set_setting, dump_state, screenshot, overlay, input, quit" % cmd)
+			outcome = _fail("unknown command %s; known: %s" % [cmd, ", ".join(COMMANDS)])
 	var logged: Variant = outcome.get("result", outcome.get("error"))
 	if cmd == "dump_state" and outcome["ok"]:
 		logged = "state of %d keys" % (outcome["result"] as Dictionary).size()
+	elif cmd == "match_state" and outcome["ok"]:
+		# The whole frame and match would make every poll an enormous line.
+		var state: Dictionary = outcome["result"]
+		logged = {"active": state.get("active"), "waiting": state.get("waiting"), "blocked": state.get("blocked")}
 	_report(cmd, [_logged_args(cmd, args)], outcome["ok"], logged)
 	return outcome
 
@@ -659,7 +705,7 @@ func _load_position(args: Dictionary) -> Dictionary:
 	if not missing.is_empty():
 		return _fail(missing)
 	if not scene.call("harness_load_position", balls, cue_ball):
-		return _fail("the scene refused the position (%d balls, cue ball %d); see its log" % [balls.size(), cue_ball])
+		return _fail("the scene refused the position (%d balls, cue ball %d)%s" % [balls.size(), cue_ball, _refusal(scene)])
 	return _ok({"balls": balls.size(), "cue_ball": cue_ball})
 
 
@@ -692,6 +738,9 @@ func _play_shot(args: Dictionary) -> Dictionary:
 		return _fail(missing)
 	var shot_id: Variant = scene.call("harness_play_shot", strike)
 	if not shot_id is String or (shot_id as String).is_empty():
+		var why: Variant = scene.call("harness_refusal") if scene.has_method("harness_refusal") else ""
+		if why is String and not (why as String).is_empty():
+			return _fail("the scene refused the shot: %s" % why)
 		return _fail("the scene refused the shot (busy, or the binding rejected it; see shot.rejected)")
 	return _ok({"shot_id": shot_id})
 
@@ -712,6 +761,155 @@ func _wait_idle(args: Dictionary) -> Dictionary:
 		if not is_instance_valid(scene):
 			return _fail("the scene went away while waiting")
 	return _ok({"waited_s": (Time.get_ticks_msec() - start) / 1000.0})
+
+
+## Opens one of OPEN_SCREENS and answers once the camera has landed there, so a screenshot next
+## shows the screen as it stands.
+func _open_screen(args: Dictionary) -> Dictionary:
+	var screen: Variant = args.get("name")
+	if not screen is String or not OPEN_SCREENS.has(screen):
+		return _fail("name must be one of %s, got %s" % [", ".join(OPEN_SCREENS), JSON.stringify(screen)])
+	var scene := _scene()
+	var missing := _hook(scene, "harness_open_screen")
+	if not missing.is_empty():
+		return _fail(missing)
+	if not scene.call("harness_open_screen", screen):
+		return _fail("the scene did not open %s%s" % [screen, _refusal(scene)])
+	_screen = screen
+	await _settled(scene)
+	return _ok({"screen": screen})
+
+
+## A --demo-screen: {"ok": true, "result"} or {"ok": false, "error"}.
+func _show_demo_screen(screen: String) -> Dictionary:
+	if not SCREENS.has(screen):
+		return _fail("unknown screen; known: %s" % ", ".join(SCREENS))
+	if OPEN_SCREENS.has(screen):
+		return await _open_screen({"name": screen})
+	if screen == "match":
+		return _ask_scene("harness_start_match", [DEMO_MATCH.duplicate(), false, false])
+	var scene := _scene()
+	var missing := _hook(scene, "harness_demo_screen")
+	if not missing.is_empty():
+		return _fail(missing)
+	var json := JSON.new()
+	if json.parse(FileAccess.get_file_as_string(EXAMPLE_MATCH_PATH)) != OK or not json.data is Dictionary:
+		return _fail("%s is missing or not a JSON object (scripts/sync_data.py copies it from core/tests/fixtures/rules)"
+				% EXAMPLE_MATCH_PATH)
+	var example: Dictionary = json.data
+	if not scene.call("harness_demo_screen", screen, finished_match(example) if screen == "match_summary" else example):
+		return _fail("the scene did not show %s%s" % [screen, _refusal(scene)])
+	_screen = screen
+	return _ok(screen)
+
+
+## A match (serialize.hpp) with its frame in play counted as finished, on the black to whoever
+## leads it, and the match as over: a whole match for the match summary's picture.
+static func finished_match(match_state: Dictionary) -> Dictionary:
+	var out := match_state.duplicate(true)
+	var frame: Variant = out.get("frame")
+	var history: Variant = out.get("history")
+	var frames: Variant = out.get("frames")
+	if not (frame is Dictionary and history is Array and frames is Array and (frames as Array).size() == 2):
+		return out
+	var scores: Variant = (frame as Dictionary).get("scores")
+	if not (scores is Array and (scores as Array).size() == 2):
+		return out
+	var winner := 0 if float(scores[0]) > float(scores[1]) else 1
+	(history as Array).append({"number": (history as Array).size() + 1, "breaker": out.get("breaker", 0), "winner": winner,
+			"reason": "black", "scores": scores, "stats": (frame as Dictionary).get("stats", [{}, {}]),
+			"strokes": (frame as Dictionary).get("strokes", 0), "reracks": 0})
+	frames[winner] = float(frames[winner]) + 1.0
+	out["over"] = true
+	out["winner"] = 0 if float(frames[0]) > float(frames[1]) else 1
+	return out
+
+
+## Waits for the scene's camera to land (its harness_settling), SETTLE_TIMEOUT_SECONDS at most.
+func _settled(scene: Node) -> void:
+	if scene == null or not scene.has_method("harness_settling"):
+		return
+	var deadline := Time.get_ticks_msec() + int(SETTLE_TIMEOUT_SECONDS * 1000.0)
+	while is_instance_valid(scene) and scene.call("harness_settling") and Time.get_ticks_msec() < deadline:
+		await get_tree().process_frame
+
+
+## Calls a scene hook that answers a Dictionary, with "error" when it refuses.
+func _ask_scene(method: String, hook_args: Array) -> Dictionary:
+	var scene := _scene()
+	var missing := _hook(scene, method)
+	if not missing.is_empty():
+		return _fail(missing)
+	var answer: Variant = scene.callv(method, hook_args)
+	if not answer is Dictionary:
+		return _fail("the scene's %s answered %s, not a Dictionary" % [method, type_string(typeof(answer))])
+	if (answer as Dictionary).has("error"):
+		return _fail(str(answer["error"]))
+	return _ok(answer)
+
+
+## ": <why>" when the scene says why its last hook refused, else "; see its log".
+func _refusal(scene: Node) -> String:
+	var why: Variant = scene.call("harness_refusal") if scene != null and scene.has_method("harness_refusal") else ""
+	return ": %s" % why if why is String and not (why as String).is_empty() else "; see its log"
+
+
+func _start_match(args: Dictionary) -> Dictionary:
+	var best_of: Variant = _integer(args.get("best_of", 3))
+	if best_of == null or not MATCH_LENGTHS.has(best_of):
+		return _fail("best_of must be 1, 3, 5, 7, 9 or 11, got %s" % JSON.stringify(args.get("best_of")))
+	var breaker: Variant = args.get("first_breaker", "random")
+	if not breaker is String or not BREAKERS.has(breaker):
+		return _fail("first_breaker must be one of %s, got %s" % [", ".join(BREAKERS), JSON.stringify(breaker)])
+	var config := {"best_of": best_of, "first_breaker": breaker}
+	if args.has("seed"):
+		var match_seed: Variant = _integer(args["seed"])
+		if match_seed == null or match_seed < 0:
+			return _fail("seed must be a whole number, 0 or more, got %s" % JSON.stringify(args["seed"]))
+		config["seed"] = match_seed
+	for flag: String in ["autoplay", "fast"]:
+		if not args.get(flag, false) is bool:
+			return _fail("%s must be true or false, got %s" % [flag, JSON.stringify(args[flag])])
+	return _ask_scene("harness_start_match", [config, args.get("autoplay", false), args.get("fast", false)])
+
+
+func _match_shot(args: Dictionary) -> Dictionary:
+	var strike := {}
+	for key: String in STRIKE_KEYS:
+		var value: Variant = _finite(args.get(key))
+		if value == null:
+			return _fail("%s must be a finite number, got %s" % [key, JSON.stringify(args.get(key))])
+		strike[key] = value
+	var nominated: Variant = args.get("nominated", "")
+	if not nominated is String:
+		return _fail("nominated must be a colour's name, got %s" % JSON.stringify(nominated))
+	var cue: Variant = null
+	if args.has("cue"):
+		var at: Variant = args["cue"]
+		var x: Variant = _finite((at as Array)[0]) if at is Array and (at as Array).size() == 2 else null
+		var y: Variant = _finite((at as Array)[1]) if at is Array and (at as Array).size() == 2 else null
+		if x == null or y == null:
+			return _fail("cue must be [x, y] in core metres, got %s" % JSON.stringify(at))
+		cue = Vector2(x, y)
+	return _ask_scene("harness_match_shot", [strike, nominated, cue])
+
+
+## Answers once the match waits for the person (a stroke, a choice, a summary to leave).
+func _match_wait(args: Dictionary) -> Dictionary:
+	var timeout: Variant = _finite(args.get("timeout_s", WAIT_IDLE_DEFAULT_SECONDS))
+	if timeout == null or timeout < 0.0:
+		return _fail("timeout_s must be a number of seconds, 0 or more")
+	var start := Time.get_ticks_msec()
+	var asked := _ask_scene("harness_match_waiting", [])
+	while asked["ok"] and (asked["result"] as Dictionary).get("person") != true:
+		if Time.get_ticks_msec() - start >= timeout * 1000.0:
+			return _fail("still waiting on \"%s\" after %.1f s" % [(asked["result"] as Dictionary).get("waiting"), timeout])
+		await get_tree().process_frame
+		asked = _ask_scene("harness_match_waiting", [])
+	if not asked["ok"]:
+		return asked
+	return _ok({"waiting": (asked["result"] as Dictionary).get("waiting"),
+			"waited_s": (Time.get_ticks_msec() - start) / 1000.0})
 
 
 func _set_setting(args: Dictionary) -> Dictionary:

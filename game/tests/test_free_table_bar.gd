@@ -13,15 +13,16 @@ func test_buttons_emit_their_signals() -> void:
 	bar.edit_toggled.connect(func(on: bool) -> void: got.append("edit %s" % on))
 	bar.setup_chosen.connect(func(setup: String) -> void: got.append(setup))
 	bar.settings_pressed.connect(func() -> void: got.append("settings"))
+	bar.home_pressed.connect(func() -> void: got.append("home"))
 	bar.overview_toggled.connect(func(on: bool) -> void: got.append("overview %s" % on))
 	bar.set_history(true, true, true)
-	for id: String in ["retake", "undo", "redo", "rack", "empty", "settings"]:
+	for id: String in ["retake", "undo", "redo", "rack", "empty", "settings", "home"]:
 		bar.button(id).pressed.emit()
 	bar.button("edit").button_pressed = true
 	bar.button("done").pressed.emit()
 	bar.button("overview").button_pressed = true
 	bar.button("overview").button_pressed = false
-	check_eq(got, ["retake", "undo", "redo", "full_rack", "empty", "settings", "edit true", "edit false",
+	check_eq(got, ["retake", "undo", "redo", "full_rack", "empty", "settings", "home", "edit true", "edit false",
 			"overview true", "overview false"], "signals")
 	bar.free()
 
@@ -33,7 +34,7 @@ func test_the_menu_opens_closes_and_closes_after_a_choice() -> void:
 	check(bar.is_menu_open(), "the menu button opens it")
 	bar.button("menu").button_pressed = false
 	check(not bar.is_menu_open(), "and closes it")
-	for id: String in ["rack", "empty", "settings", "edit"]:
+	for id: String in ["rack", "empty", "settings", "home", "edit"]:
 		bar.open_menu()
 		if id == "edit":
 			bar.button(id).button_pressed = not bar.button(id).button_pressed
@@ -123,7 +124,7 @@ func test_touch_targets_and_placement() -> void:
 	bar.set_edit_mode(true)
 	bar.open_menu()
 	await tree.process_frame
-	for id: String in ["menu", "overview", "retake", "undo", "redo", "done", "edit", "rack", "empty", "settings"]:
+	for id: String in ["menu", "overview", "retake", "undo", "redo", "done", "edit", "rack", "empty", "settings", "home"]:
 		var size := bar.button(id).size
 		check(size.x >= 88.0 and size.y >= 88.0, "%s is at least 88 units square: %s" % [id, size])
 		check(bar.button(id).focus_mode == Control.FOCUS_NONE, "%s takes no keyboard focus" % id)

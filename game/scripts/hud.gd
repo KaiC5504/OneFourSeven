@@ -1,6 +1,6 @@
 extends RefCounted
-## The free table's layout (spec 8.9, KaiC's M2 phone session: the table is the screen) and the
-## safe-area helpers it uses.
+## The table's layout, for the free table and a match (spec 8.9, KaiC's M2 phone session: the table
+## is the screen), and the safe-area helpers it uses.
 
 ## Canvas units: from the safe edge, and between neighbours.
 const EDGE := 16.0
@@ -14,6 +14,10 @@ const CUE_WIDTH := 120.0
 const CUE_FROM_EDGE := 60.0
 const WHEEL_SIZE := Vector2(88.0, 340.0)
 const BREAK_HEIGHT := 52.0
+## In a match (spec 11.1): between the scoreboard and the referee's line under it, and the height
+## kept for that line, so the notice below it never moves.
+const LINE_GAP := 8.0
+const LINE_HEIGHT := 56.0
 
 
 ## The safe area's top-left corner in canvas units. The safe area is in screen pixels and
@@ -47,7 +51,10 @@ static func safe_rect(safe_area: Rect2, window_rect: Rect2, canvas_size: Vector2
 ## - "bottom": edit mode's row, along the bottom (the shot controls are hidden then);
 ## - "break": the band the running break's pill (spec 8.5) is centred in, at the bottom of the safe
 ##   area between the spin ball and the wheel: above the home indicator, and between the full-table view's
-##   near pockets.
+##   near pockets;
+## - "centre": the room the spin ball and the power cue leave, even about the safe area's middle so
+##   what stands in it stands under the scoreboard: a match's choice strip and cue placer, along its
+##   bottom.
 ## canvas, when given, lets the bottom controls use the margin the phone's home indicator leaves
 ## below the safe area, which keeps the spin ball below the green at the opening view.
 static func layout(safe: Rect2, bar_size: Vector2, canvas := Vector2.ZERO, housing := "", with_wheel := true) -> Dictionary:
@@ -74,5 +81,9 @@ static func layout(safe: Rect2, bar_size: Vector2, canvas := Vector2.ZERO, housi
 	var edit_row := Rect2(Vector2(safe.position.x + EDGE, top), Vector2(safe.size.x - 2.0 * EDGE, bottom - top))
 	var break_band := Rect2(Vector2(spin.end.x + GAP, bottom - BREAK_HEIGHT).round(),
 			Vector2(maxf(wheel.position.x - GAP - spin.end.x - GAP, 0.0), BREAK_HEIGHT).round())
+	var middle := safe.get_center().x
+	# The spin ball reaches further in than the power cue.
+	var reach := maxf(minf(middle - spin.end.x, cue.position.x - middle) - GAP, 0.0)
+	var centre := Rect2(Vector2(middle - reach, top).round(), Vector2(2.0 * reach, bottom - top).round())
 	return {"bar": bar, "spin": spin, "elevation": elevation, "cue": cue, "wheel": wheel, "bottom": edit_row,
-			"break": break_band}
+			"break": break_band, "centre": centre}
