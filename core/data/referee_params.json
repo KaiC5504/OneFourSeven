@@ -48,7 +48,7 @@
     "pot_attempt_radius_m": {
       "unit": "m",
       "source": "ours; the same distance the shot cycle uses for a ball played at a pocket (ShotCycle.attempt)",
-      "note": "A stroke counts as an attempt to pot when the first ball hit was potted or passed within this of a pocket's drop circle. Only the frame summary's pot success uses it."
+      "note": "A stroke counts as an attempt to pot when the first ball hit was potted, or passed within this of a pocket's drop circle at a moment when it was at least 10 mm nearer that pocket than where it started: a ball that begins near a pocket and is knocked away is not an attempt. Only the frame summary's pot success uses it."
     },
     "stalemate_quiet_travel_m": {
       "unit": "m",

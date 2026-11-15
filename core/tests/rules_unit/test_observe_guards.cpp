@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "ofs/log.hpp"
+#include "ofs/log_schema.hpp"
 #include "ofs/physics/rack.hpp"
 #include "ofs/physics/shot_record.hpp"
 #include "scenario.hpp"
@@ -317,13 +318,63 @@ TEST_CASE("a refused record is logged as rules.invalid, a good one not at all") 
     CHECK(see(elsewhere, r).anomaly);
     ofs::log::Logger::instance().clear_sinks();
 
-    // One line, saying what differs. (Until rules_log.cpp is built, log_invalid writes nothing.)
-    CHECK(capture->events.size() <= 1);
-    for (const ofs::log::Event& e : capture->events) {
-        CHECK(e.event == "rules.invalid");
-        CHECK(e.data.value("what", std::string()) == "observe");
-        CHECK(e.data.value("detail", std::string()).find("ball 2") != std::string::npos);
-    }
+    // One line, saying what differs.
+    REQUIRE(capture->events.size() == 1);
+    const ofs::log::Event& e = capture->events.front();
+    CHECK(e.subsystem == "rules");
+    CHECK(e.event == "rules.invalid");
+    CHECK(e.level == ofs::log::Level::warn);
+    CHECK(e.data.value("what", std::string()) == "observe");
+    CHECK(e.data.value("detail", std::string()) == "ball 2 starts the record 0.25 m from its place in the position");
+    const nlohmann::json schema = ofs::log::load_schema(std::string(OFS_CORE_DATA_DIR) + "/log_schema.json");
+    const auto problem = ofs::log::check(e, schema);
+    CHECK_MESSAGE(!problem.has_value(), problem.value_or(""));
+}
+
+TEST_CASE("each way a record can be refused says which") {
+    const FrameState s = plain();
+    const phys::ShotRecord r = sc::simulate(s, sc::strike(0.0, 1.0));
+    const auto refusal = [](const Position& p, const phys::ShotRecord& record) {
+        auto capture = std::make_shared<Capture>();
+        ofs::log::Logger::instance().clear_sinks();
+        ofs::log::Logger::instance().add_sink(capture);
+        const bool refused = see(p, record).anomaly;
+        ofs::log::Logger::instance().clear_sinks();
+        if (!refused || capture->events.size() != 1) return std::string("(not refused with one line)");
+        return capture->events.front().data.value("detail", std::string());
+    };
+
+    FrameState p = s;
+    p.cue_ball = 5;
+    CHECK(refusal(p, r) == "the position's cue ball is place 5 of 3");
+    p = s;
+    p.cue_ball = 1;
+    CHECK(refusal(p, r) == "place 1, the position's cue ball, holds a red");
+    p = s;
+    p.balls.pop_back();
+    CHECK(refusal(p, r) == "the position has 2 balls, the record paths for 3 and resting places for 3");
+    p = s;
+    p.balls[1].ball = Ball::pink;
+    CHECK(refusal(p, r) == "ball 1 is a pink in the position and a red in the record");
+
+    phys::ShotRecord bad = r;
+    bad.segments[1].clear();
+    CHECK(refusal(s, bad) == "ball 1 has no path in the record");
+    bad = r;
+    bad.segments[2].front().start.motion = phys::Motion::pocketed;
+    CHECK(refusal(s, bad) == "ball 2 starts the record in a pocket");
+    bad = r;
+    bad.events.front().a = 1;
+    CHECK(refusal(s, bad) == "the record's strike is on ball 1, the position's cue ball is place 0");
+    bad = r;
+    bad.events.push_back({r.t_end, phys::EventKind::pocket, 1, -1, 9, phys::Motion::rolling, phys::Motion::pocketed});
+    CHECK(refusal(s, bad) == "event " + std::to_string(r.events.size()) + " (pocket) names pocket 9 of 6");
+    bad = r;
+    bad.events.push_back({r.t_end, phys::EventKind::ball_ball, 0, 7, -1, phys::Motion::rolling, phys::Motion::rolling});
+    CHECK(refusal(s, bad) == "event " + std::to_string(r.events.size()) + " (ball_ball) pairs ball 0 with ball 7 of 3");
+    bad = r;
+    bad.events.push_back({r.t_end, phys::EventKind::ball_line, 4, -1, 0, phys::Motion::rolling, phys::Motion::rolling});
+    CHECK(refusal(s, bad) == "event " + std::to_string(r.events.size()) + " (ball_line) names ball 4 of 3");
 }
 
 TEST_CASE("reading a stroke stays inside its time budget") {
