@@ -345,7 +345,8 @@ TEST_CASE("S3.17(d): on a re-spotted black only the black is set again, the same
     CHECK(name(event) == "none");
     std::vector<Call> said;
     if (!match_choose(m, DecisionKind::accept_rerack, m.frame.decider, three, event, &said)) return;
-    CHECK(name(event) == "reracked");
+    // The engine sets the black again itself; the match racks nothing, so it has no event.
+    CHECK(name(event) == "none");
     CHECK(scenario::has_call(said, CallKind::rerack));
 
     CHECK(m.frame_number == 1);

@@ -262,8 +262,10 @@ TEST_CASE("S2.17(a): in hand, one clear place in the D means no snooker") {
 }
 
 TEST_CASE("S2.17(b)(i): of two balls in the way, the one nearer the cue ball is the effective snookering ball") {
-    // The free ball alone hides the red: the striker has snookered behind it.
-    const FrameState alone = frame({ball(Ball::cue, -0.5, 0.2), ball(Ball::blue, -0.2, 0.2), ball(Ball::red, 0.4, 0.2)});
+    // The free ball alone hides the red: the striker has snookered behind it. The pink lies out of
+    // the way, so more than two object balls remain (S3.12(b)(ii)'s exception is for two).
+    const FrameState alone = frame({ball(Ball::cue, -0.5, 0.2), ball(Ball::blue, -0.2, 0.2), ball(Ball::red, 0.4, 0.2),
+                                    ball(Ball::pink, 1.0, -0.6)});
     CHECK(snookering(alone) == "1");
     const Judgement behind_free_ball = after_free_ball(alone);
     CHECK(fouls_text(behind_free_ball) == "free_ball_snooker 4");
