@@ -273,3 +273,11 @@ x86_64-only and the Mac has no Rosetta.
   that hits any ball is excused the miss whatever its strength; the breaker is drawn by lot, not
   chosen by the lot's winner. A physics value changed over the link reaches the opponent at its
   next stroke; the referee's values (`core/data/referee_params.json`) are read at start only.
+- After M3's full gate (2026-11-16): fuzz seed 1 shot 58624 ran to the time cap. A red wedged
+  0.3 degrees off the line of two others crept at 2e-8 m/s for ever: a neighbour that stopped in
+  the same event still held the 1e-10 m/s it stopped with, `bond_closing()` read it as moving,
+  and the parting check kept the contact held. A stationary or spinning ball's velocity is now
+  zero there (regression test from that shot). The bug predates M3; the cloth of 15 November
+  brought it out. `tools/sim_cli/bench_shots/creeping_wedge.json` was re-recorded
+  (`ofs_sim_cli replay <file> --update`): its events moved by 2e-8 s. A shot logged before this
+  fix that held such a contact can replay with event times that far apart.

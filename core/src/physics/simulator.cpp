@@ -770,9 +770,16 @@ bool Simulation::bond_touches(const Bond& k) const {
 }
 
 // Positive while the bodies approach each other.
+// A stationary or spinning ball stands still in every group solve, and its v may still hold what it
+// stopped with until its next segment starts clean (start_segment()). Read as moving, a neighbour
+// that stopped in this event hides a contact opening at the creep of the ball beside it.
 double Simulation::bond_closing(const Bond& k) const {
-    const Vec3 vb = k.b >= 0 ? work_[static_cast<std::size_t>(k.b)].v : Vec3{};
-    return dot(work_[static_cast<std::size_t>(k.a)].v - vb, bond_normal(k));
+    const auto velocity = [&](int i) {
+        const BallState& s = work_[static_cast<std::size_t>(i)];
+        return s.motion == Motion::rolling || s.motion == Motion::sliding ? s.v : Vec3{};
+    };
+    const Vec3 vb = k.b >= 0 ? velocity(k.b) : Vec3{};
+    return dot(velocity(k.a) - vb, bond_normal(k));
 }
 
 bool Simulation::bonded_body(int i, EventKind kind, int body) const {

@@ -268,6 +268,22 @@ const Recorded kC12_1930 =
       {0.6919963464766895, -0.34838839365914087}, {0.7189214260512649, -0.3934582293579016},
       {0.7458465056258402, -0.4385280650566623}, {0.7727715852004156, -0.483597900755423}}};
 
+// Fuzz seed 1 shot 58624 on the cloth of 2026-11-15: a break-off that leaves red 1 between reds 0
+// and 3, 0.3 degrees off their line, creeping out at 2e-8 m/s as both come to rest.
+const Recorded kFuzz1_58624 =
+    {"fuzz seed 1 shot 58624", 4087228220784670204ULL,
+     {0.0015965013431659923, -0.415633173483466, 0.046120506681653975, 0.05, 4.0893960623465695},
+     {{-1.2289157187712156, 0.14117508079024838}, {0.9448170891863527, -1.2199513413990005e-05},
+      {0.9903062620534188, 0.026289855444732287}, {0.9903340945545406, -0.02628551821394934},
+      {1.0358274336350652, 0.05254734498276752}, {1.0358453766592586, -5.306505055179093e-06},
+      {1.0358449344096938, -0.05256746890460436}, {1.0813574286733747, 0.07884147693579224},
+      {1.081351245001118, 0.02626779817312703}, {1.0813471252934737, -0.02629165960831393},
+      {1.081342715202333, -0.07882019100780736}, {1.1268677193125, 0.10511829846765071},
+      {1.1268590526221915, 0.05255525278797635}, {1.126861937922455, 8.770106364297218e-06},
+      {1.1268547526574297, -0.05254592994973477}, {1.1268623295498148, -0.10511265607691418},
+      {-1.0474999999999999, -0.292}, {-1.0474999999999999, 0.292}, {-1.0474999999999999, 0.0},
+      {0.0, 0.0}, {0.89225, 0.0}, {1.4605, 0.0}}};
+
 // C14's cluster shots 803 and 1435 (seed 0x5eed0c14): a straight line of 19 frozen balls struck
 // across. Late in each, a ball or a few roll sideways between still ones, their normals within
 // 1e-6 rad: 803's contact forces and 1435's held contact impulses gave up with 8e-8 m/s^2 and
@@ -384,6 +400,19 @@ TEST_CASE("simulate a ball creeping out between two in line comes to rest instea
         CHECK(ke <= last * (1.0 + 1e-9) + 1e-12);
         last = ke;
     }
+}
+
+TEST_CASE("simulate a ball creeping out past a neighbour that has just stopped comes to rest too") {
+    // The neighbour stopped in the same event and kept, until its next segment, the 1e-10 m/s it
+    // stopped with. Read as moving, it hid that the contact was opening, so the contact stayed held
+    // and its force fed the creeping ball its rolling losses back: it never stopped, and the shot
+    // ran to time_cap_s.
+    const PhysicsParams& p = file_params();
+    const ShotRecord r = simulate(input(kFuzz1_58624), table(), p);
+    CHECK_MESSAGE(r.anomalies.empty(), (r.anomalies.empty() ? std::string() : r.anomalies.front().detail));
+    CHECK(r.t_end < 20.0);
+    for (const BallState& b : r.final_state.balls) CHECK(at_rest(b));
+    CHECK(worst_overlap(r) <= kOverlapTolerance_m);
 }
 
 TEST_CASE("simulate C14's struck lines: a ball rolling sideways between two still ones keeps its contacts settled") {
