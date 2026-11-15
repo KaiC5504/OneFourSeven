@@ -476,7 +476,9 @@ func _strike(strike_mode: String, as_given: Dictionary = {}, given_id: String = 
 
 ## Chooses the camera sequence for the shot about to play (spec 8.5), logs it and starts it.
 func _start_cycle(playback: ShotPlayback, shot_id: String) -> void:
-	_plan = ShotCycle.plan(playback, _table_balls(), _table_cue(), bool(Settings.get_value("pocket_camera")), _pockets)
+	# A practice shot is played for what the cue ball does after the pot.
+	_plan = ShotCycle.plan(playback, _table_balls(), _table_cue(), bool(Settings.get_value("pocket_camera")), _pockets,
+			"practice" if _practice >= 0 and _mode == FREE_TABLE else "")
 	var fields := {"shot_id": shot_id, "sequence": _plan["sequence"]}
 	for key: String in ["ball", "pocket", "drop_t", "near_t"]:
 		if _plan.has(key):
@@ -663,7 +665,7 @@ func _turn_to_next() -> Dictionary:
 	# NextTarget's "ball" is already the label ("red 3").
 	return {"next_ball": String(target.get("ball", "")), "next_pocket": int(target.get("pocket", -1)),
 			"next_aim_rad": setup.aim_rad, "next_cut_deg": float(target.get("cut_deg", 0.0)),
-			"next_reason": String(target.get("reason", ""))}
+			"next_chance": float(target.get("chance", 0.0)), "next_reason": String(target.get("reason", ""))}
 
 
 func _set_playing(on: bool) -> void:

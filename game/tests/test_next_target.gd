@@ -1,6 +1,7 @@
 extends TestCase
-## NextTarget (spec 8.5, the return): the easiest clear pot by ghost-ball geometry, the preference
-## and its fallback, the nearest ball when nothing is clear, refusals of bad input, and its time.
+## NextTarget (spec 8.5, the return): the best clear pot by ghost-ball geometry (its chance against
+## the aim error a player makes, weighed by the ball's worth), the preference and when the other
+## kind is taken, the nearest ball when nothing is clear, refusals of bad input, and its time.
 ##
 ## Where a ball must go to drop is taken from the table shape, never from numbers written here: the
 ## expected line is the middle of the directions that Guides' straight-line geometry sends cleanly
@@ -119,10 +120,11 @@ func test_a_ball_on_a_path_sends_it_to_another_pot() -> void:
 	check_eq(result.get("pocket"), _pocket("middle_right"), "unblocked: the middle")
 	check_near(float(result.get("cut_deg", NAN)), float(middle["cut_deg"]), 1e-6, "middle cut")
 	check_near(float(result.get("aim_rad", NAN)), float(middle["aim_rad"]), 1e-9, "middle aim")
-	# A blue 0.5 m along the red's line to the middle.
+	# A blue 0.5 m along the red's line to the middle. The red is the only ball on, as in a match:
+	# with no rules the blue itself would be the pot.
 	var along: Array = middle["line"]
 	var on_object_path := [float(red[0]) + 0.5 * float(along[0]), float(red[1]) + 0.5 * float(along[1])]
-	var object_blocked := NextTarget.choose(_balls(open + [["blue", on_object_path]]), 0, "red")
+	var object_blocked := NextTarget.choose(_balls(open + [["blue", on_object_path]]), 0, "red", [1])
 	check_eq(object_blocked.get("pocket"), _pocket("bottom_right"), "object path blocked: the bottom right")
 	check_near(float(object_blocked.get("cut_deg", NAN)), float(corner["cut_deg"]), 1e-6, "bottom right cut")
 	# A blue 1.5R off the cue ball's line to the middle's ghost ball, 3R short of it, on the side
@@ -135,7 +137,7 @@ func test_a_ball_on_a_path_sends_it_to_another_pot() -> void:
 		side = [-float(side[0]), -float(side[1])]
 	var on_cue_path := [float(ghost[0]) - 3.0 * R * float(to_ghost[0]) + 1.5 * R * float(side[0]),
 			float(ghost[1]) - 3.0 * R * float(to_ghost[1]) + 1.5 * R * float(side[1])]
-	var cue_blocked := NextTarget.choose(_balls(open + [["blue", on_cue_path]]), 0, "red")
+	var cue_blocked := NextTarget.choose(_balls(open + [["blue", on_cue_path]]), 0, "red", [1])
 	check_eq(cue_blocked.get("pocket"), _pocket("bottom_right"), "cue path blocked: the bottom right")
 	check_eq(cue_blocked.get("index"), 1, "still the red")
 
@@ -202,11 +204,11 @@ func test_equal_pots_take_the_higher_value() -> void:
 
 func test_no_clear_pot_aims_at_the_nearest_preferred_ball() -> void:
 	# The cue ball, a blue and two reds in one line: the blue is within a ball's width of the cue
-	# ball's path to every ghost ball. The nearer red, (1.0, 0.2), is listed second; the aim goes
-	# straight at it, atan2(0.4, 2.0). The blue is nearer still but not preferred.
+	# ball's path to every red's ghost ball. With the reds the balls on, the aim goes straight at the
+	# nearer, (1.0, 0.2), listed second: atan2(0.4, 2.0). The blue is nearer still but not on.
 	var balls := _balls([["cue", [-1.0, -0.2]], ["blue", [0.0, 0.0]], ["red", [1.5, 0.3]], ["red", [1.0, 0.2]]])
 	_mark_log()
-	var result := NextTarget.choose(balls, 0, "red")
+	var result := NextTarget.choose(balls, 0, "red", [2, 3])
 	check_eq(result.get("index"), 3, "the nearer red")
 	check_eq(result.get("ball"), "red 1", "label")
 	check_eq(result.get("pocket"), -1, "no pocket")
@@ -214,7 +216,16 @@ func test_no_clear_pot_aims_at_the_nearest_preferred_ball() -> void:
 	check_eq(result.get("score"), 0.0, "no score")
 	check_near(float(result.get("aim_rad", NAN)), atan2(0.4, 2.0), 1e-12, "straight at it")
 	check_eq(result.get("reason"), "no clear pot", "reason")
+	check_eq(result.get("chance"), 0.0, "no chance")
 	check_eq(_logged("app.error").size(), 0, "not an error")
+	# With no rules the blue's pot is the pick: a pot of the other kind beats no pot at all.
+	var free := NextTarget.choose(balls, 0, "red")
+	check_eq([free.get("ball"), free.get("reason")], ["blue", ""], "no rules: the blue")
+	check(int(free.get("pocket", -1)) >= 0 and float(free.get("chance", 0.0)) > 0.0, "with a pocket and a chance")
+	# And with only colours no better off, straight at the nearest red again.
+	var none := NextTarget.choose(_balls([["cue", [-1.0, -0.2]], ["red", [0.0, 0.0]], ["red", [1.5, 0.3]], ["red", [1.0, 0.2]]]),
+			0, "colour", [2, 3])
+	check_eq([none.get("index"), none.get("reason")], [3, "no clear pot"], "nothing clear at all")
 
 
 func test_only_the_cue_ball_gives_nothing() -> void:
@@ -267,26 +278,91 @@ func test_along_the_cushion_into_a_middle_is_rejected() -> void:
 
 
 func test_opening_break_position() -> void:
-	# From the opening cue position every red is in the pack: no clear pot, so the aim goes at the
-	# apex red. The blue off its spot into the top left (a cut of some 19 degrees) is the easiest colour.
+	# From the opening cue position every red is in the pack. With the reds the balls on there is no
+	# clear pot, so the aim goes at the apex red. With no rules the brown beside the cue ball, into
+	# the bottom left, is the pick whichever kind is preferred: a short cut beats the long blue.
 	var layout := FreeTable._opening_layout()
 	check_eq(layout.size(), 22, "full layout")
+	var reds: Array = []
+	for i in layout.size():
+		if layout[i]["ball"] == "red":
+			reds.append(i)
 	_mark_log()
-	var red := NextTarget.choose(layout, 0, "red")
+	var red := NextTarget.choose(layout, 0, "red", reds)
 	check_eq(red.get("ball"), "red 0", "the apex red")
 	check_eq(red.get("pocket"), -1, "nothing clear")
 	check_eq(red.get("reason"), "no clear pot", "reason")
 	check_near(float(red.get("aim_rad", NAN)), atan2(float(layout[1]["y"]) - float(layout[0]["y"]),
 			float(layout[1]["x"]) - float(layout[0]["x"])), 1e-12, "straight at the apex")
-	var colour := NextTarget.choose(layout, 0, "colour")
-	check_eq(colour.get("ball"), "blue", "the blue")
-	check_eq(colour.get("pocket"), _pocket("top_left"), "top left")
-	var blue := _pot([float(layout[colour.get("index", 0)]["x"]), float(layout[colour.get("index", 0)]["y"])],
-			[float(layout[0]["x"]), float(layout[0]["y"])], _pocket("top_left"))
-	check_near(float(colour.get("cut_deg", NAN)), float(blue.get("cut_deg", NAN)), 1e-6, "cut")
-	check(float(blue.get("cut_deg", 0.0)) > 15.0 and float(blue.get("cut_deg", 90.0)) < 25.0, "about 19 degrees: %s" % blue.get("cut_deg"))
-	check(is_finite(float(colour.get("aim_rad", NAN))) and float(colour.get("score", 0.0)) > 0.0, "finite aim and a score")
+	for prefer: String in ["red", "colour"]:
+		var colour := NextTarget.choose(layout, 0, prefer)
+		check_eq(colour.get("ball"), "brown", prefer + ": the brown")
+		check_eq(colour.get("pocket"), _pocket("bottom_left"), prefer + ": bottom left")
+		var brown := _pot([float(layout[colour.get("index", 0)]["x"]), float(layout[colour.get("index", 0)]["y"])],
+				[float(layout[0]["x"]), float(layout[0]["y"])], _pocket("bottom_left"))
+		check_near(float(colour.get("cut_deg", NAN)), float(brown.get("cut_deg", NAN)), 1e-6, prefer + ": cut")
+		check(is_finite(float(colour.get("aim_rad", NAN))) and float(colour.get("score", 0.0)) > 0.0, prefer + ": finite aim and a score")
+		check(float(colour.get("chance", 0.0)) > 0.5 and float(colour.get("chance", 1.0)) <= NextTarget.MAX_CHANCE, prefer + ": a fair chance")
 	check_eq(_logged("app.error").size(), 0, "no errors")
+
+
+func test_a_far_colour_gives_way_to_an_easy_red() -> void:
+	# KaiC's sessions of 2026-11-15: after a red the pick was a colour however far, and he played
+	# the red beside the cue ball instead. A blue on its spot with the cue ball 1.6 m off at a
+	# 30 degree cut, and a red straight into the top left from 0.3 m.
+	var red := [HALF_LENGTH - 0.3 * DIAG, HALF_WIDTH - 0.3 * DIAG]
+	var cue := [float(red[0]) - (0.3 + 2.0 * R) * DIAG, float(red[1]) - (0.3 + 2.0 * R) * DIAG]
+	var balls := _balls([["cue", cue], ["red", red], ["blue", [0.0, 0.0]]])
+	var ranked := NextTarget.rank_on(Physics.table_shape(), OfsTable.dimensions(), balls, 0, "colour", [], 8)
+	check(ranked.size() >= 2, "both are pots: %d" % ranked.size())
+	check_eq(ranked[0].get("ball"), "red 0", "the red first, though a colour is preferred")
+	var blue := {}
+	for entry in ranked:
+		if entry["ball"] == "blue" and blue.is_empty():
+			blue = entry
+	check(not blue.is_empty(), "the blue is ranked")
+	if not blue.is_empty():
+		check(float(blue["chance"]) < 0.6 * float(ranked[0]["chance"]), "the blue is the far harder pot: %s against %s"
+				% [blue["chance"], ranked[0]["chance"]])
+	for i in range(1, ranked.size()):
+		check(float(ranked[i - 1]["score"]) >= float(ranked[i]["score"]), "best first")
+	# The blue is the only ball on in a match: it is the pick however hard.
+	check_eq(NextTarget.choose(balls, 0, "colour", [2]).get("ball"), "blue", "a match keeps to the ball on")
+	# A colour as easy as the red is the pick whichever kind is preferred: mirror images across the
+	# long axis, the red into the top left and the black into the top right.
+	var level := _balls([["cue", [0.5, 0.0]], ["red", [1.2, 0.3]], ["black", [1.2, -0.3]]])
+	check_eq(NextTarget.choose(level, 0, "colour").get("ball"), "black", "an easy colour after a red")
+	check_eq(NextTarget.choose(level, 0, "red").get("ball"), "red 0", "and the red when a red is on")
+
+
+func test_chance_falls_with_distance_cut_and_a_squeeze() -> void:
+	# A red on the top-left axis 0.4 m out, the cue ball straight behind it.
+	var o := [HALF_LENGTH - 0.4 * DIAG, HALF_WIDTH - 0.4 * DIAG]
+	var chances: Array[float] = []
+	for back: float in [0.3, 1.0, 2.0]:
+		var cue := [float(o[0]) - (back + 2.0 * R) * DIAG, float(o[1]) - (back + 2.0 * R) * DIAG]
+		chances.append(float(NextTarget.choose(_balls([["cue", cue], ["red", o]]), 0, "red").get("chance", 0.0)))
+	check(chances[0] > chances[2] and chances[0] >= chances[1] and chances[1] >= chances[2], "further is harder: %s" % [chances])
+	check(chances[0] <= NextTarget.MAX_CHANCE and chances[0] > 0.85, "a short straight pot is as good as it gets: %s" % chances[0])
+	# The same distance at a cut.
+	var g := [float(o[0]) - 2.0 * R * DIAG, float(o[1]) - 2.0 * R * DIAG]
+	var cut_chances: Array[float] = []
+	for cut: float in [0.0, 30.0, 60.0]:
+		var line := deg_to_rad(45.0 - cut)
+		var cue := [float(g[0]) - 1.0 * cos(line), float(g[1]) - 1.0 * sin(line)]
+		var result := NextTarget.choose(_balls([["cue", cue], ["red", o]]), 0, "red")
+		check_eq(result.get("pocket"), _pocket("top_left"), "%d degrees: the top left" % cut)
+		cut_chances.append(float(result.get("chance", 0.0)))
+	check(cut_chances[0] > cut_chances[1] and cut_chances[1] > cut_chances[2], "a thinner cut is harder: %s" % [cut_chances])
+	# A ball just clear of the cue ball's path leaves less room than an open table.
+	var cue := [float(o[0]) - (1.0 + 2.0 * R) * DIAG, float(o[1]) - (1.0 + 2.0 * R) * DIAG]
+	var open := NextTarget.choose(_balls([["cue", cue], ["red", o]]), 0, "red", [1])
+	var beside := [float(cue[0]) + 0.5 * DIAG + (2.0 * R + 0.0002) * DIAG, float(cue[1]) + 0.5 * DIAG - (2.0 * R + 0.0002) * DIAG]
+	var squeezed := NextTarget.choose(_balls([["cue", cue], ["red", o], ["blue", beside]]), 0, "red", [1])
+	check_eq(squeezed.get("pocket"), _pocket("top_left"), "the squeeze is still a pot")
+	check(float(squeezed.get("margin_rad", 1.0)) < float(open.get("margin_rad", 0.0)), "with less margin: %s against %s"
+			% [squeezed.get("margin_rad"), open.get("margin_rad")])
+	check_near(float(squeezed.get("margin_rad", 0.0)), 0.0002 / 0.5, 2.0e-5, "the gap over the distance to it")
 
 
 func test_bad_input_returns_nothing_and_logs() -> void:

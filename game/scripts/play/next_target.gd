@@ -1,14 +1,19 @@
 class_name NextTarget
 extends RefCounted
 ## Picks where the aim turns after a shot, as the camera swoops back behind the cue ball: the
-## easiest clear pot, preferring the kind of ball that would be on.
+## best pot on the table, which is the one most likely to go in, weighed by what the ball is worth.
 ##
-## Ghost-ball geometry on straight lines. Each preferred ball and pocket gives the line a ball must
-## take to drop (the middle of what it can see of the hole between the jaws), the ghost ball touching
-## the object ball on that line, and the cut between the cue ball's path to the ghost and the object
+## Ghost-ball geometry on straight lines. Each ball and pocket gives the line a ball must take to
+## drop (the middle of what it can see of the hole between the jaws), the ghost ball touching the
+## object ball on that line, and the cut between the cue ball's path to the ghost and the object
 ## ball's path. A pot is clear when no ball comes within a ball's width of either path, the ghost is
 ## on the cloth, and the object ball's centre reaches the pocket's drop circle before touching a
 ## nose, jaw or facing.
+##
+## Its chance is how much aim error it forgives against the error a player makes: the pocket's
+## width seen from the object ball, less where a ball beside either path narrows it, shrunk by the
+## cue ball's travel and the cut. A long pot, a thin cut, a tight angle into a pocket and a squeeze
+## past another ball all cost what they cost a player.
 
 const VALUES := {"red": 1, "yellow": 2, "green": 3, "brown": 4, "blue": 5, "pink": 6, "black": 7}
 const PREFERENCES: Array[String] = ["red", "colour", "any"]
@@ -18,24 +23,45 @@ const MAX_CUT_DEG := 75.0
 ## Off a middle pocket's axis. Its mouth closes up from the side: balls still go in cleanly at 75
 ## degrees, through a few millimetres; to 50 it stays wider than a corner pocket's at its best.
 const MAX_MIDDLE_APPROACH_DEG := 50.0
-# Ease = cos^2(cut) / (1 + CUE_COST * cue travel + OBJECT_COST * object travel), per metre: an aim
-# error grows along both paths alike, and any sum under 20/m keeps a 30 degree cut over 1 m (0.25)
-# ahead of a 60 degree cut over 0.3 m (0.156).
-const CUE_COST_PER_M := 1.0
-const OBJECT_COST_PER_M := 1.0
+# A pot's chance is MAX_CHANCE * erf(margin / (sigma * sqrt(2))), with sigma the aim error (one
+# standard deviation) the margin is set against: AIM_SIGMA_RAD straight on, growing by
+# CUT_SIGMA_PER_RAD of itself for each radian of cut (a cut throws the object ball off the ghost
+# ball's line by an amount that depends on pace, which the player has to allow for). Fitted to
+# KaiC's own shots, 262 logged on 2026-11-15: with a milliradian or more of margin he potted 62 of
+# 63 under 15 degrees of cut, 34 of 44 from 15 to 30 and 9 of 14 from 30 to 45; and about one easy
+# pot in ten still stays out.
+const AIM_SIGMA_RAD := 0.0002
+const CUT_SIGMA_PER_RAD := 5.7
+const MAX_CHANCE := 0.9
+## Between pots as good as certain the one that forgives more comes first: this much of a pot's
+## worth at most, less than the step from one colour to the next.
+const EASE_TIE := 0.02
+const EASE_TIE_RAD := 0.001
+## What keeping the break going is worth beside the ball's own points: a pot scores its chance
+## times (value + this), so the black is taken over the blue while its chance is at least 0.91 of
+## the blue's.
+const BREAK_POINTS := 16.0
+## With no rules, a ball of the kind that wouldn't be on counts this much of its worth: a red after
+## a red is the pick once the best colour's chance is under 0.6 or so of the red's (he played the
+## red in 65 of 91 such cases the logs hold).
+const OTHER_KIND := 0.6
+const WORTH_MAX := (7.0 + BREAK_POINTS) * (MAX_CHANCE + EASE_TIE)
 ## Shorter paths than this have no direction.
 const MIN_TRAVEL_M := 1.0e-9
 # Tolerances as Guides uses them: already touching, arc ends and segment ends.
 const TOUCH_EPS := 1.0e-12
 const ANGLE_EPS := 1.0e-9
 const SEGMENT_EPS := 1.0e-9
-# Candidates sort natively as one PackedInt64Array of (QUANT - score * QUANT) << 14 | (7 - value)
-# << 11 | candidate, so the easiest comes first, then the higher value, then the earlier ball and
-# pocket. A valid table has at most 21 object balls, far below the 2048 candidates 11 bits hold.
+# Candidates sort natively as one PackedInt64Array of (QUANT - score / WORTH_MAX * QUANT) << 14 |
+# (7 - value) << 11 | candidate, so the best comes first, then the higher value, then the earlier
+# ball and pocket. A valid table has at most 21 object balls, far below the 2048 candidates 11
+# bits hold.
 const QUANT := 1099511627776.0
 const CANDIDATE_MASK := 2047
-## Floats stored per candidate: target x, y, ghost x, y, object direction x, y, score.
-const CANDIDATE_STRIDE := 7
+## Floats stored per candidate: target x, y, ghost x, y, object direction x, y, score with both
+## paths clear, the pocket's half width from the object ball, the aim error per radian of that,
+## the pot's worth, and the aim error its margin is set against.
+const CANDIDATE_STRIDE := 11
 ## Per side of a mouth: where the drop circle meets the cushion a ball's radius out (x, y; NAN when
 ## it doesn't), then that side's jaw as a ball's centre meets it: centre x, y, radius plus a ball's
 ## (0 without a jaw), and unit vectors from that centre to the two ends, anticlockwise, of the arc a
@@ -47,8 +73,8 @@ const POCKET_STRIDE := 6 + 2 * MOUTH_SIDE
 
 
 ## balls are FreeTable balls ({"ball", "index", "x", "y"} in core metres); prefer is "red",
-## "colour" or "any". Returns {"index", "ball", "pocket", "aim_rad", "cut_deg", "score",
-## "reason"}; pocket is -1 and reason "no clear pot" when it aims straight at the nearest
+## "colour" or "any". Returns {"index", "ball", "pocket", "aim_rad", "cut_deg", "chance", "score",
+## "margin_rad" (the aim error either way that still pots), "reason"}; pocket is -1 and reason "no clear pot" when it aims straight at the nearest
 ## preferred ball instead. {} when there is no object ball.
 ## among, when not empty, is the places in `balls` it may choose from (a match's balls on); places
 ## that hold no object ball are passed over, and with none left it chooses as if among were empty.
@@ -61,10 +87,19 @@ static func choose(balls: Array[Dictionary], cue_ball: int, prefer: String, amon
 ## app.error and returns {}.
 static func choose_on(shape: Dictionary, dims: Dictionary, balls: Array[Dictionary], cue_ball: int,
 		prefer: String, among: Array = []) -> Dictionary:
+	var ranked := rank_on(shape, dims, balls, cue_ball, prefer, among, 1)
+	return ranked[0] if not ranked.is_empty() else {}
+
+
+## The best `count` pots, best first, each as choose returns it; when there is none, the one
+## "no clear pot" entry choose falls back to. [] for bad input or no object ball.
+static func rank_on(shape: Dictionary, dims: Dictionary, balls: Array[Dictionary], cue_ball: int,
+		prefer: String, among: Array = [], count: int = 1) -> Array[Dictionary]:
+	var ranked: Array[Dictionary] = []
 	var problem := _input_problem(shape, dims, balls, cue_ball, prefer)
 	if not problem.is_empty():
 		Log.warn("app", "app.error", {"kind": "message", "message": "NextTarget: %s; the aim stays where it was" % problem})
-		return {}
+		return ranked
 	var r := float(dims["ball_radius"])
 	var half_x := float(dims["playing_length"]) / 2.0 - r + FreeTable.OUTSIDE_SLACK
 	var half_y := float(dims["playing_width"]) / 2.0 - r + FreeTable.OUTSIDE_SLACK
@@ -89,19 +124,23 @@ static func choose_on(shape: Dictionary, dims: Dictionary, balls: Array[Dictiona
 		if prefer == "any" or (prefer == "red" and red) or (prefer == "colour" and not red):
 			preferred.append(i)
 	if objects.is_empty():
-		return {}
+		return ranked
 	var listed: Array[int] = []
 	for place: Variant in among:
 		# Places read from JSON are floats.
 		if (place is int or place is float) and objects.has(int(place)) and not listed.has(int(place)):
 			listed.append(int(place))
 	listed.sort()
+	# A match's balls on are the only ones to choose from. With no rules any ball may be played:
+	# the kind that would be on counts in full, the other kind when its pot is that much better.
+	var pool := objects
 	if not listed.is_empty():
 		var wanted: Array[int] = []
 		for i in preferred:
 			if listed.has(i):
 				wanted.append(i)
 		preferred = wanted if not wanted.is_empty() else listed
+		pool = preferred
 	if preferred.is_empty():
 		preferred = objects
 
@@ -115,13 +154,14 @@ static func choose_on(shape: Dictionary, dims: Dictionary, balls: Array[Dictiona
 	var cand_ball := PackedInt32Array()
 	var cand_pocket := PackedInt32Array()
 	var cand := PackedFloat64Array()
-	cand.resize(preferred.size() * pockets.size() * CANDIDATE_STRIDE)
+	cand.resize(pool.size() * pockets.size() * CANDIDATE_STRIDE)
 	var keys := PackedInt64Array()
 	var line := PackedFloat64Array([0.0, 0.0, 0.0, 0.0])
-	for i in preferred:
+	for i in pool:
 		var ox := xs[i]
 		var oy := ys[i]
 		var value := int(VALUES[String(balls[i]["ball"])])
+		var worth := (value + BREAK_POINTS) * (1.0 if preferred.has(i) else OTHER_KIND)
 		for p in pockets.size():
 			var k := p * POCKET_STRIDE
 			if not _pot_line(pocket_data, k, ox, oy, line):
@@ -141,9 +181,13 @@ static func choose_on(shape: Dictionary, dims: Dictionary, balls: Array[Dictiona
 			var cos_cut := (vx * ux + vy * uy) / travel if travel > MIN_TRAVEL_M else 1.0
 			if cos_cut < cos_max_cut:
 				continue
-			var score := cos_cut * cos_cut / (1.0 + CUE_COST_PER_M * travel + OBJECT_COST_PER_M * length)
+			# The aim error that still pots: the pocket's half width seen from the object ball, brought
+			# back through the contact (2R cos(cut) of ghost-ball travel per radian) to the cue ball.
+			var gearing := 2.0 * r * cos_cut / maxf(travel, 2.0 * r)
+			var sigma := AIM_SIGMA_RAD * (1.0 + CUT_SIGMA_PER_RAD * acos(minf(cos_cut, 1.0)))
+			var score := _pot_score(line[3] * gearing, sigma) * worth
 			var c := cand_ball.size()
-			keys.append((int(QUANT - score * QUANT) << 14) | ((7 - value) << 11) | c)
+			keys.append((int(QUANT - score / WORTH_MAX * QUANT) << 14) | ((7 - value) << 11) | c)
 			cand_ball.append(i)
 			cand_pocket.append(p)
 			var j := c * CANDIDATE_STRIDE
@@ -154,36 +198,61 @@ static func choose_on(shape: Dictionary, dims: Dictionary, balls: Array[Dictiona
 			cand[j + 4] = ux
 			cand[j + 5] = uy
 			cand[j + 6] = score
+			cand[j + 7] = line[3]
+			cand[j + 8] = gearing
+			cand[j + 9] = worth
+			cand[j + 10] = sigma
 	keys.sort()
 
 	var lines := _packed_lines(shape["lines"])
 	var arcs := _packed_arcs(shape["arcs"], r)
-	var min_d2 := 4.0 * r * r
+	# The count-th best score so far: a candidate that can't beat it even with clear paths ends the
+	# search.
+	var floor_score := -1.0
 	for key in keys:
 		var c := key & CANDIDATE_MASK
+		var j := c * CANDIDATE_STRIDE
+		if ranked.size() >= count and cand[j + 6] <= floor_score:
+			break
 		var i := cand_ball[c]
 		var p := cand_pocket[c]
-		var j := c * CANDIDATE_STRIDE
 		var tx := cand[j]
 		var ty := cand[j + 1]
 		var gx := cand[j + 2]
 		var gy := cand[j + 3]
 		var ux := cand[j + 4]
 		var uy := cand[j + 5]
-		if _path_blocked(xs, ys, on_table, cue_ball, i, cx, cy, gx, gy, min_d2) \
-				or _path_blocked(xs, ys, on_table, cue_ball, i, xs[i], ys[i], tx, ty, min_d2):
+		# Each path's room: how far it can turn before a ball beside it is in the way.
+		var cue_room := _room(xs, ys, on_table, cue_ball, i, cx, cy, gx, gy, r)
+		if cue_room < 0.0:
+			continue
+		var object_room := _room(xs, ys, on_table, cue_ball, i, xs[i], ys[i], tx, ty, r)
+		if object_room < 0.0:
 			continue
 		var k := p * POCKET_STRIDE
 		if not _reaches_pocket(xs[i], ys[i], ux, uy, pocket_data[k], pocket_data[k + 1], pocket_data[k + 2], lines, arcs, r):
 			continue
+		var margin := minf(minf(cand[j + 7], object_room) * cand[j + 8], cue_room)
+		var chance := _chance(margin, cand[j + 10])
+		var score := _pot_score(margin, cand[j + 10]) * cand[j + 9]
 		var vx := gx - cx
 		var vy := gy - cy
 		if vx * vx + vy * vy < MIN_TRAVEL_M * MIN_TRAVEL_M:
 			vx = ux
 			vy = uy
-		return {"index": i, "ball": FreeTable._ball_label(balls[i]), "pocket": p, "aim_rad": atan2(vy, vx),
-				"cut_deg": rad_to_deg(atan2(absf(vx * uy - vy * ux), vx * ux + vy * uy)), "score": cand[j + 6],
-				"reason": ""}
+		var entry := {"index": i, "ball": FreeTable._ball_label(balls[i]), "pocket": p, "aim_rad": atan2(vy, vx),
+				"cut_deg": rad_to_deg(atan2(absf(vx * uy - vy * ux), vx * ux + vy * uy)), "chance": chance, "score": score,
+				"margin_rad": margin, "reason": ""}
+		var at := ranked.size()
+		while at > 0 and float(ranked[at - 1]["score"]) < score:
+			at -= 1
+		ranked.insert(at, entry)
+		if ranked.size() > count:
+			ranked.resize(count)
+		if ranked.size() >= count:
+			floor_score = float(ranked[count - 1]["score"])
+	if not ranked.is_empty():
+		return ranked
 
 	var nearest := preferred[0]
 	var nearest_d2 := INF
@@ -192,8 +261,26 @@ static func choose_on(shape: Dictionary, dims: Dictionary, balls: Array[Dictiona
 		if d2 < nearest_d2:
 			nearest = i
 			nearest_d2 = d2
-	return {"index": nearest, "ball": FreeTable._ball_label(balls[nearest]), "pocket": -1,
-			"aim_rad": atan2(ys[nearest] - cy, xs[nearest] - cx), "cut_deg": 0.0, "score": 0.0, "reason": "no clear pot"}
+	ranked.append({"index": nearest, "ball": FreeTable._ball_label(balls[nearest]), "pocket": -1,
+			"aim_rad": atan2(ys[nearest] - cy, xs[nearest] - cx), "cut_deg": 0.0, "chance": 0.0, "score": 0.0,
+			"margin_rad": 0.0, "reason": "no clear pot"})
+	return ranked
+
+
+## The chance of a pot that forgives `margin` radians of aim either way, played with an aim error
+## of sigma.
+static func _chance(margin: float, sigma: float) -> float:
+	return MAX_CHANCE * _erf(margin / (sigma * sqrt(2.0)))
+
+
+static func _pot_score(margin: float, sigma: float) -> float:
+	return _chance(margin, sigma) + EASE_TIE * margin / (margin + EASE_TIE_RAD)
+
+
+## The error function for x >= 0 (Abramowitz and Stegun 7.1.26, good to 1.5e-7).
+static func _erf(x: float) -> float:
+	var t := 1.0 / (1.0 + 0.3275911 * x)
+	return 1.0 - ((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * exp(-x * x)
 
 
 static func _input_problem(shape: Dictionary, dims: Dictionary, balls: Array[Dictionary], cue_ball: int,
@@ -425,12 +512,16 @@ static func _pot_line(mouths: PackedFloat64Array, k: int, ox: float, oy: float, 
 	return true
 
 
-## Whether a ball other than skip_a and skip_b comes within sqrt(min_d2) of the segment a to b.
-static func _path_blocked(xs: PackedFloat64Array, ys: PackedFloat64Array, on_table: PackedByteArray, skip_a: int,
-		skip_b: int, ax: float, ay: float, bx: float, by: float, min_d2: float) -> bool:
+## How far, in radians at a, the path from a to b can turn before a ball other than skip_a and
+## skip_b is in its way: the least, over the balls ahead of a, of their clearance from the path
+## over their distance along it. INF with nothing near; -1 when a ball is already in the way.
+static func _room(xs: PackedFloat64Array, ys: PackedFloat64Array, on_table: PackedByteArray, skip_a: int,
+		skip_b: int, ax: float, ay: float, bx: float, by: float, r: float) -> float:
 	var dx := bx - ax
 	var dy := by - ay
 	var length2 := dx * dx + dy * dy
+	var length := sqrt(length2)
+	var room := INF
 	for j in xs.size():
 		if j == skip_a or j == skip_b or on_table[j] == 0:
 			continue
@@ -439,9 +530,13 @@ static func _path_blocked(xs: PackedFloat64Array, ys: PackedFloat64Array, on_tab
 		var s := clampf((wx * dx + wy * dy) / length2, 0.0, 1.0) if length2 > 0.0 else 0.0
 		var ex := wx - s * dx
 		var ey := wy - s * dy
-		if ex * ex + ey * ey < min_d2:
-			return true
-	return false
+		var gap2 := ex * ex + ey * ey
+		if gap2 < 4.0 * r * r:
+			return -1.0
+		# A ball level with a or behind it is never turned into.
+		if s > 0.0:
+			room = minf(room, (sqrt(gap2) - 2.0 * r) / (s * length))
+	return room
 
 
 ## Whether a ball of radius r sent from o along the unit (ux, uy) reaches the drop circle before

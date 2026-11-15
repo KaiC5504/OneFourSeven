@@ -1252,6 +1252,10 @@
           "type": "number",
           "required": false
         },
+        "next_chance": {
+          "type": "number",
+          "required": false
+        },
         "next_reason": {
           "type": "string",
           "required": false

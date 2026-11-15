@@ -41,6 +41,15 @@ class Shot:
             # a ball measured a fraction inside a cushion lies against it; the game refuses one past the nose
             self.start.append({"ball": b["ball"], "index": i,
                                "r": [max(R - HALF_L, min(HALF_L - R, float(b["r"][0]))), max(R - HALF_W, min(HALF_W - R, float(b["r"][1])))]})
+        # balls measured overlapping lie touching: the later one moves out along the line of centres,
+        # as the simulator would move it (and warn at every shot)
+        for i in range(len(self.start)):
+            for j in range(i + 1, len(self.start)):
+                a, b = self.start[i]["r"], self.start[j]["r"]
+                gap = math.hypot(b[0] - a[0], b[1] - a[1])
+                if gap < 2 * R:
+                    k = (2 * R + 2e-6) / gap
+                    self.start[j]["r"] = [round(a[0] + (b[0] - a[0]) * k, 7), round(a[1] + (b[1] - a[1]) * k, 7)]
         self.cue = self.start[0]["r"]
         ob = self.d["object_ball"]
         self.object = self.index_of(ob["ball"], ob.get("r"))

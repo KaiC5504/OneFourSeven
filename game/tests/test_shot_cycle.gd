@@ -170,6 +170,69 @@ func _miss(pocket: int, contact_t: float, arrive_t: float, short_m: float) -> Sc
 	return playback
 
 
+## _pot with the cue ball's run after the pot: `then` is [[t, kind, body or the ball hit], ...] and
+## the cue ball runs from (0.9, 0.3) at contact_t to `to` at the last of them.
+func _pot_then(pocket: int, then: Array, to: Vector2) -> ScriptedPlayback:
+	var playback := _pot(pocket, 0.4, 1.6)
+	for step: Array in then:
+		var cannon: bool = step[1] == "ball_ball"
+		playback.scripted_events.append({"t": float(step[0]), "kind": step[1], "a": 0, "b": int(step[2]) if cannon else -1,
+				"body": -1 if cannon else int(step[2])})
+	playback.scripted_events.sort_custom(func(x: Dictionary, y: Dictionary) -> bool: return float(x["t"]) < float(y["t"]))
+	playback.runs[0] = [Vector2(0.9, 0.3), to, 0.4, float(then[-1][0])]
+	return playback
+
+
+func test_a_cue_ball_worth_watching_keeps_the_full_table() -> void:
+	var top_left := _pocket("top_left")
+	var far := Vector2(-0.5, -0.4)
+	var cases := [
+		["a cannon off a cushion", [[1.0, "ball_line", 2], [2.0, "ball_ball", 2]], far, true],
+		["a cannon after a long run", [[2.0, "ball_ball", 2]], far, true],
+		["a nudge into the next ball", [[0.6, "ball_ball", 2]], Vector2(0.9, 0.1), false],
+		["three cushions", [[1.0, "ball_line", 2], [1.5, "ball_line", 5], [2.2, "ball_line", 7]], far, true],
+		["two cushions and no ball", [[1.0, "ball_line", 2], [1.5, "ball_line", 5]], far, false],
+		["along one cushion, touching it three times", [[1.0, "ball_line", 2], [1.1, "ball_line", 2], [1.2, "ball_line", 2]], far, false],
+		["a second kiss on the same ball", [[1.0, "ball_line", 2], [2.0, "ball_ball", 1]], far, false],
+		["an in-off after a cushion", [[1.0, "ball_line", 2], [1.5, "pocket", 3], [2.0, "ball_ball", 2]], far, false],
+	]
+	for case: Array in cases:
+		var playback := _pot_then(top_left, case[1], case[2])
+		check_eq(ShotCycle.journey(playback, 0), case[3], "%s: whether it is a journey" % case[0])
+		var plan := ShotCycle.plan(playback, _balls(), 0, true, _pockets())
+		check_eq(plan["sequence"], "broadcast" if case[3] else "pocket", "%s: the view" % case[0])
+		if case[3]:
+			check_eq(plan["reason"], ShotCycle.JOURNEY_REASON, "%s: why" % case[0])
+			check_eq([plan.get("ball"), plan.get("pocket"), (plan["pots"] as Array).size()], ["red 3", top_left, 1],
+					"%s: the pot is still the shot's" % case[0])
+			check_eq(ShotCycle.cut_time(plan), ShotCycle.CUT_T, "%s: the cut is the usual one" % case[0])
+	# An attempt that stays out is watched the same way, so the view doesn't say which it is.
+	var missed := _miss(top_left, 0.4, 1.6, 0.06)
+	missed.scripted_events.append({"t": 2.0, "kind": "ball_line", "a": 0, "b": -1, "body": 2})
+	missed.scripted_events.append({"t": 3.0, "kind": "ball_ball", "a": 0, "b": 2, "body": -1})
+	missed.runs[0] = [Vector2(0.9, 0.3), far, 0.4, 3.0]
+	var plan := ShotCycle.plan(missed, _balls(), 0, true, _pockets())
+	check_eq([plan["sequence"], plan["reason"]], ["broadcast", ShotCycle.JOURNEY_REASON], "a miss with the same run")
+	# Before the first ball nothing counts: a cushion-first shot is no journey by that.
+	var cushion_first := _pot(top_left, 0.4, 1.6)
+	cushion_first.scripted_events.insert(1, {"t": 0.2, "kind": "ball_line", "a": 0, "b": -1, "body": 2})
+	check(not ShotCycle.journey(cushion_first, 0), "a cushion before the first ball")
+
+
+func test_a_practice_shot_is_watched_from_the_full_table() -> void:
+	var top_left := _pocket("top_left")
+	var plan := ShotCycle.plan(_pot(top_left, 0.4, 1.6), _balls(), 0, true, _pockets(), "practice")
+	check_eq([plan["sequence"], plan["reason"]], ["broadcast", "practice"], "a pot")
+	check_eq((plan["pots"] as Array).size(), 1, "which still scores")
+	plan = ShotCycle.plan(_miss(top_left, 0.4, 1.6, 0.06), _balls(), 0, true, _pockets(), "practice")
+	check_eq([plan["sequence"], plan["reason"]], ["broadcast", "practice"], "an attempt that stays out")
+	var quiet := ScriptedPlayback.new()
+	quiet.scripted_events = [{"t": 0.0, "kind": "strike", "a": 0, "b": -1, "body": -1}]
+	check_eq(ShotCycle.plan(quiet, _balls(), 0, true, _pockets(), "practice")["reason"], "no pot", "no pot keeps its own reason")
+	check_eq(ShotCycle.plan(_pot(top_left, 0.4, 1.6), _balls(), 0, false, _pockets(), "practice")["reason"], "setting off",
+			"and so does the setting")
+
+
 func test_a_ball_played_at_a_pocket_that_stays_out_gets_the_same_pocket_camera() -> void:
 	# KaiC: the cut must not tell him whether the pot goes in.
 	var top_left := _pocket("top_left")
