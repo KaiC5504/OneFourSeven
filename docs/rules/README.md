@@ -27,8 +27,8 @@ arise.
   colour could be on, and the declared colour is on. Colours in order (`colour`): that colour.
 - The striker's declaration is `ShotInput::nominated`. It counts only when it is a colour on the
   table that `nominations()` lists; anything else is ignored and logged as `rules.invalid`.
-- No declaration given where one was open: the first ball hit is taken as declared (the referee
-  asks only when it is not obvious, S2.12). If no ball was hit and exactly one ball that could be
+- No declaration given where one was open: the first ball hit, when it is one ball, is taken as
+  declared (the referee asks only when it is not obvious, S2.12). If no ball was hit and exactly one ball that could be
   on was touching the cue ball and did not move, that ball is taken as declared (S3.8(c)(ii)).
   Otherwise nothing was declared.
 - A colour of choice on, nothing declared: hitting a red first is `reds_in_succession`, 7
@@ -138,7 +138,8 @@ player (`three_misses`).
   play trails, the frame is awarded to the other (S2.1(c)) at once; when they lead, `claim_frame`
   is among their options and they may play on (S2.1(b)).
 - `concede_frame` (S4.2): offered to a player with nothing pending when `concede_any_time` is set
-  for them or any player requires penalty points. `concede_match` is always offered.
+  for them or any player requires penalty points; `concede_match` likewise with nothing pending.
+  A concession takes effect at once: there is nobody to decline it (S4.2(a)).
 - Three misses (S3.14(d)(ii)) as above.
 
 ## Stalemate (S3.17; spec 9.1 leaves the thresholds to us)
@@ -148,9 +149,10 @@ A stroke is quiet when nothing is potted and the object balls end, summed, less 
 a row, with nothing else pending, a re-rack is offered to the player about to play
 (`pending` `rerack`); if they accept, the other is asked. Both accept: `restart`. Either refuses:
 play goes on, and if the next `stalemate_grace_strokes` strokes are all quiet the frame restarts
-anyway (S3.17(b)). Any stroke that is not quiet clears the count and the proviso. The match racks a
-restarted frame again with the same breaker and no score; in a re-spotted black only the black and
-the cue ball are set again (S3.17(d)).
+anyway (S3.17(b)). Any stroke that is not quiet clears the count and the proviso; an in-off is
+never quiet. The match racks a restarted frame again with the same breaker and no score. In a
+re-spotted black the engine itself sets the black and the cue ball again, the same player to
+play, without `restart` (S3.17(d)).
 
 ## In hand (S2.9, S3.5; spec 8.6)
 

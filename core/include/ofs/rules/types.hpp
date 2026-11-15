@@ -91,7 +91,8 @@ struct FrameState : Position {
 
     Pending pending = Pending::none;
     int decider = 0;
-    // Valid while pending == after_foul.
+    // Valid while pending == after_foul. In a re-spotted black `offender` instead keeps who
+    // played first, for S3.17(d).
     int offender = 0;
     int last_penalty = 0;
     bool last_miss = false;  // FOUL AND A MISS was called: `replace` is offered
