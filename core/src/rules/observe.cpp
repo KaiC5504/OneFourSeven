@@ -29,6 +29,8 @@ constexpr double kDiameter = table::kBallDiameter;
 constexpr double kInf = std::numeric_limits<double>::infinity();
 // facts.hpp: how far from its place in the position a ball may start in the record.
 constexpr double kStartTolerance_m = 1e-9;
+// facts.hpp: a ball was played at a pocket only if it got this much nearer to it than it began.
+constexpr double kPotApproach_m = 0.010;
 
 Vec2 xy(const Vec3& v) { return {v.x, v.y}; }
 Vec2 minus(Vec2 a, Vec2 b) { return {a.x - b.x, a.y - b.y}; }
@@ -167,14 +169,25 @@ double cut_angle(Vec2 velocity, Vec2 centres) {
     return std::acos(std::clamp(dot(velocity, centres) / scale, -1.0, 1.0));
 }
 
-bool moved(const ShotRecord& r, std::size_t ball) {
-    const std::vector<Segment>& segs = r.segments[ball];
-    for (const Segment& s : segs) {
-        if (s.start.motion != Motion::stationary) return true;
+// How far along its path the ball has gone by time t.
+double travelled(const std::vector<Piece>& path, double t) {
+    double sum = 0.0;
+    for (const Piece& piece : path) {
+        if (!(piece.t0 < t)) break;
+        sum += arc_length(piece.v, piece.a, std::min(t, piece.t1) - piece.t0);
     }
-    const Vec3& from = segs.front().start.r;
-    const Vec3& to = r.final_state.balls[ball].r;
-    return from.x != to.x || from.y != to.y;
+    return sum;
+}
+
+// The ball came out of the events at time t in motion. The record keeps one segment per ball per
+// instant, the one after all its events there.
+bool set_moving(const ShotRecord& r, std::size_t ball, double t) {
+    const Segment* after = nullptr;
+    for (const Segment& s : r.segments[ball]) {
+        if (!(s.t0 <= t)) break;
+        after = &s;
+    }
+    return after != nullptr && after->start.motion != Motion::stationary;
 }
 
 bool in_range(int index, std::size_t size) { return index >= 0 && static_cast<std::size_t>(index) < size; }
@@ -262,13 +275,13 @@ ShotFacts observe(const Position& pre, const ShotRecord& record, const phys::Tab
         if (a.kind == "event_guard" || a.kind == "zero_time_chain" || a.kind == "time_cap") f.anomaly = true;
     }
 
-    std::vector<unsigned char> struck(n, 0);  // by the cue ball, at any time in the stroke
+    std::vector<double> met(n, kInf);  // when the cue ball first touched each ball
     std::vector<int> pocket_of(n, -1);
     bool hit = false;
     for (const ShotEvent& e : record.events) {
         if (e.kind == EventKind::ball_ball && (e.a == pre.cue_ball || e.b == pre.cue_ball)) {
             const int other = e.a == pre.cue_ball ? e.b : e.a;
-            struck[static_cast<std::size_t>(other)] = 1;
+            met[static_cast<std::size_t>(other)] = std::min(met[static_cast<std::size_t>(other)], e.t);
             if (!hit) {
                 hit = true;
                 f.first_hit_t = e.t;
@@ -294,7 +307,7 @@ ShotFacts observe(const Position& pre, const ShotRecord& record, const phys::Tab
     std::vector<Piece> cue_path;
     std::vector<Piece> path;
     path_of(record, cue, cue_path);
-    for (const Piece& piece : cue_path) f.cue_travel_m += arc_length(piece.v, piece.a, piece.t1 - piece.t0);
+    f.cue_travel_m = travelled(cue_path, kInf);
 
     for (std::size_t i = 0; i < n; ++i) {
         if (i == cue) continue;
@@ -303,13 +316,20 @@ ShotFacts observe(const Position& pre, const ShotRecord& record, const phys::Tab
         const Vec2 end = potted ? table.pockets[static_cast<std::size_t>(pocket_of[i])].drop_centre : f.rest[i];
         f.object_travel_m += length(minus(end, pre.balls[i].pos));
 
-        if (!struck[i]) {
+        if (!(met[i] < kInf)) {
             path_of(record, i, path);
             f.closest_gap_m[i] = std::max(closest(cue_path, path, kDiameter) - kDiameter, 0.0);
+            continue;
         }
-        if (length(minus(pre.balls[i].pos, cue_start)) - kDiameter < ref.touching_gap_m && moved(record, i)) {
-            f.touching_moved.push_back(static_cast<int>(i));
-        }
+        // S3.8(b) is about the cue ball's way out: a touching ball it ran into as it left, not one
+        // that it or another ball came back to later. Across a gap that still counts as touching
+        // the contact comes a moment after the strike, but before the cue ball has gone further
+        // than a straight line can take it to a ball that near, sqrt(gap (4R + gap)).
+        const double gap = std::max(length(minus(pre.balls[i].pos, cue_start)) - kDiameter, 0.0);
+        if (!(gap < ref.touching_gap_m)) continue;
+        const bool leaving = met[i] <= ref.simultaneous_hit_s ||
+                             travelled(cue_path, met[i]) <= std::sqrt(gap * (2.0 * kDiameter + gap));
+        if (leaving && set_moving(record, i, met[i])) f.touching_moved.push_back(static_cast<int>(i));
     }
     if (!f.cue_potted) f.rest[cue] = xy(record.final_state.balls[cue].r);
 
@@ -334,9 +354,13 @@ ShotFacts observe(const Position& pre, const ShotRecord& record, const phys::Tab
         }
         if (pocket_of[i] >= 0) f.pot_attempt = true;
         for (std::size_t k = 0; k < table.pockets.size() && !f.pot_attempt; ++k) {
-            const double reach = table.pockets[k].drop_radius + ref.pot_attempt_radius_m;
+            // Near the pocket and nearer to it than it began, both at one moment: together, one
+            // bound on its distance from the middle of the pocket.
             mouth[0].p = table.pockets[k].drop_centre;
-            f.pot_attempt = closest(path, mouth, reach) <= reach;
+            const double began = length(minus(pre.balls[i].pos, mouth[0].p));
+            const double reach =
+                std::min(table.pockets[k].drop_radius + ref.pot_attempt_radius_m, began - kPotApproach_m);
+            f.pot_attempt = reach > 0.0 && closest(path, mouth, reach) <= reach;
         }
     }
     return f;

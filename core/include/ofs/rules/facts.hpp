@@ -30,8 +30,12 @@ struct ShotFacts {
     int cue_pocket = -1;
     // S2.19: the first contact came while the tip was still on the cue ball, by RefParams.
     bool push = false;
-    // Balls that were within RefParams::touching_gap_m of the cue ball before the stroke and moved
-    // (S3.8(b)), lowest place first.
+    // Balls that were within RefParams::touching_gap_m of the cue ball before the stroke and that
+    // it set moving as it left (S3.8(b)), lowest place first: the cue ball met them within
+    // RefParams::simultaneous_hit_s of the strike or, across a gap that still counts as touching,
+    // before it had gone further than a straight line takes it to a ball that near. A touching
+    // ball it was played away from, moved later in the stroke by another ball or by the cue ball
+    // coming back, is not listed.
     std::vector<int> touching_moved;
     // Per pre-shot place: where the ball came to rest (a potted ball's entry is where it started),
     // and the smallest gap between its surface and the cue ball's during the stroke (0 on contact;
@@ -40,7 +44,10 @@ struct ShotFacts {
     std::vector<double> closest_gap_m;
     double cue_travel_m = 0.0;     // the cue ball's path length
     double object_travel_m = 0.0;  // summed over object balls: distance from start to rest (potted balls: to the pocket)
-    bool pot_attempt = false;      // RefParams::pot_attempt_radius_m
+    // The first ball hit was potted, or passed within RefParams::pot_attempt_radius_m of a
+    // pocket's drop circle at a moment when it was at least 10 mm nearer that pocket than where it
+    // started. A ball that begins near a pocket and is knocked away is not an attempt.
+    bool pot_attempt = false;
     // The simulator ended the shot with a guard (ShotRecord::anomalies has an event_guard,
     // zero_time_chain or time_cap). The facts still describe what was simulated.
     bool anomaly = false;
