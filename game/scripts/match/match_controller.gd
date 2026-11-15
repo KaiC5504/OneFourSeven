@@ -24,7 +24,8 @@ signal calls_made(calls: Array, shot_id: String)
 ## `player` may play a stroke now. `person` is false for the opponent, whose stroke arrives by
 ## opponent_ready, and for the person while autoplay plays for them.
 signal turn_started(player: int, person: bool)
-## The person must choose one of `options` (decision names) before play goes on.
+## The person must choose one of `options` (decision names) before play goes on: the engine's
+## options without PAUSE_DECISIONS, in its order.
 signal choice_needed(options: Array[String])
 ## The opponent's stroke, as OfsMatch.standin_shot gives it: the table scene places the cue ball
 ## when places_cue, shows the cue on the line and plays `strike` exactly, nominating `nominated`.
@@ -53,6 +54,8 @@ const STANDIN_PATH := "res://data/standin_params.json"
 ## stand-in is no longer asked: at pace 0 a broken engine would be asked, and logged, every frame.
 const MAX_REFUSALS := 5
 const BREAKERS := {"random": -1, "you": PERSON, "computer": OPPONENT}
+## Offered with a pending choice too, but taken from the pause menu, never the choice strip.
+const PAUSE_DECISIONS: Array[String] = ["concede_frame", "concede_match", "claim_frame"]
 
 ## Matches started this session, for the match id.
 static var _matches := 0
@@ -353,11 +356,12 @@ func shot_finished(record: OfsShotRecord) -> Dictionary:
 	return judgement
 
 
-## The person's choice among the options offered. False when it is not one of them.
+## The person's choice among the options offered. False when it is not one of them, and for
+## PAUSE_DECISIONS, which go through concede_frame, concede_match and claim_frame.
 func choose(kind: String) -> bool:
 	var offered: Array[String] = []
 	if _active and not _playing:
-		offered = _options(PERSON)
+		offered = _choices(PERSON)
 	if not offered.has(kind):
 		_error("choose(\"%s\") is not one of the person's options %s" % [kind, JSON.stringify(offered)], false)
 		return false
@@ -563,7 +567,7 @@ func _advance() -> void:
 	_placing = false
 	if _pending() != "none":
 		var decider := int(_expect(_frame, "decider", 0, "frame"))
-		var offered := _options(decider)
+		var offered := _choices(decider)
 		if offered.is_empty():
 			_error("the frame is pending \"%s\" for player %d, who is offered nothing" % [_pending(), decider])
 		if decider == PERSON and not autoplay:
@@ -637,6 +641,7 @@ func _on_choice_made(player: int, kind: String) -> void:
 	var offered := _options(player)
 	var chosen := kind
 	if not offered.has(kind):
+		offered = _choices(player)
 		if offered.is_empty():
 			_error("engine.standin_choice(%d, %d) gave \"%s\" with nothing offered; the match waits" % [player,
 					_driver.last_seed, kind])
@@ -672,6 +677,15 @@ func _options(player: int) -> Array[String]:
 	if player >= 0 and player < all.size():
 		for kind: Variant in _list(all[player]):
 			out.append(str(kind))
+	return out
+
+
+## The options of the pending choice itself: _options without PAUSE_DECISIONS, order kept.
+func _choices(player: int) -> Array[String]:
+	var out: Array[String] = []
+	for kind in _options(player):
+		if not PAUSE_DECISIONS.has(kind):
+			out.append(kind)
 	return out
 
 

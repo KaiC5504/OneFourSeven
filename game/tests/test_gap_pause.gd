@@ -33,6 +33,39 @@ func test_gap_pause_offers_a_concession_only_when_the_engine_does() -> void:
 		main.free()
 
 
+# The owner's "concede at any time": a decider offered the concessions with their choice takes them
+# from the pause menu, not the choice strip, and conceding ends the frame and the question.
+func test_gap_conceding_while_the_person_has_a_choice() -> void:
+	var options: Array[String] = AFTER_FOUL.duplicate()
+	options.append_array(CONCESSIONS)
+	var main: MainScript = await _spawn(_fouled(options))
+	var m := _start(main)
+	var hud := main.get_node("Hud")
+	var strip: ChoiceStrip = hud.get_node("ChoiceStrip")
+	check(strip.is_offering(), "the choice is asked")
+	for kind: String in AFTER_FOUL:
+		check(strip.button(kind) != null and strip.button(kind).visible, "%s is on the strip" % kind)
+	for kind: String in CONCESSIONS:
+		check(strip.button(kind) == null or not strip.button(kind).visible, "%s is not" % kind)
+	check(not m.choose("concede_frame"), "nor taken as a choice")
+	check(not _engine.called().has("decide"), "the engine is not asked for it")
+	var pause: PauseMenu = hud.get_node("PauseMenu")
+	(hud.get_node("Scoreboard") as Scoreboard).pause_button().pressed.emit()
+	check(not pause.button("concede_frame").disabled and not pause.button("concede_match").disabled,
+			"the menu offers both concessions")
+	var over := _frame(0, [], {"over": true, "winner": 1, "end_reason": "conceded"})
+	_engine.match_view["history"].append({"number": 2, "breaker": 1, "winner": 1, "reason": "conceded",
+			"scores": [24, 31], "stats": over["stats"], "strokes": 43, "reracks": 0})
+	_engine.match_view["frames"] = [0, 2]
+	_engine.decisions.append({"ok": true, "error": "", "calls": [], "event": "frame_ended", "frame": over})
+	pause.button("concede_frame").pressed.emit()
+	pause.button("confirm").pressed.emit()
+	check_eq(_last_call("decide"), ["decide", "concede_frame", 0], "the concession goes to the engine")
+	check((hud.get_node("FrameSummary") as Control).visible, "the frame's summary shows")
+	check(not strip.is_offering(), "and the question is gone")
+	main.free()
+
+
 # A concession that is not open never reaches the engine: it is logged as refused and said.
 func test_gap_a_concession_not_open_is_refused_without_an_error() -> void:
 	var main: MainScript = await _spawn(_fouled(AFTER_FOUL))

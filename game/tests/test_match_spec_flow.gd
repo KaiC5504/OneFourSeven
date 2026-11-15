@@ -117,7 +117,7 @@ func test_9_2_a_judged_stroke_gives_the_frame_after_it_the_calls_and_the_decisio
 	_engine.standin_shots.append(_standin_shot())
 	check(_start(m), "the match starts")
 	await _frames()
-	var fouled := _fixture(FRAME_VIEW_PATH)
+	var fouled := _fouled()
 	var judgement := _foul_judgement()
 	_will_judge(fouled, "none", judgement)
 	var before := _seen.size()
@@ -130,7 +130,8 @@ func test_9_2_a_judged_stroke_gives_the_frame_after_it_the_calls_and_the_decisio
 	check(m.frame() == fouled, "and is the controller's frame")
 	check_eq(_last("table_changed").slice(1), [_engine.cue_ball(), "shot"], "the table after the stroke")
 	check_eq(_count("choice_needed", before), 1, "the person is asked once")
-	check_eq(_last("choice_needed"), [["play", "play_again", "replace"]], "exactly the engine's options, in its order")
+	check_eq(_last("choice_needed"), [["play", "play_again", "replace"]],
+			"the engine's choices in its order, without the pause menu's")
 	_free_all()
 
 
@@ -583,9 +584,17 @@ func _to_the_persons_choice() -> MatchController:
 	_engine.standin_shots.append(_standin_shot())
 	check(_start(m), "the match starts")
 	await _frames()
-	_will_judge(_fixture(FRAME_VIEW_PATH), "none", _foul_judgement())
+	_will_judge(_fouled(), "none", _foul_judgement())
 	_stroke(m, "o1")
 	return m
+
+
+## The fixture's foul, the person deciding: its choices and, as the engine offers a decider who may
+## concede at any time, the pause menu's concessions after them.
+func _fouled() -> Dictionary:
+	var fouled := _fixture(FRAME_VIEW_PATH)
+	fouled["view"]["options"] = [["play", "play_again", "replace", "concede_frame", "concede_match"], []]
+	return fouled
 
 
 ## A best of three at one frame all, the person having just won the second on the black.

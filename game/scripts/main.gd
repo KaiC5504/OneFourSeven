@@ -1615,6 +1615,9 @@ func _on_match_table_changed(balls: Array[Dictionary], _cue_ball: int, reason: S
 
 func _on_frame_changed(frame: Dictionary) -> void:
 	_scoreboard.show_frame(frame, _match.match_state(), PERSON)
+	# The scoreboard widens while someone needs snookers: placed again, and the camera keeps clear
+	# of what it covers now. Nothing is written or refitted when nothing moved.
+	_layout()
 	_refresh_pause()
 
 
@@ -2166,7 +2169,19 @@ func harness_match_shot(strike: Dictionary, nominated: String, cue: Variant) -> 
 
 ## The person's choice among those offered. {"kind"}, or {"error"}.
 func harness_match_choose(kind: String) -> Dictionary:
-	if _mode != MATCH or not _match.choose(kind):
+	var taken := false
+	if _mode == MATCH:
+		match kind:
+			# The pause menu's, as its buttons take them.
+			"concede_frame":
+				taken = _match.concede_frame()
+			"concede_match":
+				taken = _match.concede_match()
+			"claim_frame":
+				taken = _match.claim_frame()
+			_:
+				taken = _match.choose(kind)
+	if not taken:
 		return {"error": "\"%s\" was not chosen (offered: %s; engine: %s)" % [kind,
 				_person_options() if _mode == MATCH else [], _engine_error()]}
 	return {"kind": kind}

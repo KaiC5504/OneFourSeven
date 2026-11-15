@@ -186,6 +186,8 @@ func test_foul_gives_the_person_a_choice() -> void:
 
 	c.shot_started(shot["shot_id"])
 	var fouled := _json(FRAME_VIEW)
+	# The concessions are the pause menu's, offered to a decider who may concede at any time.
+	fouled["view"]["options"] = [["play", "play_again", "replace", "concede_frame", "concede_match"], []]
 	var judgement := _json(JUDGEMENT)
 	judgement.erase("post")
 	e.judgements.append(_judged(fouled, judgement))
@@ -193,7 +195,8 @@ func test_foul_gives_the_person_a_choice() -> void:
 	c.shot_finished(null)
 	check_eq(_names(), ["calls_made", "table_changed:shot", "frame_changed", "choice_needed"], "signals after the foul")
 	check_eq(_events[0], ["calls_made", judgement["calls"], shot["shot_id"]], "the referee's calls with the shot id")
-	check_eq(_events[3], ["choice_needed", ["play", "play_again", "replace"]], "the options offered")
+	check_eq(_events[3], ["choice_needed", ["play", "play_again", "replace"]], "the options offered, not the pause menu's")
+	check(c.open_to_person("concede_frame") and c.open_to_person("concede_match"), "which stay open to the person")
 	check_eq(c.strike_blocked(), "choice", "blocked: choice")
 	check_eq(c.harness_state()["waiting"], "choice", "waiting: choice")
 	check_eq(c.nominations(), [] as Array[String], "no nomination while a choice is pending")
