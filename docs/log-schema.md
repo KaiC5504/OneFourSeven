@@ -137,10 +137,10 @@ New subsystems: `input`, `ui`, `audio`, `settings`, `freetable`. A played shot l
 | `match.ended` | info | a match ended | `winner` (-1 when abandoned), `frames`, `frames_played`, `reason` (`frames`, `conceded`, `abandoned`) |
 | `frame.started` | info | a frame was racked, a re-rack included | `number`, `breaker`, `seed`, `reracks`, `params_hash` (the physics values the rack was laid with; they may have changed over the link since `rules.configured`) |
 | `frame.ended` | info | a frame ended | `summary` (`number`, `breaker`, `winner`, `reason`, `scores`, `stats`, `strokes`, `reracks`) |
-| `match.call` | info | the referee line showed calls | `calls` (kinds), `text` (the words shown) |
+| `match.call` | info | the referee line showed calls | `calls` (kinds), `text` (the words shown), `match_id`, `frame`, and `shot_id` when a stroke brought them |
 | `match.nominated` | info | the declared colour changed | `ball`, `how` (`aim`, `tap`, `harness`, `opponent`) |
 | `match.refused` | info | the person asked for a decision that is not open now (a concession or claim while a stroke plays or the other player is choosing); nothing changed | `kind` (the decision), `why`, `match_id`, `frame` |
-| `match.turn` | info | play waits for someone | `player`, `person`, `waiting` (`shot`, `choice`, `opponent`, `frame_summary`, `match_summary`) |
+| `match.turn` | info | play waits for someone | `player`, `person`, `waiting` (`shot`, `choice`, `opponent`, `frame_summary`, `match_summary`, `stalled` when the stand-in could not play and is no longer asked) |
 | `opponent.decision` | info/warn | the stand-in chose a stroke or a choice (warn when it could not) | `kind` (`shot`, `choice`), `player`, `seed` (a decimal string: the stand-in's `Rng` seed, which makes the same choice again from the same frame), `why`, `us` (time taken), and for a stroke `shot_id`, `strike`, `nominated`, `cue` (when it places the cue ball); for a choice `choice`, `options` and no `shot_id`, as nothing is struck; `error` |
 
 `opponent.decision`'s `why` (`core/include/ofs/opponent/standin.hpp`):

@@ -732,7 +732,8 @@ func test_the_harness_drives_a_match() -> void:
 	r = await harness.run_command("match_pause", {"on": false})
 	check(not r["ok"] and str(r["error"]).contains("not open"), "nothing to resume from: %s" % r)
 	r = await harness.run_command("match_pause", {"on": true})
-	check(r["ok"] and r["result"] == {"on": true, "can_concede": true} and main.harness_state()["screen"] == "pause",
+	check(r["ok"] and r["result"] == {"on": true, "can_concede": true, "can_concede_match": true, "can_claim": false}
+			and main.harness_state()["screen"] == "pause",
 			"match_pause opens the pause menu: %s" % r)
 	r = await harness.run_command("match_pause", {"on": true})
 	check(not r["ok"], "it is open already")
@@ -939,7 +940,7 @@ func _frame(striker: int, changes: Dictionary = {}) -> Dictionary:
 	frame["striker"] = striker
 	frame["free_ball"] = false
 	frame["view"]["nominations"] = []
-	frame["view"]["options"] = [["concede_frame", "concede_match"], ["concede_match"]]
+	frame["view"]["options"] = [["concede_frame", "concede_match"], []]
 	for key: String in changes:
 		if key == "options" or key == "nominations" or key == "on_places":
 			frame["view"][key] = changes[key]

@@ -11,7 +11,7 @@ const MATCH_PATH := "res://data/rules/example_match.json"
 const STRIKE := {"aim_rad": 0.0, "tip_x": 0.0, "tip_y": 0.0, "elevation_rad": 0.0, "speed_m_s": 1.0}
 ## What the engine offers with nothing pending (docs/rules/README.md): conceding, which lives in
 ## the pause menu and is no prompt.
-const IDLE_OPTIONS := [["concede_frame", "concede_match"], ["concede_match"]]
+const IDLE_OPTIONS := [["concede_frame", "concede_match"], []]
 const PERSON := MatchController.PERSON
 const OPPONENT := MatchController.OPPONENT
 
@@ -503,11 +503,11 @@ func test_11_1_conceding_the_match_ends_it_once() -> void:
 
 func test_11_1_a_concession_the_engine_refuses_changes_nothing() -> void:
 	# spec 11.1; the engine decides when a frame may be conceded
-	var m := _match(_frame({}, {"options": [["concede_match"], ["concede_match"]]}))
+	var m := _match(_frame({}, {"options": [[], []]}))
 	check(_start(m), "the match starts")
 	var seen := _seen.size()
 	check(not m.concede_frame(), "the frame is not conceded")
-	check(not m.concede_match(), "nor the match, with the engine refusing")
+	check(not m.concede_match(), "nor the match, with neither offered")
 	check_eq(_names(seen), [], "nothing is announced")
 	check(m.is_active() and m.person_to_play(), "play goes on")
 	_free_all()

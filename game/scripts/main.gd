@@ -1873,6 +1873,9 @@ func _close_pause() -> void:
 	_pause.close()
 	_hold_match(false)
 	_set_screen(_mode_screen())
+	# Resuming a match that stalled gives the stand-in one more go, or the table would be dead.
+	if _mode == MATCH and _match.waiting() == "stalled":
+		_match.retry_standin()
 
 
 ## While the pause menu is up the opponent waits: neither its thinking nor its cue's stand on the
@@ -2194,7 +2197,7 @@ func harness_match_waiting() -> Dictionary:
 		return {"error": "no match is on the table"}
 	var waiting := _shown_waiting()
 	return {"waiting": waiting, "person": not _playing and not _lining_up
-			and ["shot", "choice", "frame_summary", "match_summary"].has(waiting)}
+			and ["shot", "choice", "frame_summary", "match_summary", "stalled"].has(waiting)}
 
 
 func harness_match_autoplay(on: bool, fast: bool) -> Dictionary:
@@ -2217,7 +2220,9 @@ func harness_match_pause(on: bool) -> Dictionary:
 		_open_pause()
 	else:
 		_close_pause()
-	return {"on": _pause.visible, "can_concede": not _pause.button("concede_frame").disabled}
+	return {"on": _pause.visible, "can_concede": not _pause.button("concede_frame").disabled,
+			"can_concede_match": not _pause.button("concede_match").disabled,
+			"can_claim": _pause.button("claim_frame").visible}
 
 
 ## From a frame summary on to the next frame (or the match's summary), from a match summary Home.

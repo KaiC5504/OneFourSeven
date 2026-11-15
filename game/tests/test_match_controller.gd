@@ -754,7 +754,13 @@ func test_stand_in_stroke_refusals_stop_after_a_few() -> void:
 				and String(errors[0]["message"]).contains("shot_id"), "with the seed, the shot id and the error: "
 				+ String(errors[0]["message"]))
 	check_eq(_errors_with("is not asked again").size(), 1, "and that it gave up")
-	check_eq(c.harness_state()["waiting"], "opponent", "the match still waits for the opponent")
+	check_eq(c.harness_state()["waiting"], "stalled", "the match says it stalled")
+	check_eq(c.strike_blocked(), "stalled", "and nobody may strike")
+	c.retry_standin()
+	check_eq(c.harness_state()["waiting"], "opponent", "resuming asks the stand-in again")
+	await _frames(MatchController.MAX_REFUSALS + 4)
+	check_eq(_count(e, "standin_shot"), 2 * MatchController.MAX_REFUSALS, "as often as before")
+	check_eq(c.harness_state()["waiting"], "stalled", "and it stalls again when that fails too")
 	c.free()
 
 
@@ -1178,7 +1184,7 @@ func _turn(striker: int, changes: Dictionary = {}) -> Dictionary:
 	frame["striker"] = striker
 	frame["free_ball"] = false
 	frame["view"]["nominations"] = []
-	frame["view"]["options"] = [["concede_frame", "concede_match"], ["concede_match"]]
+	frame["view"]["options"] = [["concede_frame", "concede_match"], []]
 	for key: String in changes:
 		if key == "options" or key == "nominations":
 			frame["view"][key] = changes[key]

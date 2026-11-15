@@ -7,7 +7,7 @@ const FRAME_VIEW_PATH := "res://data/rules/example_frame_view.json"
 const JUDGEMENT_PATH := "res://data/rules/example_judgement.json"
 const MATCH_PATH := "res://data/rules/example_match.json"
 const SAFE := Rect2(124.0, 0.0, 1664.0, 838.0)
-const IDLE_OPTIONS := [["concede_frame", "concede_match"], ["concede_match"]]
+const IDLE_OPTIONS := [["concede_frame", "concede_match"], []]
 ## Every decision the engine has a name for (core/include/ofs/rules/types.hpp).
 const DECISIONS := ["play", "play_again", "replace", "accept_rerack", "refuse_rerack", "play_first", "play_second",
 		"claim_frame", "concede_frame", "concede_match"]

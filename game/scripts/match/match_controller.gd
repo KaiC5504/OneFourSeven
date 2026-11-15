@@ -291,7 +291,7 @@ func strike_blocked() -> String:
 			if _nominated.is_empty() and str(_dict(_frame.get("on")).get("kind", "")) == "any_colour":
 				return "nominate"
 			return ""
-		"choice", "opponent":
+		"choice", "opponent", "stalled":
 			return _waiting
 	return "inactive"
 
@@ -600,10 +600,20 @@ func opponent_failed(shot_id: String, why: String) -> void:
 	_ask_standin()
 
 
+## Asks a stalled stand-in once more from a clean count; it stalls again if it still can't play.
+func retry_standin() -> void:
+	if not _active or _waiting != "stalled":
+		return
+	_refusals = 0
+	_wait("opponent", _turn_player, false)
+	_ask_standin()
+
+
 func _ask_standin() -> void:
 	if _refusals >= MAX_REFUSALS:
 		_error("%d refusals in a row, the last: %s; the stand-in is not asked again and the match can't go on"
 				% [_refusals, _last_refusal])
+		_wait("stalled", _turn_player, false)
 		stalled.emit(_last_refusal)
 		return
 	if _pending() != "none":
