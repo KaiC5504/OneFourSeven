@@ -1,0 +1,115 @@
+{
+  "name": "film_selby_one_cushion",
+  "note": "Mark Selby v Ding Junhui: a near-full blue to a top corner struck very hard with follow, the cue ball off the left side cushion to the reds by the top cushion. Measured from the broadcast reel KaiC sent on 2026-11-15 (docs/calibration/targets.md, the filmed shots): `measured` holds each cushion's place and time and the cannon, with times counted from the first ball contact. The strike is the pace and tip offset that fit the film best on the committed table.",
+  "cue_ball": 0,
+  "start": {
+    "balls": [
+      {
+        "ball": "cue",
+        "index": 0,
+        "r": [
+          -1.209,
+          -0.7
+        ]
+      },
+      {
+        "ball": "blue",
+        "index": 0,
+        "r": [
+          0.0,
+          0.0
+        ]
+      },
+      {
+        "ball": "black",
+        "index": 0,
+        "r": [
+          1.4605,
+          0.0
+        ]
+      },
+      {
+        "ball": "green",
+        "index": 0,
+        "r": [
+          -1.0475,
+          0.292
+        ]
+      },
+      {
+        "ball": "brown",
+        "index": 0,
+        "r": [
+          -1.115,
+          -0.025
+        ]
+      },
+      {
+        "ball": "yellow",
+        "index": 0,
+        "r": [
+          -1.544,
+          -0.559
+        ]
+      },
+      {
+        "ball": "pink",
+        "index": 0,
+        "r": [
+          0.716,
+          -0.023
+        ]
+      },
+      {
+        "ball": "red",
+        "index": 0,
+        "r": [
+          1.669,
+          -0.185
+        ]
+      },
+      {
+        "ball": "red",
+        "index": 1,
+        "r": [
+          1.688,
+          -0.122
+        ]
+      }
+    ]
+  },
+  "strike": {
+    "aim_rad": 0.5330936944340523,
+    "tip_x": -0.1005,
+    "tip_y": 0.1706,
+    "elevation_rad": 0.0,
+    "speed_m_s": 5.607
+  },
+  "measured": {
+    "cushions": [
+      {
+        "cushion": "left",
+        "r": [
+          0.693,
+          0.863
+        ],
+        "t_s": 1.21
+      }
+    ],
+    "cannon": {
+      "ball": "red",
+      "index": 8,
+      "pack": [
+        7,
+        8
+      ],
+      "r": [
+        1.672,
+        -0.065
+      ],
+      "t_s": 3.7
+    },
+    "object_ball": 1,
+    "allowed_on_the_way": []
+  }
+}

@@ -40,9 +40,9 @@ REQUIRED = ("series", "title", "params_hash", "columns", "rows")
 
 MET = "met"
 NOT_MET = "not met"
-# Off the published target because of a value the owner set by feel, and inside the band recorded
-# for his table.
-OWNER = "owner's value"
+# Off the published target because of a value set for this table (by the owner's feel, or fitted
+# to filmed shots), and inside the band recorded for it.
+OWNER = "table's value"
 REVIEW = "for review"
 NO_DATA = "no data"
 
@@ -1116,7 +1116,7 @@ def plain_words(m: dict, series: dict[str, Series], params: dict, fixtures: dict
                     f"{firm:g} m/s.")
             paper = paper_straight_in(fixtures.get("cushion"), params)
             if paper is not None:
-                text += (f" (This bounce is set by feel: with the cushion value Mathavan and colleagues fitted, their "
+                text += (f" (This bounce is set for this table: with the cushion value Mathavan and colleagues fitted, their "
                          f"model, which the game uses, gives {percent(paper)}"
                          + (f"; their one set of measurements on a snooker table averaged {percent(published)}"
                             + (f" below {below:g} m/s" if below else "") if published else "") + ".)")
@@ -1332,7 +1332,7 @@ def cushion_reference_row(rebound: Series | None, reference: dict | None, params
     paper, ours = paper_straight_in(reference, params), straight_in(reference.get("cases"))
     if ok and paper is not None and ours is not None:
         measured += f"; straight in at 1 m/s the ball keeps {ours * 100:.1f}% of its speed"
-        target = (f"1 deg, 2% of the model at the owner's `cushion_restitution` {params['cushion_restitution']:g} "
+        target = (f"1 deg, 2% of the model at the table's `cushion_restitution` {params['cushion_restitution']:g} "
                   f"(the suite also checks side, stun and screw); with the paper's "
                   f"{reference['literature']['cushion_restitution']:g} the ball keeps {paper * 100:.1f}%, so this is "
                   f"{(ours / paper - 1) * 100:+.1f}%")
@@ -1461,9 +1461,10 @@ def assemble_report(series: dict[str, Series], charts: dict[str, str], problems:
         lines += ["", "## Results against the targets", "",
                   "What this report measured itself, from `ofs_sim_cli calibrate` and its own shots. The "
                   "calibration suite (`ofs_calibration_tests`, run by the gate) checks the same targets with the "
-                  "exact tolerances in `docs/calibration/targets.md`. \"Owner's value\" means the number is off "
-                  "its published target because of a value the owner set by feel, and inside the band the suite "
-                  "holds his table to; the published target is shown beside it.", ""]
+                  "exact tolerances in `docs/calibration/targets.md`. \"Table's value\" means the number is off "
+                  "its published target because of a value set for this table, by the owner's feel or from filmed "
+                  "shots, and inside the band the suite holds the table to; the published target is shown beside "
+                  "it.", ""]
         lines += table(list(context["results"].values()), ["#", "What", "Measured", "Target", "Verdict"])
         change_lines, change_problems = what_changed(changes, params)
         problems += change_problems

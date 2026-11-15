@@ -1,0 +1,1586 @@
+{
+ "n": 10,
+ "player": "Mark Allen",
+ "opponent": "John Higgins",
+ "caption_zh": "两库K球",
+ "spin_named": "Caption says only 'two-cushion cannon' (两库K球). No spin is named in the caption and there is no commentary subtitle on this shot.",
+ "spin_inferred": "Follow (top) with left-hand side, which is running side on both cushions. Why: the blue is cut thin into the middle pocket and the cue ball leaves about 8 degrees forward of the tangent line, straightening within about 0.1 m, which is what a ball with roughly natural forward roll does at this cut (stun would hold the tangent line, screw would bend back towards the black end). At the baulk cushion it arrives 14 degrees off the perpendicular and leaves 32 degrees off it (39 by the time it reaches the side cushion), its speed along the cushion going from 0.41 to 0.74 m/s: a plain ball would leave at under 20 degrees. Seen along its travel (towards baulk) it is thrown to its left, so the side is left. At the side cushion the speed along the cushion is unchanged (0.83 in, 0.86 out), so some running side is still on.",
+ "video_times": {
+  "still": [
+   15.4,
+   17.8
+  ],
+  "live": [
+   14.53,
+   24.67
+  ],
+  "strike": 18.27,
+  "note": "The line and caption are overlaid on the live address (frames 462-534); there is no cut or reframing. Video is 30 fps but every sixth frame repeats the one before (25 fps source): times after the strike count unique frames at 0.04 s."
+ },
+ "balls": [
+  {
+   "ball": "cue",
+   "r": [
+    0.066,
+    0.095
+   ]
+  },
+  {
+   "ball": "yellow",
+   "r": [
+    -1.048,
+    -0.292
+   ]
+  },
+  {
+   "ball": "green",
+   "r": [
+    -1.048,
+    0.292
+   ]
+  },
+  {
+   "ball": "brown",
+   "r": [
+    -0.77,
+    -0.668
+   ]
+  },
+  {
+   "ball": "blue",
+   "r": [
+    0.0,
+    0.0
+   ]
+  },
+  {
+   "ball": "pink",
+   "r": [
+    0.848,
+    -0.0
+   ]
+  },
+  {
+   "ball": "black",
+   "r": [
+    1.46,
+    0.0
+   ]
+  },
+  {
+   "ball": "red",
+   "r": [
+    0.915,
+    -0.06
+   ]
+  },
+  {
+   "ball": "red",
+   "r": [
+    0.96,
+    -0.036
+   ]
+  },
+  {
+   "ball": "red",
+   "r": [
+    0.906,
+    -0.007
+   ]
+  }
+ ],
+ "object_ball": {
+  "ball": "blue",
+  "r": [
+   0.0,
+   0.0
+  ],
+  "cut": "thin, about 57 degrees between the cue ball's line and the line of centres (roughly a quarter-ball), cue ball passing on the black-end (+x) side of the blue",
+  "cut_angle_deg": 57.1,
+  "aim_heading_deg": -147.1,
+  "potted": true,
+  "pocket": [
+   0.0,
+   -0.93
+  ],
+  "pocket_name": "right middle (the -y side)",
+  "blue_speed": "about 1.1 m/s over the first two frames, 0.87 m/s rolling; reaches the pocket 1.12 s after the strike"
+ },
+ "cue_path": [
+  {
+   "t": 0.0,
+   "r": [
+    0.059,
+    0.091
+   ],
+   "frame": 548
+  },
+  {
+   "t": 0.04,
+   "r": [
+    -0.038,
+    0.046
+   ],
+   "frame": 550
+  },
+  {
+   "t": 0.08,
+   "r": [
+    -0.123,
+    0.038
+   ],
+   "frame": 551
+  },
+  {
+   "t": 0.12,
+   "r": [
+    -0.189,
+    0.03
+   ],
+   "frame": 552
+  },
+  {
+   "t": 0.16,
+   "r": [
+    -0.275,
+    0.019
+   ],
+   "frame": 553
+  },
+  {
+   "t": 0.2,
+   "r": [
+    -0.349,
+    0.007
+   ],
+   "frame": 554
+  },
+  {
+   "t": 0.24,
+   "r": [
+    -0.424,
+    -0.005
+   ],
+   "frame": 556
+  },
+  {
+   "t": 0.28,
+   "r": [
+    -0.499,
+    -0.019
+   ],
+   "frame": 557
+  },
+  {
+   "t": 0.32,
+   "r": [
+    -0.57,
+    -0.035
+   ],
+   "frame": 558
+  },
+  {
+   "t": 0.36,
+   "r": [
+    -0.636,
+    -0.05
+   ],
+   "frame": 559
+  },
+  {
+   "t": 0.4,
+   "r": [
+    -0.702,
+    -0.067
+   ],
+   "frame": 560
+  },
+  {
+   "t": 0.44,
+   "r": [
+    -0.77,
+    -0.084
+   ],
+   "frame": 562
+  },
+  {
+   "t": 0.48,
+   "r": [
+    -0.838,
+    -0.101
+   ],
+   "frame": 563
+  },
+  {
+   "t": 0.52,
+   "r": [
+    -0.903,
+    -0.118
+   ],
+   "frame": 564
+  },
+  {
+   "t": 0.56,
+   "r": [
+    -0.972,
+    -0.136
+   ],
+   "frame": 565
+  },
+  {
+   "t": 0.6,
+   "r": [
+    -1.033,
+    -0.152
+   ],
+   "frame": 566
+  },
+  {
+   "t": 0.64,
+   "r": [
+    -1.102,
+    -0.168
+   ],
+   "frame": 568
+  },
+  {
+   "t": 0.68,
+   "r": [
+    -1.169,
+    -0.185
+   ],
+   "frame": 569
+  },
+  {
+   "t": 0.72,
+   "r": [
+    -1.236,
+    -0.201
+   ],
+   "frame": 570
+  },
+  {
+   "t": 0.76,
+   "r": [
+    -1.3,
+    -0.219
+   ],
+   "frame": 571
+  },
+  {
+   "t": 0.8,
+   "r": [
+    -1.366,
+    -0.234
+   ],
+   "frame": 572
+  },
+  {
+   "t": 0.84,
+   "r": [
+    -1.431,
+    -0.252
+   ],
+   "frame": 574
+  },
+  {
+   "t": 0.88,
+   "r": [
+    -1.499,
+    -0.269
+   ],
+   "frame": 575
+  },
+  {
+   "t": 0.92,
+   "r": [
+    -1.564,
+    -0.285
+   ],
+   "frame": 576
+  },
+  {
+   "t": 0.96,
+   "r": [
+    -1.632,
+    -0.302
+   ],
+   "frame": 577
+  },
+  {
+   "t": 1.0,
+   "r": [
+    -1.698,
+    -0.318
+   ],
+   "frame": 578
+  },
+  {
+   "t": 1.04,
+   "r": [
+    -1.763,
+    -0.334
+   ],
+   "frame": 580
+  },
+  {
+   "t": 1.08,
+   "r": [
+    -1.718,
+    -0.363
+   ],
+   "frame": 581
+  },
+  {
+   "t": 1.12,
+   "r": [
+    -1.666,
+    -0.393
+   ],
+   "frame": 582
+  },
+  {
+   "t": 1.16,
+   "r": [
+    -1.615,
+    -0.424
+   ],
+   "frame": 583
+  },
+  {
+   "t": 1.2,
+   "r": [
+    -1.568,
+    -0.453
+   ],
+   "frame": 584
+  },
+  {
+   "t": 1.24,
+   "r": [
+    -1.525,
+    -0.482
+   ],
+   "frame": 586
+  },
+  {
+   "t": 1.28,
+   "r": [
+    -1.483,
+    -0.51
+   ],
+   "frame": 587
+  },
+  {
+   "t": 1.32,
+   "r": [
+    -1.447,
+    -0.539
+   ],
+   "frame": 588
+  },
+  {
+   "t": 1.36,
+   "r": [
+    -1.413,
+    -0.566
+   ],
+   "frame": 589
+  },
+  {
+   "t": 1.4,
+   "r": [
+    -1.377,
+    -0.594
+   ],
+   "frame": 590
+  },
+  {
+   "t": 1.44,
+   "r": [
+    -1.343,
+    -0.621
+   ],
+   "frame": 592
+  },
+  {
+   "t": 1.48,
+   "r": [
+    -1.31,
+    -0.65
+   ],
+   "frame": 593
+  },
+  {
+   "t": 1.52,
+   "r": [
+    -1.276,
+    -0.677
+   ],
+   "frame": 594
+  },
+  {
+   "t": 1.56,
+   "r": [
+    -1.244,
+    -0.704
+   ],
+   "frame": 595
+  },
+  {
+   "t": 1.6,
+   "r": [
+    -1.208,
+    -0.732
+   ],
+   "frame": 596
+  },
+  {
+   "t": 1.64,
+   "r": [
+    -1.175,
+    -0.759
+   ],
+   "frame": 598
+  },
+  {
+   "t": 1.68,
+   "r": [
+    -1.145,
+    -0.787
+   ],
+   "frame": 599
+  },
+  {
+   "t": 1.72,
+   "r": [
+    -1.107,
+    -0.813
+   ],
+   "frame": 600
+  },
+  {
+   "t": 1.76,
+   "r": [
+    -1.075,
+    -0.84
+   ],
+   "frame": 601
+  },
+  {
+   "t": 1.8,
+   "r": [
+    -1.045,
+    -0.866
+   ],
+   "frame": 602
+  },
+  {
+   "t": 1.84,
+   "r": [
+    -1.012,
+    -0.848
+   ],
+   "frame": 604
+  },
+  {
+   "t": 1.88,
+   "r": [
+    -0.975,
+    -0.829
+   ],
+   "frame": 605
+  },
+  {
+   "t": 1.92,
+   "r": [
+    -0.942,
+    -0.811
+   ],
+   "frame": 606
+  },
+  {
+   "t": 1.96,
+   "r": [
+    -0.905,
+    -0.794
+   ],
+   "frame": 607
+  },
+  {
+   "t": 2.0,
+   "r": [
+    -0.873,
+    -0.778
+   ],
+   "frame": 608
+  },
+  {
+   "t": 2.04,
+   "r": [
+    -0.839,
+    -0.761
+   ],
+   "frame": 610
+  },
+  {
+   "t": 2.08,
+   "r": [
+    -0.81,
+    -0.744
+   ],
+   "frame": 611
+  },
+  {
+   "t": 2.12,
+   "r": [
+    -0.772,
+    -0.728
+   ],
+   "frame": 612
+  },
+  {
+   "t": 2.16,
+   "r": [
+    -0.744,
+    -0.714
+   ],
+   "frame": 613
+  },
+  {
+   "t": 2.2,
+   "r": [
+    -0.707,
+    -0.698
+   ],
+   "frame": 614
+  },
+  {
+   "t": 2.24,
+   "r": [
+    -0.672,
+    -0.683
+   ],
+   "frame": 616
+  },
+  {
+   "t": 2.28,
+   "r": [
+    -0.64,
+    -0.669
+   ],
+   "frame": 617
+  },
+  {
+   "t": 2.32,
+   "r": [
+    -0.609,
+    -0.655
+   ],
+   "frame": 618
+  },
+  {
+   "t": 2.36,
+   "r": [
+    -0.577,
+    -0.639
+   ],
+   "frame": 619
+  },
+  {
+   "t": 2.4,
+   "r": [
+    -0.54,
+    -0.625
+   ],
+   "frame": 620
+  },
+  {
+   "t": 2.44,
+   "r": [
+    -0.51,
+    -0.612
+   ],
+   "frame": 622
+  },
+  {
+   "t": 2.48,
+   "r": [
+    -0.479,
+    -0.598
+   ],
+   "frame": 623
+  },
+  {
+   "t": 2.52,
+   "r": [
+    -0.446,
+    -0.583
+   ],
+   "frame": 624
+  },
+  {
+   "t": 2.56,
+   "r": [
+    -0.415,
+    -0.569
+   ],
+   "frame": 625
+  },
+  {
+   "t": 2.6,
+   "r": [
+    -0.386,
+    -0.555
+   ],
+   "frame": 626
+  },
+  {
+   "t": 2.64,
+   "r": [
+    -0.352,
+    -0.542
+   ],
+   "frame": 628
+  },
+  {
+   "t": 2.68,
+   "r": [
+    -0.32,
+    -0.527
+   ],
+   "frame": 629
+  },
+  {
+   "t": 2.72,
+   "r": [
+    -0.29,
+    -0.514
+   ],
+   "frame": 630
+  },
+  {
+   "t": 2.76,
+   "r": [
+    -0.259,
+    -0.501
+   ],
+   "frame": 631
+  },
+  {
+   "t": 2.8,
+   "r": [
+    -0.228,
+    -0.487
+   ],
+   "frame": 632
+  },
+  {
+   "t": 2.84,
+   "r": [
+    -0.197,
+    -0.472
+   ],
+   "frame": 634
+  },
+  {
+   "t": 2.88,
+   "r": [
+    -0.165,
+    -0.458
+   ],
+   "frame": 635
+  },
+  {
+   "t": 2.92,
+   "r": [
+    -0.137,
+    -0.445
+   ],
+   "frame": 636
+  },
+  {
+   "t": 2.96,
+   "r": [
+    -0.107,
+    -0.432
+   ],
+   "frame": 637
+  },
+  {
+   "t": 3.0,
+   "r": [
+    -0.076,
+    -0.418
+   ],
+   "frame": 638
+  },
+  {
+   "t": 3.04,
+   "r": [
+    -0.045,
+    -0.405
+   ],
+   "frame": 640
+  },
+  {
+   "t": 3.08,
+   "r": [
+    -0.016,
+    -0.392
+   ],
+   "frame": 641
+  },
+  {
+   "t": 3.12,
+   "r": [
+    0.012,
+    -0.38
+   ],
+   "frame": 642
+  },
+  {
+   "t": 3.16,
+   "r": [
+    0.045,
+    -0.365
+   ],
+   "frame": 643
+  },
+  {
+   "t": 3.2,
+   "r": [
+    0.077,
+    -0.352
+   ],
+   "frame": 644
+  },
+  {
+   "t": 3.24,
+   "r": [
+    0.103,
+    -0.339
+   ],
+   "frame": 646
+  },
+  {
+   "t": 3.28,
+   "r": [
+    0.132,
+    -0.326
+   ],
+   "frame": 647
+  },
+  {
+   "t": 3.32,
+   "r": [
+    0.16,
+    -0.314
+   ],
+   "frame": 648
+  },
+  {
+   "t": 3.36,
+   "r": [
+    0.19,
+    -0.3
+   ],
+   "frame": 649
+  },
+  {
+   "t": 3.4,
+   "r": [
+    0.216,
+    -0.288
+   ],
+   "frame": 650
+  },
+  {
+   "t": 3.44,
+   "r": [
+    0.248,
+    -0.275
+   ],
+   "frame": 652
+  },
+  {
+   "t": 3.48,
+   "r": [
+    0.276,
+    -0.263
+   ],
+   "frame": 653
+  },
+  {
+   "t": 3.52,
+   "r": [
+    0.305,
+    -0.25
+   ],
+   "frame": 654
+  },
+  {
+   "t": 3.56,
+   "r": [
+    0.333,
+    -0.237
+   ],
+   "frame": 655
+  },
+  {
+   "t": 3.6,
+   "r": [
+    0.36,
+    -0.224
+   ],
+   "frame": 656
+  },
+  {
+   "t": 3.64,
+   "r": [
+    0.39,
+    -0.213
+   ],
+   "frame": 658
+  },
+  {
+   "t": 3.68,
+   "r": [
+    0.416,
+    -0.201
+   ],
+   "frame": 659
+  },
+  {
+   "t": 3.72,
+   "r": [
+    0.444,
+    -0.19
+   ],
+   "frame": 660
+  },
+  {
+   "t": 3.76,
+   "r": [
+    0.47,
+    -0.177
+   ],
+   "frame": 661
+  },
+  {
+   "t": 3.8,
+   "r": [
+    0.499,
+    -0.165
+   ],
+   "frame": 662
+  },
+  {
+   "t": 3.84,
+   "r": [
+    0.527,
+    -0.152
+   ],
+   "frame": 664
+  },
+  {
+   "t": 3.88,
+   "r": [
+    0.552,
+    -0.14
+   ],
+   "frame": 665
+  },
+  {
+   "t": 3.92,
+   "r": [
+    0.58,
+    -0.127
+   ],
+   "frame": 666
+  },
+  {
+   "t": 3.96,
+   "r": [
+    0.607,
+    -0.116
+   ],
+   "frame": 667
+  },
+  {
+   "t": 4.0,
+   "r": [
+    0.633,
+    -0.103
+   ],
+   "frame": 668
+  },
+  {
+   "t": 4.04,
+   "r": [
+    0.658,
+    -0.092
+   ],
+   "frame": 670
+  },
+  {
+   "t": 4.08,
+   "r": [
+    0.685,
+    -0.081
+   ],
+   "frame": 671
+  },
+  {
+   "t": 4.12,
+   "r": [
+    0.712,
+    -0.069
+   ],
+   "frame": 672
+  },
+  {
+   "t": 4.16,
+   "r": [
+    0.738,
+    -0.057
+   ],
+   "frame": 673
+  },
+  {
+   "t": 4.2,
+   "r": [
+    0.764,
+    -0.045
+   ],
+   "frame": 674
+  },
+  {
+   "t": 4.36,
+   "r": [
+    0.813,
+    -0.026
+   ],
+   "frame": 679
+  },
+  {
+   "t": 4.4,
+   "r": [
+    0.818,
+    -0.025
+   ],
+   "frame": 680
+  },
+  {
+   "t": 4.44,
+   "r": [
+    0.824,
+    -0.024
+   ],
+   "frame": 682
+  },
+  {
+   "t": 4.48,
+   "r": [
+    0.83,
+    -0.022
+   ],
+   "frame": 683
+  },
+  {
+   "t": 4.52,
+   "r": [
+    0.836,
+    -0.021
+   ],
+   "frame": 684
+  },
+  {
+   "t": 4.56,
+   "r": [
+    0.844,
+    -0.019
+   ],
+   "frame": 685
+  },
+  {
+   "t": 4.6,
+   "r": [
+    0.849,
+    -0.018
+   ],
+   "frame": 686
+  },
+  {
+   "t": 4.64,
+   "r": [
+    0.854,
+    -0.018
+   ],
+   "frame": 688
+  },
+  {
+   "t": 4.68,
+   "r": [
+    0.859,
+    -0.017
+   ],
+   "frame": 689
+  },
+  {
+   "t": 4.72,
+   "r": [
+    0.866,
+    -0.016
+   ],
+   "frame": 690
+  },
+  {
+   "t": 4.76,
+   "r": [
+    0.869,
+    -0.014
+   ],
+   "frame": 691
+  },
+  {
+   "t": 4.8,
+   "r": [
+    0.876,
+    -0.012
+   ],
+   "frame": 692
+  },
+  {
+   "t": 4.84,
+   "r": [
+    0.883,
+    -0.009
+   ],
+   "frame": 694
+  },
+  {
+   "t": 4.88,
+   "r": [
+    0.889,
+    -0.007
+   ],
+   "frame": 695
+  },
+  {
+   "t": 4.92,
+   "r": [
+    0.892,
+    -0.007
+   ],
+   "frame": 696
+  },
+  {
+   "t": 4.96,
+   "r": [
+    0.894,
+    -0.006
+   ],
+   "frame": 697
+  },
+  {
+   "t": 5.0,
+   "r": [
+    0.901,
+    -0.004
+   ],
+   "frame": 698
+  },
+  {
+   "t": 5.04,
+   "r": [
+    0.904,
+    -0.004
+   ],
+   "frame": 700
+  },
+  {
+   "t": 5.08,
+   "r": [
+    0.909,
+    -0.003
+   ],
+   "frame": 701
+  },
+  {
+   "t": 5.12,
+   "r": [
+    0.914,
+    -0.001
+   ],
+   "frame": 702
+  },
+  {
+   "t": 5.16,
+   "r": [
+    0.915,
+    -0.0
+   ],
+   "frame": 703
+  },
+  {
+   "t": 5.2,
+   "r": [
+    0.92,
+    0.0
+   ],
+   "frame": 704
+  },
+  {
+   "t": 5.24,
+   "r": [
+    0.924,
+    0.006
+   ],
+   "frame": 706
+  },
+  {
+   "t": 5.28,
+   "r": [
+    0.928,
+    0.004
+   ],
+   "frame": 707
+  },
+  {
+   "t": 5.32,
+   "r": [
+    0.929,
+    0.004
+   ],
+   "frame": 708
+  },
+  {
+   "t": 5.36,
+   "r": [
+    0.934,
+    0.005
+   ],
+   "frame": 709
+  },
+  {
+   "t": 5.4,
+   "r": [
+    0.939,
+    0.005
+   ],
+   "frame": 710
+  },
+  {
+   "t": 5.44,
+   "r": [
+    0.939,
+    0.006
+   ],
+   "frame": 712
+  },
+  {
+   "t": 5.48,
+   "r": [
+    0.942,
+    0.007
+   ],
+   "frame": 713
+  },
+  {
+   "t": 5.52,
+   "r": [
+    0.948,
+    0.008
+   ],
+   "frame": 714
+  },
+  {
+   "t": 5.56,
+   "r": [
+    0.95,
+    0.009
+   ],
+   "frame": 715
+  },
+  {
+   "t": 5.6,
+   "r": [
+    0.952,
+    0.009
+   ],
+   "frame": 716
+  },
+  {
+   "t": 5.64,
+   "r": [
+    0.957,
+    0.01
+   ],
+   "frame": 718
+  },
+  {
+   "t": 5.68,
+   "r": [
+    0.96,
+    0.01
+   ],
+   "frame": 719
+  },
+  {
+   "t": 5.72,
+   "r": [
+    0.963,
+    0.01
+   ],
+   "frame": 720
+  },
+  {
+   "t": 5.76,
+   "r": [
+    0.963,
+    0.012
+   ],
+   "frame": 721
+  },
+  {
+   "t": 5.8,
+   "r": [
+    0.963,
+    0.012
+   ],
+   "frame": 722
+  },
+  {
+   "t": 5.84,
+   "r": [
+    0.967,
+    0.011
+   ],
+   "frame": 724
+  },
+  {
+   "t": 5.88,
+   "r": [
+    0.97,
+    0.012
+   ],
+   "frame": 725
+  },
+  {
+   "t": 5.92,
+   "r": [
+    0.97,
+    0.012
+   ],
+   "frame": 726
+  },
+  {
+   "t": 5.96,
+   "r": [
+    0.973,
+    0.013
+   ],
+   "frame": 727
+  },
+  {
+   "t": 6.0,
+   "r": [
+    0.973,
+    0.013
+   ],
+   "frame": 728
+  },
+  {
+   "t": 6.04,
+   "r": [
+    0.977,
+    0.013
+   ],
+   "frame": 730
+  },
+  {
+   "t": 6.08,
+   "r": [
+    0.978,
+    0.013
+   ],
+   "frame": 731
+  },
+  {
+   "t": 6.12,
+   "r": [
+    0.978,
+    0.013
+   ],
+   "frame": 732
+  },
+  {
+   "t": 6.16,
+   "r": [
+    0.978,
+    0.013
+   ],
+   "frame": 733
+  },
+  {
+   "t": 6.2,
+   "r": [
+    0.98,
+    0.012
+   ],
+   "frame": 734
+  },
+  {
+   "t": 6.24,
+   "r": [
+    0.981,
+    0.013
+   ],
+   "frame": 736
+  },
+  {
+   "t": 6.28,
+   "r": [
+    0.982,
+    0.013
+   ],
+   "frame": 737
+  },
+  {
+   "t": 6.32,
+   "r": [
+    0.982,
+    0.013
+   ],
+   "frame": 738
+  },
+  {
+   "t": 6.36,
+   "r": [
+    0.982,
+    0.013
+   ],
+   "frame": 739
+  },
+  {
+   "t": 6.4,
+   "r": [
+    0.981,
+    0.012
+   ],
+   "frame": 740
+  }
+ ],
+ "events": [
+  {
+   "kind": "ball",
+   "t": 0.02,
+   "r": [
+    0.0,
+    0.052
+   ],
+   "with": "blue",
+   "heading_out_deg": -171.9,
+   "speed_out": 1.92,
+   "heading_in_deg": -147.1,
+   "speed_in": null,
+   "speed_in_estimate": 2.3,
+   "note": "Cue ball 0.077 m from the blue; contact falls between frames 548 and 550, so the speed in is not measured. From the blue's speed and the cut it was about 2.3 m/s (2 to 3). Speed and heading out are fitted over frames 551-556."
+  },
+  {
+   "kind": "cushion",
+   "t": 1.039,
+   "r": [
+    -1.762,
+    -0.334
+   ],
+   "with": "baulk",
+   "heading_in_deg": -166.1,
+   "speed_in": 1.71,
+   "heading_out_deg": -32.0,
+   "speed_out": 1.39,
+   "note": "Out is over the first six frames; the path then bends to -39 degrees over the next 0.5 s as the forward roll it arrived with is scrubbed off (1.06 m/s by the side cushion)."
+  },
+  {
+   "kind": "cushion",
+   "t": 1.798,
+   "r": [
+    -1.046,
+    -0.865
+   ],
+   "with": "right",
+   "heading_in_deg": -39.0,
+   "speed_in": 1.06,
+   "heading_out_deg": 26.6,
+   "speed_out": 0.96
+  },
+  {
+   "kind": "ball",
+   "t": 2.16,
+   "r": [
+    -0.744,
+    -0.714
+   ],
+   "with": "brown",
+   "heading_in_deg": 26.9,
+   "speed_in": 0.93,
+   "heading_out_deg": 23.7,
+   "speed_out": 0.89,
+   "note": "Feather: the brown moves about 1 cm towards the centre line and the cue ball turns about 3 degrees."
+  },
+  {
+   "kind": "ball",
+   "t": 4.26,
+   "r": [
+    0.803,
+    -0.027
+   ],
+   "with": "pink",
+   "heading_in_deg": 24.2,
+   "speed_in": 0.72,
+   "heading_out_deg": 11.0,
+   "speed_out": 0.15,
+   "note": "Pink first and close to full: the incoming line passes about 0.01 m (0.02 m uncertain) from the pink's centre. A red is touching the pink on its black side, so the pink leaves mostly along +y and the cue ball keeps about 0.15 m/s."
+  },
+  {
+   "kind": "stop",
+   "t": 6.16,
+   "r": [
+    0.981,
+    0.012
+   ],
+   "with": null
+  }
+ ],
+ "cannon": {
+  "reaches": "the pink, close to full ball, at the top of a pack of the pink and three reds; the red on the pink spot is touching the pink and both leave towards +y, the other two reds are nudged towards -y",
+  "before": {
+   "pink": [
+    0.848,
+    -0.0
+   ],
+   "reds": [
+    [
+     0.915,
+     -0.06
+    ],
+    [
+     0.96,
+     -0.036
+    ],
+    [
+     0.906,
+     -0.007
+    ]
+   ]
+  },
+  "after": {
+   "cue": [
+    0.982,
+    0.012
+   ],
+   "pink": [
+    0.888,
+    0.272
+   ],
+   "reds": [
+    [
+     0.933,
+     -0.095
+    ],
+    [
+     1.122,
+     -0.158
+    ],
+    [
+     1.167,
+     0.27
+    ]
+   ],
+   "brown": [
+    -0.771,
+    -0.655
+   ]
+  },
+  "note": "Cue ball stops in the middle of the opened pack, about 0.09 m past the pink spot. Final positions read at frame 738."
+ },
+ "drawn_line": {
+  "points": [
+   [
+    -0.001,
+    0.055
+   ],
+   [
+    -0.419,
+    -0.003
+   ],
+   [
+    -0.685,
+    -0.066
+   ],
+   [
+    -1.175,
+    -0.199
+   ],
+   [
+    -1.734,
+    -0.366
+   ],
+   [
+    -1.12,
+    -0.878
+   ],
+   [
+    0.764,
+    -0.038
+   ]
+  ],
+  "note": "Editor's sketch, in order: start beside the cue ball, three points along its curve, the corner at the baulk cushion, the corner at the right (-y) side cushion, the end at the pack. It follows the real path to within about 0.07 m."
+ },
+ "calibration": {
+  "reference": "yellow, green, blue and black on their spots (brown and pink are off theirs), plus the two long edges of the cloth (straight, parallel to the table's long axis and centred on the spots), plus the two cue-ball cushion contacts at pixel weight",
+  "spot_residual_px": [
+   [
+    -0.98,
+    -0.61
+   ],
+   [
+    0.06,
+    0.17
+   ],
+   [
+    0.18,
+    -0.61
+   ],
+   [
+    0.48,
+    0.29
+   ]
+  ],
+  "cloth_edge_half_width_m": 0.953,
+  "cushion_check": {
+   "spots_and_edges_only": {
+    "baulk_contact_x": -1.775,
+    "side_contact_y": -0.872,
+    "spot_residual_px_max": 0.47
+   },
+   "final": {
+    "baulk_contact_x": -1.767,
+    "side_contact_y": -0.866
+   },
+   "expected": {
+    "baulk_contact_x": -1.758,
+    "side_contact_y": -0.863
+   },
+   "other": "blue tracked along x = 0.00 +/- 0.01 into the middle pocket; the brown is moved by the cue ball where the tracked path passes 0.051 m from its centre (0.0525 is touching)"
+  }
+ },
+ "confidence": {
+  "sure": "Layout, the order of events, which cushions, blue potted in the -y middle pocket, the brown feathered, pink struck first in the pack, follow with running (left) side.",
+  "positions": "0.01 m across the table (y) and 0.015 m along it (x) near the centre; up to 0.02 m in x beyond the baulk line, where one pixel is 10 mm. Reds and pink in the pack 0.015 m (they overlap in the picture; centres taken from their highlights).",
+  "angles": "Headings 1.5 degrees on the long stretches, 3 degrees on the short ones (after the blue, between the two cushions). Cut angle on the blue 5 degrees.",
+  "speeds": "5 percent on fitted stretches. The speed before the blue is inferred, not measured (2 to 3 m/s).",
+  "timing": "0.04 s per unique frame; the strike is within frame 548's exposure, so event times are good to 0.02 s."
+ }
+}

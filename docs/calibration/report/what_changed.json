@@ -53,9 +53,14 @@
       "why": "the same session: side did too little off a cushion (the shot he was after, Selby's blue from the 2014 World final, was misread at the time; the next entry has it as filmed). The paper's one cushion friction was fitted to balls without side and runs out of grip with it. The friction along the cushion is now this many times the friction up its face (1 is the paper's cushion): a third, two thirds and all of the side straight in land 1, 2 and 3 diamonds along, the players' rule, where they gave 1.0, 1.7 and 1.75."
     },
     {
-      "what": "The cloth's pace and the cushions' bounce, back to the published values",
-      "params": {"roll_friction": [0.015, 0.01], "cushion_restitution": [0.85, 0.98]},
-      "why": "Selby's blue from the 2014 World final, tracked from the broadcast frame by frame (positions/selby_blue.json): three cushions and 5.5 m to the reds on the pink, reached 6.9 s after the blue at about 0.4 m/s. With the published values the cue ball meets each cushion within 5 cm and 0.2 s of the film; with the feel values of 2026-11-13 to 15 (set while the cue was half as strong again) it stops 0.3 m short at full power. C11 checks the published lag range again."
+      "what": "The cloth's pace and the cushions' bounce, from filmed shots",
+      "params": {"roll_friction": [0.015, 0.009], "cushion_restitution": [0.85, 0.9]},
+      "why": "KaiC sent the broadcast of Selby's blue (2014 World final) and a reel of ten cannons. Nine were tracked frame by frame and fitted (positions/selby_blue.json and film_*.json): on these values every cushion is met within 8 cm and 0.1 s and every cannon made. The rolling legs give the cloth directly (0.0075 to 0.012). The feel values of 2026-11-13 to 15 were set while the cue was half as strong again; the cushion was close, the cloth far too slow (Selby's cue ball stopped 0.3 m short at full power). C11 checks the published lag range again."
+    },
+    {
+      "what": "The cushion's grip on side, back to the paper's",
+      "params": {"cushion_side_grip": [4.0, 1.0]},
+      "why": "the same films: Trump's two screw shots with side play within 2 cm and 0.05 s on the paper's one cushion friction and cannot be played at 2 or 4. The pool rule that set 4 does not hold on a snooker cushion."
     }
   ]
 }

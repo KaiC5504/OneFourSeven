@@ -1,0 +1,122 @@
+{
+  "name": "film_lee_hugs_cushion",
+  "note": "Stephen Lee v Ding Junhui: a black hanging in a top corner struck near full with heavy top; the cue ball leaves the top cushion and the top spin pulls it back on to the cushion and along it into a red. Measured from the broadcast reel KaiC sent on 2026-11-15 (docs/calibration/targets.md, the filmed shots): `measured` holds each cushion's place and time and the cannon, with times counted from the first ball contact. The strike is the pace and tip offset that fit the film best on the committed table.",
+  "cue_ball": 0,
+  "start": {
+    "balls": [
+      {
+        "ball": "cue",
+        "index": 0,
+        "r": [
+          -1.279,
+          -0.164
+        ]
+      },
+      {
+        "ball": "yellow",
+        "index": 0,
+        "r": [
+          -1.149,
+          0.06
+        ]
+      },
+      {
+        "ball": "green",
+        "index": 0,
+        "r": [
+          -0.987,
+          0.295
+        ]
+      },
+      {
+        "ball": "brown",
+        "index": 0,
+        "r": [
+          -0.956,
+          0.254
+        ]
+      },
+      {
+        "ball": "blue",
+        "index": 0,
+        "r": [
+          0.0,
+          0.0
+        ]
+      },
+      {
+        "ball": "pink",
+        "index": 0,
+        "r": [
+          0.892,
+          0.0
+        ]
+      },
+      {
+        "ball": "black",
+        "index": 0,
+        "r": [
+          1.741,
+          -0.839
+        ]
+      },
+      {
+        "ball": "red",
+        "index": 0,
+        "r": [
+          1.665,
+          0.108
+        ]
+      },
+      {
+        "ball": "red",
+        "index": 1,
+        "r": [
+          1.72,
+          0.226
+        ]
+      }
+    ]
+  },
+  "strike": {
+    "aim_rad": -0.21467549799530256,
+    "tip_x": -0.0015,
+    "tip_y": 0.2563,
+    "elevation_rad": 0.0,
+    "speed_m_s": 4.399
+  },
+  "measured": {
+    "cushions": [
+      {
+        "cushion": "top",
+        "r": [
+          1.758,
+          -0.7
+        ],
+        "t_s": 0.09
+      },
+      {
+        "cushion": "top",
+        "r": [
+          1.75,
+          0.106
+        ],
+        "t_s": 1.43
+      }
+    ],
+    "cannon": {
+      "ball": "red",
+      "index": 8,
+      "pack": [
+        8
+      ],
+      "r": [
+        1.729,
+        0.174
+      ],
+      "t_s": 1.6
+    },
+    "object_ball": 6,
+    "allowed_on_the_way": []
+  }
+}

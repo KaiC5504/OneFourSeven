@@ -1,0 +1,115 @@
+{
+  "name": "film_osullivan_stun_back",
+  "note": "Ronnie O'Sullivan v Mark Williams: a near-full black with a little follow, the cue ball off the top cushion and straight back to clip the red on the pink. Measured from the broadcast reel KaiC sent on 2026-11-15 (docs/calibration/targets.md, the filmed shots): `measured` holds each cushion's place and time and the cannon, with times counted from the first ball contact. The strike is the pace and tip offset that fit the film best on the committed table.",
+  "cue_ball": 0,
+  "start": {
+    "balls": [
+      {
+        "ball": "cue",
+        "index": 0,
+        "r": [
+          1.22,
+          0.434
+        ]
+      },
+      {
+        "ball": "black",
+        "index": 0,
+        "r": [
+          1.4605,
+          0.0
+        ]
+      },
+      {
+        "ball": "red",
+        "index": 0,
+        "r": [
+          0.85,
+          0.075
+        ]
+      },
+      {
+        "ball": "pink",
+        "index": 0,
+        "r": [
+          0.803,
+          0.087
+        ]
+      },
+      {
+        "ball": "red",
+        "index": 1,
+        "r": [
+          1.033,
+          -0.315
+        ]
+      },
+      {
+        "ball": "blue",
+        "index": 0,
+        "r": [
+          0.0,
+          0.0
+        ]
+      },
+      {
+        "ball": "brown",
+        "index": 0,
+        "r": [
+          -1.0475,
+          0.0
+        ]
+      },
+      {
+        "ball": "green",
+        "index": 0,
+        "r": [
+          -1.0475,
+          0.292
+        ]
+      },
+      {
+        "ball": "yellow",
+        "index": 0,
+        "r": [
+          -1.0475,
+          -0.292
+        ]
+      }
+    ]
+  },
+  "strike": {
+    "aim_rad": -1.040838791628843,
+    "tip_x": -0.0962,
+    "tip_y": 0.1305,
+    "elevation_rad": 0.0,
+    "speed_m_s": 4.096
+  },
+  "measured": {
+    "cushions": [
+      {
+        "cushion": "top",
+        "r": [
+          1.758,
+          0.003
+        ],
+        "t_s": 0.36
+      }
+    ],
+    "cannon": {
+      "ball": "red",
+      "index": 2,
+      "pack": [
+        2,
+        3
+      ],
+      "r": [
+        0.892,
+        0.032
+      ],
+      "t_s": 2.44
+    },
+    "object_ball": 1,
+    "allowed_on_the_way": []
+  }
+}

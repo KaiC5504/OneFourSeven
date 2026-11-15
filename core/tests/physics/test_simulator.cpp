@@ -626,8 +626,9 @@ TEST_CASE("simulate a ball spun into the cushion it touches: it settles and roll
     // ended. Now it is a push: the ball settles to rolling along the cushion and is held there.
     SimInput in;
     BallState cue = on_baulk_cushion(ofs::table::Ball::cue, 0, 0.0);
-    cue.v = {0.0, 0.4, 0.0};
-    cue.w = {-0.4 / kR, -10.0, 0.0};  // slip u.x = +10 R: friction drives the ball into the cushion
+    // Slow enough to stop on the straight run: the corner's jaw is 0.8 m along.
+    cue.v = {0.0, 0.33, 0.0};
+    cue.w = {-0.33 / kR, -10.0, 0.0};  // slip u.x = +10 R: friction drives the ball into the cushion
     in.start.balls = {cue};
     in.has_strike = false;
     const ShotRecord r = simulate(in, table(), file_params());

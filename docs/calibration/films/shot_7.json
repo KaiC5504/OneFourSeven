@@ -1,0 +1,1652 @@
+{
+ "n": 7,
+ "player": "Judd Trump",
+ "opponent": "John Higgins",
+ "event": "Northern Ireland Open (scoreboard: Trump 46, frames 4 (11) 3, Higgins 14)",
+ "caption_zh": "低杆左塞两库K球",
+ "spin_named": "Screw (low) with left-hand side, two cushions, cannon. No subtitle speaks about spin in this clip.",
+ "spin_inferred": "Deep screw with left side, struck hard. Screw: after a cut of about 39 degrees on the black the cue ball leaves near the tangent line (heading -156) and its path bends steadily towards +y under a constant 2.2 m/s2 at heading +45 (between the reverse of the aim line, +71, and the reverse of its travel), sliding all the way to x = -1.2, about 1 s after the strike; it then runs straight up the table. That needs back spin worth well over the ball's speed at the black (surface speed roughly twice the 3.9 m/s it left with). Left side (clockwise seen from above): it meets the baulk cushion square (0.9 degrees off the normal) and comes off 15 degrees towards -y, the way left side throws it, which is running side for going round the corner; at the right-hand side cushion it comes in 15 degrees off the cushion and leaves 10 degrees off it, tangential speed 1.20 down to 0.90 m/s, so little side is left by then.",
+ "video_times": {
+  "still": [
+   81.83,
+   85.67
+  ],
+  "live": [
+   85.7,
+   97.3
+  ],
+  "strike": 89.59,
+  "note": "30 fps video made from a 25 fps broadcast: every sixth frame repeats, so real time is 0.04 s per new frame. 81.83-85.67 main camera with the line drawn on (player walking in, balls as at the strike); 85.70-90.17 low camera at the top right corner (strike, black potted); 90.20 on, main camera, the line drawn on until 92.9. The cut between cameras is continuous in time: one parabola fits the cue ball through both views to 3 mm."
+ },
+ "balls": [
+  {
+   "ball": "cue",
+   "r": [
+    1.568,
+    0.409
+   ]
+  },
+  {
+   "ball": "black",
+   "r": [
+    1.4605,
+    0.0
+   ]
+  },
+  {
+   "ball": "pink",
+   "r": [
+    0.892,
+    0.0
+   ]
+  },
+  {
+   "ball": "blue",
+   "r": [
+    0.776,
+    -0.851
+   ]
+  },
+  {
+   "ball": "green",
+   "r": [
+    -1.002,
+    0.522
+   ]
+  },
+  {
+   "ball": "brown",
+   "r": [
+    -1.0475,
+    0.0
+   ]
+  },
+  {
+   "ball": "yellow",
+   "r": [
+    -1.0475,
+    -0.292
+   ]
+  },
+  {
+   "ball": "red",
+   "r": [
+    1.615,
+    -0.205
+   ]
+  },
+  {
+   "ball": "red",
+   "r": [
+    1.675,
+    -0.35
+   ]
+  },
+  {
+   "ball": "red",
+   "r": [
+    1.719,
+    -0.414
+   ]
+  }
+ ],
+ "balls_note": "Black, pink, brown and yellow are on their spots (measured within 1.1 cm of them and written as the spots). Green is off its spot; blue lies 1.2 cm off the right-hand side cushion. Three reds only.",
+ "object_ball": {
+  "ball": "black",
+  "r": [
+   1.4605,
+   0.0
+  ],
+  "cue_ball_at_contact": [
+   1.442,
+   0.049
+  ],
+  "cut": "about 39 degrees (between half and three-quarter ball, 37 % overlap); the cue ball comes across from +y and hits the black's +y, baulk-side face, sending it towards -y and the top cushion",
+  "cut_deg": 39.0,
+  "potted": true,
+  "pocket": [
+   1.7845,
+   -0.889
+  ],
+  "pocket_name": "top right corner seen from baulk",
+  "object_ball_speed": 4.1,
+  "object_ball_heading_deg": -70.0,
+  "note": "The black runs the 0.95 m to the pocket in about 0.23 s along the straight line from its spot to the pocket centre (within 4 mm in the low camera)."
+ },
+ "cue_path": [
+  {
+   "t": 0.0,
+   "r": [
+    1.568,
+    0.409
+   ]
+  },
+  {
+   "t": 0.097,
+   "r": [
+    1.349,
+    0.014
+   ]
+  },
+  {
+   "t": 0.137,
+   "r": [
+    1.216,
+    -0.046
+   ]
+  },
+  {
+   "t": 0.177,
+   "r": [
+    1.081,
+    -0.1
+   ]
+  },
+  {
+   "t": 0.217,
+   "r": [
+    0.948,
+    -0.156
+   ]
+  },
+  {
+   "t": 0.257,
+   "r": [
+    0.814,
+    -0.203
+   ]
+  },
+  {
+   "t": 0.297,
+   "r": [
+    0.691,
+    -0.264
+   ]
+  },
+  {
+   "t": 0.337,
+   "r": [
+    0.563,
+    -0.319
+   ]
+  },
+  {
+   "t": 0.617,
+   "r": [
+    -0.25,
+    -0.576
+   ]
+  },
+  {
+   "t": 0.657,
+   "r": [
+    -0.349,
+    -0.602
+   ]
+  },
+  {
+   "t": 0.697,
+   "r": [
+    -0.454,
+    -0.629
+   ]
+  },
+  {
+   "t": 0.737,
+   "r": [
+    -0.549,
+    -0.649
+   ]
+  },
+  {
+   "t": 0.777,
+   "r": [
+    -0.646,
+    -0.669
+   ]
+  },
+  {
+   "t": 0.817,
+   "r": [
+    -0.747,
+    -0.688
+   ]
+  },
+  {
+   "t": 0.857,
+   "r": [
+    -0.845,
+    -0.704
+   ]
+  },
+  {
+   "t": 0.897,
+   "r": [
+    -0.927,
+    -0.717
+   ]
+  },
+  {
+   "t": 0.937,
+   "r": [
+    -1.016,
+    -0.727
+   ]
+  },
+  {
+   "t": 0.977,
+   "r": [
+    -1.106,
+    -0.735
+   ]
+  },
+  {
+   "t": 1.017,
+   "r": [
+    -1.189,
+    -0.741
+   ]
+  },
+  {
+   "t": 1.057,
+   "r": [
+    -1.271,
+    -0.744
+   ]
+  },
+  {
+   "t": 1.097,
+   "r": [
+    -1.347,
+    -0.745
+   ]
+  },
+  {
+   "t": 1.137,
+   "r": [
+    -1.422,
+    -0.743
+   ]
+  },
+  {
+   "t": 1.177,
+   "r": [
+    -1.501,
+    -0.741
+   ]
+  },
+  {
+   "t": 1.217,
+   "r": [
+    -1.562,
+    -0.737
+   ]
+  },
+  {
+   "t": 1.257,
+   "r": [
+    -1.635,
+    -0.735
+   ]
+  },
+  {
+   "t": 1.297,
+   "r": [
+    -1.717,
+    -0.734
+   ]
+  },
+  {
+   "t": 1.337,
+   "r": [
+    -1.768,
+    -0.735
+   ]
+  },
+  {
+   "t": 1.377,
+   "r": [
+    -1.698,
+    -0.748
+   ]
+  },
+  {
+   "t": 1.417,
+   "r": [
+    -1.642,
+    -0.767
+   ]
+  },
+  {
+   "t": 1.457,
+   "r": [
+    -1.575,
+    -0.776
+   ]
+  },
+  {
+   "t": 1.497,
+   "r": [
+    -1.534,
+    -0.792
+   ]
+  },
+  {
+   "t": 1.537,
+   "r": [
+    -1.479,
+    -0.805
+   ]
+  },
+  {
+   "t": 1.577,
+   "r": [
+    -1.439,
+    -0.818
+   ]
+  },
+  {
+   "t": 1.617,
+   "r": [
+    -1.393,
+    -0.83
+   ]
+  },
+  {
+   "t": 1.657,
+   "r": [
+    -1.35,
+    -0.842
+   ]
+  },
+  {
+   "t": 1.697,
+   "r": [
+    -1.311,
+    -0.855
+   ]
+  },
+  {
+   "t": 1.737,
+   "r": [
+    -1.267,
+    -0.867
+   ]
+  },
+  {
+   "t": 1.777,
+   "r": [
+    -1.217,
+    -0.86
+   ]
+  },
+  {
+   "t": 1.817,
+   "r": [
+    -1.178,
+    -0.852
+   ]
+  },
+  {
+   "t": 1.857,
+   "r": [
+    -1.14,
+    -0.846
+   ]
+  },
+  {
+   "t": 1.897,
+   "r": [
+    -1.108,
+    -0.84
+   ]
+  },
+  {
+   "t": 1.937,
+   "r": [
+    -1.077,
+    -0.833
+   ]
+  },
+  {
+   "t": 1.977,
+   "r": [
+    -1.034,
+    -0.828
+   ]
+  },
+  {
+   "t": 2.017,
+   "r": [
+    -1.002,
+    -0.821
+   ]
+  },
+  {
+   "t": 2.057,
+   "r": [
+    -0.955,
+    -0.815
+   ]
+  },
+  {
+   "t": 2.097,
+   "r": [
+    -0.929,
+    -0.809
+   ]
+  },
+  {
+   "t": 2.137,
+   "r": [
+    -0.894,
+    -0.803
+   ]
+  },
+  {
+   "t": 2.177,
+   "r": [
+    -0.862,
+    -0.797
+   ]
+  },
+  {
+   "t": 2.217,
+   "r": [
+    -0.814,
+    -0.79
+   ]
+  },
+  {
+   "t": 2.257,
+   "r": [
+    -0.785,
+    -0.784
+   ]
+  },
+  {
+   "t": 2.297,
+   "r": [
+    -0.747,
+    -0.777
+   ]
+  },
+  {
+   "t": 2.337,
+   "r": [
+    -0.715,
+    -0.772
+   ]
+  },
+  {
+   "t": 2.377,
+   "r": [
+    -0.676,
+    -0.766
+   ]
+  },
+  {
+   "t": 2.417,
+   "r": [
+    -0.642,
+    -0.759
+   ]
+  },
+  {
+   "t": 2.457,
+   "r": [
+    -0.606,
+    -0.753
+   ]
+  },
+  {
+   "t": 2.497,
+   "r": [
+    -0.572,
+    -0.747
+   ]
+  },
+  {
+   "t": 2.537,
+   "r": [
+    -0.536,
+    -0.741
+   ]
+  },
+  {
+   "t": 2.577,
+   "r": [
+    -0.507,
+    -0.735
+   ]
+  },
+  {
+   "t": 2.617,
+   "r": [
+    -0.467,
+    -0.728
+   ]
+  },
+  {
+   "t": 2.657,
+   "r": [
+    -0.427,
+    -0.723
+   ]
+  },
+  {
+   "t": 2.697,
+   "r": [
+    -0.391,
+    -0.716
+   ]
+  },
+  {
+   "t": 2.737,
+   "r": [
+    -0.362,
+    -0.712
+   ]
+  },
+  {
+   "t": 2.777,
+   "r": [
+    -0.331,
+    -0.706
+   ]
+  },
+  {
+   "t": 2.817,
+   "r": [
+    -0.288,
+    -0.699
+   ]
+  },
+  {
+   "t": 2.857,
+   "r": [
+    -0.255,
+    -0.693
+   ]
+  },
+  {
+   "t": 2.897,
+   "r": [
+    -0.219,
+    -0.687
+   ]
+  },
+  {
+   "t": 2.937,
+   "r": [
+    -0.197,
+    -0.682
+   ]
+  },
+  {
+   "t": 2.977,
+   "r": [
+    -0.164,
+    -0.675
+   ]
+  },
+  {
+   "t": 3.017,
+   "r": [
+    -0.125,
+    -0.669
+   ]
+  },
+  {
+   "t": 3.057,
+   "r": [
+    -0.087,
+    -0.663
+   ]
+  },
+  {
+   "t": 3.097,
+   "r": [
+    -0.058,
+    -0.658
+   ]
+  },
+  {
+   "t": 3.137,
+   "r": [
+    -0.032,
+    -0.652
+   ]
+  },
+  {
+   "t": 3.177,
+   "r": [
+    0.003,
+    -0.646
+   ]
+  },
+  {
+   "t": 3.217,
+   "r": [
+    0.034,
+    -0.64
+   ]
+  },
+  {
+   "t": 3.257,
+   "r": [
+    0.068,
+    -0.634
+   ]
+  },
+  {
+   "t": 3.297,
+   "r": [
+    0.106,
+    -0.628
+   ]
+  },
+  {
+   "t": 3.337,
+   "r": [
+    0.136,
+    -0.623
+   ]
+  },
+  {
+   "t": 3.377,
+   "r": [
+    0.157,
+    -0.618
+   ]
+  },
+  {
+   "t": 3.417,
+   "r": [
+    0.197,
+    -0.611
+   ]
+  },
+  {
+   "t": 3.457,
+   "r": [
+    0.233,
+    -0.605
+   ]
+  },
+  {
+   "t": 3.497,
+   "r": [
+    0.256,
+    -0.6
+   ]
+  },
+  {
+   "t": 3.537,
+   "r": [
+    0.286,
+    -0.594
+   ]
+  },
+  {
+   "t": 3.577,
+   "r": [
+    0.317,
+    -0.588
+   ]
+  },
+  {
+   "t": 3.617,
+   "r": [
+    0.357,
+    -0.583
+   ]
+  },
+  {
+   "t": 3.657,
+   "r": [
+    0.375,
+    -0.577
+   ]
+  },
+  {
+   "t": 3.697,
+   "r": [
+    0.409,
+    -0.571
+   ]
+  },
+  {
+   "t": 3.737,
+   "r": [
+    0.447,
+    -0.565
+   ]
+  },
+  {
+   "t": 3.777,
+   "r": [
+    0.475,
+    -0.562
+   ]
+  },
+  {
+   "t": 4.137,
+   "r": [
+    0.743,
+    -0.511
+   ]
+  },
+  {
+   "t": 4.177,
+   "r": [
+    0.77,
+    -0.506
+   ]
+  },
+  {
+   "t": 4.217,
+   "r": [
+    0.797,
+    -0.499
+   ]
+  },
+  {
+   "t": 4.257,
+   "r": [
+    0.823,
+    -0.495
+   ]
+  },
+  {
+   "t": 4.297,
+   "r": [
+    0.855,
+    -0.488
+   ]
+  },
+  {
+   "t": 4.337,
+   "r": [
+    0.883,
+    -0.483
+   ]
+  },
+  {
+   "t": 4.377,
+   "r": [
+    0.912,
+    -0.478
+   ]
+  },
+  {
+   "t": 4.417,
+   "r": [
+    0.941,
+    -0.472
+   ]
+  },
+  {
+   "t": 4.457,
+   "r": [
+    0.969,
+    -0.467
+   ]
+  },
+  {
+   "t": 4.497,
+   "r": [
+    0.999,
+    -0.461
+   ]
+  },
+  {
+   "t": 4.537,
+   "r": [
+    1.024,
+    -0.456
+   ]
+  },
+  {
+   "t": 4.577,
+   "r": [
+    1.048,
+    -0.451
+   ]
+  },
+  {
+   "t": 4.617,
+   "r": [
+    1.077,
+    -0.446
+   ]
+  },
+  {
+   "t": 4.657,
+   "r": [
+    1.113,
+    -0.438
+   ]
+  },
+  {
+   "t": 4.697,
+   "r": [
+    1.137,
+    -0.434
+   ]
+  },
+  {
+   "t": 4.737,
+   "r": [
+    1.16,
+    -0.429
+   ]
+  },
+  {
+   "t": 4.777,
+   "r": [
+    1.192,
+    -0.423
+   ]
+  },
+  {
+   "t": 4.817,
+   "r": [
+    1.22,
+    -0.419
+   ]
+  },
+  {
+   "t": 4.857,
+   "r": [
+    1.245,
+    -0.414
+   ]
+  },
+  {
+   "t": 4.897,
+   "r": [
+    1.272,
+    -0.409
+   ]
+  },
+  {
+   "t": 4.937,
+   "r": [
+    1.299,
+    -0.403
+   ]
+  },
+  {
+   "t": 4.977,
+   "r": [
+    1.323,
+    -0.397
+   ]
+  },
+  {
+   "t": 5.017,
+   "r": [
+    1.349,
+    -0.393
+   ]
+  },
+  {
+   "t": 5.057,
+   "r": [
+    1.374,
+    -0.388
+   ]
+  },
+  {
+   "t": 5.097,
+   "r": [
+    1.401,
+    -0.384
+   ]
+  },
+  {
+   "t": 5.137,
+   "r": [
+    1.42,
+    -0.378
+   ]
+  },
+  {
+   "t": 5.177,
+   "r": [
+    1.454,
+    -0.372
+   ]
+  },
+  {
+   "t": 5.217,
+   "r": [
+    1.478,
+    -0.367
+   ]
+  },
+  {
+   "t": 5.257,
+   "r": [
+    1.506,
+    -0.362
+   ]
+  },
+  {
+   "t": 5.297,
+   "r": [
+    1.531,
+    -0.358
+   ]
+  },
+  {
+   "t": 5.337,
+   "r": [
+    1.556,
+    -0.353
+   ]
+  },
+  {
+   "t": 5.377,
+   "r": [
+    1.579,
+    -0.348
+   ]
+  },
+  {
+   "t": 5.417,
+   "r": [
+    1.609,
+    -0.344
+   ]
+  },
+  {
+   "t": 5.457,
+   "r": [
+    1.611,
+    -0.336
+   ]
+  },
+  {
+   "t": 5.497,
+   "r": [
+    1.618,
+    -0.329
+   ]
+  },
+  {
+   "t": 5.537,
+   "r": [
+    1.622,
+    -0.321
+   ]
+  },
+  {
+   "t": 5.577,
+   "r": [
+    1.629,
+    -0.315
+   ]
+  },
+  {
+   "t": 5.617,
+   "r": [
+    1.638,
+    -0.308
+   ]
+  },
+  {
+   "t": 5.657,
+   "r": [
+    1.642,
+    -0.301
+   ]
+  },
+  {
+   "t": 5.697,
+   "r": [
+    1.647,
+    -0.295
+   ]
+  },
+  {
+   "t": 5.737,
+   "r": [
+    1.654,
+    -0.288
+   ]
+  },
+  {
+   "t": 5.777,
+   "r": [
+    1.659,
+    -0.282
+   ]
+  },
+  {
+   "t": 5.817,
+   "r": [
+    1.664,
+    -0.275
+   ]
+  },
+  {
+   "t": 5.857,
+   "r": [
+    1.67,
+    -0.269
+   ]
+  },
+  {
+   "t": 5.897,
+   "r": [
+    1.671,
+    -0.263
+   ]
+  },
+  {
+   "t": 5.937,
+   "r": [
+    1.673,
+    -0.257
+   ]
+  },
+  {
+   "t": 5.977,
+   "r": [
+    1.688,
+    -0.251
+   ]
+  },
+  {
+   "t": 6.017,
+   "r": [
+    1.694,
+    -0.246
+   ]
+  },
+  {
+   "t": 6.057,
+   "r": [
+    1.699,
+    -0.24
+   ]
+  },
+  {
+   "t": 6.097,
+   "r": [
+    1.704,
+    -0.234
+   ]
+  },
+  {
+   "t": 6.137,
+   "r": [
+    1.71,
+    -0.229
+   ]
+  },
+  {
+   "t": 6.177,
+   "r": [
+    1.718,
+    -0.223
+   ]
+  },
+  {
+   "t": 6.217,
+   "r": [
+    1.723,
+    -0.217
+   ]
+  },
+  {
+   "t": 6.257,
+   "r": [
+    1.732,
+    -0.211
+   ]
+  },
+  {
+   "t": 6.297,
+   "r": [
+    1.736,
+    -0.205
+   ]
+  },
+  {
+   "t": 6.337,
+   "r": [
+    1.741,
+    -0.199
+   ]
+  },
+  {
+   "t": 6.377,
+   "r": [
+    1.747,
+    -0.194
+   ]
+  },
+  {
+   "t": 6.417,
+   "r": [
+    1.746,
+    -0.189
+   ]
+  },
+  {
+   "t": 6.457,
+   "r": [
+    1.75,
+    -0.184
+   ]
+  },
+  {
+   "t": 6.497,
+   "r": [
+    1.743,
+    -0.178
+   ]
+  },
+  {
+   "t": 6.537,
+   "r": [
+    1.744,
+    -0.174
+   ]
+  },
+  {
+   "t": 6.577,
+   "r": [
+    1.74,
+    -0.17
+   ]
+  },
+  {
+   "t": 6.617,
+   "r": [
+    1.74,
+    -0.167
+   ]
+  },
+  {
+   "t": 6.657,
+   "r": [
+    1.738,
+    -0.165
+   ]
+  },
+  {
+   "t": 6.697,
+   "r": [
+    1.735,
+    -0.162
+   ]
+  },
+  {
+   "t": 6.737,
+   "r": [
+    1.734,
+    -0.158
+   ]
+  },
+  {
+   "t": 6.777,
+   "r": [
+    1.733,
+    -0.156
+   ]
+  },
+  {
+   "t": 6.817,
+   "r": [
+    1.731,
+    -0.152
+   ]
+  },
+  {
+   "t": 6.857,
+   "r": [
+    1.731,
+    -0.149
+   ]
+  },
+  {
+   "t": 6.897,
+   "r": [
+    1.729,
+    -0.147
+   ]
+  },
+  {
+   "t": 6.937,
+   "r": [
+    1.727,
+    -0.145
+   ]
+  },
+  {
+   "t": 6.977,
+   "r": [
+    1.722,
+    -0.143
+   ]
+  },
+  {
+   "t": 7.017,
+   "r": [
+    1.726,
+    -0.141
+   ]
+  },
+  {
+   "t": 7.057,
+   "r": [
+    1.724,
+    -0.138
+   ]
+  },
+  {
+   "t": 7.097,
+   "r": [
+    1.72,
+    -0.137
+   ]
+  },
+  {
+   "t": 7.137,
+   "r": [
+    1.723,
+    -0.134
+   ]
+  },
+  {
+   "t": 7.177,
+   "r": [
+    1.715,
+    -0.133
+   ]
+  },
+  {
+   "t": 7.217,
+   "r": [
+    1.716,
+    -0.131
+   ]
+  },
+  {
+   "t": 7.257,
+   "r": [
+    1.717,
+    -0.129
+   ]
+  },
+  {
+   "t": 7.297,
+   "r": [
+    1.715,
+    -0.128
+   ]
+  },
+  {
+   "t": 7.337,
+   "r": [
+    1.717,
+    -0.126
+   ]
+  },
+  {
+   "t": 7.377,
+   "r": [
+    1.712,
+    -0.125
+   ]
+  },
+  {
+   "t": 7.417,
+   "r": [
+    1.713,
+    -0.124
+   ]
+  },
+  {
+   "t": 7.457,
+   "r": [
+    1.711,
+    -0.123
+   ]
+  },
+  {
+   "t": 7.497,
+   "r": [
+    1.712,
+    -0.122
+   ]
+  },
+  {
+   "t": 7.537,
+   "r": [
+    1.71,
+    -0.122
+   ]
+  },
+  {
+   "t": 7.577,
+   "r": [
+    1.71,
+    -0.12
+   ]
+  },
+  {
+   "t": 7.617,
+   "r": [
+    1.709,
+    -0.118
+   ]
+  },
+  {
+   "t": 7.657,
+   "r": [
+    1.708,
+    -0.118
+   ]
+  },
+  {
+   "t": 7.697,
+   "r": [
+    1.709,
+    -0.118
+   ]
+  }
+ ],
+ "cue_path_note": "t = 0 is the strike (known to 0.01 s). 0.097-0.337 s from the low camera (blurred ball, placed from its shadow; 2-3 cm rough along that camera's line of sight, which is mostly y); 0.617 s on from the main camera. Left out: the two frames between strike and black (ball off the bed), the cut between cameras (0.34-0.62 s), the referee crossing (4.34-4.70 s).",
+ "events": [
+  {
+   "kind": "ball",
+   "t": 0.067,
+   "r": [
+    1.442,
+    0.049
+   ],
+   "with": "black",
+   "heading_in_deg": -109.2,
+   "heading_out_deg": -156.0,
+   "speed_in": 5.7,
+   "speed_out": 3.86,
+   "note": "speed_in from the black's 4.1 m/s and the cue ball's 3.86 m/s after contact (energy sum gives 5.6; the cue ball alone at a 39 degree cut gives 6.0); +-0.3. heading_in is the line from the cue ball to its contact position for a pot to the pocket centre. heading_out and speed_out from the parabola fitted to the slide."
+  },
+  {
+   "kind": "slide_end",
+   "t": 1.05,
+   "r": [
+    -1.26,
+    -0.744
+   ],
+   "heading_out_deg": 179.1,
+   "speed_out": 1.9,
+   "note": "Until about here the cue ball slides with back spin: constant acceleration (1.55, 1.58) m/s2, 2.21 m/s2 in all (sliding friction 0.225). Speed 3.86 at the black, 3.31 at t 0.337, 2.76 at 0.617, 2.12 at 0.977."
+  },
+  {
+   "kind": "cushion",
+   "t": 1.32,
+   "r": [
+    -1.758,
+    -0.735
+   ],
+   "with": "baulk",
+   "heading_in_deg": 179.1,
+   "heading_out_deg": -15.2,
+   "speed_in": 1.85,
+   "speed_out": 1.25
+  },
+  {
+   "kind": "cushion",
+   "t": 1.735,
+   "r": [
+    -1.256,
+    -0.863
+   ],
+   "with": "right",
+   "heading_in_deg": -15.2,
+   "heading_out_deg": 9.9,
+   "speed_in": 1.25,
+   "speed_out": 0.91,
+   "note": "Then 0.89 m/s at heading 9.8 over t 2.2-2.9 and 0.69 m/s at heading 11.0 over t 4.1-5.4: rolling loss 0.09 m/s2."
+  },
+  {
+   "kind": "ball",
+   "t": 5.43,
+   "r": [
+    1.612,
+    -0.342
+   ],
+   "with": "red at (1.675, -0.350)",
+   "heading_in_deg": 11.0,
+   "heading_out_deg": 46.2,
+   "speed_in": 0.66,
+   "speed_out": 0.21,
+   "note": "Measured centres are 6.4 cm apart at contact where touching balls are 5.25: 1 cm of depth error at this end."
+  },
+  {
+   "kind": "cushion",
+   "t": 6.45,
+   "r": [
+    1.75,
+    -0.185
+   ],
+   "with": "top",
+   "heading_in_deg": 46.0,
+   "heading_out_deg": 122.0,
+   "speed_in": 0.15,
+   "speed_out": 0.06,
+   "note": "A soft touch, if it touches at all (measured 1.750, touching is 1.758)."
+  },
+  {
+   "kind": "stop",
+   "t": 7.7,
+   "r": [
+    1.712,
+    -0.123
+   ],
+   "note": "Still creeping at under 0.03 m/s when the referee walks in."
+  }
+ ],
+ "cannon": {
+  "reaches": "the middle one of the three reds, at (1.675, -0.350), nearly full, 5.4 s after the strike at 0.66 m/s",
+  "reds_before": [
+   [
+    1.615,
+    -0.205
+   ],
+   [
+    1.675,
+    -0.35
+   ],
+   [
+    1.719,
+    -0.414
+   ]
+  ],
+  "reds_after": [
+   [
+    1.615,
+    -0.205
+   ],
+   [
+    1.593,
+    -0.328
+   ],
+   [
+    1.704,
+    -0.436
+   ]
+  ],
+  "cue_ball_finish": [
+   1.712,
+   -0.123
+  ],
+  "note": "The struck red goes into the top cushion and the red beside it and comes back out to (1.59, -0.33); the corner-side red moves 2 cm; the third red is not touched. The cue ball drifts on to the top cushion and stops 4.6 cm off it."
+ },
+ "drawn_line": {
+  "points": [
+   [
+    1.548,
+    0.362
+   ],
+   [
+    1.443,
+    0.064
+   ],
+   [
+    1.352,
+    0.008
+   ],
+   [
+    1.165,
+    -0.1
+   ],
+   [
+    0.971,
+    -0.198
+   ],
+   [
+    0.769,
+    -0.29
+   ],
+   [
+    0.559,
+    -0.373
+   ],
+   [
+    0.341,
+    -0.453
+   ],
+   [
+    0.114,
+    -0.522
+   ],
+   [
+    -0.123,
+    -0.584
+   ],
+   [
+    -0.37,
+    -0.637
+   ],
+   [
+    -0.628,
+    -0.678
+   ],
+   [
+    -0.898,
+    -0.707
+   ],
+   [
+    -1.18,
+    -0.727
+   ],
+   [
+    -1.475,
+    -0.734
+   ],
+   [
+    -1.732,
+    -0.736
+   ],
+   [
+    -1.315,
+    -0.887
+   ],
+   [
+    -0.629,
+    -0.756
+   ],
+   [
+    -0.004,
+    -0.639
+   ],
+   [
+    0.558,
+    -0.535
+   ],
+   [
+    1.067,
+    -0.44
+   ],
+   [
+    1.543,
+    -0.354
+   ]
+  ],
+  "note": "Editor's line mapped as if at ball-centre height: from the cue ball to a kink beside the black (second point), a curve up the table to the baulk cushion (16th point), a straight to the right-hand side cushion (17th), then straight down to the reds (last)."
+ },
+ "calibration": {
+  "main_camera": {
+   "reference": "yellow, brown, pink on their spots (frame 2850) and black on its spot (frame 2480), plus 90-116 points on each of the four cushion nose lines; green is NOT on its spot and was left out",
+   "model": "pinhole camera (7 parameters); balls at 26 mm, end cushion noses at 37 mm, side cushion shadow lines at 20 mm",
+   "fit_rms_px": 0.17,
+   "spot_residuals_m": {
+    "yellow": [
+     -0.011,
+     0.004
+    ],
+    "brown": [
+     0.007,
+     0.002
+    ],
+    "pink": [
+     -0.006,
+     0.003
+    ],
+    "black": [
+     0.002,
+     0.002
+    ]
+   },
+   "cushion_line_residual_m": {
+    "right": 0.001,
+    "left": 0.001,
+    "baulk": 0.004,
+    "top": 0.004
+   },
+   "camera": "on the centre line 10.2 m beyond the table centre at the black end, 3.2 m high; fixed through the whole clip (still balls move under 0.3 px)"
+  },
+  "low_camera": {
+   "reference": "pink and black on their spots, and the cue ball and two reds where the main camera puts them, plus the far cushion nose line",
+   "fit_rms_px": 0.37,
+   "residuals_m": {
+    "pink": 0.002,
+    "black": 0.004,
+    "cue": 0.019,
+    "red (1.615, -0.205)": 0.004,
+    "red (1.719, -0.414)": 0.005
+   },
+   "check": "far middle pocket and far corner project within 2 cm of where they are seen"
+  },
+  "cushion_contact_check": {
+   "baulk": {
+    "measured_x": -1.768,
+    "expected": -1.758,
+    "off_m": 0.01,
+    "note": "ball centre taken from its top and bottom edges there; the outline fit reads 1.5 px high against the cushion face and would give -1.784"
+   },
+   "right": {
+    "measured_y": -0.867,
+    "expected": -0.863,
+    "off_m": 0.004
+   },
+   "top": {
+    "measured_x": 1.75,
+    "expected": 1.758,
+    "off_m": 0.008,
+    "note": "may not quite touch"
+   }
+  }
+ },
+ "confidence": {
+  "sure": "Layout: 1 cm (1.5 cm in x for the reds and cue ball near the top cushion). The pot: black from its spot into the top right corner. Path from 0.6 s on: 1 cm across the table, 1.5 cm along it at the baulk end (13 mm per pixel there), 1 cm at the top end. Cushion contact points 2 cm. Headings after the cushions 1.5 degrees. Timing 0.04 s per frame; strike time 0.01 s.",
+  "rough": "Cue ball speed at the strike 5.7 +-0.3 m/s (two blurred frames with the ball off the bed, so it comes from the speeds after contact). Cut angle 39 +-3 degrees. First 0.34 s of the path after the black: 3 cm in y. Heading off the black -156 +-3 (the ideal tangent line for a centre-pocket pot is -160). Speeds: 3 % in the slide, 5 % after the cushions (fits over 0.3-0.4 s). How much side: not measured, only its sign."
+ }
+}

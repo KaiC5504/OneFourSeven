@@ -286,154 +286,119 @@ TEST_CASE("C8 strike convention: right-hand side runs off a cushion on the left 
     CHECK_MESSAGE(out.w.z > 0.0, "right-hand side gave w.z = " << out.w.z << " (anticlockwise from above expected)");
 }
 
-TEST_CASE("C8 side straight into a cushion: a third, two thirds and all of it carry the ball in step along the table") {
-    // Patrick Johnson's rule, on Dr. Dave Alciatore's bank and kick effects page
-    // (https://drdavepoolinfo.com/faq/bank-kick/effects/): "1/3, 2/3 and 3/3 of maximum spin result
-    // in approximately 1, 2 or 3 diamonds of cross-table change with a kick straight into a
-    // cushion". A diamond is a quarter of the table's width. The rule is counted on pool tables,
-    // whose cushions return about 0.7 to 0.75 of a ball's speed across (Alciatore TP B.6); this
-    // one returns 0.91, so the ball is across sooner and lands about 0.8 as far along. The
-    // paper's cushion, one friction in every direction, runs out of grip: 0.96, 1.5 and 1.56.
-    const double snooker_cushion = 0.8;
-    const PhysicsParams& p = params();
-    const TableShape box = box_table();
-    const double diamond = table::kPlayingWidth / 4.0;
-    for (int thirds = 1; thirds <= 3; ++thirds) {
-        SimInput in;
-        in.start.balls = {make_ball(table::Ball::cue, 0, {1.4, 0.0, 0.0})};
-        in.cue_ball = 0;
-        in.has_strike = true;
-        // Left-hand side for a ball heading into the left cushion carries it towards baulk.
-        in.strike = CueStrike{kPi / 2.0, -0.5 * thirds / 3.0, 0.0, 0.0, 3.5};
-        in.seed = 1;
-        in.params_hash = "calibration";
-        const ShotRecord rec = simulate(in, box, p);
-        INFO(thirds << "/3 of full side; record: " << record_summary(rec));
-        const ShotEvent* first = first_event(rec, EventKind::ball_line, 0);
-        REQUIRE(first != nullptr);
-        const ShotEvent* second = first_event(rec, EventKind::ball_line, 0, -1, first->t + 1e-6);
-        REQUIRE_MESSAGE(second != nullptr, "the ball never crossed back to the other cushion");
-        const Segment* at_first = segment_from(rec, 0, first->t);
-        const Segment* at_second = segment_from(rec, 0, second->t);
-        REQUIRE(at_first != nullptr);
-        REQUIRE(at_second != nullptr);
-        CHECK(at_second->start.r.y < 0.0);
-        const double along = (at_first->start.r.x - at_second->start.r.x) / diamond;
-        MESSAGE(thirds << "/3 of full side straight in lands " << along << " diamonds along");
-        CHECK_MESSAGE(std::abs(along - snooker_cushion * thirds) <= 0.3,
-                      along << " diamonds, the rule on this cushion says about " << snooker_cushion * thirds);
-    }
-}
-
-TEST_CASE("C8 Selby's blue: round three cushions to the reds on the pink, where and when the broadcast shows") {
-    // positions/selby_blue.json, measured from the broadcast of the 2014 World Championship
-    // final's last frame: the blue to a middle pocket almost straight, struck very hard with top
-    // and right-hand side, and the cue ball round the side, baulk and other side cushions to the
-    // two reds on the pink. The fixture's `measured` holds each cushion's place and time, counted
-    // from the contact with the blue.
-    const nlohmann::json fx = read_json(fixture_path("positions/selby_blue.json"));
-    REQUIRE_MESSAGE(!fx.is_null(), "missing positions/selby_blue.json");
-    SimInput in;
-    std::string error;
-    REQUIRE_MESSAGE(from_json(fx["start"], in.start, error), error);
-    REQUIRE_MESSAGE(from_json(fx["strike"], in.strike, error), error);
-    in.cue_ball = fx["cue_ball"].get<int>();
-    in.has_strike = true;
-    in.seed = 1;
-    in.params_hash = "calibration";
+TEST_CASE("C8 filmed shots: the cue ball meets each cushion where and when the film shows and makes the cannon") {
+    // Professional shots tracked frame by frame from broadcasts (positions/selby_blue.json and
+    // film_*.json; docs/calibration/targets.md has how they were measured). Each fixture is the
+    // layout, the pace and tip offset that fit the film best, and `measured`: the cushions the cue
+    // ball takes between its first ball and the cannon, with their places and times counted from
+    // that first contact, and the ball or cluster it reaches.
+    const char* films[] = {"selby_blue",
+                           "film_allen_two_cushions",
+                           "film_osullivan_baulk_cushion",
+                           "film_lee_hugs_cushion",
+                           "film_trump_screw_left",
+                           "film_trump_screw_check",
+                           "film_selby_one_cushion",
+                           "film_osullivan_stun_back",
+                           "film_higgins_left_side"};
+    // The films' places are good to 1 to 4 cm and the fitted strikes leave up to 7.
+    const double place = 0.10;
+    const double cushion_time = 0.2;
+    const double cannon_time = 0.5;
+    const double side = table::kPlayingWidth / 2.0 - table::kBallRadius;
+    const double end = table::kPlayingLength / 2.0 - table::kBallRadius;
     REQUIRE(loaded_table().ok);
     const TableShape& t = loaded_table().t;
-    const int blue = 1;
-    const int pink = 5;
-    const int red_on_pink_a = 6;
-    const int red_on_pink_b = 7;
 
     struct Cushion {
-        double x = 0.0;
-        double y = 0.0;
+        Vec3 r;
         double t = 0.0;
     };
     struct Run {
+        bool struck = false;
         bool potted = false;
-        std::vector<Cushion> cushions;  // the cue ball's, between the blue and the next ball
+        std::vector<Cushion> cushions;  // the cue ball's, between its first ball and the cannon
         int cannon = -1;
         double cannon_t = 0.0;
-        Vec3 rest;
         std::string summary;
     };
-    // The fixture's aim is the centre-ball line; side moves the pot (squirt, swerve, throw), so
-    // the aim is turned until the blue drops, as a player's is (the game's SpinAim): the middle
-    // of the aims that pot it.
-    auto play = [&](const PhysicsParams& p) {
-        std::vector<double> pots;
-        for (int i = -60; i <= 60; ++i) {
-            SimInput tried = in;
-            tried.strike.aim_rad += i * 0.05 * kDeg;
-            const ShotRecord rec = simulate(tried, t, p);
-            if (rec.final_state.balls[blue].motion == Motion::pocketed) pots.push_back(tried.strike.aim_rad);
-        }
+    auto play = [&](const nlohmann::json& fx, const PhysicsParams& p) {
         Run out;
-        if (pots.empty()) return out;
-        SimInput shot = in;
-        shot.strike.aim_rad = pots[pots.size() / 2];
-        const ShotRecord rec = simulate(shot, t, p);
+        SimInput in;
+        std::string error;
+        if (!from_json(fx["start"], in.start, error) || !from_json(fx["strike"], in.strike, error)) {
+            out.summary = error;
+            return out;
+        }
+        in.cue_ball = fx["cue_ball"].get<int>();
+        in.has_strike = true;
+        in.seed = 1;
+        in.params_hash = "calibration";
+        const nlohmann::json& real = fx["measured"];
+        const int object = real["object_ball"].get<int>();
+        std::vector<int> passed = real["allowed_on_the_way"].get<std::vector<int>>();
+        const ShotRecord rec = simulate(in, t, p);
         out.summary = record_summary(rec, 40);
-        out.potted = rec.final_state.balls[blue].motion == Motion::pocketed;
-        out.rest = rec.final_state.balls[0].r;
-        const ShotEvent* hit = first_event(rec, EventKind::ball_ball, 0, blue);
+        out.potted = rec.final_state.balls[static_cast<std::size_t>(object)].motion == Motion::pocketed;
+        const ShotEvent* hit = first_event(rec, EventKind::ball_ball, 0, object);
         if (hit == nullptr) return out;
+        out.struck = true;
         for (const ShotEvent& e : rec.events) {
             if (e.t <= hit->t || (e.a != 0 && e.b != 0)) continue;
             if (e.kind == EventKind::ball_ball) {
-                out.cannon = e.a == 0 ? e.b : e.a;
+                const int other = e.a == 0 ? e.b : e.a;
+                if (std::find(passed.begin(), passed.end(), other) != passed.end()) continue;
+                out.cannon = other;
                 out.cannon_t = e.t - hit->t;
                 break;
             }
             if (e.kind != EventKind::ball_line && e.kind != EventKind::ball_arc) continue;
             const Segment* at = segment_from(rec, 0, e.t);
-            if (at != nullptr) out.cushions.push_back({at->start.r.x, at->start.r.y, e.t - hit->t});
+            if (at != nullptr) out.cushions.push_back({at->start.r, e.t - hit->t});
         }
         return out;
     };
 
-    const Run ours = play(params());
-    INFO("record: " << ours.summary);
-    REQUIRE(ours.potted);
-    const nlohmann::json& real = fx["measured"];
-    REQUIRE(ours.cushions.size() == 3);
-    const double side = table::kPlayingWidth / 2.0 - table::kBallRadius;
-    const double end = table::kPlayingLength / 2.0 - table::kBallRadius;
-    const Cushion& right = ours.cushions[0];
-    const Cushion& baulk = ours.cushions[1];
-    const Cushion& left = ours.cushions[2];
-    MESSAGE("Selby's blue, ours against the film: right cushion x " << right.x << " at " << right.t << " s ("
-            << real["cushions"][0]["x"] << ", " << real["cushions"][0]["t_s"] << "); baulk cushion y " << baulk.y
-            << " at " << baulk.t << " s (" << real["cushions"][1]["y"] << ", " << real["cushions"][1]["t_s"]
-            << "); left cushion x " << left.x << " at " << left.t << " s (" << real["cushions"][2]["x"] << ", "
-            << real["cushions"][2]["t_s"] << "); reaches ball " << ours.cannon << " at " << ours.cannon_t << " s ("
-            << real["reds"]["t_s"] << ")");
-    // The film's places are good to about 4 cm and the fitted strike leaves up to 5.
-    const double place = 0.10;
-    CHECK(right.y == doctest::Approx(-side).epsilon(1e-3));
-    CHECK(std::abs(right.x - real["cushions"][0]["x"].get<double>()) <= place);
-    CHECK(std::abs(right.t - real["cushions"][0]["t_s"].get<double>()) <= 0.25);
-    CHECK(baulk.x == doctest::Approx(-end).epsilon(1e-3));
-    CHECK(std::abs(baulk.y - real["cushions"][1]["y"].get<double>()) <= place);
-    CHECK(std::abs(baulk.t - real["cushions"][1]["t_s"].get<double>()) <= 0.25);
-    CHECK(left.y == doctest::Approx(side).epsilon(1e-3));
-    CHECK(std::abs(left.x - real["cushions"][2]["x"].get<double>()) <= place);
-    CHECK(std::abs(left.t - real["cushions"][2]["t_s"].get<double>()) <= 0.4);
-    const bool reached = ours.cannon == pink || ours.cannon == red_on_pink_a || ours.cannon == red_on_pink_b;
-    CHECK_MESSAGE(reached, "the cue ball reached ball " << ours.cannon << " and stopped at " << vec_str(ours.rest));
-    CHECK(std::abs(ours.cannon_t - real["reds"]["t_s"].get<double>()) <= 1.0);
+    for (const char* name : films) {
+        const nlohmann::json fx = read_json(fixture_path(std::string("positions/") + name + ".json"));
+        REQUIRE_MESSAGE(!fx.is_null(), "missing positions/" << name << ".json");
+        const Run ours = play(fx, params());
+        INFO(name << "; record: " << ours.summary);
+        REQUIRE(ours.struck);
+        CHECK(ours.potted);
+        const nlohmann::json& real = fx["measured"];
+        const nlohmann::json& cushions = real["cushions"];
+        REQUIRE(ours.cushions.size() >= cushions.size());
+        std::ostringstream told;
+        for (std::size_t k = 0; k < cushions.size(); ++k) {
+            const std::string which = cushions[k]["cushion"].get<std::string>();
+            const Vec3 want{cushions[k]["r"][0].get<double>(), cushions[k]["r"][1].get<double>(), 0.0};
+            const Cushion& got = ours.cushions[k];
+            const bool along_x = which == "left" || which == "right";
+            const double face = which == "left" ? side : which == "right" ? -side : which == "top" ? end : -end;
+            INFO("cushion " << k << " (" << which << "): ours " << vec_str(got.r) << " at " << got.t << " s");
+            CHECK(std::abs((along_x ? got.r.y : got.r.x) - face) <= 1e-3);
+            CHECK(std::abs((along_x ? got.r.x : got.r.y) - (along_x ? want.x : want.y)) <= place);
+            CHECK(std::abs(got.t - cushions[k]["t_s"].get<double>()) <= cushion_time);
+            told << which << " " << (along_x ? got.r.x : got.r.y) << " at " << got.t << " s ("
+                 << (along_x ? want.x : want.y) << ", " << cushions[k]["t_s"].get<double>() << "); ";
+        }
+        const std::vector<int> pack = real["cannon"]["pack"].get<std::vector<int>>();
+        CHECK_MESSAGE(std::find(pack.begin(), pack.end(), ours.cannon) != pack.end(),
+                      "the cue ball reached ball " << ours.cannon);
+        CHECK(std::abs(ours.cannon_t - real["cannon"]["t_s"].get<double>()) <= cannon_time);
+        MESSAGE(std::string(name) << ", ours (the film): " << told.str() << "cannon at " << ours.cannon_t << " s ("
+                << real["cannon"]["t_s"].get<double>() << ")");
+    }
 
     // The cloth and cushions of the owner's feel sessions of 2026-11-13 to 15, set while the cue
-    // was half as strong again: the cue ball stops short of the reds.
+    // was half as strong again: Selby's cue ball stops short of the reds.
     PhysicsParams slow = params();
     slow.roll_friction = 0.015;
     slow.cushion_restitution = 0.85;
-    const Run before = play(slow);
+    const nlohmann::json selby = read_json(fixture_path("positions/selby_blue.json"));
+    const Run before = play(selby, slow);
     INFO("roll_friction 0.015, cushion_restitution 0.85; record: " << before.summary);
-    REQUIRE(before.potted);
-    CHECK(before.cannon == -1);
+    const std::vector<int> pack = selby["measured"]["cannon"]["pack"].get<std::vector<int>>();
+    CHECK(std::find(pack.begin(), pack.end(), before.cannon) == pack.end());
 }

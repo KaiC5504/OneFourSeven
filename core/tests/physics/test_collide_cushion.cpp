@@ -289,14 +289,12 @@ TEST_CASE("cushion: with a side grip the fast model matches the fine-step refere
 }
 
 TEST_CASE("cushion: the grip turns side into speed along the cushion in proportion, the paper's runs out") {
-    // The owner's session, 2026-11-15, against Patrick Johnson's rule on Dr. Dave Alciatore's bank
-    // and kick effects page: a third, two thirds and all of the side straight into a cushion move
-    // the ball one, two and three diamonds. A rolling ball straight in at 1 m/s with side 0.6, 1.2
-    // and 1.8 of its speed (full side on a rolling ball is about 1.75).
+    // What a side grip above 1 is for (the table's is 1, the paper's): a rolling ball straight in
+    // at 1 m/s with side 0.6, 1.2 and 1.8 of its speed (full side on a rolling ball is about 1.75).
     PhysicsParams grip;
+    grip.cushion_side_grip = 4.0;
     PhysicsParams paper = grip;
     paper.cushion_side_grip = 1.0;
-    REQUIRE(grip.cushion_side_grip >= 2.0);
     double along_grip[3];
     double along_paper[3];
     const double sides[3] = {0.6, 1.2, 1.8};

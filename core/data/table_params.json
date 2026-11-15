@@ -5,16 +5,16 @@
     "ball_mass_kg": 0.1406,
     "gravity_m_s2": 9.81,
     "slide_friction": 0.212,
-    "roll_friction": 0.01,
+    "roll_friction": 0.009,
     "spin_friction_per_r": 0.4444444444444444,
     "ball_restitution": 0.94,
     "ball_friction_a": 0.058,
     "ball_friction_b": 0.092,
     "ball_friction_c": 2.73,
     "ball_rest_speed_m_s": 0.001,
-    "cushion_restitution": 0.98,
+    "cushion_restitution": 0.9,
     "cushion_friction": 0.14,
-    "cushion_side_grip": 4.0,
+    "cushion_side_grip": 1.0,
     "cushion_table_friction": 0.212,
     "cushion_contact_height_m": 0.03675,
     "cushion_rigid_limit_m_s": 2.5,
@@ -65,8 +65,8 @@
     },
     "roll_friction": {
       "unit": "",
-      "source": "Selby's blue in the last frame of the 2014 World Championship final, tracked from the broadcast (core/tests/fixtures/positions/selby_blue.json): the cue ball's rolling legs slow at 0.086 to 0.12 m/s^2 (0.009-0.012), and 0.010 with cushion_restitution 0.98 puts all three cushions and the reds within 5 cm and 0.2 s of the film. The literature: Mathavan et al. (2009) Am. J. Phys. 77(9):788-794 measured 0.0127-0.0129 on an unheated laboratory Riley Renaissance (10 x 5 ft); spec 7.10 0.005-0.01; Alciatore physical properties FAQ 0.005-0.015 (pool)",
-      "note": "Rolling resistance: the slow end of what the C11 lag (docs/calibration/targets.md) allows, 2.14 m/s and a last length of 8.4 s. Was 0.015 from the owner's feel sessions of 2026-11-13 to 15, set while the cue was half as strong again (max_cue_speed_m_s 10): on that cloth, with the cushions of the same sessions, Selby's cue ball stopped 0.3 m short of the reds at full power. Was 0.008 before M1's tuning."
+      "source": "Measured on the filmed shots of 2026-11-15 (Selby's blue from the 2014 World final and nine cannons from a broadcast reel, tracked frame by frame; docs/calibration/targets.md and core/tests/fixtures/positions/film_*.json): the cue ball's rolling legs slow at 0.085 to 0.12 m/s^2 at 0.5 to 0.9 m/s (0.0087-0.012, seven legs, mean 0.0098) and 0.074 to 0.079 below 0.35 m/s (0.0075-0.0081); fitting pace and tip offset to each shot's cushions and times, 0.008, 0.009 and 0.010 fit about equally. The literature: Mathavan et al. (2009) Am. J. Phys. 77(9):788-794 measured 0.0127-0.0129 on an unheated laboratory Riley Renaissance (10 x 5 ft); spec 7.10 0.005-0.01; Alciatore physical properties FAQ 0.005-0.015 (pool)",
+      "note": "Rolling resistance. One value for every speed, though the films show a little more at a firm roll than at a trickle. Was 0.015 from the owner's feel sessions of 2026-11-13 to 15, set while the cue was half as strong again (max_cue_speed_m_s 10): on that cloth the filmed shots stop short (Selby's cue ball 0.3 m from the reds at full power). Before that 0.010, and 0.008 before M1's tuning."
     },
     "spin_friction_per_r": {
       "unit": "",
@@ -100,8 +100,8 @@
     },
     "cushion_restitution": {
       "unit": "",
-      "source": "Mathavan, Jackson & Parkin (2010), Proc. IMechE C 224(9):1863-1873, sec. 3.5: e_e = 0.98 with mu_w = 0.14 minimise the RMS error against measured snooker rebounds. Selby's blue (2014 World final, tracked from the broadcast, core/tests/fixtures/positions/selby_blue.json) agrees: of 0.85, 0.90, 0.94 and 0.98 the last fits its three cushions best",
-      "note": "e_e in the Mathavan model; with the friction terms it gives the speed-dependent loss (C7). A rolling ball straight in rebounds at 0.911 of its speed, the 0.910 low-speed gradient Mathavan et al. (2009) Am. J. Phys. 77:788 measured (their 0.818 is a straight-line fit over 0.28-3.5 m/s that includes the high-speed fall-off). Was 0.85 from the owner's feel sessions of 2026-11-13 to 15 (0.797 straight in), set while the cue was half as strong again."
+      "source": "Fitted to the filmed shots of 2026-11-15 (Selby's blue from the 2014 World final and nine cannons from a broadcast reel, tracked frame by frame; docs/calibration/targets.md and core/tests/fixtures/positions/film_*.json): of 0.85, 0.87, 0.90, 0.93 and 0.98 the nine shots together fit best at 0.90 to 0.93 (Selby's three cushions want it higher, Allen's two lower). Mathavan, Jackson & Parkin (2010), Proc. IMechE C 224(9):1863-1873, sec. 3.5, fitted e_e = 0.98 with mu_w = 0.14; their measured straight-in rebound, 0.818 below 1.5 m/s (sec. 3.3, Fig. 5), is what this model gives at about 0.87",
+      "note": "e_e in the Mathavan model; with the friction terms it gives the speed-dependent loss (C7). A rolling ball straight in rebounds at 0.84 of its speed (0.911 with the paper's 0.98, 0.797 with the 0.85 of the owner's feel sessions of 2026-11-13 to 15, which was the nearer of the two)."
     },
     "cushion_friction": {
       "unit": "",
@@ -110,8 +110,8 @@
     },
     "cushion_side_grip": {
       "unit": "",
-      "source": "Dr. Dave Alciatore's bank and kick effects page, https://drdavepoolinfo.com/faq/bank-kick/effects/ (Patrick Johnson's rule: 1/3, 2/3 and 3/3 of maximum side straight into a cushion move the ball about 1, 2 and 3 diamonds across the table), after the owner's feel session on the iPhone, 2026-11-15, where side did too little off a cushion. 1 is the paper's cushion (Mathavan et al. 2010), which fitted mu_w to balls without side",
-      "note": "How many times harder the cushion grips a ball along its length than up its face. With one friction for both (1) side runs out of grip: a third, two thirds and all of the side straight in gave 1.0, 1.7 and 1.9 diamonds, and a cue ball arriving slowly with a lot of side (after a full-ball pot) barely turned. At 2 and above the rule holds (1.1, 2.2, 3.4); 4 is where the heavy-side shot stops gaining much (full grip by 5). A ball without side straight in is untouched; at an angle a rolling ball comes off shorter (45 degrees in: 49 out once rolling, was 56). Jaws keep one friction. A shot logged before this existed replays with 1."
+      "source": "1 is the paper's cushion (Mathavan et al. 2010): one friction in every direction. The filmed shots of 2026-11-15 (Selby's blue from the 2014 World final and nine cannons from a broadcast reel, tracked frame by frame; docs/calibration/targets.md and core/tests/fixtures/positions/film_*.json) decide it: Trump's two screw shots with side (check side on two cushions against Ding, left side to the baulk and side cushions against Higgins) play within 2 cm and 0.05 s at 1 and cannot be played at all at 2 or 4",
+      "note": "How many times harder the cushion grips a ball along its length than up its face. Was 4 for a few hours on 2026-11-15, set from a pool players' rule (a third, two thirds and all of the side straight into a cushion: 1, 2 and 3 diamonds along) when side seemed to do too little; the fault was the dead cloth and cushions of the feel sessions, and snooker cushions do not follow the pool rule (0.96, 1.5 and 1.56 diamonds here). The machinery stays for any value; a shot logged before it existed replays with 1."
     },
     "cushion_table_friction": {
       "unit": "",

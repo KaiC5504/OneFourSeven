@@ -1,0 +1,146 @@
+{
+ "n": 4,
+ "player": "Mark Selby",
+ "opponent": "Ronnie O'Sullivan",
+ "caption_zh": "\u4e09\u5e93K\u7403",
+ "spin_named": "three-cushion cannon; the owner: top and side",
+ "spin_inferred": "top with right-hand side, running on all three cushions",
+ "balls": [
+  {
+   "ball": "cue",
+   "r": [
+    0.093,
+    0.631
+   ]
+  },
+  {
+   "ball": "blue",
+   "r": [
+    0.0,
+    0.0
+   ]
+  },
+  {
+   "ball": "yellow",
+   "r": [
+    -1.0474999999999999,
+    -0.292
+   ]
+  },
+  {
+   "ball": "brown",
+   "r": [
+    -1.0474999999999999,
+    0.0
+   ]
+  },
+  {
+   "ball": "green",
+   "r": [
+    -1.0474999999999999,
+    0.292
+   ]
+  },
+  {
+   "ball": "pink",
+   "r": [
+    0.89225,
+    0.0
+   ]
+  },
+  {
+   "ball": "red",
+   "r": [
+    0.858,
+    -0.051
+   ]
+  },
+  {
+   "ball": "red",
+   "r": [
+    0.925,
+    -0.042
+   ]
+  },
+  {
+   "ball": "red",
+   "r": [
+    1.676,
+    -0.035
+   ]
+  },
+  {
+   "ball": "red",
+   "r": [
+    1.684,
+    0.061
+   ]
+  },
+  {
+   "ball": "black",
+   "r": [
+    1.695,
+    0.125
+   ]
+  }
+ ],
+ "object_ball": {
+  "ball": "blue",
+  "r": [
+   0.0,
+   0.0
+  ],
+  "potted": true,
+  "pocket": [
+   0.0,
+   -0.93
+  ]
+ },
+ "events": [
+  {
+   "kind": "ball",
+   "t": 0.0,
+   "r": [
+    0.0,
+    0.052
+   ],
+   "with": "blue"
+  },
+  {
+   "kind": "cushion",
+   "t": 1.17,
+   "r": [
+    -1.31,
+    -0.863
+   ],
+   "with": "right"
+  },
+  {
+   "kind": "cushion",
+   "t": 1.6,
+   "r": [
+    -1.758,
+    -0.585
+   ],
+   "with": "baulk"
+  },
+  {
+   "kind": "cushion",
+   "t": 3.84,
+   "r": [
+    -0.37,
+    0.863
+   ],
+   "with": "left"
+  },
+  {
+   "kind": "ball",
+   "t": 6.85,
+   "r": [
+    0.82,
+    0.0
+   ],
+   "with": "red"
+  }
+ ]
+}

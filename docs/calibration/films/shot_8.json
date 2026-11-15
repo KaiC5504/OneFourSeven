@@ -1,0 +1,906 @@
+{
+ "n": 8,
+ "player": "Stephen Lee",
+ "opponent": "Ding Junhui",
+ "caption_zh": "吸库K球",
+ "spin_named": "Caption: 吸库K球, a cannon in which the cue ball is 'sucked' back onto the cushion. English commentary subtitles: 'but if he attempts that shot just try and watch where he's making contact with the cue ball', 'rather than on the bottom he'd be hitting it on the top', 'there, he is so he's trying it', then 'oh fantastic shot'. So top (follow), named by the commentator. The close-up (64.5-67.1 s) shows the tip addressing the very top of the cue ball during the feathers; it cuts away before the strike.",
+ "spin_inferred": "Heavy follow (top), no side needed. Why: the cue ball is driven 3 m at 5.7 to 6.1 m/s almost full into a black hanging in the corner pocket, reaches the black-end cushion 0.1 s later and comes off it at 1.3 m/s, about 0.9 m/s away from the cushion and 1.0 m/s along it. It then curves: for the next 0.65 s it accelerates steadily at 2.1 m/s2 in direction -24 degrees, back towards the cushion, turning round 0.25 m out; after that it rolls in a straight line at 0.55 m/s back onto the cushion 0.79 m further along. A steady 2 m/s2 is sliding friction (coefficient about 0.2): the ball is still spinning forwards along its original line (-12 degrees) while moving the other way, which is what top spin left over after the black and the cushion does. The direction of the push fits top alone with about 3.5 m/s of surface speed left; side spin would turn it. Screw or stun cannot give this path: the cue ball would stop or come back up the table.",
+ "video_times": {
+  "still": [
+   54.73,
+   57.77
+  ],
+  "live": [
+   67.13,
+   72.4
+  ],
+  "strike": 67.57,
+  "pre_shot": [
+   49.53,
+   57.8
+  ],
+  "close_up": [
+   64.5,
+   67.1
+  ],
+  "note": "Same fixed camera (black end) before the shot and for the play, same pixels. The thick line and caption are overlaid on the pre-shot footage; a thin copy of the line stays on the play until frame 2090. The play is real time but this clip shows only three of every five source frames: new pictures at frames n % 6 = 1, 2, 4, spaced 0.08, 0.08 and 0.04 s (the cue ball's equal steps down the table at 0.47, 0.47, 0.22 m show the spacing). Times are source time; the strike is put 0.064 s before frame 2029 by carrying the speed of the first three pictures back to where the cue ball stood."
+ },
+ "balls": [
+  {
+   "ball": "cue",
+   "r": [
+    -1.279,
+    -0.164
+   ]
+  },
+  {
+   "ball": "yellow",
+   "r": [
+    -1.149,
+    0.06
+   ]
+  },
+  {
+   "ball": "green",
+   "r": [
+    -0.987,
+    0.295
+   ]
+  },
+  {
+   "ball": "brown",
+   "r": [
+    -0.956,
+    0.254
+   ]
+  },
+  {
+   "ball": "blue",
+   "r": [
+    0.0,
+    0.0
+   ]
+  },
+  {
+   "ball": "pink",
+   "r": [
+    0.892,
+    0.0
+   ]
+  },
+  {
+   "ball": "black",
+   "r": [
+    1.741,
+    -0.839
+   ]
+  },
+  {
+   "ball": "red",
+   "r": [
+    1.665,
+    0.108
+   ]
+  },
+  {
+   "ball": "red",
+   "r": [
+    1.72,
+    0.226
+   ]
+  }
+ ],
+ "object_ball": {
+  "ball": "black",
+  "r": [
+   1.741,
+   -0.839
+  ],
+  "cut": "nearly full: the cue ball's line passes 0.007 m from the black's centre, on its +y side (about 8 degrees of cut, 6 uncertain)",
+  "cut_angle_deg": 8.1,
+  "aim_heading_deg": -12.3,
+  "potted": true,
+  "pocket": [
+   1.8,
+   -0.905
+  ],
+  "pocket_name": "black-end corner on the -y side",
+  "note": "The black sits in the jaws: 0.044 m from the black-end cushion's nose line and 0.050 m from the side cushion's. It is gone by the next picture (0.03 s after contact)."
+ },
+ "cue_path": [
+  {
+   "t": 0.064,
+   "r": [
+    -0.89,
+    -0.258
+   ],
+   "frame": 2029
+  },
+  {
+   "t": 0.144,
+   "r": [
+    -0.411,
+    -0.36
+   ],
+   "frame": 2030
+  },
+  {
+   "t": 0.224,
+   "r": [
+    0.061,
+    -0.46
+   ],
+   "frame": 2032
+  },
+  {
+   "t": 0.264,
+   "r": [
+    0.283,
+    -0.51
+   ],
+   "frame": 2035
+  },
+  {
+   "t": 0.344,
+   "r": [
+    0.727,
+    -0.607
+   ],
+   "frame": 2036
+  },
+  {
+   "t": 0.424,
+   "r": [
+    1.173,
+    -0.706
+   ],
+   "frame": 2038
+  },
+  {
+   "t": 0.464,
+   "r": [
+    1.398,
+    -0.755
+   ],
+   "frame": 2041
+  },
+  {
+   "t": 0.544,
+   "r": [
+    1.707,
+    -0.779
+   ],
+   "frame": 2042
+  },
+  {
+   "t": 0.624,
+   "r": [
+    1.759,
+    -0.688
+   ],
+   "frame": 2044
+  },
+  {
+   "t": 0.664,
+   "r": [
+    1.721,
+    -0.648
+   ],
+   "frame": 2047
+  },
+  {
+   "t": 0.744,
+   "r": [
+    1.657,
+    -0.569
+   ],
+   "frame": 2048
+  },
+  {
+   "t": 0.824,
+   "r": [
+    1.602,
+    -0.496
+   ],
+   "frame": 2050
+  },
+  {
+   "t": 0.864,
+   "r": [
+    1.579,
+    -0.462
+   ],
+   "frame": 2053
+  },
+  {
+   "t": 0.944,
+   "r": [
+    1.545,
+    -0.396
+   ],
+   "frame": 2054
+  },
+  {
+   "t": 1.024,
+   "r": [
+    1.523,
+    -0.339
+   ],
+   "frame": 2056
+  },
+  {
+   "t": 1.064,
+   "r": [
+    1.513,
+    -0.31
+   ],
+   "frame": 2059
+  },
+  {
+   "t": 1.144,
+   "r": [
+    1.512,
+    -0.26
+   ],
+   "frame": 2060
+  },
+  {
+   "t": 1.224,
+   "r": [
+    1.518,
+    -0.214
+   ],
+   "frame": 2062
+  },
+  {
+   "t": 1.264,
+   "r": [
+    1.527,
+    -0.192
+   ],
+   "frame": 2065
+  },
+  {
+   "t": 1.344,
+   "r": [
+    1.55,
+    -0.155
+   ],
+   "frame": 2066
+  },
+  {
+   "t": 1.424,
+   "r": [
+    1.578,
+    -0.119
+   ],
+   "frame": 2068
+  },
+  {
+   "t": 1.464,
+   "r": [
+    1.591,
+    -0.101
+   ],
+   "frame": 2071
+  },
+  {
+   "t": 1.544,
+   "r": [
+    1.617,
+    -0.066
+   ],
+   "frame": 2072
+  },
+  {
+   "t": 1.624,
+   "r": [
+    1.645,
+    -0.03
+   ],
+   "frame": 2074
+  },
+  {
+   "t": 1.664,
+   "r": [
+    1.658,
+    -0.012
+   ],
+   "frame": 2077
+  },
+  {
+   "t": 1.744,
+   "r": [
+    1.687,
+    0.022
+   ],
+   "frame": 2078
+  },
+  {
+   "t": 1.824,
+   "r": [
+    1.713,
+    0.055
+   ],
+   "frame": 2080
+  },
+  {
+   "t": 1.864,
+   "r": [
+    1.724,
+    0.072
+   ],
+   "frame": 2083
+  },
+  {
+   "t": 1.944,
+   "r": [
+    1.75,
+    0.106
+   ],
+   "frame": 2084
+  },
+  {
+   "t": 2.024,
+   "r": [
+    1.744,
+    0.136
+   ],
+   "frame": 2086
+  },
+  {
+   "t": 2.064,
+   "r": [
+    1.734,
+    0.153
+   ],
+   "frame": 2089
+  },
+  {
+   "t": 2.144,
+   "r": [
+    1.724,
+    0.171
+   ],
+   "frame": 2090
+  },
+  {
+   "t": 2.224,
+   "r": [
+    1.719,
+    0.177
+   ],
+   "frame": 2092
+  },
+  {
+   "t": 2.264,
+   "r": [
+    1.716,
+    0.179
+   ],
+   "frame": 2095
+  },
+  {
+   "t": 2.344,
+   "r": [
+    1.712,
+    0.185
+   ],
+   "frame": 2096
+  },
+  {
+   "t": 2.424,
+   "r": [
+    1.707,
+    0.191
+   ],
+   "frame": 2098
+  },
+  {
+   "t": 2.464,
+   "r": [
+    1.705,
+    0.193
+   ],
+   "frame": 2101
+  },
+  {
+   "t": 2.544,
+   "r": [
+    1.7,
+    0.197
+   ],
+   "frame": 2102
+  },
+  {
+   "t": 2.624,
+   "r": [
+    1.697,
+    0.202
+   ],
+   "frame": 2104
+  },
+  {
+   "t": 2.664,
+   "r": [
+    1.696,
+    0.202
+   ],
+   "frame": 2107
+  },
+  {
+   "t": 2.744,
+   "r": [
+    1.692,
+    0.206
+   ],
+   "frame": 2108
+  },
+  {
+   "t": 2.824,
+   "r": [
+    1.688,
+    0.21
+   ],
+   "frame": 2110
+  },
+  {
+   "t": 2.864,
+   "r": [
+    1.688,
+    0.211
+   ],
+   "frame": 2113
+  },
+  {
+   "t": 2.944,
+   "r": [
+    1.686,
+    0.213
+   ],
+   "frame": 2114
+  },
+  {
+   "t": 3.024,
+   "r": [
+    1.684,
+    0.216
+   ],
+   "frame": 2116
+  },
+  {
+   "t": 3.064,
+   "r": [
+    1.684,
+    0.216
+   ],
+   "frame": 2119
+  },
+  {
+   "t": 3.144,
+   "r": [
+    1.681,
+    0.218
+   ],
+   "frame": 2120
+  },
+  {
+   "t": 3.224,
+   "r": [
+    1.681,
+    0.218
+   ],
+   "frame": 2122
+  },
+  {
+   "t": 3.264,
+   "r": [
+    1.68,
+    0.219
+   ],
+   "frame": 2125
+  },
+  {
+   "t": 3.344,
+   "r": [
+    1.68,
+    0.219
+   ],
+   "frame": 2126
+  },
+  {
+   "t": 3.424,
+   "r": [
+    1.68,
+    0.219
+   ],
+   "frame": 2128
+  },
+  {
+   "t": 3.464,
+   "r": [
+    1.68,
+    0.219
+   ],
+   "frame": 2131
+  },
+  {
+   "t": 3.544,
+   "r": [
+    1.68,
+    0.219
+   ],
+   "frame": 2132
+  },
+  {
+   "t": 3.624,
+   "r": [
+    1.68,
+    0.219
+   ],
+   "frame": 2134
+  },
+  {
+   "t": 3.664,
+   "r": [
+    1.68,
+    0.219
+   ],
+   "frame": 2137
+  },
+  {
+   "t": 3.744,
+   "r": [
+    1.68,
+    0.219
+   ],
+   "frame": 2138
+  },
+  {
+   "t": 3.824,
+   "r": [
+    1.68,
+    0.219
+   ],
+   "frame": 2140
+  },
+  {
+   "t": 3.864,
+   "r": [
+    1.68,
+    0.219
+   ],
+   "frame": 2143
+  },
+  {
+   "t": 3.944,
+   "r": [
+    1.68,
+    0.219
+   ],
+   "frame": 2144
+  },
+  {
+   "t": 4.024,
+   "r": [
+    1.68,
+    0.219
+   ],
+   "frame": 2146
+  },
+  {
+   "t": 4.064,
+   "r": [
+    1.68,
+    0.219
+   ],
+   "frame": 2149
+  },
+  {
+   "t": 4.144,
+   "r": [
+    1.68,
+    0.219
+   ],
+   "frame": 2150
+  },
+  {
+   "t": 4.224,
+   "r": [
+    1.68,
+    0.219
+   ],
+   "frame": 2152
+  },
+  {
+   "t": 4.264,
+   "r": [
+    1.68,
+    0.219
+   ],
+   "frame": 2155
+  },
+  {
+   "t": 4.344,
+   "r": [
+    1.68,
+    0.219
+   ],
+   "frame": 2156
+  },
+  {
+   "t": 4.424,
+   "r": [
+    1.68,
+    0.219
+   ],
+   "frame": 2158
+  },
+  {
+   "t": 4.464,
+   "r": [
+    1.68,
+    0.219
+   ],
+   "frame": 2161
+  },
+  {
+   "t": 4.544,
+   "r": [
+    1.68,
+    0.219
+   ],
+   "frame": 2162
+  },
+  {
+   "t": 4.624,
+   "r": [
+    1.68,
+    0.219
+   ],
+   "frame": 2164
+  },
+  {
+   "t": 4.664,
+   "r": [
+    1.68,
+    0.219
+   ],
+   "frame": 2167
+  },
+  {
+   "t": 4.744,
+   "r": [
+    1.68,
+    0.219
+   ],
+   "frame": 2168
+  },
+  {
+   "t": 4.824,
+   "r": [
+    1.68,
+    0.219
+   ],
+   "frame": 2170
+  }
+ ],
+ "events": [
+  {
+   "kind": "ball",
+   "t": 0.517,
+   "r": [
+    1.692,
+    -0.82
+   ],
+   "with": "black",
+   "heading_in_deg": -12.4,
+   "speed_in": 5.7,
+   "heading_out_deg": 70.0,
+   "speed_out": 1.6,
+   "note": "Speed in is over frames 2035-2041 (6.07 m/s over 2029-2032). Out is from a single picture 0.03 s after contact, good to 20 degrees and 0.5 m/s."
+  },
+  {
+   "kind": "cushion",
+   "t": 0.61,
+   "r": [
+    1.758,
+    -0.7
+   ],
+   "with": "top",
+   "heading_in_deg": 60.0,
+   "speed_in": 1.3,
+   "heading_out_deg": 130.5,
+   "speed_out": 1.3,
+   "note": "Between frames 2042 and 2044; in frame 2044 (t 0.624) the ball is against the cushion at y -0.688. In is the average over those 0.08 s, rough. Out is fitted over frames 2044-2048 (normal part 0.95 m/s falling, along the cushion 1.0 m/s)."
+  },
+  {
+   "kind": "cushion",
+   "t": 1.944,
+   "r": [
+    1.75,
+    0.106
+   ],
+   "with": "top",
+   "heading_in_deg": 52.3,
+   "speed_in": 0.55,
+   "heading_out_deg": 107.6,
+   "speed_out": 0.41,
+   "note": "Second touch, soft. Out is over three pictures and rough."
+  },
+  {
+   "kind": "ball",
+   "t": 2.119,
+   "r": [
+    1.729,
+    0.174
+   ],
+   "with": "red",
+   "heading_in_deg": 107.6,
+   "speed_in": 0.41,
+   "heading_out_deg": 129.9,
+   "speed_out": 0.09,
+   "note": "The red nearer the cushion, close to full (line of centres 100 degrees). The other red is passed with about 0.03 m to spare and does not move."
+  },
+  {
+   "kind": "stop",
+   "t": 3.264,
+   "r": [
+    1.68,
+    0.219
+   ],
+   "with": null
+  }
+ ],
+ "arc": {
+  "t_furthest": 1.144,
+  "r_furthest": [
+   1.512,
+   -0.26
+  ],
+  "from_cushion_m": 0.246,
+  "acceleration": [
+   1.921,
+   -0.85
+  ],
+  "acceleration_window_s": [
+   0.664,
+   1.264
+  ],
+  "rolling_velocity": [
+   0.338,
+   0.437
+  ],
+  "rolling_from_s": 1.344,
+  "note": "Between the two touches on the black-end cushion. While the top spin lasts the ball is pushed at a steady 2.1 m/s2 towards -24 degrees (sliding friction about 0.21); from t 1.34 it rolls straight at 0.55 m/s, heading 52.3."
+ },
+ "cannon": {
+  "reaches": "the red lying 0.065 m off the black-end cushion at y +0.226, after passing between the other red and the cushion",
+  "before": {
+   "reds": [
+    [
+     1.665,
+     0.108
+    ],
+    [
+     1.72,
+     0.226
+    ]
+   ]
+  },
+  "after": {
+   "cue": [
+    1.68,
+    0.219
+   ],
+   "red_hit": [
+    1.578,
+    0.633
+   ],
+   "red_not_hit": [
+    1.665,
+    0.108
+   ]
+  },
+  "note": "The struck red runs 0.42 m along and slightly away from the cushion and is at rest by frame 2166. The cue ball stops 0.04 m short of where that red was."
+ },
+ "drawn_line": {
+  "points": [
+   [
+    -1.143,
+    -0.196
+   ],
+   [
+    1.656,
+    -0.808
+   ],
+   [
+    1.766,
+    -0.705
+   ],
+   [
+    1.633,
+    -0.585
+   ],
+   [
+    1.522,
+    -0.448
+   ],
+   [
+    1.463,
+    -0.293
+   ],
+   [
+    1.488,
+    -0.175
+   ],
+   [
+    1.577,
+    -0.043
+   ],
+   [
+    1.676,
+    0.053
+   ],
+   [
+    1.738,
+    0.103
+   ],
+   [
+    1.712,
+    0.184
+   ]
+  ],
+  "note": "Editor's sketch mapped at ball-centre height like the cue path, in order: start below the cue ball, the corner beside the black, the corner on the black-end cushion, seven points round the arc, the end past the second red. It follows the real path within about 0.05 m."
+ },
+ "calibration": {
+  "reference": "Only blue and pink are on their spots. The camera (position, direction, focal length) was fitted to them, to the dark line under each side cushion's nose (their separation, 1.778 m), the cloth/rail edges (centred on the table), the left half of the D, the baulk cushion's nose edge, the black-end rail edge and the two pictures in which the cue ball is against the black-end cushion.",
+  "spot_residual_px": {
+   "blue": [
+    -1.73,
+    -1.43
+   ],
+   "pink": [
+    -0.29,
+    0.65
+   ]
+  },
+  "camera": {
+   "position_m": [
+    7.998,
+    -0.06,
+    3.825
+   ],
+   "focal_px": 3018
+  },
+  "cushion_check": {
+   "without_the_cushion_touches_in_the_fit": {
+    "first_touch_x": 1.767,
+    "second_touch_x": 1.748,
+    "black_end_rail_edge_x": [
+     1.869,
+     1.843,
+     1.832
+    ]
+   },
+   "final": {
+    "first_touch_x": 1.758,
+    "second_touch_x": 1.75
+   },
+   "expected": {
+    "touch_x": 1.758,
+    "rail_edge_x": 1.846
+   },
+   "side_cushions": "no side-cushion contact; the nose lines are in the fit"
+  },
+  "time_check": "With these times the cue ball's last roll slows at 0.09 m/s2 and its slide at 2.1 m/s2 (friction 0.21), both ordinary; had the clip been slowed down they would not be."
+ },
+ "confidence": {
+  "sure": "Layout, black potted in the -y black-end corner from a near-full hit, one cushion then the arc back onto it, the second red hit, top spin.",
+  "positions": "0.01 m near the black-end cushion (one pixel is 2.4 mm across, 4.6 mm along the table); 0.02 m in the baulk half, where the table's centre line is known only to 0.01 m (the two spotted balls and the cushion midline disagree by that).",
+  "angles": "Approach heading 0.5 degree; cut on the black 6 degrees; headings on the arc 2 degrees; the two legs inside the corner 20 degrees.",
+  "speeds": "Approach 3 percent (5.7 to 6.1 m/s); on the arc 5 percent; inside the corner, between the black and the cushion, 0.5 m/s.",
+  "timing": "Picture spacing 0.08/0.08/0.04 s is inferred, not read from the file; event times good to 0.03 s, the corner events to 0.04 s.",
+  "not_measured": "What happens in the 0.1 s between the black and the cushion (one picture), whether the cue ball leaves the bed there, and the black's own path."
+ }
+}

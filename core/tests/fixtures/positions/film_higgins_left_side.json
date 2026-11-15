@@ -1,0 +1,74 @@
+{
+  "name": "film_higgins_left_side",
+  "note": "Alex Higgins: a ball to the right middle pocket with follow and left-hand side, the cue ball off the baulk cushion wide of the mirror line into a ball by the right side cushion. Old footage: places good to 3 to 5 cm only, and the potted ball's colour is a guess. Measured from the broadcast reel KaiC sent on 2026-11-15 (docs/calibration/targets.md, the filmed shots): `measured` holds each cushion's place and time and the cannon, with times counted from the first ball contact. The strike is the pace and tip offset that fit the film best on the committed table.",
+  "cue_ball": 0,
+  "start": {
+    "balls": [
+      {
+        "ball": "cue",
+        "index": 0,
+        "r": [
+          0.994,
+          0.207
+        ]
+      },
+      {
+        "ball": "blue",
+        "index": 0,
+        "r": [
+          0.61,
+          -0.1
+        ]
+      },
+      {
+        "ball": "black",
+        "index": 0,
+        "r": [
+          1.04,
+          0.26
+        ]
+      },
+      {
+        "ball": "pink",
+        "index": 0,
+        "r": [
+          -0.799,
+          -0.797
+        ]
+      }
+    ]
+  },
+  "strike": {
+    "aim_rad": -2.493520746456273,
+    "tip_x": -0.2001,
+    "tip_y": 0.2317,
+    "elevation_rad": 0.0,
+    "speed_m_s": 4.304
+  },
+  "measured": {
+    "cushions": [
+      {
+        "cushion": "baulk",
+        "r": [
+          -1.758,
+          -0.245
+        ],
+        "t_s": 1.85
+      }
+    ],
+    "cannon": {
+      "ball": "pink",
+      "index": 3,
+      "pack": [
+        3
+      ],
+      "r": [
+        -0.855,
+        -0.804
+      ],
+      "t_s": 3.33
+    },
+    "object_ball": 1,
+    "allowed_on_the_way": []
+  }
+}

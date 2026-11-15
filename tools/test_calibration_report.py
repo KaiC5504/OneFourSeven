@@ -387,7 +387,7 @@ def fake_shots():
 # The cushion as Mathavan et al. fitted it.
 PAPER_PARAMS = dict(PARAMS, cushion_restitution=0.98)
 # A table the owner tuned by feel, as the committed one was from 2026-11-13 to 15: the report's
-# "owner's value" paths.
+# "table's value" paths.
 OWNER_PARAMS = dict(PARAMS, roll_friction=0.015, cushion_restitution=0.85)
 OWNER_STRAIGHT_IN = 0.797
 
@@ -490,7 +490,7 @@ class PlainWordsTest(unittest.TestCase):
         series["cushion_rebound"].rows[0][4] = 0.797
         cushions = self.bullet("Cushions.", plain_text(series=series, params=OWNER_PARAMS, fixtures=owner_fixtures()))
         self.assertIn("at 1 m/s comes off with 80% of its speed", cushions)
-        self.assertIn("(This bounce is set by feel: with the cushion value Mathavan and colleagues fitted, their "
+        self.assertIn("(This bounce is set for this table: with the cushion value Mathavan and colleagues fitted, their "
                       "model, which the game uses, gives 91%; their one set of measurements on a snooker table "
                       "averaged 82% below 1.5 m/s.)", cushions)
 
@@ -599,16 +599,17 @@ class ResultsTest(unittest.TestCase):
         self.assertEqual(row[4], report.OWNER)
         self.assertIn(f"worst 0.30 deg and 0.00% of the speed off the fine-step Mathavan solution over "
                       f"{len(cases)} cases; straight in at 1 m/s the ball keeps 79.7% of its speed", row[2])
-        self.assertIn("1 deg, 2% of the model at the owner's `cushion_restitution` 0.85", row[3])
+        self.assertIn("1 deg, 2% of the model at the table's `cushion_restitution` 0.85", row[3])
         self.assertIn("with the paper's 0.98 the ball keeps 91.1%, so this is -12.5%", row[3])
-        # The committed cushion is the paper's.
+        # A table on the paper's own cushion value has only the model to meet.
         paper = report.load_fixtures()
+        paper["cushion"]["literature"]["cushion_restitution"] = PARAMS["cushion_restitution"]
         series["cushion_rebound"] = rebound(paper, 0.3)
-        row = self.rows(series=series)["C7"]
+        row = self.rows(series=series, fixtures=paper)["C7"]
         self.assertEqual(row[4], report.MET)
         self.assertEqual(row[3], "1 deg, 2% (the suite also checks side, stun and screw)")
         series["cushion_rebound"] = rebound(paper, 1.5)
-        self.assertEqual(self.rows(series=series)["C7"][4], report.NOT_MET)
+        self.assertEqual(self.rows(series=series, fixtures=paper)["C7"][4], report.NOT_MET)
         stale = dict(PARAMS, cushion_friction=0.2)
         row = self.rows(series=series, params=stale)["C7"]
         self.assertEqual(row[4], report.NO_DATA)
