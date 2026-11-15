@@ -129,6 +129,8 @@ constexpr double kBreakThin = 0.7;
 constexpr double kBreakSpeed_m_s = 2.7;
 // The reds are still the pack when all fifteen lie this near their middle.
 constexpr double kPackReach_m = 0.16;
+// A re-rack throws the scores away: it is taken only when they are no further apart than this.
+constexpr int kRerackWithin = 20;
 
 Vec2 operator+(Vec2 a, Vec2 b) { return {a.x + b.x, a.y + b.y}; }
 Vec2 operator-(Vec2 a, Vec2 b) { return {a.x - b.x, a.y - b.y}; }
@@ -967,6 +969,24 @@ bool has_pot(const Position& p, const StandinParams& sp) {
     return !pots.empty();
 }
 
+// The plainest stroke the engine accepts, for when nothing better can be worked out: along the
+// table from where the cue ball lies, the lowest colour declared when one must be.
+StandinShot plain_stroke(const FrameState& s, const phys::TableShape& table, const phys::PhysicsParams& params,
+                         const StandinParams& sp) {
+    StandinShot shot;
+    shot.why = nlohmann::json::object();
+    shot.strike.speed_m_s = std::clamp(sp.safety_speed_m_s, slowest(params), fastest(params));
+    if (!valid_cue_ball(s)) return shot;
+    shot.places_cue = s.cue_in_hand;
+    shot.cue_pos = s.balls[std::size_t(s.cue_ball)].pos;
+    shot.strike.elevation_rad = phys::min_cue_elevation(table_state(s.balls), s.cue_ball, 0.0, table, params);
+    if (s.on.kind == OnKind::any_colour) {
+        const std::vector<Ball> open = rules::nominations(s);
+        if (!open.empty()) shot.input = {true, open.front()};
+    }
+    return shot;
+}
+
 }  // namespace
 
 const std::vector<std::string>& standin_param_names() {
@@ -1013,9 +1033,7 @@ bool load_standin_params(const nlohmann::json& file, StandinParams& out, std::ve
 StandinShot choose_shot(const rules::FrameState& s, const phys::TableShape& table, const phys::PhysicsParams& params,
                         const rules::TableOracle& oracle, const rules::RefParams& ref, const StandinParams& sp,
                         Rng& rng) {
-    StandinShot shot;
-    shot.why = nlohmann::json::object();
-    shot.strike.speed_m_s = std::clamp(sp.safety_speed_m_s, slowest(params), fastest(params));
+    StandinShot shot = plain_stroke(s, table, params, sp);
     try {
         if (s.striker == 0 || s.striker == 1) {
             const std::vector<DecisionKind> open = rules::options(s, s.striker);
@@ -1060,12 +1078,10 @@ StandinShot choose_shot(const rules::FrameState& s, const phys::TableShape& tabl
                     {"aim_error_rad", aim_error},
                     {"speed_error", speed_error}};
     } catch (const std::exception& e) {
-        // Whatever went wrong, the caller still gets a stroke the engine accepts: the one set up above.
+        // Whatever went wrong, the caller still gets a stroke the engine accepts.
         log::warn("opponent", "opponent.decision",
                   {{"kind", "shot"}, {"player", s.striker}, {"error", std::string("choose_shot: ") + e.what()}});
-        shot.decides = false;
-        shot.places_cue = false;
-        shot.input = {};
+        shot = plain_stroke(s, table, params, sp);
         shot.why = {{"kind", "safety"}, {"error", e.what()}};
     }
     return shot;
@@ -1083,7 +1099,8 @@ rules::DecisionKind choose_decision(const rules::FrameState& s, int player,
             }
             return DecisionKind::play;
         }
-        if (offered(options, DecisionKind::accept_rerack) && std::abs(s.scores[0] - s.scores[1]) <= 20) {
+        if (offered(options, DecisionKind::accept_rerack) &&
+            std::abs(s.scores[0] - s.scores[1]) <= kRerackWithin) {
             return DecisionKind::accept_rerack;
         }
         if (offered(options, DecisionKind::refuse_rerack)) return DecisionKind::refuse_rerack;

@@ -3,8 +3,10 @@
 #include <algorithm>
 #include <chrono>
 #include <map>
+#include <stdexcept>
 #include <string>
 
+#include "ofs/log_schema.hpp"
 #include "test_standin_support.hpp"
 
 using namespace ofs;
@@ -398,4 +400,59 @@ TEST_CASE("a frame it should not be asked about still gets a stroke and nothing 
     CHECK_NOTHROW(shot = choose(s, standin_params(), rng));
     CHECK(shot.strike.speed_m_s > 0.0);
     CHECK(shot.strike.speed_m_s <= rig().params.max_cue_speed_m_s);
+}
+
+TEST_CASE("when what it relies on throws it still gives a stroke the engine accepts, and logs why") {
+    struct Broken : rules::TableOracle {
+        [[noreturn]] static void down() { throw std::runtime_error("the oracle is down"); }
+        bool snookered(const std::vector<BallOnTable>&, int, const std::vector<int>&, bool) const override { down(); }
+        std::vector<int> snookering_balls(const std::vector<BallOnTable>&, int,
+                                          const std::vector<int>&) const override {
+            down();
+        }
+        bool clear_path(const std::vector<BallOnTable>&, int, const std::vector<int>&) const override { down(); }
+        bool full_ball(const std::vector<BallOnTable>&, int, const std::vector<int>&) const override { down(); }
+        bool can_hit(const std::vector<BallOnTable>&, int, const std::vector<int>&) const override { down(); }
+        std::vector<int> touching(const std::vector<BallOnTable>&, int) const override { down(); }
+        std::vector<BallOnTable> spot(const std::vector<BallOnTable>&, const std::vector<Ball>&) const override {
+            down();
+        }
+        bool cue_placement_legal(const std::vector<BallOnTable>&, int, Vec2) const override { down(); }
+        Vec2 nearest_cue_placement(const std::vector<BallOnTable>&, int, Vec2) const override { down(); }
+    };
+    const Broken broken;
+    const nlohmann::json schema = log::load_schema(std::string(OFS_CORE_DATA_DIR) + "/log_schema.json");
+    Rng layouts(3);
+    FrameState choice = scattered(layouts, 5);
+    choice.on = {OnKind::any_colour, Ball::yellow};
+    const FrameState positions[] = {scattered(layouts, 8), in_hand(scattered(layouts, 8)), choice};
+    for (const FrameState& s : positions) {
+        const auto sink = capture_log();
+        Rng rng(1);
+        StandinShot shot;
+        CHECK_NOTHROW(shot = choose_shot(s, rig().table, rig().params, broken, rig().ref, standin_params(), rng));
+        log::Logger::instance().clear_sinks();
+        FrameState placed;
+        const std::string why_not = refusal(s, shot, placed);
+        CHECK_MESSAGE(why_not.empty(), why_not);
+        CHECK(shot.why.value("error", "") == "the oracle is down");
+        REQUIRE(sink->events.size() == 1);
+        const log::Event& e = sink->events[0];
+        CHECK(e.event == "opponent.decision");
+        CHECK(e.level == log::Level::warn);
+        CHECK(e.data.value("error", "") == "choose_shot: the oracle is down");
+        const auto problem = log::check(e, schema);
+        CHECK_MESSAGE(!problem.has_value(), problem.value_or(""));
+    }
+
+    // A frame that has lost the position before the foul still gets one of the choices offered.
+    FrameState s = scattered(layouts, 3);
+    s.pending = rules::Pending::after_foul;
+    s.last_miss = true;
+    s.original.cue_ball = 7;
+    const std::vector<DecisionKind> open = rules::options(s, 0);
+    Rng rng(1);
+    DecisionKind kind = DecisionKind::concede_match;
+    CHECK_NOTHROW(kind = choose_decision(s, 0, open, standin_params(), rng));
+    CHECK(std::find(open.begin(), open.end(), kind) != open.end());
 }
