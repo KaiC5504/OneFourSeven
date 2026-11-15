@@ -1,6 +1,9 @@
 #pragma once
 
 #include <memory>
+#include <string>
+
+#include <nlohmann/json.hpp>
 
 #include <godot_cpp/classes/ref.hpp>
 #include <godot_cpp/classes/ref_counted.hpp>
@@ -91,6 +94,18 @@ public:
     godot::String last_error() const;
 
 private:
+    // Why the match can't be acted on: not configured, none started, or it is over. "" when it can.
+    std::string not_in_progress() const;
+    // The same, and why no stroke can be played or chosen: the frame is over or a decision is pending.
+    std::string no_stroke_now() const;
+    // {"match_id", "frame"} for `m` and, when there is one, "shot_id": on every line a match logs.
+    nlohmann::json log_context(const ofs::rules::MatchState &m, const godot::String &shot_id = godot::String()) const;
+    // Sets last_error and logs rules.invalid: the call, what was wrong, what it was given, the match.
+    void refusal(const char *call, const std::string &why, const nlohmann::json &given) const;
+    godot::Dictionary refused(const char *call, const std::string &why, const nlohmann::json &given) const;
+    // For a caught exception: sets last_error and logs app.error.
+    godot::Dictionary thrown(const char *call, const std::string &message) const;
+
     bool ready_ = false;
     bool started_ = false;
     ofs::phys::PhysicsParams params_;
