@@ -29,12 +29,15 @@ struct Judgement {
     int penalty = 0;
     bool miss = false;
     // Why a miss was or was not called on a foul that failed to hit a ball on first: "S3.14(c)",
-    // "S3.14(d)", "S3.14(a)" (snookered, no clear path), "S3.14(a)(i)" (penalty points required),
-    // "S3.14(a)(ii)" (impossible to hit), "lenient" (RefParams::miss_lenient_gap_m); "" otherwise.
+    // "S3.14(d)" (a stroke in a run from a replaced position), "S3.14(a)" (no clear path, or an
+    // impossible ball not played at with the strength to reach it), "S3.14(a)(i)" (penalty points
+    // required), "S3.14(a)(ii)" (impossible to hit), "lenient" (RefParams::miss_lenient_gap_m);
+    // "" otherwise.
     std::string miss_reason;
     int points = 0;  // scored by the striker in this stroke
-    // The nomination the stroke was judged with: the declared colour, or the first ball hit where
-    // one was open and none declared. has_nomination false when none applied.
+    // The nomination the stroke was judged with: the declared colour; else, where one was open,
+    // the first ball hit, or the one ball that could be declared left touching and unmoved.
+    // has_nomination false when none applied.
     ShotInput nominated;
     bool free_ball_used = false;  // the nominated ball was a free ball
     std::vector<BallOnTable> spotted;  // colours spotted after the stroke, where they went (S3.7)
@@ -52,12 +55,13 @@ std::vector<int> places_on(const Position& p);
 // The colours the striker may declare for the next stroke, by value: every colour on the table
 // when a colour of choice is on; every object ball not on when FREE BALL was called; else empty.
 std::vector<Ball> nominations(const FrameState& s);
-// The value of the balls left: 8 per red plus 27 while reds remain, 7 more when a colour of choice
-// is on; the remaining colours' values once the reds are gone; 7 with a re-spotted black.
+// The value of the balls left for the striker: 8 per red plus 27 while reds remain, 7 more when a
+// colour of choice is on; the remaining colours' values once the reds are gone; 7 with a
+// re-spotted black.
 int points_remaining(const FrameState& s);
 // How many penalty points `player` needs beyond the balls left to draw level: their deficit minus
-// points_remaining, 0 when that is not positive. "Requires penalty points" (S3.14(a)(i), S4.2(b))
-// is this being above 0.
+// what is left for them (points_remaining, less the colour of choice for the non-striker), 0 when
+// that is not positive. "Requires penalty points" (S3.14(a)(i), S4.2(b)) is this being above 0.
 int penalty_points_required(const FrameState& s, int player);
 
 // Puts the in-hand cue ball at `pos` (S3.5, spec 8.6). False with `error`, the state unchanged,
@@ -75,9 +79,11 @@ Judgement judge_shot(const FrameState& pre, const ShotInput& input, const phys::
 
 // What `player` may choose now, in the order the game offers them: after a foul [play, play_again,
 // replace (only after a miss)] for the decider; [accept_rerack, refuse_rerack] or [play_first,
-// play_second] for the decider of those; and with nothing pending, for either player, claim_frame
-// (the striker, S2.1(b)), concede_frame (when allowed) and concede_match. Empty when the frame is
-// over.
+// play_second] for the decider of those, followed by concede_frame and concede_match when the
+// decider has concede_any_time; and with nothing pending, for either player, claim_frame (the
+// striker, S2.1(b)), then concede_frame and concede_match, both for a player with
+// concede_any_time or while any player requires penalty points (S4.2(b)). Empty when the frame
+// is over.
 std::vector<DecisionKind> options(const FrameState& s, int player);
 // Applies one of options(). False with `error`, the state unchanged, for anything else. `calls`
 // receives what the referee announces as a result (frame_over, rerack, free_ball, ...).

@@ -13,10 +13,10 @@ using Options = std::vector<DecisionKind>;
 
 }  // namespace
 
-TEST_CASE("with nothing pending either player may only concede the match") {
+TEST_CASE("with nothing pending and no leave to concede, nobody needing penalty points, nothing is offered") {
     const FrameState s = open_table(15);
-    CHECK(options(s, 0) == Options{DecisionKind::concede_match});
-    CHECK(options(s, 1) == Options{DecisionKind::concede_match});
+    CHECK(options(s, 0).empty());
+    CHECK(options(s, 1).empty());
 }
 
 TEST_CASE("after a foul the non-offender chooses to play or have the offender play again (S3.10(h))") {
@@ -25,8 +25,12 @@ TEST_CASE("after a foul the non-offender chooses to play or have the offender pl
     s.decider = 1;
     s.striker = 1;
     s.offender = 0;
-    s.concede_any_time = {true, true};
     CHECK(options(s, 1) == Options{DecisionKind::play, DecisionKind::play_again});
+    CHECK(options(s, 0).empty());
+    // A decider with leave to concede may also concede; the other player may not, leave or not.
+    s.concede_any_time = {true, true};
+    CHECK(options(s, 1) == Options{DecisionKind::play, DecisionKind::play_again, DecisionKind::concede_frame,
+                                   DecisionKind::concede_match});
     CHECK(options(s, 0).empty());
 }
 

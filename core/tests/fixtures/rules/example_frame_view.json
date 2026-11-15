@@ -196,7 +196,9 @@
       [
         "play",
         "play_again",
-        "replace"
+        "replace",
+        "concede_frame",
+        "concede_match"
       ],
       []
     ],

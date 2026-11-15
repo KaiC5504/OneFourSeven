@@ -44,8 +44,11 @@ struct RefParams {
     int stalemate_offer_strokes = 12;
     int stalemate_grace_strokes = 6;
 
-    // In-hand snookers (S2.17(a)) are tested from points of the D this far apart.
+    // In-hand snookers (S2.17(a)) are tested from points of the D this far apart, and when none of
+    // them has a ball on in view, again from points d_fine_step_m apart before the cue ball is
+    // called snookered: a free place narrower than the first step slips between its points.
     double d_sample_step_m = 0.01;
+    double d_fine_step_m = 0.002;
 };
 
 // Every field of RefParams by name, in declaration order.

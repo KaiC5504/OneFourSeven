@@ -363,3 +363,96 @@ TEST_CASE("S3.17(d): on a re-spotted black only the black is set again, the same
     CHECK_FALSE(m.frame.restart);
     CHECK_FALSE(m.frame.over);
 }
+
+namespace {
+
+// Nothing hit at all, with the red in plain view: FOUL AND A MISS.
+Judgement miss(const FrameState& s, const RefParams& r) { return judge(s, {}, scenario::quiet_facts(s), oracle(), r); }
+
+// The black hit first and sent 70 cm down the table: a foul that changes the position.
+Judgement lively_foul(const FrameState& s) {
+    ShotFacts f = scenario::quiet_facts(s);
+    const std::size_t black = std::size_t(place_of(s, Ball::black));
+    f.first_hit = {int(black)};
+    f.first_hit_t = 1.0;
+    f.closest_gap_m[black] = 0.0;
+    f.rest[black].x -= 0.7;
+    f.object_travel_m = 0.7;
+    f.cue_travel_m = 1.0;
+    return judge(s, {}, f, oracle(), ref());
+}
+
+}  // namespace
+
+TEST_CASE("S3.17: foul strokes, a miss put back among them, neither count towards the offer nor start the count again") {
+    FrameState s = safety_frame();
+    const int offer = ref().stalemate_offer_strokes;
+    if (!exchange(s, offer - 1, ref()) || !playable(s)) return;
+
+    const Judgement missed = miss(s, ref());
+    CHECK(missed.miss);
+    CHECK(calls_text(missed.calls) == "foul miss");
+    s = missed.post;
+    if (!choose(s, DecisionKind::replace) || !playable(s)) return;
+
+    const Judgement moved = lively_foul(s);
+    CHECK_FALSE(moved.fouls.empty());
+    CHECK_FALSE(scenario::has_call(moved.calls, CallKind::rerack_offer));
+    s = moved.post;
+    if (!choose(s, DecisionKind::play)) return;
+    CHECK(name(s.pending) == "none");
+
+    // One more quiet stroke is the last of the count the fouls interrupted.
+    Judgement last;
+    if (!exchange(s, 1, ref(), &last)) return;
+    CHECK(calls_text(last.calls) == "rerack_offer");
+    CHECK(name(s.pending) == "rerack");
+}
+
+TEST_CASE("S3.17(a), (b): the stated period counts only fair strokes; a miss put back in it changes nothing") {
+    FrameState s = safety_frame();
+    const int grace = ref().stalemate_grace_strokes;
+    if (!play_to_the_offer(s) || !choose(s, DecisionKind::refuse_rerack)) return;
+    if (!exchange(s, grace / 2, ref()) || !playable(s)) return;
+
+    const Judgement missed = miss(s, ref());
+    CHECK(missed.miss);
+    CHECK_FALSE(missed.post.restart);
+    s = missed.post;
+    if (!choose(s, DecisionKind::replace) || !playable(s)) return;
+    const Judgement moved = lively_foul(s);
+    CHECK_FALSE(moved.post.restart);
+    s = moved.post;
+    if (!choose(s, DecisionKind::play_again)) return;
+
+    if (!exchange(s, grace - grace / 2 - 1, ref())) return;
+    CHECK(name(s.pending) == "none");
+    CHECK_FALSE(s.restart);
+    Judgement last;
+    if (!exchange(s, 1, ref(), &last)) return;
+    CHECK(calls_text(last.calls) == "rerack");
+    CHECK(s.restart);
+}
+
+TEST_CASE("S3.17(b): the period does not run out on a foul stroke, whose choice stays to be made") {
+    FrameState s = safety_frame();
+    const int grace = ref().stalemate_grace_strokes;
+    if (!play_to_the_offer(s) || !choose(s, DecisionKind::refuse_rerack)) return;
+    if (!exchange(s, grace - 1, ref()) || !playable(s)) return;
+
+    // The stroke that would have ended the period is a miss.
+    const Judgement missed = miss(s, ref());
+    CHECK(calls_text(missed.calls) == "foul miss");
+    CHECK_FALSE(missed.post.restart);
+    CHECK(name(missed.post.pending) == "after_foul");
+    CHECK(choices_text(missed.post, missed.post.decider) == "play play_again replace");
+    s = missed.post;
+    if (!choose(s, DecisionKind::play)) return;
+    CHECK_FALSE(s.restart);
+
+    // The next fair stroke that changes nothing ends it.
+    Judgement last;
+    if (!exchange(s, 1, ref(), &last)) return;
+    CHECK(calls_text(last.calls) == "rerack");
+    CHECK(s.restart);
+}

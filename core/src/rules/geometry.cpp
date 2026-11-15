@@ -282,25 +282,34 @@ Vec2 into_d(const InnerD& d, Vec2 p) {
     return {d.line, p.y >= 0.0 ? d.half : -d.half};
 }
 
-// S2.17(a): points of the D no more than `step` apart, its lines included.
-std::vector<Vec2> d_samples(double step) {
+// S2.17(a): points of the D no more than `step` apart, its lines included, each given to `use`
+// until it answers false.
+template <typename Use>
+void each_d_point(double step, double fallback, Use&& use) {
     // A step the loader would have refused must not hang the referee.
-    const double h = std::max(step > 0.0 ? step : RefParams{}.d_sample_step_m, kMinSampleStep);
-    std::vector<Vec2> out;
+    const double h = std::max(step > 0.0 ? step : fallback, kMinSampleStep);
     const Vec2 c = table::d_centre();
     const int n = static_cast<int>(table::kDRadius / h);
     for (int i = 0; i <= n; ++i) {
         for (int j = -n; j <= n; ++j) {
             const Vec2 p{c.x - i * h, j * h};
-            if (table::in_d(p)) out.push_back(p);
+            if (table::in_d(p) && !use(p)) return;
         }
     }
     const int arc = std::max(2, static_cast<int>(std::ceil(kPi * table::kDRadius / h)));
     for (int i = 0; i <= arc; ++i) {
         const double a = kPi * i / arc;
         const Vec2 p{c.x - table::kDRadius * std::sin(a), c.y - table::kDRadius * std::cos(a)};
-        if (table::in_d(p)) out.push_back(p);
+        if (table::in_d(p) && !use(p)) return;
     }
+}
+
+std::vector<Vec2> d_samples(double step) {
+    std::vector<Vec2> out;
+    each_d_point(step, RefParams{}.d_sample_step_m, [&out](Vec2 p) {
+        out.push_back(p);
+        return true;
+    });
     return out;
 }
 
@@ -334,7 +343,15 @@ public:
             if (!snookered_from(s, p)) return false;
             placed = true;
         }
-        return placed;
+        // Every point snookered: a free strip narrower than the step can still lie between them.
+        bool free = false;
+        each_d_point(ref_.d_fine_step_m, RefParams{}.d_fine_step_m, [&](Vec2 p) {
+            if (!clear_of(s, p)) return true;
+            placed = true;
+            free = !snookered_from(s, p);
+            return !free;
+        });
+        return placed && !free;
     }
 
     std::vector<int> snookering_balls(const std::vector<BallOnTable>& balls, int cue_ball,

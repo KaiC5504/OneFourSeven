@@ -266,6 +266,34 @@ TEST_CASE("S2.1(c): seven behind on the black alone, the frame goes on") {
     CHECK_FALSE(is_offered(post, 1, DecisionKind::claim_frame));
 }
 
+TEST_CASE("S2.1(c): reached through a free ball: the pink scores, the black comes back, and the striker is too far behind") {
+    // The pink on and FREE BALL: the black nominated, hit first, and both go down. Only the pink
+    // scores (S3.12(e)), the black is spotted (S3.12(c)), and with the black alone left the striker
+    // is fourteen behind.
+    FrameState s = frame({ball(Ball::cue, kCue.x, kCue.y), ball(Ball::pink, 0.6, -0.4), ball(Ball::black, 0.3, 0.3)});
+    s.free_ball = true;
+    s.scores = {0, 20};
+    ShotFacts f = quiet_facts(s);
+    f.first_hit = {2};
+    f.first_hit_t = 0.3;
+    f.closest_gap_m[1] = 0.0;
+    f.closest_gap_m[2] = 0.0;
+    f.pots = {{2, 1, 1.0}, {1, 4, 2.0}};
+    f.cue_travel_m = 1.0;
+    f.object_travel_m = 1.5;
+    const Judgement j = judge(s, nominate(Ball::black), f, *rig().oracle, rig().ref);
+
+    CHECK(fouls_text(j) == "");
+    CHECK(j.points == 6);
+    CHECK(place_of(j.post, Ball::pink) == -1);
+    CHECK(lies_at(j.post, Ball::black, table::spot(Ball::black)));
+    CHECK(score(j.post) == "6-20");
+    CHECK(j.post.over);
+    CHECK(j.post.winner == 1);
+    CHECK(j.post.end_reason == EndReason::awarded);
+    CHECK(frame_over_call(j.calls) == "1 awarded");
+}
+
 TEST_CASE("S2.5: a stroke that scores keeps the striker at the table") {
     for (int who : {0, 1}) {
         CAPTURE(who);

@@ -266,7 +266,7 @@ TEST_CASE("gap S3.10(h), S3.12(f): play_again after every kind of foul gives the
         CHECK(again.last_penalty == 0);
         CHECK_FALSE(again.last_miss);
         CHECK(again.original.balls.empty());
-        CHECK(options(again, 0) == std::vector<DecisionKind>{DecisionKind::concede_match});
+        CHECK(options(again, 0).empty());
     }
 }
 
@@ -312,7 +312,7 @@ TEST_CASE("gap S3.4(b)(ii): play_second gives the re-spotted black to the other 
     CHECK(error.empty());
 }
 
-TEST_CASE("gap S3.17(b): the last grace stroke restarts the frame even when it is a foul") {
+TEST_CASE("gap S3.17(b): a foul on the last grace stroke does not restart the frame; the next quiet one does") {
     FakeOracle oracle;
     FrameState s = after_safeties(open_table(6), 12);
     REQUIRE(s.pending == Pending::rerack);
@@ -321,34 +321,51 @@ TEST_CASE("gap S3.17(b): the last grace stroke restarts the frame even when it i
     REQUIRE(s.rerack_deadline == 1);
     const Judgement j = judge(s, {}, scenario::quiet_facts(s), oracle, RefParams{});
     CHECK_FALSE(j.fouls.empty());
-    CHECK(j.post.restart);
-    CHECK_FALSE(j.post.over);
-    CHECK(j.post.pending == Pending::none);
-    CHECK(has_call(j.calls, CallKind::foul));
-    CHECK(has_call(j.calls, CallKind::rerack));
-    CHECK_FALSE(has_call(j.calls, CallKind::free_ball));
-    CHECK(options(j.post, 0).empty());
-    CHECK(options(j.post, 1).empty());
+    CHECK_FALSE(j.post.restart);
+    CHECK(j.post.pending == Pending::after_foul);
+    CHECK(j.post.rerack_deadline == 1);
+    CHECK_FALSE(has_call(j.calls, CallKind::rerack));
+    s = j.post;
+    REQUIRE(chosen(s, DecisionKind::play, s.decider));
+    CHECK(s.rerack_deadline == 1);
+    CHECK(safety(s).post.restart);
 }
 
-TEST_CASE("gap S3.17(a): a foul in the grace strokes and its choice do not stop the count") {
+TEST_CASE("gap S3.17(a): a foul in the grace strokes and its choice leave the countdown where it was") {
     FakeOracle oracle;
     FrameState s = after_safeties(open_table(6), 12);
     REQUIRE(chosen(s, DecisionKind::refuse_rerack, s.decider));
     s = after_safeties(s, 2);
     REQUIRE(s.rerack_deadline == 4);
+    const int quiet = s.quiet_strokes;
     s = judge(s, {}, scenario::quiet_facts(s), oracle, RefParams{}).post;
     REQUIRE(s.pending == Pending::after_foul);
-    CHECK(s.rerack_deadline == 3);
+    CHECK(s.rerack_deadline == 4);
+    CHECK(s.quiet_strokes == quiet);
     REQUIRE(chosen(s, DecisionKind::play, s.decider));
-    CHECK(s.rerack_deadline == 3);
-    s = after_safeties(s, 2);
+    CHECK(s.rerack_deadline == 4);
+    s = after_safeties(s, 3);
     CHECK_FALSE(s.restart);
     CHECK(s.rerack_deadline == 1);
     CHECK(safety(s).post.restart);
 }
 
-TEST_CASE("gap S4.2, docs/rules/README.md: nothing is conceded while a decision is pending") {
+TEST_CASE("gap S3.17(a), S3.14(b): a miss replaced in the grace strokes leaves the countdown where it was") {
+    FakeOracle oracle;
+    FrameState s = after_safeties(open_table(6), 12);
+    REQUIRE(chosen(s, DecisionKind::refuse_rerack, s.decider));
+    s = after_safeties(s, 3);
+    REQUIRE(s.rerack_deadline == 3);
+    const int quiet = s.quiet_strokes;
+    const Judgement j = judge(s, {}, scenario::quiet_facts(s), oracle, RefParams{});
+    REQUIRE(j.miss);
+    s = j.post;
+    REQUIRE(chosen(s, DecisionKind::replace, s.decider));
+    CHECK(s.rerack_deadline == 3);
+    CHECK(s.quiet_strokes == quiet);
+}
+
+TEST_CASE("gap S4.2, the owner's ruling: with a choice pending only a decider with leave may concede") {
     FakeOracle oracle;
     std::vector<FrameState> pending;
     pending.push_back(judge(open_table(6), {}, scenario::quiet_facts(open_table(6)), oracle, RefParams{}).post);
@@ -362,20 +379,42 @@ TEST_CASE("gap S4.2, docs/rules/README.md: nothing is conceded while a decision 
     for (FrameState s : pending) {
         CAPTURE(pending_name(s.pending));
         REQUIRE(s.pending != Pending::none);
-        s.concede_any_time = {true, true};
         s.scores = {0, 140};
-        for (int player = 0; player < 2; ++player) {
-            CAPTURE(player);
-            CHECK_FALSE(listed(options(s, player), DecisionKind::concede_match));
-            CHECK_FALSE(listed(options(s, player), DecisionKind::concede_frame));
+        const int decider = s.decider;
+        for (bool leave : {false, true}) {
+            CAPTURE(leave);
+            s.concede_any_time = {true, true};
+            s.concede_any_time[std::size_t(decider)] = leave;
             for (DecisionKind kind : {DecisionKind::concede_match, DecisionKind::concede_frame}) {
-                FrameState tried = s;
+                CAPTURE(decision_name(kind));
+                CHECK(listed(options(s, decider), kind) == leave);
+                CHECK_FALSE(listed(options(s, 1 - decider), kind));
+                FrameState other = s;
                 std::vector<Call> calls{{CallKind::foul, 4, "left over"}};
                 std::string error;
-                CHECK_FALSE(decide(tried, {kind, player}, oracle, RefParams{}, calls, error));
+                CHECK_FALSE(decide(other, {kind, 1 - decider}, oracle, RefParams{}, calls, error));
                 CHECK_FALSE(error.empty());
                 CHECK(calls.empty());
-                CHECK(same(tried, s));
+                CHECK(same(other, s));
+                FrameState mine = s;
+                const bool ok = decide(mine, {kind, decider}, oracle, RefParams{}, calls, error);
+                CHECK(ok == leave);
+                if (!ok) {
+                    CHECK_FALSE(error.empty());
+                    CHECK(same(mine, s));
+                    continue;
+                }
+                CHECK(mine.over);
+                CHECK(mine.winner == 1 - decider);
+                CHECK(mine.end_reason ==
+                      (kind == DecisionKind::concede_frame ? EndReason::conceded : EndReason::match_conceded));
+                CHECK(mine.pending == Pending::none);
+                CHECK_FALSE(mine.last_miss);
+                CHECK(mine.rerack_accepted == -1);
+                CHECK(mine.original.balls.empty());
+                CHECK(kinds(calls) == std::vector<CallKind>{CallKind::frame_over});
+                CHECK(options(mine, 0).empty());
+                CHECK(options(mine, 1).empty());
             }
         }
     }
@@ -447,15 +486,15 @@ TEST_CASE("gap S3.11(d)(vi): a colour of choice on, nothing declared, two colour
     CHECK(j.penalty == 7);
 }
 
-TEST_CASE("gap S3.14(d), S3.17: a miss at the twelfth quiet stroke keeps its run going, with no offer between") {
+TEST_CASE("gap S3.14(d), S3.17: misses after eleven quiet strokes keep their run going, with no offer between") {
     FakeOracle oracle;
-    // Twelve quiet strokes, then a miss: it is the miss's choice that is pending, not the offer.
+    // Eleven quiet strokes, then a miss, which does not count: its choice is pending, not the offer.
     FrameState s = after_safeties(open_table(6), 11);
     REQUIRE(s.quiet_strokes == 11);
     const Judgement j = judge(s, {}, scenario::quiet_facts(s), oracle, RefParams{});
     CHECK(j.miss);
     CHECK(j.post.pending == Pending::after_foul);
-    CHECK(j.post.quiet_strokes == 12);
+    CHECK(j.post.quiet_strokes == 11);
     FrameState replaced = j.post;
     REQUIRE(chosen(replaced, DecisionKind::replace, replaced.decider, oracle));
     CHECK(replaced.pending == Pending::none);

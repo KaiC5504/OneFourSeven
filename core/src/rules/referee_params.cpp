@@ -48,11 +48,14 @@ const std::vector<Field>& fields() {
         // The D holds about 0.134 / step^2 points: 33,000 at 2 mm, each tested against every ball
         // on. Past 50 mm, a ball's width, a place the cue ball could hit from slips between points.
         {"d_sample_step_m", &RefParams::d_sample_step_m, nullptr, 0.002, 0.05},
+        // Runs only when every point of the first lattice is snookered. At 1 mm the D holds 134,000
+        // points; past 10 mm it finds nothing the first lattice could not.
+        {"d_fine_step_m", &RefParams::d_fine_step_m, nullptr, 0.001, 0.01},
     };
     return all;
 }
 
-// Appends a problem for `key` when `value` can't go into `field`; otherwise stores it.
+// False with `problem` when `value` can't go into `field`; otherwise stores it.
 bool apply(const Field& field, const nlohmann::json& value, RefParams& out, std::string& problem) {
     if (!value.is_number()) {
         problem = "not a number";
