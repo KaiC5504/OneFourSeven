@@ -420,12 +420,13 @@ func reset_break() -> void:
 	shown_break = 0
 
 
-## What NextTarget.choose should prefer next: a colour after a red, a red after a colour while reds
-## remain, and a red to start a break while there are any.
+## What NextTarget.choose should keep to next, as the game's order has it: a colour after a red, a
+## red after a colour while reds remain and to start a break, and once the reds are gone the
+## colours in order, lowest first.
 func prefer(balls: Array[Dictionary]) -> String:
 	if last_potted == "red":
 		return "colour"
 	for b: Dictionary in balls:
 		if b.get("ball") == "red":
 			return "red"
-	return "colour"
+	return "lowest"

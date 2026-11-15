@@ -219,8 +219,10 @@ x86_64-only and the Mac has no Rosetta.
   close to the best. His logs agreed: of 304 suggestions he played another ball 91 times, mostly a
   red when a far colour was offered. `NextTarget` now ranks every clear pot by its chance (the aim
   error it forgives against a player's, fitted to his 262 logged shots: cut costs far more than
-  geometry says) times the ball's worth; a match keeps to the balls on, the free table lets the
-  other kind in at 0.6. On those 304 positions picks under an even chance fell from 114 to 53.
+  geometry says) times the ball's worth, among the balls that are on. He then said the reds were
+  only him hitting freely: the pick must keep to red, colour, red, colour (and the colours in
+  order once the reds are gone, `prefer` "lowest") and be the best of whichever is on, on the free
+  table as in a match. On those 304 positions 68 picks changed: the chance rose in 36, fell in 1.
   `shot.result` logs `next_chance`: refit `AIM_SIGMA_RAD` and `CUT_SIGMA_PER_RAD` from later
   sessions the same way. It does not look at where the cue ball finishes; that waits for M4's
   evaluation. Camera: a practice shot, and any shot at a pocket whose cue ball goes on into

@@ -523,16 +523,17 @@ level 1.
     which then also marks an excellent positional shot.
   - **The settle:** the full-table view holds until every ball stops, and for at least
     0.8 s.
-  - **The return:** the aim turns to the best pot on the table: each clear pot's chance
-    of going in (the aim error it forgives, from the pocket's width as the ball sees it,
-    the two distances, the cut and any ball it has to squeeze past, against the error a
-    player makes; fitted to the owner's own logged shots) times what the ball is worth
-    (its points plus 16 for keeping the break going). In a match only the balls on are
-    considered. On the free table, with no rules, the kind that would be on (a colour
-    after a red, a red after a colour while reds remain) counts in full and the other
-    kind at 0.6, so a far colour gives way to an easy red (Owner, 2026-11-16: the pick
-    was often not close to the best ball). With nothing clear it aims at the nearest
-    ball of the kind on. It does not yet look at where the cue ball finishes: that
+  - **The return:** the aim turns to the best pot among the balls that are on: each
+    clear pot's chance of going in (the aim error it forgives, from the pocket's width
+    as the ball sees it, the two distances, the cut and any ball it has to squeeze past,
+    against the error a player makes; fitted to the owner's own logged shots) times
+    what the ball is worth (its points plus 16 for keeping the break going). In a match
+    the balls on are the rules'. The free table keeps the game's order too, though it
+    lets any ball be played (Owner, 2026-11-16: red, colour, red, colour, and the best
+    of whichever is on): a colour after a red, a red after a colour while reds remain,
+    and once the reds are gone the colours in order, lowest first. With nothing clear
+    it aims at the nearest ball that is on. It does not yet look at where the cue ball
+    finishes: that
     comes from the opponent's evaluation (M4), which the pick then uses. The camera
     swoops back down behind the cue ball onto that aim in about a second,
     eased in and out, closing in on the cue ball as it turns round the table.

@@ -1,7 +1,9 @@
 class_name NextTarget
 extends RefCounted
 ## Picks where the aim turns after a shot, as the camera swoops back behind the cue ball: the
-## best pot on the table, which is the one most likely to go in, weighed by what the ball is worth.
+## best pot among the balls that are on (a red, then a colour, then a red; the colours in order
+## once the reds are gone), which is the one most likely to go in, weighed by what the ball is
+## worth.
 ##
 ## Ghost-ball geometry on straight lines. Each ball and pocket gives the line a ball must take to
 ## drop (the middle of what it can see of the hole between the jaws), the ghost ball touching the
@@ -16,7 +18,8 @@ extends RefCounted
 ## past another ball all cost what they cost a player.
 
 const VALUES := {"red": 1, "yellow": 2, "green": 3, "brown": 4, "blue": 5, "pink": 6, "black": 7}
-const PREFERENCES: Array[String] = ["red", "colour", "any"]
+## "lowest" is the colour of least value on the table: the ball on once the reds are gone.
+const PREFERENCES: Array[String] = ["red", "colour", "lowest", "any"]
 ## The simulator makes every cut to 80 degrees, but the aim that makes one narrows from 0.2 degrees
 ## wide at 75 to 0.1 at 80, and past 80 some can't be made at all.
 const MAX_CUT_DEG := 75.0
@@ -41,10 +44,6 @@ const EASE_TIE_RAD := 0.001
 ## times (value + this), so the black is taken over the blue while its chance is at least 0.91 of
 ## the blue's.
 const BREAK_POINTS := 16.0
-## With no rules, a ball of the kind that wouldn't be on counts this much of its worth: a red after
-## a red is the pick once the best colour's chance is under 0.6 or so of the red's (he played the
-## red in 65 of 91 such cases the logs hold).
-const OTHER_KIND := 0.6
 const WORTH_MAX := (7.0 + BREAK_POINTS) * (MAX_CHANCE + EASE_TIE)
 ## Shorter paths than this have no direction.
 const MIN_TRAVEL_M := 1.0e-9
@@ -73,7 +72,8 @@ const POCKET_STRIDE := 6 + 2 * MOUTH_SIDE
 
 
 ## balls are FreeTable balls ({"ball", "index", "x", "y"} in core metres); prefer is "red",
-## "colour" or "any". Returns {"index", "ball", "pocket", "aim_rad", "cut_deg", "chance", "score",
+## "colour", "lowest" or "any": the kind of ball that is on, which the pick keeps to while there is
+## one on the table. Returns {"index", "ball", "pocket", "aim_rad", "cut_deg", "chance", "score",
 ## "margin_rad" (the aim error either way that still pots), "reason"}; pocket is -1 and reason "no clear pot" when it aims straight at the nearest
 ## preferred ball instead. {} when there is no object ball.
 ## among, when not empty, is the places in `balls` it may choose from (a match's balls on); places
@@ -123,6 +123,9 @@ static func rank_on(shape: Dictionary, dims: Dictionary, balls: Array[Dictionary
 		var red := String(b["ball"]) == "red"
 		if prefer == "any" or (prefer == "red" and red) or (prefer == "colour" and not red):
 			preferred.append(i)
+		elif prefer == "lowest" and not red and (preferred.is_empty()
+				or int(VALUES[String(b["ball"])]) < int(VALUES[String(balls[preferred[0]]["ball"])])):
+			preferred = [i]
 	if objects.is_empty():
 		return ranked
 	var listed: Array[int] = []
@@ -131,16 +134,12 @@ static func rank_on(shape: Dictionary, dims: Dictionary, balls: Array[Dictionary
 		if (place is int or place is float) and objects.has(int(place)) and not listed.has(int(place)):
 			listed.append(int(place))
 	listed.sort()
-	# A match's balls on are the only ones to choose from. With no rules any ball may be played:
-	# the kind that would be on counts in full, the other kind when its pot is that much better.
-	var pool := objects
 	if not listed.is_empty():
 		var wanted: Array[int] = []
 		for i in preferred:
 			if listed.has(i):
 				wanted.append(i)
 		preferred = wanted if not wanted.is_empty() else listed
-		pool = preferred
 	if preferred.is_empty():
 		preferred = objects
 
@@ -154,14 +153,14 @@ static func rank_on(shape: Dictionary, dims: Dictionary, balls: Array[Dictionary
 	var cand_ball := PackedInt32Array()
 	var cand_pocket := PackedInt32Array()
 	var cand := PackedFloat64Array()
-	cand.resize(pool.size() * pockets.size() * CANDIDATE_STRIDE)
+	cand.resize(preferred.size() * pockets.size() * CANDIDATE_STRIDE)
 	var keys := PackedInt64Array()
 	var line := PackedFloat64Array([0.0, 0.0, 0.0, 0.0])
-	for i in pool:
+	for i in preferred:
 		var ox := xs[i]
 		var oy := ys[i]
 		var value := int(VALUES[String(balls[i]["ball"])])
-		var worth := (value + BREAK_POINTS) * (1.0 if preferred.has(i) else OTHER_KIND)
+		var worth := value + BREAK_POINTS
 		for p in pockets.size():
 			var k := p * POCKET_STRIDE
 			if not _pot_line(pocket_data, k, ox, oy, line):

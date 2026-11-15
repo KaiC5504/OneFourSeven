@@ -663,12 +663,14 @@ func test_prefer_a_colour_after_a_red_and_a_red_while_any_remain() -> void:
 	var with_reds := _balls()
 	var no_reds: Array[Dictionary] = [_balls()[0], _balls()[2]]
 	check_eq(cycle.prefer(with_reds), "red", "nothing potted in the break: a red")
-	check_eq(cycle.prefer(no_reds), "colour", "nothing potted and no reds: a colour")
+	check_eq(cycle.prefer(no_reds), "lowest", "nothing potted and no reds: the lowest colour")
 	cycle.last_potted = "red"
 	check_eq(cycle.prefer(with_reds), "colour", "a colour after a red")
 	cycle.last_potted = "colour"
 	check_eq(cycle.prefer(with_reds), "red", "a red after a colour")
-	check_eq(cycle.prefer(no_reds), "colour", "a colour after a colour once the reds are gone")
+	check_eq(cycle.prefer(no_reds), "lowest", "the colours in order once the reds are gone")
+	cycle.last_potted = "red"
+	check_eq(cycle.prefer(no_reds), "colour", "any colour after the last red")
 
 
 func _shot(cycle: ShotCycle, pots: Array, cue_potted: bool) -> Dictionary:
