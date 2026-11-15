@@ -1812,7 +1812,7 @@ func _mark_nominated() -> void:
 		var place := Nomination.place_of(_match.balls, _match.nominated())
 		if place >= 0:
 			at = Vector2(float(_match.balls[place]["x"]), float(_match.balls[place]["y"]))
-	_nomination.mark(at)
+	_nomination.mark(at, _match.nominated())
 
 
 ## Ball in hand (spec 8.6): where the camera looks from while the cue ball is placed. Up the table
