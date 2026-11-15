@@ -117,7 +117,10 @@ path tests below take every object ball as one that could be on. In order:
    miss, whatever the scores (`S3.14(d)`).
 2. Any player required penalty points before the stroke, or does once its penalty is added: no
    miss (`S3.14(a)(i)`). Intent is never judged.
-3. `can_hit` is false: no miss (`S3.14(a)(ii)`).
+3. `can_hit` is false: no miss (`S3.14(a)(ii)`) when the stroke was played at the ball on with the
+   strength to reach it, which here means the cue ball hit some ball, or ran (`cue_travel_m`) at
+   least the straight distance from where it started to the nearest ball on, less one ball
+   diameter. Any other stroke from there is a miss (`S3.14(a)`).
 4. `clear_path` holds: a miss (`S3.14(c)`).
 5. Otherwise (snookered): a miss (`S3.14(a)`), unless `miss_lenient_gap_m` is above 0 and the cue
    ball passed within it of a ball on (`lenient`). It is 0.

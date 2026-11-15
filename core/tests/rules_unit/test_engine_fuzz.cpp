@@ -56,6 +56,7 @@ ShotFacts random_facts(const FrameState& s, const FakeOracle& oracle, double pot
     f.push = !f.first_hit.empty() && chance(rng, 0.03);
     f.pot_attempt = chance(rng, 0.4);
     f.object_travel_m = chance(rng, 0.8) ? 0.1 : 1.2;
+    f.cue_travel_m = rng.uniform(0.0, 3.0);
     return f;
 }
 
