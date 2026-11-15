@@ -697,6 +697,14 @@
         "fine_tune_samples": {
           "type": "array",
           "required": true
+        },
+        "match_id": {
+          "type": "string",
+          "required": false
+        },
+        "frame": {
+          "type": "integer",
+          "required": false
         }
       }
     },
@@ -1246,6 +1254,14 @@
         },
         "next_reason": {
           "type": "string",
+          "required": false
+        },
+        "match_id": {
+          "type": "string",
+          "required": false
+        },
+        "frame": {
+          "type": "integer",
           "required": false
         }
       }
