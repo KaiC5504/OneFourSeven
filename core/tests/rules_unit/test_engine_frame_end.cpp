@@ -308,11 +308,11 @@ TEST_CASE("a player allowed to concede at any time may; the other only when pena
     FrameState s = open_table(10);
     s.concede_any_time = {true, false};
     CHECK(options(s, 0) == std::vector<DecisionKind>{DecisionKind::concede_frame, DecisionKind::concede_match});
-    CHECK(options(s, 1) == std::vector<DecisionKind>{DecisionKind::concede_match});
+    CHECK(options(s, 1).empty());
 
     s.scores = {120, 0};
     REQUIRE(penalty_points_required(s, 1) > 0);
-    CHECK(listed(options(s, 1), DecisionKind::concede_frame));
+    CHECK(options(s, 1) == std::vector<DecisionKind>{DecisionKind::concede_frame, DecisionKind::concede_match});
     CHECK(listed(options(s, 0), DecisionKind::concede_frame));
 }
 
@@ -340,9 +340,12 @@ TEST_CASE("a concession that is not open is refused") {
     CHECK(same(s, before));
 }
 
-TEST_CASE("conceding the match ends the frame for the other player, and is open to either") {
+TEST_CASE("conceding the match ends the frame for the other player, and is gated as the frame is") {
     FrameState s = open_table(10);
     std::vector<Call> calls;
+    CHECK_FALSE(chosen(s, DecisionKind::concede_match, 1, &calls));
+    CHECK_FALSE(s.over);
+    s.concede_any_time = {false, true};
     REQUIRE(chosen(s, DecisionKind::concede_match, 1, &calls));
     CHECK(s.over);
     CHECK(s.winner == 0);

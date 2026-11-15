@@ -85,7 +85,10 @@ int points_remaining(const FrameState& s) {
 int penalty_points_required(const FrameState& s, int player) {
     if (player != 0 && player != 1) return 0;
     const int deficit = s.scores[std::size_t(1 - player)] - s.scores[std::size_t(player)];
-    const int needed = deficit - points_remaining(s);
+    int remaining = points_remaining(s);
+    // The colour after a red is the striker's alone to score (S3.14(a)(i), S4.2(b)).
+    if (s.on.kind == OnKind::any_colour && !s.respotted_black && player != s.striker) remaining -= 7;
+    const int needed = deficit - remaining;
     return needed > 0 ? needed : 0;
 }
 

@@ -12,7 +12,8 @@
     "stalemate_quiet_travel_m": 0.6,
     "stalemate_offer_strokes": 12,
     "stalemate_grace_strokes": 6,
-    "d_sample_step_m": 0.01
+    "d_sample_step_m": 0.01,
+    "d_fine_step_m": 0.002
   },
   "docs": {
     "touching_gap_m": {
@@ -52,7 +53,7 @@
     },
     "stalemate_quiet_travel_m": {
       "unit": "m",
-      "source": "Section 3 Rule 17 ('the situation remains basically unchanged'); spec 9.1 leaves the thresholds to the builder",
+      "source": "Section 3 Rule 17 (a position that hardly changes); spec 9.1 leaves the thresholds to the builder",
       "note": "A stroke is quiet when nothing is potted and the object balls end, summed over all of them, less than this from where they began."
     },
     "stalemate_offer_strokes": {
@@ -62,13 +63,18 @@
     },
     "stalemate_grace_strokes": {
       "unit": "strokes",
-      "source": "Section 3 Rule 17(a): 'usually after three more strokes to each side'",
+      "source": "Section 3 Rule 17(a): the period the referee states is commonly three more strokes for each player",
       "note": "After an objection the frame is re-racked when this many more strokes are all quiet."
     },
     "d_sample_step_m": {
       "unit": "m",
       "source": "Section 2 Rule 17(a): snookered in hand means from all possible positions in the D; ours",
       "note": "The D is tested at points this far apart, its edge included."
+    },
+    "d_fine_step_m": {
+      "unit": "m",
+      "source": "Section 2 Rule 17(a), as d_sample_step_m; ours",
+      "note": "When no point of the d_sample_step_m lattice has a ball on in view, the D is tested again at points this far apart before the cue ball is called snookered, so a free place narrower than the first step still counts. A free strip a few millimetres wide at the edge of a ball not on is the case it is for. It runs only then, so its cost falls on in-hand fouls that leave a snooker."
     }
   }
 }

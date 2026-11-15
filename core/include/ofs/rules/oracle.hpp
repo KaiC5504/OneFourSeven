@@ -21,10 +21,10 @@ class TableOracle {
 public:
     virtual ~TableOracle() = default;
 
-    // S2.17: a direct stroke in a straight line to every ball of `on` is wholly or partially
-    // obstructed by a ball not on; false as soon as one ball of `on` can be hit at both extreme
-    // edges. With in_hand, true only when that holds from every position in the D (S2.17(a)); the
-    // cue ball's listed position is then ignored. False when `on` is empty.
+    // S2.17: some ball not on blocks, at least in part, the straight line to each ball of `on`.
+    // False once any ball of `on` has both of its extreme edges in view. With in_hand, true only
+    // if no place in the D sees one that way (S2.17(a)), the listed cue ball position aside.
+    // False when `on` is empty.
     virtual bool snookered(const std::vector<BallOnTable>& balls, int cue_ball, const std::vector<int>& on,
                            bool in_hand) const = 0;
     // S2.17(b), (c): the effective snookering balls, lowest place first. For each ball of `on` the
@@ -32,12 +32,12 @@ public:
     // empty unless the same ball or balls obstruct every one. Empty when not snookered.
     virtual std::vector<int> snookering_balls(const std::vector<BallOnTable>& balls, int cue_ball,
                                               const std::vector<int>& on) const = 0;
-    // S3.14(c): a clear path in a straight line from the cue ball to any part of any ball of `on`
-    // (the finest edge counts).
+    // S3.14(c): some straight line from the cue ball meets a ball of `on` before anything else,
+    // even if only at its finest edge.
     virtual bool clear_path(const std::vector<BallOnTable>& balls, int cue_ball, const std::vector<int>& on) const = 0;
-    // S3.14(d): central, full-ball contact is available on some ball of `on`: the cue ball can
-    // travel the line of centres to it with no ball in the way. For reds, a red obstructed only by
-    // other reds still counts (the full diameter of a red not obstructed by a colour).
+    // S3.14(d): some ball of `on` can be struck full: nothing lies on the line of centres from the
+    // cue ball to it. For a red, other reds in that line do not count against it; only a colour
+    // does.
     virtual bool full_ball(const std::vector<BallOnTable>& balls, int cue_ball, const std::vector<int>& on) const = 0;
     // S3.14(a)(ii): some ball of `on` can be reached at all, directly or off at most
     // RefParams::escape_max_cushions cushions. False means it is impossible to hit the ball on.
@@ -46,12 +46,11 @@ public:
     virtual std::vector<int> touching(const std::vector<BallOnTable>& balls, int cue_ball) const = 0;
 
     // S3.7: where each of `colours` is spotted on a table holding `on_table` (the cue ball left
-    // out while it is in hand). Every colour whose own spot is available goes on it (j). The
-    // rest, highest value first (f), each go to the highest-value spot still available (e); else
-    // as near its own spot as possible between that spot and the nearest part of the top cushion
-    // (g); pink and black, with no room there, as near their own spot as possible on the centre
-    // line towards baulk (h); never touching another ball (i). Returns the placements in the
-    // order of `colours`.
+    // out while it is in hand). A colour with its own spot free takes it (j). The others go in
+    // order of value, dearest first (f): to the dearest free spot (e); failing that, to the place
+    // nearest their own spot on the line from it straight up to the top cushion (g); pink and
+    // black, finding no room there, to the place nearest their spot on the centre line on the
+    // baulk side (h). None ends touching another ball (i). The result follows `colours`' order.
     virtual std::vector<BallOnTable> spot(const std::vector<BallOnTable>& on_table,
                                           const std::vector<Ball>& colours) const = 0;
 

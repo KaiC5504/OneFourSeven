@@ -493,3 +493,58 @@ TEST_CASE("S3.9(c): a red that reaches the pocket at a crawl and drops has been 
     CHECK(p.judgement.post.striker == 0);
     CHECK(p.judgement.post.on.kind == OnKind::any_colour);
 }
+
+namespace {
+
+// After a red, the black declared, hit first and potted; the cue ball comes to rest in play at
+// `cue_rest`, everything else where it lay.
+Judgement black_potted_cue_resting_at(const FrameState& s, Vec2 cue_rest) {
+    const int black = place_of(s, Ball::black);
+    ShotFacts f = quiet_facts(s);
+    f.first_hit = {black};
+    f.first_hit_t = 0.4;
+    f.closest_gap_m[std::size_t(black)] = 0.0;
+    f.pots.push_back({black, pocket_named("top_right"), 1.2});
+    f.rest[std::size_t(s.cue_ball)] = cue_rest;
+    f.cue_travel_m = 1.0;
+    f.object_travel_m = 0.5;
+    return judge(s, nominate(Ball::black), f, *rig().oracle, rig().ref);
+}
+
+}  // namespace
+
+TEST_CASE("S2.18, S3.7(e): the cue ball at rest on the black spot occupies it; the black goes on the pink spot") {
+    // The pink lies away from its spot, so the highest-value spot that is free is the pink's.
+    FrameState s = frame({ball(Ball::cue, 0.8, 0.3), ball(Ball::black, 1.3, 0.4), ball(Ball::red, -0.3, 0.6, 0),
+                          ball(Ball::pink, 0.6, -0.5), spotted(Ball::yellow), spotted(Ball::green),
+                          spotted(Ball::brown), spotted(Ball::blue)});
+    s.on = {OnKind::any_colour, Ball::yellow};
+    const Judgement j = black_potted_cue_resting_at(s, table::spot(Ball::black));
+    CHECK(j.fouls.empty());
+    CHECK(j.points == 7);
+    CHECK_FALSE(j.post.cue_in_hand);
+    CHECK(at(where(j.post, Ball::cue), table::spot(Ball::black)));
+    check_spotted(j, Ball::black, table::spot(Ball::pink));
+}
+
+TEST_CASE("S2.18, S3.7(g): the cue ball at rest on the black spot, every spot taken: the black goes just behind it") {
+    FrameState s = frame({ball(Ball::cue, 0.8, 0.3), ball(Ball::black, 1.3, 0.4), ball(Ball::red, -0.3, 0.6, 0),
+                          spotted(Ball::yellow), spotted(Ball::green), spotted(Ball::brown), spotted(Ball::blue),
+                          spotted(Ball::pink)});
+    s.on = {OnKind::any_colour, Ball::yellow};
+    const Judgement j = black_potted_cue_resting_at(s, table::spot(Ball::black));
+    CHECK(j.fouls.empty());
+    CHECK(j.points == 7);
+    CHECK(at(where(j.post, Ball::cue), table::spot(Ball::black)));
+    // On the line from its spot to the top cushion, as near the spot as the cue ball allows.
+    const Vec2 black = where(j.post, Ball::black);
+    CHECK(std::abs(black.y - table::spot(Ball::black).y) < 1e-9);
+    CHECK(black.x > table::spot(Ball::black).x);
+    std::vector<BallOnTable> others;
+    for (const BallOnTable& b : j.post.balls) {
+        if (b.ball != Ball::black) others.push_back(b);
+    }
+    check_just_clear(black, others);
+    REQUIRE(j.spotted.size() == 1);
+    CHECK(j.spotted[0].ball == Ball::black);
+}

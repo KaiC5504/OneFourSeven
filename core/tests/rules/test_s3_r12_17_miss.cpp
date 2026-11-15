@@ -959,3 +959,59 @@ TEST_CASE("S3.14(d): a foul after a fair first contact ends the run") {
     CHECK_FALSE(j.post.miss_warned);
     CHECK(choices_text(j.post, 1) == "play play_again");
 }
+
+TEST_CASE("S3.14(a)(i): with a colour of choice on, the black it may bring counts only for the striker") {
+    // Player 0 has just potted the last red: a colour of choice and then the six colours are 34
+    // points for player 0, but only the colours' 27 for player 1, who at 30 behind already needs
+    // penalty points.
+    FrameState pre = scenario::frame({ball(Ball::cue, -0.5, kLine), spotted(Ball::yellow), spotted(Ball::green),
+                                      spotted(Ball::brown), spotted(Ball::blue), spotted(Ball::pink),
+                                      spotted(Ball::black)});
+    pre.on = BallOn{OnKind::any_colour, Ball::yellow};
+    pre.scores = {60, 30};
+    REQUIRE(both_edges_open(at(pre, Ball::cue), at(pre, Ball::blue), all_but(pre, Ball::blue)));
+
+    // The blue declared and nothing hit, though the blue is in plain view.
+    const Judgement j = judge(pre, nominate(Ball::blue), scenario::quiet_facts(pre), oracle(), ref());
+    CHECK(fouls_text(j) == "no_hit 5");
+    CHECK_FALSE(j.miss);
+    CHECK(j.miss_reason == "S3.14(a)(i)");
+    CHECK_FALSE(scenario::has_call(j.calls, CallKind::miss));
+    CHECK(choices_text(j.post, 1) == "play play_again");
+
+    // Three points nearer, player 1 needs none before or after, and the same stroke is a miss.
+    pre.scores = {60, 33};
+    const Judgement k = judge(pre, nominate(Ball::blue), scenario::quiet_facts(pre), oracle(), ref());
+    CHECK(k.miss);
+    CHECK(k.miss_reason == "S3.14(c)");
+}
+
+TEST_CASE("S3.14(d): with a free ball, a ball not on in plain view begins the run") {
+    // The only red hidden behind the brown, so FREE BALL; the blue, which may be nominated, lies in
+    // the open with its full face to the cue ball.
+    FrameState pre = red_past_brown(0.0);
+    REQUIRE(no_part_open(at(pre, Ball::cue), at(pre, Ball::red), all_but(pre, Ball::red)));
+    REQUIRE(open(at(pre, Ball::cue), at(pre, Ball::blue), all_but(pre, Ball::blue), 0.0));
+    pre.free_ball = true;
+
+    const Judgement j = judge(pre, nominate(Ball::blue), scenario::quiet_facts(pre), oracle(), ref());
+    CHECK(fouls_text(j) == "no_hit 4");
+    CHECK(j.miss);
+    CHECK(j.post.miss_run == 1);
+    FrameState s = j.post;
+    if (!choose(s, DecisionKind::replace)) return;
+    CHECK(s.free_ball);
+    if (!lies_as(s, pre)) return;
+
+    // The second failure from the original position is a miss whatever the scores.
+    const Judgement again = judge(s, nominate(Ball::blue), scenario::quiet_facts(s), oracle(), ref());
+    CHECK(again.miss);
+    CHECK(again.miss_reason == "S3.14(d)");
+    CHECK(again.post.miss_run == 2);
+
+    // Without the free ball the red alone could be on, and no full ball of it is there to hit.
+    FrameState plain = red_past_brown(0.0);
+    const Judgement k = judge(plain, {}, scenario::quiet_facts(plain), oracle(), ref());
+    CHECK(k.miss);
+    CHECK(k.post.miss_run == 0);
+}

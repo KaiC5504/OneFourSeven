@@ -75,12 +75,12 @@ bool match_decide_now(MatchState& m, DecisionKind kind, int player, MatchEvent& 
 
 }  // namespace
 
-TEST_CASE("S4.2(b): a frame may not be conceded while nobody requires penalty points") {
+TEST_CASE("S4.2(b): neither the frame nor the match may be conceded while nobody requires penalty points") {
     FrameState s = three_reds(0, 51);
     CHECK(points_remaining(s) == 51);
     CHECK(penalty_points_required(s, 0) == 0);
-    CHECK(offered(s, 0) == "concede_match");
-    CHECK(offered(s, 1) == "concede_match");
+    CHECK(offered(s, 0) == "");
+    CHECK(offered(s, 1) == "");
 
     std::string error;
     CHECK_FALSE(decide_now(s, DecisionKind::concede_frame, 0, nullptr, &error));
@@ -88,6 +88,8 @@ TEST_CASE("S4.2(b): a frame may not be conceded while nobody requires penalty po
     CHECK_FALSE(s.over);
     CHECK(s.winner == -1);
     CHECK_FALSE(decide_now(s, DecisionKind::concede_frame, 1));
+    CHECK_FALSE(decide_now(s, DecisionKind::concede_match, 0));
+    CHECK_FALSE(decide_now(s, DecisionKind::concede_match, 1));
     CHECK_FALSE(s.over);
 }
 
@@ -112,7 +114,7 @@ TEST_CASE("S4.2(b), the owner's ruling: a player given leave may concede at any 
     FrameState s = three_reds(0, 0);
     s.concede_any_time = {true, false};
     CHECK(offered(s, 0) == "concede_frame,concede_match");
-    CHECK(offered(s, 1) == "concede_match");
+    CHECK(offered(s, 1) == "");
     CHECK_FALSE(decide_now(s, DecisionKind::concede_frame, 1));
     CHECK_FALSE(s.over);
 
@@ -144,15 +146,39 @@ TEST_CASE("S4.2(a), (e): a concession stands at once and cannot be taken back") 
     CHECK(s.end_reason == EndReason::conceded);
 }
 
-TEST_CASE("S4.2: a frame is not conceded while the referee waits on a choice after a foul") {
+TEST_CASE("S4.2, the owner's ruling: with a choice pending after a foul, only the chooser with leave may concede") {
     FrameState s = three_reds(0, 60);
     s.concede_any_time = {true, true};
-    // Player 0 misses everything.
+    // Player 0 misses everything; player 1 is to choose.
     const Judgement j = judge(s, {}, quiet_facts(s), *rig().oracle, rig().ref);
     REQUIRE(j.post.pending == Pending::after_foul);
+    REQUIRE(j.post.decider == 1);
     CHECK_FALSE(is_offered(j.post, 0, DecisionKind::concede_frame));
-    CHECK_FALSE(is_offered(j.post, 1, DecisionKind::concede_frame));
+    CHECK_FALSE(is_offered(j.post, 0, DecisionKind::concede_match));
     CHECK(is_offered(j.post, 1, DecisionKind::play));
+    CHECK(is_offered(j.post, 1, DecisionKind::concede_frame));
+    CHECK(is_offered(j.post, 1, DecisionKind::concede_match));
+
+    FrameState refused = j.post;
+    CHECK_FALSE(decide_now(refused, DecisionKind::concede_frame, 0));
+    CHECK(refused.pending == Pending::after_foul);
+
+    // Without leave, the chooser must answer the choice first.
+    FrameState no_leave = j.post;
+    no_leave.concede_any_time = {true, false};
+    CHECK_FALSE(is_offered(no_leave, 1, DecisionKind::concede_frame));
+    CHECK_FALSE(decide_now(no_leave, DecisionKind::concede_frame, 1));
+
+    FrameState conceded = j.post;
+    std::vector<Call> calls;
+    CHECK(decide_now(conceded, DecisionKind::concede_frame, 1, &calls));
+    CHECK(conceded.over);
+    CHECK(conceded.winner == 0);
+    CHECK(conceded.end_reason == EndReason::conceded);
+    CHECK(conceded.pending == Pending::none);
+    CHECK(frame_over_call(calls) == "0 conceded");
+    CHECK(offered(conceded, 0) == "");
+    CHECK(offered(conceded, 1) == "");
 
     FrameState next = j.post;
     CHECK(decide_now(next, DecisionKind::play, 1));
@@ -191,11 +217,18 @@ TEST_CASE("S4.2(b): in a match the frame's leave to concede is each player's own
     CHECK_FALSE(m.frame.over);
 }
 
-TEST_CASE("S4.2: the match may be conceded at any time, whatever the frames stand at") {
-    MatchState m = start_match(config(5, false, false), rig().params);
+TEST_CASE("S4.2, the owner's ruling: a player with leave may concede the match at any time, the other not while nobody needs penalty points") {
+    MatchState m = start_match(config(5, false, true), rig().params);
     REQUIRE(m.frame.balls.size() == 22);
-    CHECK(is_offered(m.frame, 0, DecisionKind::concede_match));
+    CHECK_FALSE(is_offered(m.frame, 0, DecisionKind::concede_match));
     CHECK(is_offered(m.frame, 1, DecisionKind::concede_match));
+
+    MatchEvent refused = MatchEvent::none;
+    std::vector<Call> calls;
+    std::string error;
+    CHECK_FALSE(match_decide(m, {DecisionKind::concede_match, 0}, *rig().oracle, rig().ref, rig().params, calls,
+                             refused, error));
+    CHECK_FALSE(m.over);
 
     MatchEvent event = MatchEvent::none;
     CHECK(match_decide_now(m, DecisionKind::concede_match, 1, event));

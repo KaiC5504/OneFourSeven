@@ -51,6 +51,7 @@ RefParams all_changed() {
     p.stalemate_offer_strokes = 9;
     p.stalemate_grace_strokes = 4;
     p.d_sample_step_m = 0.0075;
+    p.d_fine_step_m = 0.0015;
     return p;
 }
 
@@ -76,10 +77,10 @@ TEST_CASE("referee_params.json loads with no problems and documents every value"
 
 TEST_CASE("a field missing from the file's values or docs is caught") {
     // What the test above rests on: the name list covers the struct, and a file short of a name
-    // fails. RefParams is eight doubles and three ints; a field added to it changes its size, and
+    // fails. RefParams is nine doubles and three ints; a field added to it changes its size, and
     // must then be added to referee_params.cpp's list, the file's values and docs, and here.
-    CHECK(sizeof(RefParams) == 80);
-    CHECK(ref_param_names().size() == 11);
+    CHECK(sizeof(RefParams) == 88);
+    CHECK(ref_param_names().size() == 12);
     CHECK(ref_params_values(RefParams{}).size() == ref_param_names().size());
     for (const std::string& name : ref_param_names()) {
         CAPTURE(name);
@@ -225,6 +226,8 @@ TEST_CASE("values outside each referee field's range are refused and the bounds 
         {"stalemate_grace_strokes", 101, 100},
         {"d_sample_step_m", 0.001, 0.002},
         {"d_sample_step_m", 0.06, 0.05},
+        {"d_fine_step_m", 0.0005, 0.001},
+        {"d_fine_step_m", 0.011, 0.01},
     };
     for (const Case& c : cases) {
         CAPTURE(c.key);

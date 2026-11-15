@@ -566,3 +566,40 @@ TEST_CASE("S3.8(e): against a ball on and a ball not on, only the ball on is ind
     CHECK(has_call(j.calls, CallKind::touching_ball));
     CHECK(j.post.touching == std::vector<int>{place_of(j.post, Ball::red, 1)});
 }
+
+TEST_CASE("S3.6 with FREE BALL: nothing nominated, a ball on and a ball not on struck at the same instant is a foul") {
+    // As the fair stroke with the blue nominated, but nothing said: with two balls struck first
+    // neither can be taken as the nominated free ball.
+    FrameState s = frame(
+        rest_spotted({cue_on_centre_line(), upper(Ball::red, 0), lower(Ball::blue), ball(Ball::red, -0.5, 0.5, 1)}));
+    s.free_ball = true;
+    const Played p = play(s, up_the_centre_line());
+    require_struck_together(p.record, s.cue_ball, 1, 2);
+
+    // S3.11(c): the higher of the two, the blue.
+    check_foul(s, p.judgement, FoulKind::simultaneous_hit, 5);
+    CHECK_FALSE(p.judgement.free_ball_used);
+    CHECK_FALSE(p.judgement.nominated.has_nomination);
+    // A ball on took part in the first impact: no miss.
+    CHECK_FALSE(p.judgement.miss);
+}
+
+TEST_CASE("S3.8(b), (e): touching a red and the blue, the blue moved by the stroke: a push stroke at the blue's value") {
+    // The red lies behind the cue ball and the blue in front, both touching. Only the red is on,
+    // and the stroke goes straight into the blue.
+    FrameState s = frame(rest_spotted({ball(Ball::cue, kCue.x, kCue.y),
+                                       ball(Ball::red, against_cue(180.0).x, against_cue(180.0).y, 0),
+                                       ball(Ball::blue, against_cue(0.0).x, against_cue(0.0).y),
+                                       ball(Ball::red, 0.9, -0.4, 1)}));
+    s.touching = {1};
+    REQUIRE(touching_at_start(s, 1));
+    REQUIRE(touching_at_start(s, 2));
+    const Played p = play(s, strike(0.0, 0.5));
+    REQUIRE(stayed(s, p.record, 1));
+    REQUIRE(apart(s.balls[2].pos, rest(p.record, 2)) > 0.05);
+    REQUIRE_FALSE(anything_potted(p.record));
+
+    // S3.11(b)(v): red on is 4, the blue concerned 5.
+    check_foul(s, p.judgement, FoulKind::push_stroke, 5);
+    CHECK(p.judgement.fouls.size() == 1);
+}

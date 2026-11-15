@@ -137,8 +137,10 @@ void spot_colours(Position& p, const std::vector<int>& places, const TableOracle
     for (int place : places) colours.push_back(p.balls[std::size_t(place)].ball);
     const std::vector<BallOnTable> where = oracle.spot(on_table, colours);
     if (where.size() != colours.size()) {
+        std::string names;
+        for (Ball b : colours) names += (names.empty() ? "" : ",") + std::string(table::ball_name(b));
         log_invalid("spot", "the oracle placed " + std::to_string(where.size()) + " of " +
-                                std::to_string(colours.size()) + " colours");
+                                std::to_string(colours.size()) + " colours (" + names + ")");
     }
     for (std::size_t k = 0; k < places.size(); ++k) {
         BallOnTable& b = p.balls[std::size_t(places[k])];
@@ -479,7 +481,7 @@ Judgement judge(const FrameState& pre, const ShotInput& input, const ShotFacts& 
     spot_colours(post, to_spot, oracle, j.spotted);
     if (post.cue_in_hand) take_cue_in_hand(post, oracle);
 
-    // S3.12(b)(ii), on the balls as they lie once spotted.
+    // S3.12(b)(ii), on the balls as they lie once spotted; not with only two object balls left.
     if (k.free_used && points == 0 && !post.cue_in_hand && post.balls.size() != 3) {
         std::vector<int> on_now;
         int free_now = -1;
@@ -554,7 +556,8 @@ Judgement judge(const FrameState& pre, const ShotInput& input, const ShotFacts& 
         j.miss = miss_called(pre, post, facts, could, oracle, ref, j.miss_reason);
         if (j.miss) {
             ++stats.misses;
-            // S3.14(d): the run counts misses from a position where a full ball was there to be hit.
+            // S3.14(d): the run counts misses from a position where a full ball was there to be hit,
+            // or where the cue ball touched a ball that could be on.
             bool run = pre.miss_run >= 1 || oracle.full_ball(pre.balls, pre.cue_ball, could);
             for (int place : touching) run = run || contains(could, place);
             if (run) {
@@ -579,6 +582,7 @@ Judgement judge(const FrameState& pre, const ShotInput& input, const ShotFacts& 
         post.respotted_black = true;
         post.break_points = 0;
         post.pending = Pending::toss;
+        // A fresh draw for each re-spotted black, the same one whenever the frame is replayed.
         Rng lots(post.seed + 7919 * std::uint64_t(post.strokes));
         post.decider = int(lots.next_u64() & 1);
         post.striker = post.decider;
@@ -593,16 +597,16 @@ Judgement judge(const FrameState& pre, const ShotInput& input, const ShotFacts& 
         award_if_trailing(post);
     }
 
-    // S3.17. An in-off changes the position as a pot does: the next stroke is from the D.
+    // S3.17. A foul stroke leaves the count and the grace strokes as they were (docs/rules/README.md).
     const bool quiet =
         facts.pots.empty() && !facts.cue_potted && facts.object_travel_m < ref.stalemate_quiet_travel_m;
     bool reracked = false;
     bool offered = false;
     post.rerack_accepted = -1;
-    if (!quiet || respot) {
+    if (respot || (!foul && !quiet)) {
         post.quiet_strokes = 0;
         post.rerack_deadline = -1;
-    } else {
+    } else if (!foul) {
         post.quiet_strokes = pre.quiet_strokes + 1;
         if (pre.rerack_deadline >= 0) {
             post.rerack_deadline = pre.rerack_deadline - 1;
@@ -642,26 +646,33 @@ Judgement judge_shot(const FrameState& pre, const ShotInput& input, const phys::
 std::vector<DecisionKind> options(const FrameState& s, int player) {
     std::vector<DecisionKind> out;
     if (s.over || s.restart || (player != 0 && player != 1)) return out;
+    const bool any_time = s.concede_any_time[std::size_t(player)];
+    bool may_concede = false;
     switch (s.pending) {
         case Pending::after_foul:
             if (player != s.decider) break;
             out = {DecisionKind::play, DecisionKind::play_again};
             if (s.last_miss) out.push_back(DecisionKind::replace);
+            may_concede = any_time;
             break;
         case Pending::rerack:
-            if (player == s.decider) out = {DecisionKind::accept_rerack, DecisionKind::refuse_rerack};
+            if (player != s.decider) break;
+            out = {DecisionKind::accept_rerack, DecisionKind::refuse_rerack};
+            may_concede = any_time;
             break;
         case Pending::toss:
-            if (player == s.decider) out = {DecisionKind::play_first, DecisionKind::play_second};
+            if (player != s.decider) break;
+            out = {DecisionKind::play_first, DecisionKind::play_second};
+            may_concede = any_time;
             break;
         case Pending::none:
             if (can_claim(s, player)) out.push_back(DecisionKind::claim_frame);
-            if (s.concede_any_time[std::size_t(player)] || penalty_points_required(s, 0) > 0 ||
-                penalty_points_required(s, 1) > 0) {
-                out.push_back(DecisionKind::concede_frame);
-            }
-            out.push_back(DecisionKind::concede_match);
+            may_concede = any_time || penalty_points_required(s, 0) > 0 || penalty_points_required(s, 1) > 0;
             break;
+    }
+    if (may_concede) {
+        out.push_back(DecisionKind::concede_frame);
+        out.push_back(DecisionKind::concede_match);
     }
     return out;
 }
@@ -738,11 +749,14 @@ bool decide(FrameState& s, Decision d, const TableOracle& oracle, const RefParam
             calls.push_back(frame_over(s));
             break;
         case DecisionKind::concede_frame:
-            finish(s, other(d.player), EndReason::conceded);
-            calls.push_back(frame_over(s));
-            break;
         case DecisionKind::concede_match:
-            finish(s, other(d.player), EndReason::match_conceded);
+            // Conceded with a choice pending, the choice goes with the frame.
+            s.rerack_accepted = -1;
+            s.last_penalty = 0;
+            s.last_miss = false;
+            s.original = Position{};
+            finish(s, other(d.player),
+                   d.kind == DecisionKind::concede_frame ? EndReason::conceded : EndReason::match_conceded);
             calls.push_back(frame_over(s));
             break;
     }

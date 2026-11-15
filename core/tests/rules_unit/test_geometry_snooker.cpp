@@ -196,3 +196,27 @@ TEST_CASE("S2.17(a): in hand at the start of a frame the reds are in view") {
     CHECK_FALSE(oracle().snookered(balls, 0, reds, true));
     CHECK_FALSE(oracle().snookered(balls, 0, reds, false));
 }
+
+TEST_CASE("S2.17(a): a free strip of the D narrower than the first lattice is still found") {
+    // A red at the top cushion seen between a blue and a pink 199 mm apart: from the D both its
+    // edges show only from a wedge about 4 mm wide (x -1.155 to -1.0475, y 3.1 to 6.9 mm), which
+    // the 10 mm lattice steps over.
+    const std::vector<BallOnTable> balls = {
+        ball(Ball::cue, 0.3, 0.6),    ball(Ball::red, 1.70, 0.005),  ball(Ball::yellow, 1.7, 0.8),
+        ball(Ball::green, 1.7, -0.8), ball(Ball::brown, 0.0, 0.85),  ball(Ball::blue, 1.40, 0.1045),
+        ball(Ball::pink, 1.40, -0.0945), ball(Ball::black, 0.0, -0.85)};
+    CHECK_FALSE(oracle().snookered(balls, 0, {1}, true));
+
+    // The same with the second pass made no finer than the first: the lattice alone calls it.
+    RefParams coarse = rig().ref;
+    coarse.d_fine_step_m = coarse.d_sample_step_m;
+    const auto only_coarse = make_geometry_oracle(rig().table, coarse);
+    CHECK(only_coarse->snookered(balls, 0, {1}, true));
+
+    // A place inside the strip sees both edges; one beside it does not.
+    std::vector<BallOnTable> placed = balls;
+    placed[0].pos = {-1.10, 0.005};
+    CHECK_FALSE(oracle().snookered(placed, 0, {1}, false));
+    placed[0].pos = {-1.10, 0.012};
+    CHECK(oracle().snookered(placed, 0, {1}, false));
+}

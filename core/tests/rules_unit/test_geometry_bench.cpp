@@ -150,6 +150,16 @@ TEST_CASE("geometry oracle timings" * doctest::skip()) {
     s.add(time_ns(5, [&] { sink += o.snookered(pack, 0, {1}, true); }));
     s.print("in hand, one of those reds on");
 
+    // Both lattices searched to the end: a red hidden from the D but for a strip 4 mm wide.
+    s = {};
+    const std::vector<BallOnTable> strip = {
+        ball(Ball::cue, 0.3, 0.6),    ball(Ball::red, 1.70, 0.005), ball(Ball::yellow, 1.7, 0.8),
+        ball(Ball::green, 1.7, -0.8), ball(Ball::brown, 0.0, 0.85), ball(Ball::blue, 1.40, 0.1045),
+        ball(Ball::pink, 1.40, -0.0945), ball(Ball::black, 0.0, -0.85)};
+    s.add(time_ns(5, [&] { sink += o.snookered(strip, 0, {1}, true); }));
+    s.print("in hand, the one red seen from a 4 mm strip");
+    CHECK_FALSE(o.snookered(strip, 0, {1}, true));
+
     s = {};
     std::vector<BallOnTable> ring = {ball(Ball::cue, -0.8, -0.3), ball(Ball::red, 0.4, 0.2)};
     const Ball ring_colours[] = {Ball::yellow, Ball::green, Ball::brown, Ball::blue, Ball::pink, Ball::black};

@@ -261,6 +261,40 @@ TEST_CASE("S2.17(a): in hand, one clear place in the D means no snooker") {
     CHECK_FALSE(j.post.free_ball);
 }
 
+TEST_CASE("S2.17(a): in hand, a place in the D only a few millimetres wide still means no snooker") {
+    // The only red sits under the top cushion between a blue and a pink 199 mm apart. Only a strip
+    // of the D about 4 mm wide, a little to the left of the centre line, sees both of its edges.
+    const FrameState s = frame({ball(Ball::cue, 0.3, 0.6), ball(Ball::red, 1.70, 0.005), ball(Ball::yellow, 1.7, 0.8),
+                                ball(Ball::green, 1.7, -0.8), ball(Ball::brown, 0.0, 0.85),
+                                ball(Ball::blue, 1.40, 0.1045), ball(Ball::pink, 1.40, -0.0945),
+                                ball(Ball::black, 0.0, -0.85)});
+    const Vec2 red = at(s, 1);
+    std::vector<Vec2> others;
+    for (int place = 2; place < int(s.balls.size()); ++place) others.push_back(at(s, place));
+    const auto hidden = [&](Vec2 from, int edge) {
+        for (Vec2 o : others) {
+            if (blocks(from, edge_contact(from, red, edge), o)) return true;
+        }
+        return false;
+    };
+    const Vec2 inside{-1.10, 0.005};
+    REQUIRE(table::in_d(inside));
+    REQUIRE_FALSE(hidden(inside, +1));
+    REQUIRE_FALSE(hidden(inside, -1));
+    for (Vec2 beside : {Vec2{-1.10, 0.0}, Vec2{-1.10, 0.01}, Vec2{table::baulk_line_x(), 0.0},
+                        Vec2{-1.2, 0.0}, Vec2{-1.2, 0.01}}) {
+        CAPTURE(beside.x);
+        CAPTURE(beside.y);
+        REQUIRE((hidden(beside, +1) || hidden(beside, -1)));
+    }
+
+    const Judgement j = goes_in_off(s, 1);
+    CHECK(fouls_text(j) == "in_off 4");
+    CHECK(j.post.cue_in_hand);
+    CHECK_FALSE(has_call(j.calls, CallKind::free_ball));
+    CHECK_FALSE(j.post.free_ball);
+}
+
 TEST_CASE("S2.17(b)(i): of two balls in the way, the one nearer the cue ball is the effective snookering ball") {
     // The free ball alone hides the red: the striker has snookered behind it. The pink lies out of
     // the way, so more than two object balls remain (S3.12(b)(ii)'s exception is for two).

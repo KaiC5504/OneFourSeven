@@ -175,7 +175,7 @@ TEST_CASE("frames of random strokes and choices keep every invariant and judge t
                 const DecisionKind kind = open[std::size_t(pick(rng, int(open.size())))];
                 REQUIRE(decide(s, {kind, s.decider}, oracle, ref, calls, error));
                 CHECK(has_call(calls, CallKind::frame_over) == s.over);
-            } else if (chance(rng, 0.002)) {
+            } else if (chance(rng, 0.002) && !options(s, s.striker).empty()) {
                 const std::vector<DecisionKind> open = options(s, s.striker);
                 std::vector<Call> calls;
                 std::string error;
