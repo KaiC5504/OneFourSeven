@@ -22,6 +22,8 @@ constexpr std::array<const char*, 9> kJudgementKeys = {
 constexpr std::array<const char*, 10> kAfterKeys = {
     "striker", "scores", "on", "free_ball", "cue_in_hand", "pending", "decider", "over", "winner", "end_reason"};
 
+thread_local json t_log_context = json::object();
+
 // The caller's context beside the line's own fields, which win over a context key of the same name.
 json with_context(const json& context, json fields) {
     if (context.is_object()) {
@@ -171,8 +173,17 @@ void log_match_ended(const MatchState& m, const std::string& reason, const nlohm
 }
 
 void log_invalid(const std::string& what, const std::string& detail) {
-    log::warn("rules", "rules.invalid", {{"what", what}, {"detail", detail}});
+    log::warn("rules", "rules.invalid", with_context(t_log_context, {{"what", what}, {"detail", detail}}));
 }
+
+ScopedLogContext::ScopedLogContext(const nlohmann::json& context) : previous_(t_log_context) {
+    if (!context.is_object()) return;
+    for (auto it = context.begin(); it != context.end(); ++it) t_log_context[it.key()] = it.value();
+}
+
+ScopedLogContext::~ScopedLogContext() { t_log_context = std::move(previous_); }
+
+const nlohmann::json& scoped_log_context() { return t_log_context; }
 
 std::string rejudge(const nlohmann::json& decision_data, const phys::TableShape& table) {
     if (!decision_data.is_object()) return "data: want an object";

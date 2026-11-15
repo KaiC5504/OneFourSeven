@@ -123,20 +123,37 @@ New subsystems: `input`, `ui`, `audio`, `settings`, `freetable`. A played shot l
 `core/include/ofs/rules/serialize.hpp`. The game's lines carry `match_id` (`<session>-m<n>`),
 `frame` (its number) and, for a stroke, `shot_id`, which ties them to `shot.input` and
 `shot.simulated`. `tools/sim_cli referee <log>` re-judges every `rules.decision` from its own line.
+`tools/check_logs.py` fails a line with a data field its event does not declare.
 
 | Event | Level | When | Fields |
 | --- | --- | --- | --- |
-| `rules.configured` | info/error | the match engine was given its referee and stand-in values (error when refused) | `ok`, `values` (the referee's), `standin`, `problems` |
+| `app.error` + | | | `match_id`, `frame` when it happened in a match (`kind` `exception` from `OfsMatch` or the stand-in) |
+| `rules.configured` | info/error | the match engine was given its referee and stand-in values (error when refused) | `ok`, `values` (the referee's), `standin`, `params_hash` (the physics values' hash, as `params.loaded` has it; `""` without physics), `problems` |
 | `rules.decision` | info | the referee judged a stroke | `pre` (the frame before it), `input` (the nomination), `facts` (what was seen in the shot record), `judgement` (fouls with clauses and values, penalty, miss and why, points, calls; no `post`), `after` (`striker`, `scores`, `on`, `free_ball`, `cue_in_hand`, `pending`, `decider`, `over`, `winner`, `end_reason`), `post_hash` (the hash of the frame after it), `ref` (the referee's values) |
-| `rules.choice` | info/warn | a player chose after a foul, answered a re-rack or the toss, claimed or conceded (warn when refused) | `before` (the frame), `player`, `kind`, `ok`, `error`, `options` (what was offered), `calls`, `after`, `post_hash` |
+| `rules.choice` | info/warn | a player chose after a foul, answered a re-rack or the toss, claimed or conceded (warn when refused) | `before` (the frame), `player`, `kind`, `ok`, `error`, `options` (what was offered), `calls`, `after`, `post_hash`; no `shot_id` |
 | `rules.cue_placed` | info/warn | the in-hand cue ball was placed (warn when refused) | `player`, `x`, `y`, `ok`, `error` |
-| `rules.invalid` | warn/error | the engine refused or could not make sense of an input | `what`, `detail` |
-| `match.started` | info | a match began | `config` (`best_of`, `first_breaker`, `seed`, `concede_any_time`), `breaker`, `person` (which player is the person) |
+| `rules.invalid` | warn/error | the engine refused or could not make sense of an input | `what`, `detail`, and `match_id`, `frame` and `shot_id` of the call it came in (`ofs::rules::ScopedLogContext`), when there was one |
+| `match.started` | info | a match began | `config` (`best_of`, `first_breaker`: -1 for lots drawn from the seed, 0 or 1 for that player; `seed`, a decimal string; `concede_any_time`), `breaker`, `person` (which player is the person) |
 | `match.ended` | info | a match ended | `winner` (-1 when abandoned), `frames`, `frames_played`, `reason` (`frames`, `conceded`, `abandoned`) |
-| `frame.started` | info | a frame was racked, a re-rack included | `number`, `breaker`, `seed`, `reracks` |
+| `frame.started` | info | a frame was racked, a re-rack included | `number`, `breaker`, `seed`, `reracks`, `params_hash` (the physics values the rack was laid with; they may have changed over the link since `rules.configured`) |
 | `frame.ended` | info | a frame ended | `summary` (`number`, `breaker`, `winner`, `reason`, `scores`, `stats`, `strokes`, `reracks`) |
 | `match.call` | info | the referee line showed calls | `calls` (kinds), `text` (the words shown) |
 | `match.nominated` | info | the declared colour changed | `ball`, `how` (`aim`, `tap`, `harness`, `opponent`) |
 | `match.refused` | info | the person asked for a decision that is not open now (a concession or claim while a stroke plays or the other player is choosing); nothing changed | `kind` (the decision), `why`, `match_id`, `frame` |
 | `match.turn` | info | play waits for someone | `player`, `person`, `waiting` (`shot`, `choice`, `opponent`, `frame_summary`, `match_summary`) |
-| `opponent.decision` | info/warn | the stand-in chose a stroke or a choice (warn when it could not) | `kind` (`shot`, `choice`), `player`, and for a stroke `strike`, `nominated`, `cue` (when it places the cue ball), `why`, `us` (time taken); for a choice `choice`, `options`; `error` |
+| `opponent.decision` | info/warn | the stand-in chose a stroke or a choice (warn when it could not) | `kind` (`shot`, `choice`), `player`, `seed` (a decimal string: the stand-in's `Rng` seed, which makes the same choice again from the same frame), `why`, `us` (time taken), and for a stroke `shot_id`, `strike`, `nominated`, `cue` (when it places the cue ball); for a choice `choice`, `options` and no `shot_id`, as nothing is struck; `error` |
+
+`opponent.decision`'s `why` (`core/include/ofs/opponent/standin.hpp`):
+
+- a stroke: `kind` (`pot`, `safety`, `escape`, `break`), `target` (`red 3`, `blue`), `pocket` (index,
+  -1 for none), `cut_rad`, `candidates` (strokes listed), `sims` (simulated to check them),
+  `penalty` (what the stroke chosen cost as aimed, -1 when nothing was simulated), `aim_error_rad`
+  and `speed_error` (the error then added); `{kind: safety, error}` when it could not work one out
+  and played the plainest stroke instead (with an `app.error`).
+- a claim or concession in place of a stroke: `kind` `claim`, or `concede` with `required` (the
+  penalty points it needs).
+- a choice after a foul, a re-rack or the toss: `rule` (`replace`, `play_again`, `play`,
+  `accept_rerack`, `refuse_rerack`, `play_first`, `first_option`), `options`, `scores`,
+  `points_remaining`, and what the rule looked at: `clear_path_before` (the position before a miss
+  had a straight stroke at a ball on), `pot` and `clear_path` (in the position left), `score_gap`
+  and `rerack_within`; `error` when it threw and took the first option.

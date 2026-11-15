@@ -234,9 +234,10 @@ ofs_sim_cli match --frames 6 --best-of 5 --seed 3 --log build/match.jsonl --out 
 - Matches are best of `--best-of` (default 3) and are played until `--frames` frames (default 100)
   are done; the last match stops there. Match `k` of seed `S` is always the same match, and frames
   are counted in match order, so the summary, the log and any failure are the same whatever
-  `--threads` is. Each stroke's simulator seed and the stand-in's errors come from the match's own
-  stream. The referee's and the stand-in's values are `core/data/referee_params.json` and
-  `standin_params.json`.
+  `--threads` is. Each stroke's simulator seed and the seed of each of the stand-in's strokes and
+  choices come from the match's own stream; the stand-in's seed is on its `opponent.decision`
+  line, so a choice can be made again from the log. The referee's and the stand-in's values are
+  `core/data/referee_params.json` and `standin_params.json`.
 - Checked after every stroke and choice:
   - the scores change only by the stroke's points for the striker and its penalty for the other
     player, and a choice changes neither them nor the stroke count; a penalty is 4 to 7, the
@@ -255,13 +256,16 @@ ofs_sim_cli match --frames 6 --best-of 5 --seed 3 --log build/match.jsonl --out 
     stroke's `rules.decision` line as logged;
   - the engine refused nothing (`rules.invalid`): the stand-in's cue place, nomination and strike
     were ones it accepts, and its choice one of those offered;
+  - nothing logged `app.error`: the stand-in falls back on a plain stroke or the first option when
+    it throws, and the run stops on that rather than playing on;
   - a frame ends within 3,000 strokes, re-racks included.
 - A broken check prints one `BREACH` line (match, frame, stroke, what broke) and writes
   `match-<seed>-<match>-f<frame>-s<stroke>.json` to `--out` (default `build/match-failures`, cleared
   of earlier `match-*.json` first): the frame before the stroke or choice (`frame`) and after it
-  (`after`), the stroke (cue place, nomination, strike, simulator seed, the stand-in's `why`) with
-  its repro `bundle`, `facts` and `judgement`, or the `decision` and its calls, and the referee's
-  values. The run stops there with the summary of the frames before it and exit 1.
+  (`after`), the stand-in's seed (`standin_seed`), the stroke (cue place, nomination, strike,
+  simulator seed, the stand-in's `why`) with its repro `bundle`, `facts` and `judgement`, or the
+  `decision` and its calls, and the referee's values. The run stops there with the summary of the
+  frames before it and exit 1.
 - The summary: frames, matches and strokes; strokes per frame (mean, longest); points per frame and
   how many of them were penalties; the highest break; the stand-in's strokes by kind (pot, safety,
   escape, break) with how many scored and how many were fouls; fouls by kind, misses, free balls,
@@ -272,7 +276,9 @@ ofs_sim_cli match --frames 6 --best-of 5 --seed 3 --log build/match.jsonl --out 
 - `--log FILE` writes the run's log as JSONL: `params.loaded`, then each match in order with its
   `match.started`, `frame.started`, `opponent.decision`, `rules.cue_placed`, `shot.simulated`,
   `rules.decision`, `rules.choice`, `frame.ended` and `match.ended` lines, the events the game
-  logs, with `match_id` `sim-<seed>-<match>` and a `shot_id` per stroke. `referee`, `replay` and
+  logs, with `match_id` `sim-<seed>-<match>` and a `shot_id` per stroke (a choice has none), and
+  `params_hash` on `frame.started`. A `rules.invalid` logged inside the engine carries the
+  `match_id`, `frame` and `shot_id` of the stroke or choice it came from. `referee`, `replay` and
   `tools/check_logs.py` all read it. It is about 10 kB a stroke.
 
 ## referee
@@ -283,6 +289,7 @@ Judges a log's referee decisions again (spec 16.10), whether the log came from t
 ```
 ofs_sim_cli referee logs/2026-11-16/20261116-101500-a1b2c3.jsonl
 ofs_sim_cli referee build/match.jsonl --line 412
+ofs_sim_cli referee rulings_only.jsonl --allow-unreplayed
 ```
 
 - Every `rules.decision` line (or just `--line N`) carries the frame before the stroke, the
@@ -295,7 +302,11 @@ ofs_sim_cli referee build/match.jsonl --line 412
   touching balls moved and the anomaly flag exactly, every resting position within 1e-6 m. The
   bundle carries its parameters; the cushion outline is the local `table_shape.json` (or `--table`),
   and a shot that ran on another outline is reported as unreadable, not compared.
+- A decision with no `shot.simulated` line of its `shot_id` (or no `shot_id`) has only its ruling
+  checked: it prints `NOT REPLAYED line N shot_id S` and is counted.
 - It prints one line per difference, with its line number in the log and what was logged against
-  what came out, and a count at the end. Exit 1 on any difference; 2 when the log cannot be read,
-  has no `rules.decision` line, has a line that is not a log line or a shot whose bundle cannot be
-  used; 0 otherwise.
+  what came out, and a count at the end (`re-judged D decisions, replayed R of their shots: X
+  differences, U unreadable, N not replayed`). Exit 1 on any difference, and on a decision not
+  replayed unless `--allow-unreplayed` is given (a log cut down to its rulings); 2 when the log
+  cannot be read, has no `rules.decision` line, has a line that is not a log line or a shot whose
+  bundle cannot be used; 0 otherwise.

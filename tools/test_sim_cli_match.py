@@ -67,8 +67,27 @@ class MatchTest(MatchCase):
         checked = run("referee", log)
         self.assert_exit(checked, 0)
         self.assertIn(f"re-judged {len(decisions)} decisions, replayed {len(decisions)} of their shots: "
-                      "0 differences, 0 unreadable", checked.stdout)
+                      "0 differences, 0 unreadable, 0 not replayed", checked.stdout)
         self.assertNotIn("DIFFERS", checked.stdout)
+        self.assertNotIn("NOT REPLAYED", checked.stdout)
+
+    def test_each_choice_of_the_standin_logs_its_seed_and_why(self):
+        _, _, lines = self.logged_match()
+        chosen = [line["data"] for line in lines if line["event"] == "opponent.decision"]
+        self.assertTrue(chosen)
+        for data in chosen:
+            self.assertRegex(data["seed"], r"^\d+$")
+            self.assertIsInstance(data["why"], dict)
+            if data["kind"] == "choice":
+                self.assertNotIn("shot_id", data)
+                self.assertIn(data["choice"], data["options"])
+                # After a foul, a re-rack or the toss it names its rule; a claim or concession its kind.
+                self.assertTrue("rule" in data["why"] or data["why"].get("kind") in ("claim", "concede"), data)
+        self.assertEqual(len({data["seed"] for data in chosen}), len(chosen), "a fresh seed for each")
+        loaded = next(line["data"]["hash"] for line in lines if line["event"] == "params.loaded")
+        for line in lines:
+            if line["event"] == "frame.started":
+                self.assertEqual(line["data"]["params_hash"], loaded)
 
     def test_the_log_passes_the_schema_and_ties_each_stroke_to_its_shot(self):
         _, log, lines = self.logged_match()
@@ -225,13 +244,37 @@ class RefereeTest(MatchCase):
         self.assertRegex(result.stdout, rf"line {number}\s+shot\.simulated\s+DIFFERS\s+\(shot\.simulated at line "
                                         rf"\d+\) facts\.rest\[{cue_ball}\]")
 
-    def test_decisions_without_their_shots_are_still_rejudged(self):
+    def test_decisions_without_their_shots_are_rejudged_and_fail_unless_allowed(self):
         _, _, lines = self.logged_match()
         kept = [line for line in lines if line["event"] != "shot.simulated"]
-        count = len(self.decision_numbers(kept))
-        result = run("referee", self.write_jsonl("no_shots.jsonl", kept))
-        self.assert_exit(result, 0)
-        self.assertIn(f"re-judged {count} decisions, replayed 0 of their shots: 0 differences", result.stdout)
+        numbers = self.decision_numbers(kept)
+        log = self.write_jsonl("no_shots.jsonl", kept)
+        result = run("referee", log)
+        self.assert_exit(result, 1)
+        self.assertIn(f"re-judged {len(numbers)} decisions, replayed 0 of their shots: 0 differences, 0 unreadable, "
+                      f"{len(numbers)} not replayed", result.stdout)
+        unreplayed = [line for line in result.stdout.splitlines() if line.startswith("NOT REPLAYED")]
+        self.assertEqual(len(unreplayed), len(numbers))
+        self.assertEqual(unreplayed[0], f"NOT REPLAYED line {numbers[0]} shot_id "
+                                        f"{kept[numbers[0] - 1]['data']['shot_id']}")
+        allowed = run("referee", log, "--allow-unreplayed")
+        self.assert_exit(allowed, 0)
+        self.assertIn(f"{len(numbers)} not replayed", allowed.stdout)
+
+    def test_a_decision_whose_shot_id_matches_no_shot_is_not_replayed(self):
+        _, _, lines = self.logged_match()
+        numbers = self.decision_numbers(lines)
+        tampered = copy.deepcopy(lines)
+        tampered[numbers[2] - 1]["data"]["shot_id"] = "another-shot"
+        del tampered[numbers[4] - 1]["data"]["shot_id"]
+        result = run("referee", self.write_jsonl("other_shot.jsonl", tampered))
+        self.assert_exit(result, 1)
+        self.assertNotIn("DIFFERS", result.stdout)
+        unreplayed = [line for line in result.stdout.splitlines() if line.startswith("NOT REPLAYED")]
+        self.assertEqual(unreplayed, [f"NOT REPLAYED line {numbers[2]} shot_id another-shot",
+                                      f"NOT REPLAYED line {numbers[4]} shot_id (none)"])
+        self.assertIn(f"replayed {len(numbers) - 2} of their shots: 0 differences, 0 unreadable, 2 not replayed",
+                      result.stdout)
 
     def test_a_shot_from_another_table_is_not_compared(self):
         _, log, lines = self.logged_match()

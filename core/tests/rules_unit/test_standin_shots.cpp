@@ -7,6 +7,7 @@
 #include <string>
 
 #include "ofs/log_schema.hpp"
+#include "ofs/rules/rules_log.hpp"
 #include "test_standin_support.hpp"
 
 using namespace ofs;
@@ -430,7 +431,10 @@ TEST_CASE("when what it relies on throws it still gives a stroke the engine acce
         const auto sink = capture_log();
         Rng rng(1);
         StandinShot shot;
-        CHECK_NOTHROW(shot = choose_shot(s, rig().table, rig().params, broken, rig().ref, standin_params(), rng));
+        {
+            const rules::ScopedLogContext scope({{"match_id", "broken-oracle"}, {"frame", 2}, {"shot_id", "s"}});
+            CHECK_NOTHROW(shot = choose_shot(s, rig().table, rig().params, broken, rig().ref, standin_params(), rng));
+        }
         log::Logger::instance().clear_sinks();
         FrameState placed;
         const std::string why_not = refusal(s, shot, placed);
@@ -438,9 +442,15 @@ TEST_CASE("when what it relies on throws it still gives a stroke the engine acce
         CHECK(shot.why.value("error", "") == "the oracle is down");
         REQUIRE(sink->events.size() == 1);
         const log::Event& e = sink->events[0];
-        CHECK(e.event == "opponent.decision");
-        CHECK(e.level == log::Level::warn);
-        CHECK(e.data.value("error", "") == "choose_shot: the oracle is down");
+        CHECK(e.event == "app.error");
+        CHECK(e.level == log::Level::error);
+        CHECK(e.data.value("kind", "") == "exception");
+        CHECK(e.data.value("function", "") == "choose_shot");
+        CHECK(e.data.value("message", "") == "the oracle is down");
+        // The match it happened in, not the stroke: app.error has no shot_id.
+        CHECK(e.data.value("match_id", "") == "broken-oracle");
+        CHECK(e.data.value("frame", 0) == 2);
+        CHECK_FALSE(e.data.contains("shot_id"));
         const auto problem = log::check(e, schema);
         CHECK_MESSAGE(!problem.has_value(), problem.value_or(""));
     }

@@ -1,7 +1,8 @@
-// The stand-in opponent (spec 21, M3). It lists the strokes it could play in order of preference
-// (the break-off, pots by ghost ball, safeties, ways out of a snooker), simulates the first few as
-// aimed and takes the first the referee would not call a foul; only then does it add its own
-// error. It strikes centre ball and plays no position.
+// The stand-in opponent (spec 21). It lists the strokes it could play in order of preference (the
+// break-off, pots by ghost ball, safeties, ways out of a snooker), simulates the first few as aimed
+// and takes the first that is no foul and, for a pot, scores; else the first with no foul; else
+// the one with the lowest penalty. Only then does it add its own error. It strikes centre ball and
+// plays no position.
 
 #include "ofs/opponent/standin.hpp"
 
@@ -15,6 +16,7 @@
 #include "ofs/physics/cue.hpp"
 #include "ofs/physics/simulator.hpp"
 #include "ofs/rules/facts.hpp"
+#include "ofs/rules/rules_log.hpp"
 
 namespace ofs::opponent {
 
@@ -600,9 +602,9 @@ public:
         candidates_.push_back(last);
     }
 
-    // The first candidate that is no foul when played as aimed, else the one with the lowest
-    // penalty, else (nothing simulated) the first. `penalty` is what it is expected to cost, -1
-    // when it was not simulated.
+    // Played as aimed: the first that is no foul and, for a pot, scores; else the first with no
+    // foul; else the lowest penalty; else (nothing simulated) the first. `penalty` is what it is
+    // expected to cost, -1 when it was not simulated.
     Candidate choose(int& penalty) {
         const int budget = std::max(sp_.max_sims, 0);
         // Pots that stay out leave two simulations for a safety.
@@ -852,6 +854,9 @@ private:
         const Vec2 here = s_.balls[std::size_t(cue_ball_)].pos;
         if (!s_.cue_in_hand) return {here};
         const double line = table::baulk_line_x();
+        // The usual break-off place (between brown and yellow), its mirror between brown and
+        // green, near either end of the D, and half way back behind the brown; each 2 cm off the
+        // baulk line, which the colours stand on.
         const Vec2 wanted[] = {table::default_cue_ball_position(),
                                {line - 0.02, 0.146},
                                {line - 0.02, -0.26},
@@ -911,6 +916,8 @@ private:
             const Vec2 v{seg.start.v.x, seg.start.v.y};
             if (length(v) <= 0.0) return false;
             const double off = wrap(angle_of(v) - angle_of(c.line));
+            // Throw is a few degrees at most; a ball 17 degrees or more off its line was not sent
+            // by a clean contact (a kiss, a double hit), and turning the aim would not help.
             if (std::abs(off) < 1.0e-4 || std::abs(off) > 0.3) return false;
             const Vec2 obj = s_.balls[std::size_t(c.target)].pos;
             const Vec2 ghost = obj - turned(c.line, -off) * kD;
@@ -985,6 +992,17 @@ StandinShot plain_stroke(const FrameState& s, const phys::TableShape& table, con
         if (!open.empty()) shot.input = {true, open.front()};
     }
     return shot;
+}
+
+// The callers get a fallback, but a throw is a fault to fix: app.error, with the match the scoped
+// log context names.
+void exception_logged(const char* function, const std::exception& e) {
+    nlohmann::json data = {{"kind", "exception"}, {"function", function}, {"message", e.what()}};
+    const nlohmann::json& context = rules::scoped_log_context();
+    for (const char* key : {"match_id", "frame"}) {
+        if (context.contains(key)) data[key] = context[key];
+    }
+    log::error("app", "app.error", std::move(data));
 }
 
 }  // namespace
@@ -1079,37 +1097,58 @@ StandinShot choose_shot(const rules::FrameState& s, const phys::TableShape& tabl
                     {"speed_error", speed_error}};
     } catch (const std::exception& e) {
         // Whatever went wrong, the caller still gets a stroke the engine accepts.
-        log::warn("opponent", "opponent.decision",
-                  {{"kind", "shot"}, {"player", s.striker}, {"error", std::string("choose_shot: ") + e.what()}});
+        exception_logged("choose_shot", e);
         shot = plain_stroke(s, table, params, sp);
         shot.why = {{"kind", "safety"}, {"error", e.what()}};
     }
     return shot;
 }
 
-rules::DecisionKind choose_decision(const rules::FrameState& s, int player,
-                                    const std::vector<rules::DecisionKind>& options, const StandinParams& sp, Rng&) {
-    if (options.empty()) return DecisionKind::play;
+rules::DecisionKind choose_decision(const rules::FrameState& s, int /*player*/,
+                                    const std::vector<rules::DecisionKind>& options, const StandinParams& sp, Rng&,
+                                    nlohmann::json* why) {
+    nlohmann::json weighed = nlohmann::json::object();
+    const auto taken = [&](DecisionKind kind, const char* rule) {
+        weighed["rule"] = rule;
+        if (why != nullptr) *why = std::move(weighed);
+        return kind;
+    };
+    if (options.empty()) return taken(DecisionKind::play, "first_option");
     try {
+        nlohmann::json names = nlohmann::json::array();
+        for (const DecisionKind k : options) names.push_back(rules::decision_name(k));
+        weighed["options"] = std::move(names);
+        weighed["scores"] = {s.scores[0], s.scores[1]};
+        weighed["points_remaining"] = rules::points_remaining(s);
         if (offered(options, DecisionKind::play)) {
             // A miss from a snooker goes back: the same escape must be found again.
-            if (offered(options, DecisionKind::replace) && !has_clear_path(s.original)) return DecisionKind::replace;
-            if (offered(options, DecisionKind::play_again) && !has_pot(s, sp) && !has_clear_path(s)) {
-                return DecisionKind::play_again;
+            if (offered(options, DecisionKind::replace)) {
+                const bool clear_before = has_clear_path(s.original);
+                weighed["clear_path_before"] = clear_before;
+                if (!clear_before) return taken(DecisionKind::replace, "replace");
             }
-            return DecisionKind::play;
+            if (offered(options, DecisionKind::play_again)) {
+                const bool pot = has_pot(s, sp);
+                const bool clear = pot || has_clear_path(s);
+                weighed["pot"] = pot;
+                if (!pot) weighed["clear_path"] = clear;
+                if (!clear) return taken(DecisionKind::play_again, "play_again");
+            }
+            return taken(DecisionKind::play, "play");
         }
-        if (offered(options, DecisionKind::accept_rerack) &&
-            std::abs(s.scores[0] - s.scores[1]) <= kRerackWithin) {
-            return DecisionKind::accept_rerack;
+        if (offered(options, DecisionKind::accept_rerack)) {
+            const int gap = std::abs(s.scores[0] - s.scores[1]);
+            weighed["score_gap"] = gap;
+            weighed["rerack_within"] = kRerackWithin;
+            if (gap <= kRerackWithin) return taken(DecisionKind::accept_rerack, "accept_rerack");
         }
-        if (offered(options, DecisionKind::refuse_rerack)) return DecisionKind::refuse_rerack;
-        if (offered(options, DecisionKind::play_first)) return DecisionKind::play_first;
+        if (offered(options, DecisionKind::refuse_rerack)) return taken(DecisionKind::refuse_rerack, "refuse_rerack");
+        if (offered(options, DecisionKind::play_first)) return taken(DecisionKind::play_first, "play_first");
     } catch (const std::exception& e) {
-        log::warn("opponent", "opponent.decision",
-                  {{"kind", "choice"}, {"player", player}, {"error", std::string("choose_decision: ") + e.what()}});
+        exception_logged("choose_decision", e);
+        weighed["error"] = e.what();
     }
-    return options.front();
+    return taken(options.front(), "first_option");
 }
 
 }  // namespace ofs::opponent
