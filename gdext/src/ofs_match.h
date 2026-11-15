@@ -79,7 +79,9 @@ public:
     // The stand-in's stroke for the striker; logs opponent.decision with `context` ({shot_id}).
     // {ok, error, places_cue, cue: [x, y], nominated, strike: {aim_rad, tip_x, tip_y,
     // elevation_rad, speed_m_s}, why, us}. The cue ball is not placed and nothing is judged: the
-    // game calls place_cue, simulates and calls judge as for a person's stroke.
+    // game calls place_cue, simulates and calls judge as for a person's stroke. When the stand-in
+    // would rather claim or concede, the answer is {ok, error, decision: <decision name>, why, us}
+    // with no strike: the game calls decide with it.
     godot::Dictionary standin_shot(int64_t seed, const godot::Dictionary &context);
     // The stand-in's choice among the options for `player`, as a decision name; "" when there are
     // none. Logs opponent.decision.

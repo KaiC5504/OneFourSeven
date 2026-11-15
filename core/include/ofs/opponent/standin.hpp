@@ -36,6 +36,10 @@ const std::vector<std::string>& standin_param_names();
 bool load_standin_params(const nlohmann::json& file, StandinParams& out, std::vector<std::string>& problems);
 
 struct StandinShot {
+    // Set in place of a stroke when it would rather claim or concede the frame at its turn: one
+    // of rules::options(s, striker), to apply with decide(). The other fields are then unused.
+    bool decides = false;
+    rules::DecisionKind decision = rules::DecisionKind::concede_frame;
     bool places_cue = false;  // the cue ball is in hand: place it at cue_pos first
     rules::Vec2 cue_pos;
     rules::ShotInput input;
