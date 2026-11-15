@@ -148,20 +148,22 @@ static func text_for(call: Dictionary, person: int = 0) -> String:
 static func line_for(calls: Array, person: int = 0) -> String:
 	var said := PackedStringArray()
 	for i in calls.size():
-		if not calls[i] is Dictionary:
+		var kind := _kind_at(calls, i)
+		if kind.is_empty() or (kind == "foul" and _kind_at(calls, i + 1) == "miss"):
 			continue
-		var call: Dictionary = calls[i]
-		var words := text_for(call, person)
-		var kind := str(call.get("kind", ""))
-		var next: Variant = calls[i + 1] if i + 1 < calls.size() else null
-		if kind == "foul" and next is Dictionary and str((next as Dictionary).get("kind", "")) == "miss":
-			continue
-		if kind == "miss" and i > 0 and calls[i - 1] is Dictionary and str((calls[i - 1] as Dictionary).get("kind", "")) == "foul" \
-				and _has_value(calls[i - 1]):
-			words += " %d" % int((calls[i - 1] as Dictionary)["value"])
+		var words := text_for(calls[i], person)
+		if kind == "miss" and _kind_at(calls, i - 1) == "foul" and _has_value(calls[i - 1]):
+			words += " %d" % int(calls[i - 1]["value"])
 		if not words.is_empty():
 			said.append(words)
 	return SEPARATOR.join(said)
+
+
+# The kind of the call at place `i`; "" when there is no call there.
+static func _kind_at(calls: Array, i: int) -> String:
+	if i < 0 or i >= calls.size() or not calls[i] is Dictionary:
+		return ""
+	return str((calls[i] as Dictionary).get("kind", ""))
 
 
 static func _has_value(call: Dictionary) -> bool:
