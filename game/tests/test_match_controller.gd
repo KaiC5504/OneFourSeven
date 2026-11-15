@@ -907,12 +907,18 @@ func test_the_wait_scales_with_pace() -> void:
 	e.standin_shots.append(_standin_shot())
 	var c := _controller(e)
 	c.pace = 1.0
+	var began := Time.get_ticks_msec()
 	c.start(CONFIG)
 	await _frames(3)
-	check_eq(_count(e, "standin_shot"), 0, "at pace 1 the opponent takes its time")
+	# A PC busy enough to take that long over three frames proves nothing either way.
+	if Time.get_ticks_msec() - began < int(MatchController.THINK_SECONDS * 1000.0) - 100:
+		check_eq(_count(e, "standin_shot"), 0, "at pace 1 the opponent takes its time")
 	c.abandon()
+	e.calls.clear()
+	e.standin_shots.clear()
+	e.standin_shots.append(_standin_shot())
 	c.pace = 0.2
-	var began := Time.get_ticks_msec()
+	began = Time.get_ticks_msec()
 	c.start(CONFIG)
 	while _count(e, "standin_shot") == 0 and Time.get_ticks_msec() - began < 5000:
 		await tree.process_frame
