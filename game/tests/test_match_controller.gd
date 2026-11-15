@@ -55,7 +55,7 @@ func test_start_configures_the_match_and_announces_the_first_turn() -> void:
 	var version := c.version()
 	check(c.start({"best_of": 5, "first_breaker": "computer", "seed": 147}), "start")
 	var asked := _last_call(e, "start")
-	check_eq(asked[1], {"best_of": 5, "first_breaker": 1, "seed": 147, "concede_any_time": [true, false]},
+	check_eq(asked[1], {"best_of": 5, "first_breaker": 1, "seed": 147, "concede_any_time": [true, false], "person": 0},
 			"the engine's config")
 	check_eq(asked[2], c.match_id(), "the engine is given the match id")
 	check(c.match_id().begins_with(Log.session() + "-m"), "match id is <session>-m<n>: " + c.match_id())
@@ -742,9 +742,10 @@ func test_stand_in_stroke_refusals_stop_after_a_few() -> void:
 	var c := _started(e)
 	await _frames(MatchController.MAX_REFUSALS + 4)
 	check_eq(_count(e, "standin_shot"), MatchController.MAX_REFUSALS, "asked again, then no more")
-	check_eq(_names(), [] as Array[String], "no stroke is announced, and the turn is not announced again")
+	check_eq(_names(), ["stalled"] as Array[String], "no stroke is announced, the turn is not announced again, and the match stalls")
 	var errors := _errors_with("engine.standin_shot(")
-	check_eq(errors.size(), MatchController.MAX_REFUSALS, "each refusal logged")
+	# The last is named again where the stand-in is given up on.
+	check_eq(errors.size(), MatchController.MAX_REFUSALS + 1, "each refusal logged")
 	if not errors.is_empty():
 		check(String(errors[0]["message"]).contains("no stand-in shot queued")
 				and String(errors[0]["message"]).contains("shot_id"), "with the seed, the shot id and the error: "
@@ -760,8 +761,9 @@ func test_stand_in_choice_refusals_stop_after_a_few() -> void:
 	var c := _started(e)
 	await _frames(MatchController.MAX_REFUSALS + 4)
 	check_eq(_count(e, "decide"), MatchController.MAX_REFUSALS, "asked again, then no more")
-	check_eq(_errors_with("engine.decide(\"play\", 1)").size(), MatchController.MAX_REFUSALS, "each refusal logged")
-	check_eq(_names(), [] as Array[String], "nothing announced")
+	check_eq(_errors_with("engine.decide(\"play\", 1)").size(), MatchController.MAX_REFUSALS + 1,
+			"each refusal logged, and the last again as the stand-in is given up on")
+	check_eq(_names(), ["stalled"] as Array[String], "nothing announced but the stall")
 	c.free()
 
 
@@ -813,7 +815,8 @@ func test_concede() -> void:
 	_mark_log()
 	check(not c.concede_frame() and not c.concede_match(), "not while a stroke is in play")
 	check_eq(_count(e, "decide"), 1, "the engine is not asked")
-	check_eq(_errors_with("a stroke is in play").size(), 2, "logged")
+	check_eq(_refused_with("a stroke is in play").size(), 2, "logged as refused")
+	check(_logged("app.error").is_empty(), "with no error")
 	e.judgements.append(_judged(_turn(0), _legal()))
 	c.shot_finished(null)
 	_events.clear()
@@ -849,7 +852,7 @@ func test_nothing_is_conceded_at_a_frame_summary() -> void:
 	check(not c.concede_frame(), "nor the frame that is over")
 	check_eq(_count(e, "decide"), asked, "the engine, which offers nothing then, is not asked")
 	check_eq(_names(), [] as Array[String], "nothing is announced")
-	check_eq(_errors_with("no frame is in play").size(), 2, "each is logged with why")
+	check_eq(_refused_with("no frame is in play").size(), 2, "each is logged as refused with why")
 	check_eq(c.harness_state()["waiting"], "frame_summary", "the summary still shows")
 	c.abandon()
 	check_eq(_names(), ["table_changed:ended"], "the match is left by abandoning it")
@@ -881,20 +884,24 @@ func test_the_stand_in_claims_or_concedes_in_place_of_a_stroke() -> void:
 	check_eq(_last_call(again, "decide"), ["decide", "claim_frame", 0], "decided for the person")
 	check_eq(_count(again, "decide"), MatchController.MAX_REFUSALS, "a refused decision is asked for again, a few times")
 	check(not _names().has("opponent_ready") and not _names().has("opponent_chose"), "nothing announced")
-	check_eq(_errors_with("engine.decide(\"claim_frame\", 0)").size(), MatchController.MAX_REFUSALS, "each refusal logged")
+	check_eq(_errors_with("engine.decide(\"claim_frame\", 0)").size(), MatchController.MAX_REFUSALS + 1,
+			"each refusal logged, and the last again as the stand-in is given up on")
 	c.free()
 	d.free()
 
 
 func test_a_choice_that_moves_the_balls_says_so() -> void:
-	var toss := _turn(0, {"pending": "toss", "decider": 0, "options": [["play_first", "play_second"], []]})
-	var e := _engine(toss)
+	# S3.17(d): a re-rack accepted while the black is re-spotted racks nothing new; the engine
+	# answers with no event and the balls set again.
+	var offer := _turn(0, {"pending": "rerack", "decider": 0, "respotted_black": true,
+			"options": [["accept_rerack", "refuse_rerack"], []]})
+	var e := _engine(offer)
 	var c := _started(e)
 	var set_again := e.ball_list.duplicate(true)
 	set_again[0]["x"] = -1.2
 	e.decisions.append(_decided(_turn(0, {"cue_in_hand": true}), [], "none", {"balls": set_again}))
 	var version := c.version()
-	check(c.choose("play_first"), "the toss is answered")
+	check(c.choose("accept_rerack"), "the re-rack is accepted")
 	check_eq(_names(), ["table_changed:spotted", "frame_changed", "turn_started"], "the balls set again are announced")
 	check_eq(_events[0], ["table_changed", &"spotted", set_again, 0], "as they now lie")
 	check_eq(c.version(), version + 1, "and counted")
@@ -1134,6 +1141,7 @@ func _controller(e: ScriptedEngine) -> MatchController:
 	c.frame_ended.connect(func(summary: Dictionary, state: Dictionary) -> void:
 		_events.append(["frame_ended", summary, state]))
 	c.match_ended.connect(func(state: Dictionary) -> void: _events.append(["match_ended", state]))
+	c.stalled.connect(func(why: String) -> void: _events.append(["stalled", why]))
 	tree.root.add_child(c)
 	return c
 
@@ -1245,6 +1253,14 @@ func _logged(event: String) -> Array[Dictionary]:
 
 
 ## The app.error lines since _mark_log whose message contains `text`.
+func _refused_with(text: String) -> Array[Dictionary]:
+	var found: Array[Dictionary] = []
+	for data in _logged("match.refused"):
+		if String(data.get("why", "")).contains(text):
+			found.append(data)
+	return found
+
+
 func _errors_with(text: String) -> Array[Dictionary]:
 	var found: Array[Dictionary] = []
 	for data in _logged("app.error"):

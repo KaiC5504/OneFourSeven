@@ -80,7 +80,7 @@ func test_11_1_match_length_and_who_breaks_reach_the_engine() -> void:
 		check(breakers.has(who) and config.get("first_breaker") in (breakers.get(who, []) as Array),
 				"%s: the engine is told who breaks: %s" % [who, config.get("first_breaker")])
 		check(config.get("seed") is int, "%s: a seed is made when none is given" % who)
-		# KaiC's ruling on the plan (docs/m3-progress.md): the person may concede a frame at any
+		# The owner's ruling (FrameState::concede_any_time): the person may concede a frame at any
 		# time, the opponent only when snookers are needed.
 		check_eq(config.get("concede_any_time"), [true, false], "%s: who may concede at any time" % who)
 	_free_all()

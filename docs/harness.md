@@ -91,17 +91,17 @@ with Harness(resolution="1912x880", extra_args=["--no-link"]) as game:
 | `wait_idle` | `timeout_s` (default 30) | `{"waited_s"}` once no shot is playing; an error at the timeout |
 | `set_setting` | `key`, `value` | `{"key", "value"}` as stored; an error when Settings refuses it (`settings.changed` says why) |
 | `dump_state` | `path` (optional) | the state, also written to `path` when given (the result then has `path`) |
-| `screenshot` | `path` | the PNG's absolute path |
+| `screenshot` | `path` | the PNG's absolute path, taken once the camera has landed (5 s at most); `harness.command` logs the path as given |
 | `overlay` | `visible` (true or false) | `{"visible"}`: the debug overlay, as F3 or a three-finger tap toggles it |
 | `input` | `events`, `frames_between` (default 1) | `{"sent": n}` after the last event has reached the scene |
-| `start_match` | `best_of` (1, 3, 5, 7, 9 or 11; default 3), `first_breaker` (`random`, `you`, `computer`; default `random`), `seed` (optional), `autoplay`, `fast` (default false) | `{"match_id"}`; an error when the engine refuses (`app.error` says why) |
-| `match_state` | | `MatchController.harness_state()`: `active`, `match_id`, `frame` (the frame view), `match`, `nominated`, `placing`, `blocked`, `autoplay`, `waiting` |
-| `match_shot` | a strike as `play_shot`'s, `nominated` (a colour, optional), `cue` `[x, y]` (optional, when the cue ball is in hand) | `{"shot_id"}`: the person's stroke exactly as given. The in-hand cue ball is put at `cue`, or left where it is, and confirmed; without `nominated` the aim line declares as it does for a player |
-| `match_choose` | `kind` (a decision name offered: `play`, `play_again`, `replace`, ...) | `{"kind"}` |
-| `match_wait` | `timeout_s` (default 30) | `{"waiting", "waited_s"}` once the match waits for the person: `shot`, `choice`, `frame_summary` or `match_summary`; an error at the timeout or with no match on the table |
+| `start_match` | `best_of` (1, 3, 5, 7, 9 or 11; default 3), `first_breaker` (`random`, `you`, `computer`; default `random`), `seed` (optional), `autoplay`, `fast` (default false) | `{"match_id"}`; an error with the engine's `last_error()` when it refuses (`app.error` says more) |
+| `match_state` | | `MatchController.harness_state()`: `active`, `match_id`, `frame` (the frame view), `match`, `nominated`, `placing`, `blocked`, `autoplay`, `waiting` (as `match_wait`'s: what the screen shows) |
+| `match_shot` | a strike as `play_shot`'s, `nominated` (a colour, optional), `cue` `[x, y]` (optional, when the cue ball is in hand) | `{"shot_id"}`: the person's stroke exactly as given. The in-hand cue ball is put at `cue`, or left where it is, and confirmed; without `nominated` the aim line declares as it does for a player. A place the engine refuses is an error with its `last_error()` |
+| `match_choose` | `kind` (a decision name offered: `play`, `play_again`, `replace`, ...) | `{"kind"}`; an error with what is offered and the engine's `last_error()` |
+| `match_wait` | `timeout_s` (default 30) | `{"waiting", "waited_s"}` once the match waits for the person: `shot`, `choice`, `frame_summary` or `match_summary`, as the screen shows it (after the last frame, `frame_summary` until `match_continue` brings the match's); an error at the timeout or with no match on the table |
 | `match_autoplay` | `on`, `fast` (default false) | `{"on", "fast"}`: the stand-in plays the person's strokes and choices too; `fast` skips each stroke's playback and every wait |
-| `match_pause` | `on` | `{"on", "can_concede"}`: opens the pause menu as the scoreboard's button does, or resumes from it. While it is up the opponent waits; `match_choose` with `concede_frame` or `concede_match` concedes from it. An error unless the match's own screen (to open) or the menu (to resume) is showing |
-| `match_continue` | | `{"screen"}`: from a frame summary to the next frame (after the last, to the match summary), from the match summary to Home |
+| `match_pause` | `on` | `{"on", "can_concede"}`: opens the pause menu as the scoreboard's button does, or resumes from it. While it is up the opponent waits; `match_choose` with `concede_frame`, `concede_match` or `claim_frame` takes it from there when the engine offers it. An error unless the match's own screen (to open) or the menu (to resume) is showing |
+| `match_continue` | | `{"screen"}`: from a frame summary to the next frame (after the last, to the match summary), from the match summary to Home. When the engine refuses the next frame the match is left and the answer is `{"error": "next frame refused: <last_error()>"}` |
 | `quit` | | `"quitting"`, then the game exits |
 
 `load_position` with `balls` takes the game's ball list, `[{"ball": "red", "index": 3, "x":
@@ -148,7 +148,8 @@ an `app.error` in the log.
 
 `python tools/play_match.py` plays a whole match this way with the stand-in on both sides
 (`--best-of`, `--seed`, `--first-breaker`, `--slow`, `--out`), in a user folder of its own under
-`build/play-match`, saves the state and a picture at the match summary, and then has
+`build/play-match`, saves the state and a picture at the match summary (asked for by relative
+paths, so no folder of the user's reaches the log, and then moved to `--out`), and then has
 `ofs_sim_cli referee` (the Debug build's, or `$OFS_SIM_CLI`) re-judge every `rules.decision` of
 the session log. It prints the strokes, each frame and the result, and exits 0 only when the
 match finished, the log fits the schema with no `app.error` or `rules.invalid`, and the referee

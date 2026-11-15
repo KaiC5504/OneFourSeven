@@ -33,6 +33,8 @@ const FRAME_OVER := {
 }
 ## The reasons that say who the frame went to, since no stroke showed it.
 const AWARDS: Array[String] = ["awarded", "three_misses"]
+## The engine's other end reasons (names.cpp), said as "Frame over".
+const PLAIN_ENDS: Array[String] = ["none", "black", "respotted_black"]
 
 var _label := Label.new()
 var _hold := Timer.new()
@@ -74,8 +76,9 @@ func _ready() -> void:
 
 
 ## Shows `calls` (call Dictionaries {kind, value, detail}) in order, joined on one line.
-## `person` is the player (0 or 1) the words address as "you". An empty list changes nothing.
-func announce(calls: Array, person: int = 0) -> void:
+## `person` is the player (0 or 1) the words address as "you"; `context` (match_id, frame,
+## shot_id) goes on the match.call line. An empty list changes nothing.
+func announce(calls: Array, person: int = 0, context: Dictionary = {}) -> void:
 	var kinds: Array[String] = []
 	for entry: Variant in calls:
 		if not entry is Dictionary:
@@ -92,6 +95,8 @@ func announce(calls: Array, person: int = 0) -> void:
 			Kit.missing(WHO, "value")
 		elif kind == "frame_over" and not call.get("detail") is String:
 			Kit.missing(WHO, "detail")
+		elif kind == "frame_over" and not FRAME_OVER.has(call["detail"]) and not PLAIN_ENDS.has(call["detail"]):
+			Kit.problem("RefereeLine: no words for the end reason \"%s\"; said \"Frame over\"" % call["detail"])
 	var line := line_for(calls, person)
 	if line.is_empty():
 		return
@@ -104,7 +109,11 @@ func announce(calls: Array, person: int = 0) -> void:
 	_place()
 	if is_inside_tree():
 		_hold.start()
-	Log.info("match", "match.call", {"calls": kinds, "text": line})
+	var fields := {"calls": kinds, "text": line}
+	for key: String in ["match_id", "frame", "shot_id"]:
+		if context.has(key):
+			fields[key] = context[key]
+	Log.info("match", "match.call", fields)
 
 
 ## Hides the line at once (a new frame, the match left).
@@ -126,9 +135,7 @@ func place_in(area: Rect2) -> void:
 	_place()
 
 
-## One call in words: "FOUL 4", "FOUL AND A MISS", "FREE BALL", "TOUCHING BALL", "Warning: miss
-## again and the frame is lost", "Black re-spotted", "Re-rack offered", "Re-rack", and for
-## frame_over the reason in words ("Frame conceded", "Frame over", ...). "" for an unknown kind.
+## One call in words (WORDS, FRAME_OVER for frame_over's reason); "" for an unknown kind.
 static func text_for(call: Dictionary, person: int = 0) -> String:
 	var kind := str(call.get("kind", ""))
 	match kind:

@@ -616,6 +616,7 @@ func run_command(cmd: String, args: Dictionary) -> Dictionary:
 			outcome = _dump_state(args)
 		"screenshot":
 			if args.get("path") is String and not (args["path"] as String).is_empty():
+				await _settled(_scene())
 				outcome = await _capture(resolve_path(args["path"]))
 			else:
 				outcome = _fail("path must be a non-empty string")
@@ -658,6 +659,9 @@ func run_command(cmd: String, args: Dictionary) -> Dictionary:
 	var logged: Variant = outcome.get("result", outcome.get("error"))
 	if cmd == "dump_state" and outcome["ok"]:
 		logged = "state of %d keys" % (outcome["result"] as Dictionary).size()
+	elif cmd == "screenshot" and outcome["ok"]:
+		# The absolute path would put the user's folder in the log; the path asked for says enough.
+		logged = "saved %s" % args["path"]
 	elif cmd == "match_state" and outcome["ok"]:
 		# The whole frame and match would make every poll an enormous line.
 		var state: Dictionary = outcome["result"]

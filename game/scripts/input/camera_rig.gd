@@ -190,6 +190,8 @@ var _pocket_hull := PackedVector2Array()
 var _pocket_points := PackedVector3Array()
 var _half_size := FALLBACK_HALF_SIZE
 var _ball_radius := FALLBACK_BALL_RADIUS
+## Canvas units at the top the aiming view centres below (set_aim_top).
+var _aim_top := 0.0
 
 
 func _init() -> void:
@@ -280,6 +282,17 @@ func keep_clear(rects: Array[Rect2]) -> void:
 
 static func _corners(rect: Rect2) -> PackedVector2Array:
 	return PackedVector2Array([rect.position, Vector2(rect.end.x, rect.position.y), rect.end, Vector2(rect.position.x, rect.end.y)])
+
+
+## The aiming view centres on the canvas below `units` (canvas units from the top) rather than on
+## the whole canvas: it looks up by the angle half of them take, so what the view frames sits
+## below whatever covers them. 0 frames the whole canvas.
+func set_aim_top(units: float) -> void:
+	var top := maxf(units, 0.0)
+	if is_equal_approx(top, _aim_top):
+		return
+	_aim_top = top
+	_apply()
 
 
 ## The planning view's distance looking along aim_rad: FAR_DISTANCE_M along the table, further
@@ -561,7 +574,11 @@ func pose_for(cue_xy: Vector2, aim_rad: float, elevation_rad: float = 0.0) -> Tr
 	var height := maxf(_ball_radius + distance * sin(pitch), clearance_at(eye_xy))
 	var eye := TableSpace.core_to_godot(eye_xy.x, eye_xy.y, height)
 	var target := TableSpace.core_to_godot(focus.x, focus.y, _ball_radius)
-	return Transform3D(Basis.looking_at(target - eye, Vector3.UP), eye)
+	var basis := Basis.looking_at(target - eye, Vector3.UP)
+	if _aim_top > 0.0:
+		var per_tan := _canvas().y / 2.0 / tan(deg_to_rad(FOV_DEG) / 2.0)
+		basis = basis.rotated(basis.x.normalized(), atan(_aim_top / 2.0 / per_tan))
+	return Transform3D(basis, eye)
 
 
 ## The rig's transform for the broadcast view looking along yaw_rad (a core angle: 0 stands at
