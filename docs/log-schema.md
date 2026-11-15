@@ -9,7 +9,7 @@ Every line is one JSON object:
 | `session` | `YYYYMMDD-HHMMSS-xxxxxx`, one per app launch |
 | `build` | the build number (TestFlight build on iOS, `dev` for local builds) |
 | `platform` | `windows` or `ios` (`ios-simulator` in CI) |
-| `subsystem` | one of `app`, `perf`, `table`, `params`, `devlink`, `log`, `harness`, `physics`, `shot` |
+| `subsystem` | one of `app`, `perf`, `table`, `params`, `devlink`, `log`, `harness`, `physics`, `shot`, `input`, `ui`, `audio`, `settings`, `freetable`, `rules`, `match`, `opponent` |
 | `level` | `debug`, `info`, `warn`, `error` |
 | `event` | the event name below |
 | `data` | the event's fields |
@@ -116,3 +116,26 @@ New subsystems: `input`, `ui`, `audio`, `settings`, `freetable`. A played shot l
 | `params.refused` | warn | at a shot boundary, the binding refused the waiting parameters (`physics.configured` says why); they are dropped and the shot runs on the parameters in use, which `Link.applied_params_hash` keeps reporting | `hash` (the refused set), `current_hash` (still in use), `shot_id` |
 | `perf.hitch` + | | | `activity` is now `startup` (the frame began in the first 3 s), `resume` (the first frame after a resume or regained focus), `idle`, or what kept the game active: the sorted `Perf.set_active` reasons, then `held` for a touch or button down (e.g. `camera, shot, held`), or `input` for recent input alone; `active` (the `set_active` reasons), `held` (`touch <i>`, `mouse <button>`), `idle`, `frame` (frames since start, the first is 1), `first_frame` (`startup`, `resume` or `""`), `since_start_s` (when the frame began), `input_age_s` (since the last input when the frame began, -1 before any) |
 | `settings.loaded` + | | | `values`: every setting in effect after loading, defaults included |
+
+## Added in M3 (rules and matches)
+
+`pre`, `before`, `judgement`, `facts`, `input`, calls and summaries are the JSON forms of
+`core/include/ofs/rules/serialize.hpp`. The game's lines carry `match_id` (`<session>-m<n>`),
+`frame` (its number) and, for a stroke, `shot_id`, which ties them to `shot.input` and
+`shot.simulated`. `tools/sim_cli referee <log>` re-judges every `rules.decision` from its own line.
+
+| Event | Level | When | Fields |
+| --- | --- | --- | --- |
+| `rules.configured` | info/error | the match engine was given its referee and stand-in values (error when refused) | `ok`, `values` (the referee's), `standin`, `problems` |
+| `rules.decision` | info | the referee judged a stroke | `pre` (the frame before it), `input` (the nomination), `facts` (what was seen in the shot record), `judgement` (fouls with clauses and values, penalty, miss and why, points, calls; no `post`), `after` (`striker`, `scores`, `on`, `free_ball`, `cue_in_hand`, `pending`, `decider`, `over`, `winner`, `end_reason`), `post_hash` (the hash of the frame after it), `ref` (the referee's values) |
+| `rules.choice` | info/warn | a player chose after a foul, answered a re-rack or the toss, claimed or conceded (warn when refused) | `before` (the frame), `player`, `kind`, `ok`, `error`, `options` (what was offered), `calls`, `after`, `post_hash` |
+| `rules.cue_placed` | info/warn | the in-hand cue ball was placed (warn when refused) | `player`, `x`, `y`, `ok`, `error` |
+| `rules.invalid` | warn/error | the engine refused or could not make sense of an input | `what`, `detail` |
+| `match.started` | info | a match began | `config` (`best_of`, `first_breaker`, `seed`, `concede_any_time`), `breaker`, `person` (which player is the person) |
+| `match.ended` | info | a match ended | `winner` (-1 when abandoned), `frames`, `frames_played`, `reason` (`frames`, `conceded`, `abandoned`) |
+| `frame.started` | info | a frame was racked, a re-rack included | `number`, `breaker`, `seed`, `reracks` |
+| `frame.ended` | info | a frame ended | `summary` (`number`, `breaker`, `winner`, `reason`, `scores`, `stats`, `strokes`, `reracks`) |
+| `match.call` | info | the referee line showed calls | `calls` (kinds), `text` (the words shown) |
+| `match.nominated` | info | the declared colour changed | `ball`, `how` (`aim`, `tap`, `harness`, `opponent`) |
+| `match.turn` | info | play waits for someone | `player`, `person`, `waiting` (`shot`, `choice`, `opponent`, `frame_summary`, `match_summary`) |
+| `opponent.decision` | info/warn | the stand-in chose a stroke or a choice (warn when it could not) | `kind` (`shot`, `choice`), `player`, and for a stroke `strike`, `nominated`, `cue` (when it places the cue ball), `why`, `us` (time taken); for a choice `choice`, `options`; `error` |

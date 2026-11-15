@@ -9,6 +9,7 @@
 #include "ofs_devlink.h"
 #include "ofs_device.h"
 #include "ofs_log.h"
+#include "ofs_match.h"
 #include "ofs_physics.h"
 #include "ofs_table.h"
 
@@ -25,6 +26,7 @@ void initialize_onefourseven_module(ModuleInitializationLevel level) {
     GDREGISTER_CLASS(OfsDevice);
     GDREGISTER_CLASS(OfsShotRecord);
     GDREGISTER_CLASS(OfsPhysics);
+    GDREGISTER_CLASS(OfsMatch);
 }
 
 void uninitialize_onefourseven_module(ModuleInitializationLevel level) {

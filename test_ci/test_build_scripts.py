@@ -464,10 +464,12 @@ class SyncData(unittest.TestCase):
                 self.assertEqual(0, sync_data.main())
             names = {p.name for p in target.iterdir()}
             positions = {p.name for p in (target / "positions").iterdir()}
+            rules = {p.name for p in (target / "rules").iterdir()}
             info = json.loads((target / "build_info.json").read_text())
         expected = {p.name for p in (ROOT / "core" / "data").glob("*.json")}
-        self.assertEqual(expected | {"build_info.json", "README.md", "positions"}, names)
+        self.assertEqual(expected | {"build_info.json", "README.md", "positions", "rules"}, names)
         self.assertEqual({p.name for p in sync_data.POSITIONS.glob("*.json")}, positions)
+        self.assertEqual({p.name for p in sync_data.RULES.glob("*.json")}, rules)
         self.assertEqual(re.search(r'^config/version="([^"]+)"', PROJECT, re.MULTILINE).group(1),
                          info["version"])
         self.assertEqual("42", info["build_number"])

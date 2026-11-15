@@ -17,6 +17,7 @@ __pycache__/
 .vscode/
 game/data/*.json
 game/data/positions/
+game/data/rules/
 build-*.log
 .claude/worktrees/
 

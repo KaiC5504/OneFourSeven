@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "_note": "The referee's thresholds (spec 9.1): where the rulebook relies on a human referee's eye. 'values' is what the rules engine loads; 'docs' gives each value's unit, source and note. Rule numbers are the WPBSA Official Rules of Snooker, 2024-25.",
+  "values": {
+    "touching_gap_m": 5e-05,
+    "simultaneous_hit_s": 1e-09,
+    "push_contact_time_s": 0.001,
+    "push_fine_edge_rad": 1.3962634015954636,
+    "miss_lenient_gap_m": 0.0,
+    "escape_max_cushions": 2,
+    "pot_attempt_radius_m": 0.2,
+    "stalemate_quiet_travel_m": 0.6,
+    "stalemate_offer_strokes": 12,
+    "stalemate_grace_strokes": 6,
+    "d_sample_step_m": 0.01
+  },
+  "docs": {
+    "touching_gap_m": {
+      "unit": "m",
+      "source": "Section 3 Rule 8 (touching ball), Section 2 Rule 18 (spot occupied); the value is ours",
+      "note": "Balls the simulator leaves in contact rest within a nanometre of touching; 0.05 mm is far below what a referee can see and above any rounding. The opening rack's seeded gaps (0.01 to 0.1 mm) only separate reds from reds, which this never asks about."
+    },
+    "simultaneous_hit_s": {
+      "unit": "s",
+      "source": "Section 3 Rule 6; the value is ours",
+      "note": "The simulator resolves contacts one at a time, so only contacts at the same instant count as one impact: the guide line then tells the player truthfully which ball is hit first. Equal to the simulator's zero_time_s."
+    },
+    "push_contact_time_s": {
+      "unit": "s",
+      "source": "Section 2 Rule 19; Alciatore, 'The Illustrated Principles of Pool and Billiards', high-speed video HSV A.76 and technical proof TP A.9: a tip stays on the ball for about 0.001 s",
+      "note": "A first contact with an object ball sooner than this after the strike is a push: the tip would still be on the cue ball. At 2 m/s that is a gap of about 1 mm."
+    },
+    "push_fine_edge_rad": {
+      "unit": "rad",
+      "source": "Section 2 Rule 19(b): no push when the cue ball hits a very fine edge of an almost touching ball; the value (80 degrees) is ours",
+      "note": "The cut angle between the cue ball's direction and the line of centres beyond which the contact is a very fine edge."
+    },
+    "miss_lenient_gap_m": {
+      "unit": "m",
+      "source": "Section 3 Rule 14(a); the owner chose the television standard on 2026-11-15",
+      "note": "With no clear path to a ball on, a failed attempt whose cue ball passed within this of one is a foul only. 0 calls every failed escape a miss, as professional referees do."
+    },
+    "escape_max_cushions": {
+      "unit": "cushions",
+      "source": "Section 3 Rule 14(a)(ii); the value is ours",
+      "note": "The ball on is impossible to hit when no route with at most this many cushions reaches any part of it. Routes with more cushions exist on a real table but nobody is expected to find them."
+    },
+    "pot_attempt_radius_m": {
+      "unit": "m",
+      "source": "ours; the same distance the shot cycle uses for a ball played at a pocket (ShotCycle.attempt)",
+      "note": "A stroke counts as an attempt to pot when the first ball hit was potted or passed within this of a pocket's drop circle. Only the frame summary's pot success uses it."
+    },
+    "stalemate_quiet_travel_m": {
+      "unit": "m",
+      "source": "Section 3 Rule 17 ('the situation remains basically unchanged'); spec 9.1 leaves the thresholds to the builder",
+      "note": "A stroke is quiet when nothing is potted and the object balls end, summed over all of them, less than this from where they began."
+    },
+    "stalemate_offer_strokes": {
+      "unit": "strokes",
+      "source": "Section 3 Rule 17; ours",
+      "note": "Quiet strokes in a row, by both players together, before a re-rack is offered."
+    },
+    "stalemate_grace_strokes": {
+      "unit": "strokes",
+      "source": "Section 3 Rule 17(a): 'usually after three more strokes to each side'",
+      "note": "After an objection the frame is re-racked when this many more strokes are all quiet."
+    },
+    "d_sample_step_m": {
+      "unit": "m",
+      "source": "Section 2 Rule 17(a): snookered in hand means from all possible positions in the D; ours",
+      "note": "The D is tested at points this far apart, its edge included."
+    }
+  }
+}

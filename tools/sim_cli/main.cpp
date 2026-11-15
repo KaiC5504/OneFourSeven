@@ -23,6 +23,9 @@ const char* const kUsage =
     "        [--params P] [--table T] [--force-table]\n"
     "  calibrate --out DIR [--breaks N] [--params P] [--table T]\n"
     "  pots [--against OTHER_TABLE] [--step-mm S] [--distance M] [--out FILE] [--params P] [--table T]\n"
+    "  match [--frames N] [--best-of N] [--seed S] [--threads T] [--out DIR] [--log out.jsonl]\n"
+    "        [--params P] [--table T]\n"
+    "  referee <log.jsonl> [--line N] [--table T]\n"
     "\n"
     "Exit codes: 0 ok, 1 a check failed, 2 bad arguments or input.\n";
 
@@ -43,6 +46,8 @@ int main(int argc, char** argv) {
         if (command == "bench") code = sim_cli::cmd_bench(args);
         if (command == "calibrate") code = sim_cli::cmd_calibrate(args);
         if (command == "pots") code = sim_cli::cmd_pots(args);
+        if (command == "match") code = sim_cli::cmd_match(args);
+        if (command == "referee") code = sim_cli::cmd_referee(args);
         if (code >= 0) {
             std::fflush(stdout);
             return code;

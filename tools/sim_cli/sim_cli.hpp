@@ -193,5 +193,7 @@ int cmd_fuzz(const std::vector<std::string>& argv);
 int cmd_bench(const std::vector<std::string>& argv);
 int cmd_calibrate(const std::vector<std::string>& argv);
 int cmd_pots(const std::vector<std::string>& argv);
+int cmd_match(const std::vector<std::string>& argv);
+int cmd_referee(const std::vector<std::string>& argv);
 
 }  // namespace sim_cli

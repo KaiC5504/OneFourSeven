@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "_note": "The stand-in opponent of M3 (spec 21): a simple, legal player so matches can be played and the rules fuzzed. 'values' is what it loads; 'docs' gives each value's unit, source and note. M4's opponent replaces it and this file.",
+  "values": {
+    "aim_error_rad": 0.004,
+    "speed_error": 0.06,
+    "max_cut_rad": 1.05,
+    "pot_speed_m_s": 2.2,
+    "safety_speed_m_s": 1.6,
+    "max_sims": 8,
+    "concede_required_points": 20
+  },
+  "docs": {
+    "aim_error_rad": {
+      "unit": "rad",
+      "source": "ours, a starting guess",
+      "note": "Standard deviation of the error added to the aim it chose. 0.004 rad is 4 mm at a metre: it pots straight balls and misses long cuts."
+    },
+    "speed_error": {
+      "unit": "fraction",
+      "source": "ours, a starting guess",
+      "note": "Standard deviation of its cue speed as a fraction of the speed it chose."
+    },
+    "max_cut_rad": {
+      "unit": "rad",
+      "source": "ours",
+      "note": "It does not try a pot with a wider cut than this (60 degrees)."
+    },
+    "pot_speed_m_s": {
+      "unit": "m/s",
+      "source": "ours",
+      "note": "Cue speed for a pot with a metre of travel in all; scaled with the distance and kept inside the physics' limits."
+    },
+    "safety_speed_m_s": {
+      "unit": "m/s",
+      "source": "ours",
+      "note": "Cue speed when it has no pot and plays to hit a ball on and leave it."
+    },
+    "max_sims": {
+      "unit": "simulations",
+      "source": "ours; spec 10.6 allows the real opponent 1.5 s, a simulation takes about a millisecond",
+      "note": "How many candidate strokes it may simulate before choosing, so one decision stays a few milliseconds on the phone."
+    },
+    "concede_required_points": {
+      "unit": "points",
+      "source": "Section 4 Rule 2(b): a player may concede only when penalty points are required; the threshold is ours",
+      "note": "It concedes when it needs at least this many penalty points and no red is left on the table."
+    }
+  }
+}

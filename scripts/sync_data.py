@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Copies core/data/*.json into game/data/, the named table positions from
-core/tests/fixtures/positions/ into game/data/positions/ (the harness loads them), and writes
-game/data/build_info.json.
+core/tests/fixtures/positions/ into game/data/positions/ (the harness loads them), the rules
+fixtures from core/tests/fixtures/rules/ into game/data/rules/ (the game's tests use them as engine
+answers), and writes game/data/build_info.json.
 
     python scripts/sync_data.py        # OFS_BUILD_NUMBER sets the build number (default "dev")
 
@@ -21,6 +22,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "core" / "data"
 TARGET = ROOT / "game" / "data"
 POSITIONS = ROOT / "core" / "tests" / "fixtures" / "positions"
+RULES = ROOT / "core" / "tests" / "fixtures" / "rules"
 
 
 def project_version() -> str:
@@ -69,6 +71,13 @@ def main() -> int:
             stale.unlink()
     for path in positions:
         write(TARGET / "positions" / path.name, path.read_bytes())
+    rules = sorted(RULES.glob("*.json"))
+    (TARGET / "rules").mkdir(exist_ok=True)
+    for stale in (TARGET / "rules").glob("*.json"):
+        if stale.name not in {path.name for path in rules}:
+            stale.unlink()
+    for path in rules:
+        write(TARGET / "rules" / path.name, path.read_bytes())
     info = {
         "version": project_version(),
         "build_number": os.environ.get("OFS_BUILD_NUMBER") or "dev",

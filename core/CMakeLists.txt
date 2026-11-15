@@ -20,6 +20,17 @@ add_library(ofs_core STATIC
     src/physics/repro.cpp
     src/physics/rack.cpp
     src/physics/record_query.cpp
+    src/rules/names.cpp
+    src/rules/referee_params.cpp
+    src/rules/frame_state.cpp
+    src/rules/engine.cpp
+    src/rules/geometry.cpp
+    src/rules/spotting.cpp
+    src/rules/observe.cpp
+    src/rules/match.cpp
+    src/rules/serialize.cpp
+    src/rules/rules_log.cpp
+    src/opponent/standin.cpp
 )
 
 target_include_directories(ofs_core
@@ -79,6 +90,26 @@ if(OFS_BUILD_TESTS)
         OFS_TEST_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures")
     add_test(NAME ofs_calibration_tests COMMAND ofs_calibration_tests)
     set_tests_properties(ofs_calibration_tests PROPERTIES LABELS calibration)
+
+    # The rules scenarios (spec 16.2): one test per rulebook clause, written from the rulebook by
+    # agents who own only tests/rules. tests/rules_unit holds the builders' own tests of the same
+    # code. Both sets of owners add files freely, hence the globs.
+    file(GLOB OFS_RULES_SCENARIO_SOURCES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tests/rules/*.cpp)
+    add_executable(ofs_rules_tests tests/main.cpp ${OFS_RULES_SCENARIO_SOURCES})
+    target_link_libraries(ofs_rules_tests PRIVATE ofs_core)
+    target_include_directories(ofs_rules_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests/rules)
+    target_compile_definitions(ofs_rules_tests PRIVATE
+        OFS_TEST_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures")
+    add_test(NAME ofs_rules_tests COMMAND ofs_rules_tests)
+
+    file(GLOB OFS_RULES_UNIT_SOURCES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tests/rules_unit/*.cpp)
+    add_executable(ofs_rules_unit_tests tests/main.cpp ${OFS_RULES_UNIT_SOURCES})
+    target_link_libraries(ofs_rules_unit_tests PRIVATE ofs_core)
+    target_include_directories(ofs_rules_unit_tests PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/tests/rules ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    target_compile_definitions(ofs_rules_unit_tests PRIVATE
+        OFS_TEST_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures")
+    add_test(NAME ofs_rules_unit_tests COMMAND ofs_rules_unit_tests)
 
     # Prints content_hash for each JSONL line on stdin; tools/test_devlink.py compares it
     # with devlink.py's hash over thousands of values.

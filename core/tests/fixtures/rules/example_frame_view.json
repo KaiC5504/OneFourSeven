@@ -1,0 +1,205 @@
+{
+  "balls": [
+    {
+      "ball": "cue",
+      "index": 0,
+      "x": -0.4,
+      "y": 0.1
+    },
+    {
+      "ball": "red",
+      "index": 3,
+      "x": 0.9,
+      "y": 0.2
+    },
+    {
+      "ball": "red",
+      "index": 7,
+      "x": 1.1,
+      "y": -0.15
+    },
+    {
+      "ball": "yellow",
+      "index": 0,
+      "x": -1.0475,
+      "y": -0.292
+    },
+    {
+      "ball": "green",
+      "index": 0,
+      "x": -1.0475,
+      "y": 0.292
+    },
+    {
+      "ball": "brown",
+      "index": 0,
+      "x": -1.0475,
+      "y": 0.0
+    },
+    {
+      "ball": "blue",
+      "index": 0,
+      "x": 0.0,
+      "y": 0.0
+    },
+    {
+      "ball": "pink",
+      "index": 0,
+      "x": 0.89225,
+      "y": 0.0
+    },
+    {
+      "ball": "black",
+      "index": 0,
+      "x": 1.4605,
+      "y": 0.0
+    }
+  ],
+  "cue_ball": 0,
+  "cue_in_hand": false,
+  "on": {
+    "kind": "red"
+  },
+  "free_ball": true,
+  "touching": [],
+  "seed": "147",
+  "striker": 0,
+  "scores": [
+    24,
+    31
+  ],
+  "break_points": 0,
+  "stats": [
+    {
+      "shots": 20,
+      "pots": 6,
+      "pot_attempts": 9,
+      "fouls": 1,
+      "misses": 0,
+      "points_from_fouls": 8,
+      "highest_break": 16
+    },
+    {
+      "shots": 21,
+      "pots": 8,
+      "pot_attempts": 11,
+      "fouls": 2,
+      "misses": 1,
+      "points_from_fouls": 4,
+      "highest_break": 23
+    }
+  ],
+  "strokes": 41,
+  "respotted_black": false,
+  "concede_any_time": [
+    true,
+    false
+  ],
+  "pending": "after_foul",
+  "decider": 0,
+  "offender": 1,
+  "last_penalty": 4,
+  "last_miss": true,
+  "original": {
+    "balls": [
+      {
+        "ball": "cue",
+        "index": 0,
+        "x": -1.2,
+        "y": -0.1
+      },
+      {
+        "ball": "red",
+        "index": 3,
+        "x": 0.9,
+        "y": 0.2
+      },
+      {
+        "ball": "red",
+        "index": 7,
+        "x": 1.1,
+        "y": -0.15
+      },
+      {
+        "ball": "yellow",
+        "index": 0,
+        "x": -1.0475,
+        "y": -0.292
+      },
+      {
+        "ball": "green",
+        "index": 0,
+        "x": -1.0475,
+        "y": 0.292
+      },
+      {
+        "ball": "brown",
+        "index": 0,
+        "x": -1.0475,
+        "y": 0.0
+      },
+      {
+        "ball": "blue",
+        "index": 0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      {
+        "ball": "pink",
+        "index": 0,
+        "x": 0.89225,
+        "y": 0.0
+      },
+      {
+        "ball": "black",
+        "index": 0,
+        "x": 1.4605,
+        "y": 0.0
+      }
+    ],
+    "cue_ball": 0,
+    "cue_in_hand": false,
+    "on": {
+      "kind": "red"
+    },
+    "free_ball": false,
+    "touching": []
+  },
+  "miss_run": 1,
+  "miss_warned": false,
+  "quiet_strokes": 2,
+  "rerack_accepted": -1,
+  "rerack_deadline": -1,
+  "over": false,
+  "winner": -1,
+  "end_reason": "none",
+  "restart": false,
+  "view": {
+    "points_remaining": 43,
+    "required": [
+      0,
+      0
+    ],
+    "on_places": [
+      1,
+      2
+    ],
+    "nominations": [
+      "yellow",
+      "green",
+      "brown",
+      "blue",
+      "pink",
+      "black"
+    ],
+    "options": [
+      [
+        "play",
+        "play_again",
+        "replace"
+      ],
+      []
+    ],
+    "leader": 1
+  }
+}

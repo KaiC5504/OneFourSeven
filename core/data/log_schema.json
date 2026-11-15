@@ -15,7 +15,10 @@
     "ui",
     "audio",
     "settings",
-    "freetable"
+    "freetable",
+    "rules",
+    "match",
+    "opponent"
   ],
   "events": {
     "app.start": {
@@ -1242,6 +1245,471 @@
           "required": false
         },
         "next_reason": {
+          "type": "string",
+          "required": false
+        }
+      }
+    },
+    "rules.configured": {
+      "subsystem": "rules",
+      "levels": [
+        "info",
+        "error"
+      ],
+      "fields": {
+        "ok": {
+          "type": "boolean",
+          "required": true
+        },
+        "values": {
+          "type": "object",
+          "required": true
+        },
+        "standin": {
+          "type": "object",
+          "required": true
+        },
+        "problems": {
+          "type": "array",
+          "required": true
+        }
+      }
+    },
+    "rules.decision": {
+      "subsystem": "rules",
+      "levels": [
+        "info"
+      ],
+      "fields": {
+        "pre": {
+          "type": "object",
+          "required": true
+        },
+        "input": {
+          "type": "object",
+          "required": true
+        },
+        "facts": {
+          "type": "object",
+          "required": true
+        },
+        "judgement": {
+          "type": "object",
+          "required": true
+        },
+        "after": {
+          "type": "object",
+          "required": true
+        },
+        "post_hash": {
+          "type": "string",
+          "required": true
+        },
+        "ref": {
+          "type": "object",
+          "required": true
+        },
+        "match_id": {
+          "type": "string",
+          "required": false
+        },
+        "frame": {
+          "type": "integer",
+          "required": false
+        },
+        "shot_id": {
+          "type": "string",
+          "required": false
+        }
+      }
+    },
+    "rules.choice": {
+      "subsystem": "rules",
+      "levels": [
+        "info",
+        "warn"
+      ],
+      "fields": {
+        "before": {
+          "type": "object",
+          "required": true
+        },
+        "player": {
+          "type": "integer",
+          "required": true
+        },
+        "kind": {
+          "type": "string",
+          "required": true
+        },
+        "ok": {
+          "type": "boolean",
+          "required": true
+        },
+        "error": {
+          "type": "string",
+          "required": true
+        },
+        "options": {
+          "type": "array",
+          "required": true
+        },
+        "calls": {
+          "type": "array",
+          "required": true
+        },
+        "after": {
+          "type": "object",
+          "required": true
+        },
+        "post_hash": {
+          "type": "string",
+          "required": true
+        },
+        "match_id": {
+          "type": "string",
+          "required": false
+        },
+        "frame": {
+          "type": "integer",
+          "required": false
+        },
+        "shot_id": {
+          "type": "string",
+          "required": false
+        }
+      }
+    },
+    "rules.cue_placed": {
+      "subsystem": "rules",
+      "levels": [
+        "info",
+        "warn"
+      ],
+      "fields": {
+        "player": {
+          "type": "integer",
+          "required": true
+        },
+        "x": {
+          "type": "number",
+          "required": true
+        },
+        "y": {
+          "type": "number",
+          "required": true
+        },
+        "ok": {
+          "type": "boolean",
+          "required": true
+        },
+        "error": {
+          "type": "string",
+          "required": true
+        },
+        "match_id": {
+          "type": "string",
+          "required": false
+        },
+        "frame": {
+          "type": "integer",
+          "required": false
+        },
+        "shot_id": {
+          "type": "string",
+          "required": false
+        }
+      }
+    },
+    "rules.invalid": {
+      "subsystem": "rules",
+      "levels": [
+        "warn",
+        "error"
+      ],
+      "fields": {
+        "what": {
+          "type": "string",
+          "required": true
+        },
+        "detail": {
+          "type": "string",
+          "required": true
+        }
+      }
+    },
+    "match.started": {
+      "subsystem": "match",
+      "levels": [
+        "info"
+      ],
+      "fields": {
+        "config": {
+          "type": "object",
+          "required": true
+        },
+        "breaker": {
+          "type": "integer",
+          "required": true
+        },
+        "match_id": {
+          "type": "string",
+          "required": false
+        },
+        "frame": {
+          "type": "integer",
+          "required": false
+        },
+        "shot_id": {
+          "type": "string",
+          "required": false
+        },
+        "person": {
+          "type": "integer",
+          "required": false
+        }
+      }
+    },
+    "match.ended": {
+      "subsystem": "match",
+      "levels": [
+        "info"
+      ],
+      "fields": {
+        "winner": {
+          "type": "integer",
+          "required": true
+        },
+        "frames": {
+          "type": "array",
+          "required": true
+        },
+        "frames_played": {
+          "type": "integer",
+          "required": true
+        },
+        "reason": {
+          "type": "string",
+          "required": true
+        },
+        "match_id": {
+          "type": "string",
+          "required": false
+        },
+        "frame": {
+          "type": "integer",
+          "required": false
+        },
+        "shot_id": {
+          "type": "string",
+          "required": false
+        }
+      }
+    },
+    "frame.started": {
+      "subsystem": "match",
+      "levels": [
+        "info"
+      ],
+      "fields": {
+        "number": {
+          "type": "integer",
+          "required": true
+        },
+        "breaker": {
+          "type": "integer",
+          "required": true
+        },
+        "seed": {
+          "type": "string",
+          "required": true
+        },
+        "reracks": {
+          "type": "integer",
+          "required": true
+        },
+        "match_id": {
+          "type": "string",
+          "required": false
+        },
+        "frame": {
+          "type": "integer",
+          "required": false
+        },
+        "shot_id": {
+          "type": "string",
+          "required": false
+        }
+      }
+    },
+    "frame.ended": {
+      "subsystem": "match",
+      "levels": [
+        "info"
+      ],
+      "fields": {
+        "summary": {
+          "type": "object",
+          "required": true
+        },
+        "match_id": {
+          "type": "string",
+          "required": false
+        },
+        "frame": {
+          "type": "integer",
+          "required": false
+        },
+        "shot_id": {
+          "type": "string",
+          "required": false
+        }
+      }
+    },
+    "match.call": {
+      "subsystem": "match",
+      "levels": [
+        "info"
+      ],
+      "fields": {
+        "calls": {
+          "type": "array",
+          "required": true
+        },
+        "text": {
+          "type": "string",
+          "required": true
+        },
+        "match_id": {
+          "type": "string",
+          "required": false
+        },
+        "frame": {
+          "type": "integer",
+          "required": false
+        },
+        "shot_id": {
+          "type": "string",
+          "required": false
+        }
+      }
+    },
+    "match.nominated": {
+      "subsystem": "match",
+      "levels": [
+        "info"
+      ],
+      "fields": {
+        "ball": {
+          "type": "string",
+          "required": true
+        },
+        "how": {
+          "type": "string",
+          "required": true
+        },
+        "match_id": {
+          "type": "string",
+          "required": false
+        },
+        "frame": {
+          "type": "integer",
+          "required": false
+        },
+        "shot_id": {
+          "type": "string",
+          "required": false
+        }
+      }
+    },
+    "match.turn": {
+      "subsystem": "match",
+      "levels": [
+        "info"
+      ],
+      "fields": {
+        "player": {
+          "type": "integer",
+          "required": true
+        },
+        "person": {
+          "type": "boolean",
+          "required": true
+        },
+        "waiting": {
+          "type": "string",
+          "required": true
+        },
+        "match_id": {
+          "type": "string",
+          "required": false
+        },
+        "frame": {
+          "type": "integer",
+          "required": false
+        },
+        "shot_id": {
+          "type": "string",
+          "required": false
+        }
+      }
+    },
+    "opponent.decision": {
+      "subsystem": "opponent",
+      "levels": [
+        "info",
+        "warn"
+      ],
+      "fields": {
+        "kind": {
+          "type": "string",
+          "required": true
+        },
+        "player": {
+          "type": "integer",
+          "required": true
+        },
+        "match_id": {
+          "type": "string",
+          "required": false
+        },
+        "frame": {
+          "type": "integer",
+          "required": false
+        },
+        "shot_id": {
+          "type": "string",
+          "required": false
+        },
+        "strike": {
+          "type": "object",
+          "required": false
+        },
+        "nominated": {
+          "type": "string",
+          "required": false
+        },
+        "cue": {
+          "type": "array",
+          "required": false
+        },
+        "why": {
+          "type": "object",
+          "required": false
+        },
+        "us": {
+          "type": "number",
+          "required": false
+        },
+        "choice": {
+          "type": "string",
+          "required": false
+        },
+        "options": {
+          "type": "array",
+          "required": false
+        },
+        "error": {
           "type": "string",
           "required": false
         }

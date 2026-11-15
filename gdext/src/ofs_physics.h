@@ -62,6 +62,8 @@ public:
     // For OfsPhysics.
     void set_record(ofs::phys::ShotRecord record, std::shared_ptr<const ofs::phys::TableShape> table,
                     godot::String shot_id);
+    // For OfsMatch.
+    const ofs::phys::ShotRecord &record() const { return record_; }
 
 private:
     ofs::phys::ShotRecord record_;
@@ -121,6 +123,10 @@ public:
     // integers (GDScript's parser turns them into floats, which the parameter loader refuses for
     // integer fields). "" when json_text isn't an object or has no such key.
     static godot::String member_json(const godot::String &json_text, const godot::String &key);
+
+    // For OfsMatch: the configured parameters and table; the table is null before configure.
+    const ofs::phys::PhysicsParams &physics_params() const { return params_; }
+    std::shared_ptr<const ofs::phys::TableShape> table() const { return table_; }
 
 private:
     godot::Ref<OfsShotRecord> run(const godot::Array &balls, int64_t cue_ball, const godot::Dictionary &strike,
