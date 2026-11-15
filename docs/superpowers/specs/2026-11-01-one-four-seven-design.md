@@ -512,11 +512,29 @@ level 1.
   - A shot not played at a pocket, one that pots only the cue ball, or a ball that drops
     or arrives too late, cuts to the full-table view 0.1 s after the strike; so does
     every shot when "Pocket camera" in Settings is off.
+  - **The cue ball's journey (Owner, 2026-11-16):** a shot played for what the cue ball
+    does next is watched whole, from the full-table view, with no pocket camera: the
+    pocket would hide the cannon. That is every practice shot (12.1), and anywhere else,
+    matches included, a shot at a pocket whose cue ball, after its first ball, goes on
+    into another ball off a cushion or after 0.4 m of table, or takes three cushions.
+    It is decided from the cue ball's run alone, the same for a pot and for an attempt
+    that stays out, so the view still gives neither away. The cue ball's finishing
+    position is not judged yet: that needs the opponent's evaluation of a position (M4),
+    which then also marks an excellent positional shot.
   - **The settle:** the full-table view holds until every ball stops, and for at least
     0.8 s.
-  - **The return:** the aim turns to the easiest clear pot (a colour after a red, a red
-    after a colour while reds remain; the nearest such ball when nothing is clear), and
-    the camera swoops back down behind the cue ball onto that aim in about a second,
+  - **The return:** the aim turns to the best pot on the table: each clear pot's chance
+    of going in (the aim error it forgives, from the pocket's width as the ball sees it,
+    the two distances, the cut and any ball it has to squeeze past, against the error a
+    player makes; fitted to the owner's own logged shots) times what the ball is worth
+    (its points plus 16 for keeping the break going). In a match only the balls on are
+    considered. On the free table, with no rules, the kind that would be on (a colour
+    after a red, a red after a colour while reds remain) counts in full and the other
+    kind at 0.6, so a far colour gives way to an easy red (Owner, 2026-11-16: the pick
+    was often not close to the best ball). With nothing clear it aims at the nearest
+    ball of the kind on. It does not yet look at where the cue ball finishes: that
+    comes from the opponent's evaluation (M4), which the pick then uses. The camera
+    swoops back down behind the cue ball onto that aim in about a second,
     eased in and out, closing in on the cue ball as it turns round the table.
     "Aim at the next ball" in Settings turns the aim turn off.
   - **The break:** a small counter shows the running break while it is above zero; a
@@ -630,6 +648,15 @@ match UI, the AI and the tests all go through this one engine.
 These targets are measured automatically (section 16.4). Each level must beat the level
 below it clearly over a long series. **Claude's call:** at least 70% of frames.
 
+**A sixth, the 147 (Owner, 2026-11-16).** A fun tier outside the ladder: it plays for a
+maximum break and nothing else. No error model (perfect aim) and the best position play
+the search can find, always a black after a red while a 147 is still on, the cue ball
+left for the next red and black. It is not calibrated against section 10.1 and not part
+of the "beats the level below" series. Open for the M4 plan: what it does once the
+maximum is gone (recommended: plays on for the highest break still possible), and
+whether it is also offered as an exhibition from Home that starts from a table already
+open, since a maximum cannot begin from the break-off.
+
 ### 10.2 How it plays a shot
 1. **Generate candidates:**
    - pots: every ball on × every pocket, including plants, doubles off cushions and
@@ -673,6 +700,10 @@ below it clearly over a long series. **Claude's call:** at least 70% of frames.
 - Before striking, the AI's cue lines up the shot and feathers like a real player. There
   is a natural pause of at least ~0.6 s, so even instant decisions don't feel robotic.
 - The camera shows the AI's shot from a pleasant angle behind its cue.
+- **Watching (Owner, 2026-11-16):** while the opponent is at the table the player can
+  switch to a view from above the table and walk round it by dragging, as in the
+  full-table view, and back. Meant first for the 147 tier, which is there to be
+  watched; available against every level.
 
 ### 10.6 Thinking-time budget
 - Decisions arrive within **≤ 1.5 s** on the iPhone at level 5, and faster at lower
@@ -1229,14 +1260,18 @@ The goal is full official rules and complete match flow.
   calls fouls, free balls and misses the way a real referee would.
 
 ### M4 — The computer opponent
-The goal is five levels that play like real players (section 10).
+The goal is five levels that play like real players, and the 147 tier (section 10).
 - **Workstreams:**
   - candidate shot generation and parameter search;
   - evaluation: position play, safety and score-aware tactics;
   - error model per level;
   - the tournament runner and calibration to the section 10.1 targets;
   - performance: worker thread, anytime search, think time on device;
-  - presentation: cue addressing, feathering, camera.
+  - presentation: cue addressing, feathering, camera, and the watching views (10.5);
+  - the 147 tier (10.1);
+  - the evaluation of a position handed to the game: the next-ball pick (8.5, the
+    return) and the camera's judgement of an excellent positional shot (8.5, the cue
+    ball's journey) use it.
 - **Gate:**
   - section 10.1 targets met within tolerance;
   - each level beats the one below in at least 70% of frames;

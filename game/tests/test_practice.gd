@@ -196,6 +196,9 @@ func test_a_practice_shot_on_the_table() -> void:
 	check(strip.button("show").disabled and bar.button("practice").disabled, "and waits while it plays")
 	var inputs := _logged("shot.input")
 	check(inputs.size() == 1 and inputs[0]["strike_mode"] == "demo", "logged as a demo: %s" % [inputs])
+	var camera := _logged("shot.camera")
+	check(camera.size() == 1 and camera[0]["sequence"] == "broadcast" and camera[0]["reason"] == "practice",
+			"watched whole, from the full table: %s" % [camera])
 	var simulated := _logged("shot.simulated")
 	check(simulated.size() == 1, "simulated once")
 	if simulated.size() == 1:

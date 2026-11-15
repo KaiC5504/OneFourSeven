@@ -8,7 +8,9 @@ extends RefCounted
 ## that pocket, held until HOLD_AFTER_DROP_S after the drop and at least MIN_POCKET_S, and from
 ## there to the full-table view; otherwise straight to the full-table view. A ball played at a
 ## pocket that stays out (attempt()) gets the same pocket camera, timed from when it is nearest the
-## pocket, so the cut doesn't give away whether the pot goes in (KaiC). That holds, still,
+## pocket, so the cut doesn't give away whether the pot goes in (KaiC). A shot whose cue ball is
+## the thing to watch keeps to the full table instead (journey(), and every practice shot): the
+## pocket camera would hide the cannon it was played for. The full-table view holds, still,
 ## until the balls stop and at least MIN_TV_HOLD_S; main.gd then turns the aim and releases the
 ## rig, whose swoop back behind the cue ball is the cycle's only camera move. The times are from
 ## KaiC's recording of the reference game.
@@ -40,6 +42,12 @@ const ATTEMPT_APPROACH_M := 0.05
 ## Past this far out again the ball has left the pocket; coming back later is not the attempt.
 const ATTEMPT_LEFT_M := 0.3
 const ATTEMPT_STEP_S := 1.0 / 60.0
+## The cue ball's run is the thing to watch when, after its first ball, it takes this many
+## cushions, or goes on into another ball off a cushion or after this much of the table.
+const JOURNEY_CUSHIONS := 3
+const JOURNEY_CANNON_M := 0.4
+const JOURNEY_APART_M := 0.3
+const JOURNEY_REASON := "cue ball's journey"
 const VALUES := {"red": 1, "yellow": 2, "green": 3, "brown": 4, "blue": 5, "pink": 6, "black": 7}
 ## Events in which a ball meets something; transitions and nap don't move it off its line.
 const CONTACT_KINDS: Array[String] = ["strike", "ball_ball", "ball_line", "ball_arc"]
@@ -70,15 +78,18 @@ func _init(rig: CameraRig = null) -> void:
 ## The camera sequence and the pots of a shot about to play. balls and cue_ball are the table it
 ## starts from (the state's ball order); pockets as OfsPhysics.table_shape() gives them. Returns
 ## {"sequence": "pocket" or "broadcast", "reason" ("" for the pocket camera on a pot and "near miss"
-## on an attempt that stays out, else "no pot", "cue ball only", "late pot", "setting off", or "no
-## pocket" with "problem" saying why), "pots": [{index, ball, label, pocket, t, value}] the object
+## on an attempt that stays out, else "no pot", "cue ball only", "late pot", "setting off",
+## JOURNEY_REASON, watch_table's own, or "no pocket" with "problem" saying why), "pots": [{index,
+## ball, label, pocket, t, value}] the object
 ## balls in drop order, "cue_potted"}, and for the ball the sequence is about (the first object
 ## ball to drop, else the attempt's, else the cue ball's drop): "ball" (label), "index", "pocket",
 ## "drop_t" (or "near_t" for an attempt, when it is nearest the pocket), "from" (where it came in
 ## from, core metres), "track" (where it is from the cut to then, latest first), "drop_centre",
 ## "middle".
+## watch_table, when not empty, is why a shot at a pocket is watched from the full table whatever
+## the cue ball does ("practice").
 static func plan(playback: ShotPlayback, balls: Array[Dictionary], cue_ball: int, pocket_camera: bool,
-		pockets: Array) -> Dictionary:
+		pockets: Array, watch_table: String = "") -> Dictionary:
 	var pots: Array[Dictionary] = []
 	var cue_drop := {}
 	for e: Dictionary in playback.events():
@@ -119,6 +130,12 @@ static func plan(playback: ShotPlayback, balls: Array[Dictionary], cue_ball: int
 		out["reason"] = "cue ball only"
 	else:
 		out["reason"] = "no pot"
+	# Decided the same for a pot and for an attempt that stays out, so the view gives neither away.
+	if out["sequence"] == "pocket":
+		var why := watch_table if not watch_table.is_empty() else (JOURNEY_REASON if journey(playback, cue_ball) else "")
+		if not why.is_empty():
+			out["sequence"] = "broadcast"
+			out["reason"] = why
 	if about.is_empty():
 		return out
 	var index := int(about["index"])
@@ -213,6 +230,46 @@ static func attempt(playback: ShotPlayback, cue_ball: int, pockets: Array) -> Di
 		if played_at and (best < 0 or nearest_t[p] < nearest_t[best]):
 			best = p
 	return {} if best < 0 else {"index": target, "pocket": best, "t": nearest_t[best]}
+
+
+## Whether the cue ball's run after its first ball is the thing to watch: it goes on into another
+## ball off a cushion or after JOURNEY_CANNON_M of travel, or takes JOURNEY_CUSHIONS cushions.
+## A cushion met again within JOURNEY_APART_M (running along it, or rattling in a jaw) is the same
+## cushion. False once the cue ball is potted.
+static func journey(playback: ShotPlayback, cue_ball: int) -> bool:
+	var first := -1
+	var first_at := Vector2.ZERO
+	var cushions := 0
+	var cushion_at := Vector2.ZERO
+	var o := cue_ball * ShotPlayback.STRIDE
+	for e: Dictionary in playback.events():
+		var kind := String(e.get("kind", ""))
+		var a := int(e.get("a", -1))
+		var b := int(e.get("b", -1))
+		var cannon := kind == "ball_ball" and (a == cue_ball or b == cue_ball)
+		var cushion := a == cue_ball and (kind == "ball_line" or kind == "ball_arc")
+		if a == cue_ball and kind == "pocket":
+			return false
+		if not cannon and not (cushion and first >= 0):
+			continue
+		var state := playback.state_at(float(e.get("t", 0.0)))
+		if o + ShotPlayback.Y >= state.size():
+			return false
+		var at := Vector2(state[o + ShotPlayback.X], state[o + ShotPlayback.Y])
+		if cushion:
+			if cushions == 0 or at.distance_to(cushion_at) >= JOURNEY_APART_M:
+				cushions += 1
+				cushion_at = at
+			if cushions >= JOURNEY_CUSHIONS:
+				return true
+			continue
+		var other := b if a == cue_ball else a
+		if first < 0:
+			first = other
+			first_at = at
+		elif other != first and (cushions > 0 or at.distance_to(first_at) >= JOURNEY_CANNON_M):
+			return true
+	return false
 
 
 ## Where ball `index` was APPROACH_S before dropping at drop_t, or when it was first hit if later.
