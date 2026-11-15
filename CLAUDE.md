@@ -176,4 +176,6 @@ x86_64-only and the Mac has no Rosetta.
   The jaws are softer and slicker, `jaw_restitution` 0.75 and `jaw_friction` 0.08 (were 0.8 and
   0.14, guesses): tight angles were too hard. The corner near the side cushion takes 33-38 mm of
   lines (was 16-27), straight on 68-79 (was 63-71); a firm ball rattles out from 20 mm over a jaw.
+  His first word on them: much better, maybe now too easy; he wants more play before any retune
+  (both values are live over the link).
   No workflow runs on push any more (above).
