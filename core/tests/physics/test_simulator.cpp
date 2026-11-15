@@ -922,10 +922,11 @@ TEST_CASE("simulate pockets: a slow ball that clips a jaw still drops") {
 TEST_CASE("simulate pockets: a firm ball into a jaw face rattles and stays out") {
     // Spec 6.3 owner check: a ball hit firmly into the jaws rattles and stays out; spec 7.6:
     // rattles emerge from jaw collisions, not from scripted outcomes. The paths overlap a jaw's
-    // reach by 16-32 mm, a third to more than half the ball.
+    // reach by 20-32 mm, well over a third to more than half the ball (from 16 mm before the owner's
+    // softer, slicker jaws of 2026-11-15, which take a corner ball 16 mm over at any pace).
     for (const char* name : {"top_left", "middle_left"}) {
         const Mouth m = mouth(name);
-        for (const double past : {0.016, 0.024, 0.03225}) {
+        for (const double past : {0.020, 0.024, 0.03225}) {
             for (const double side : {1.0, -1.0}) {
                 for (const double speed : {2.0, 3.0, 4.0, 6.0, 8.0}) {
                     CAPTURE(name);

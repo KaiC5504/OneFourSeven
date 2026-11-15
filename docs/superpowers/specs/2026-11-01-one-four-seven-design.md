@@ -894,6 +894,9 @@ rules verification and is written from the rulebook text.
 - **iOS compile check:** builds the GDExtension for iOS, exports the Xcode project, builds
   for the simulator, launches the app and takes screenshots.
 - **TestFlight workflow:** signed build and upload, dispatched only (section 17).
+- **Owner (2026-11-15):** nothing runs on push. The Windows job and the compile check are
+  dispatched too: the local gate and the Mac cover every change, and the compile check
+  runs before a TestFlight build.
 
 ### 16.9 Definition of done for any change
 - Tests green.
@@ -1026,8 +1029,8 @@ where they can. No capabilities beyond the defaults are needed. If the Core Hapt
 plugin is used, it needs no entitlement.
 
 ### 17.5 Ship loop
-As in the skill: iterate on `dev` with the compile check, then fast-forward `main` and
-dispatch the TestFlight build. Each build to the owner comes with its build number, what
+As in the skill: iterate on `dev` with the local gate and the Mac, then fast-forward
+`main`, dispatch the compile check and, once it is green, the TestFlight build. Each build to the owner comes with its build number, what
 changed and a numbered play checklist.
 
 ## 18. Assets and licences

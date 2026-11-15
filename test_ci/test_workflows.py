@@ -104,11 +104,10 @@ class WindowsCi(unittest.TestCase):
         cls.text, cls.doc = load("windows-ci.yml")
         cls.steps = [s for _, s in steps(cls.doc)]
 
-    def test_runs_on_pushes_to_dev_and_main_and_on_pull_requests(self):
+    def test_runs_only_when_dispatched(self):
+        # The owner, 2026-11-15: no workflow runs on push.
         on = self.doc[True]  # PyYAML reads the bare key `on` as True.
-        self.assertEqual(["dev", "main"], on["push"]["branches"])
-        self.assertNotIn("paths", on["push"])
-        self.assertIn("pull_request", on)
+        self.assertEqual(["workflow_dispatch"], list(on))
 
     def test_runs_the_full_gate_on_windows(self):
         # The full gate includes the Windows export spec 16.8 asks CI for.
@@ -132,19 +131,8 @@ class IosCompile(unittest.TestCase):
         cls.steps = [s for _, s in steps(cls.doc)]
         cls.script = "\n".join(s.get("run", "") for s in cls.steps)
 
-    def test_triggers(self):
-        on = self.doc[True]
-        self.assertEqual(["dev", "main"], on["push"]["branches"])
-        self.assertIn("workflow_dispatch", on)
-        paths = on["push"]["paths"]
-        for needed in ("core/**", "gdext/**", "game/**", "scripts/build_ios_ext.sh",
-                       "scripts/godot_tools.py", ".github/workflows/ios-compile.yml"):
-            self.assertIn(needed, paths)
-
-    def test_paths_filter_covers_every_input_the_steps_read(self):
-        paths = self.doc[True]["push"]["paths"]
-        for script in re.findall(r"\b(?:scripts|tools)/[\w./-]+\.(?:py|sh)\b", self.script):
-            self.assertTrue(any(Path(script).match(p) or p == script for p in paths), script)
+    def test_runs_only_when_dispatched(self):
+        self.assertEqual(["workflow_dispatch"], list(self.doc[True]))
 
     def test_runs_on_macos_26_with_the_newest_xcode(self):
         self.assertEqual("macos-26", self.doc["jobs"]["build"]["runs-on"])

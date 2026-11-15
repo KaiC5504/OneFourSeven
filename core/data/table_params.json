@@ -19,8 +19,8 @@
     "cushion_rigid_limit_m_s": 2.5,
     "cushion_restitution_slope_per_m_s": 0.16,
     "cushion_restitution_min": 0.7,
-    "jaw_restitution": 0.8,
-    "jaw_friction": 0.14,
+    "jaw_restitution": 0.75,
+    "jaw_friction": 0.08,
     "cue_mass_kg": 0.54,
     "cue_tip_restitution": 0.75,
     "cue_end_mass_kg": 0.0047,
@@ -134,13 +134,13 @@
     },
     "jaw_restitution": {
       "unit": "",
-      "source": "documented starting value, no published measurement found for snooker jaws (the jaw rubber alone would suggest 0.98); spec 6.3 owner check",
-      "note": "Jaws use the cushion model with their own restitution: firm balls rattle, slow ones drop. The owner tunes it by feel in M2."
+      "source": "The owner's feel session on the iPhone, 2026-11-15: the jaws were too bouncy and tight angles too hard to pot. No published measurement was found for snooker jaws; 0.8 before it was a starting guess",
+      "note": "Jaws use the cushion model with their own restitution: firm balls rattle, slow ones drop. Changed together with jaw_friction (0.14 to 0.08), which does most of the work at tight angles: a ball glancing the near jaw slides in where the grippier jaw kicked it across the mouth. `ofs_sim_cli pots` against 0.8 and 0.14: the corner 2 degrees off the side cushion takes 33-38 mm of lines (was 16-27), a ball rolling along the cushion drops from 11-16 mm off it (was 5-9), and the corner straight on is 68-79 mm (was 63-71); the middle pocket at 60 degrees hardly moves (33 mm, set by the outline). A firm ball still rattles out from 20 mm over a jaw (was 16)."
     },
     "jaw_friction": {
       "unit": "",
-      "source": "same as cushion_friction to start",
-      "note": "The jaws are faced with the same rubber and cloth as the cushions, so they start with Mathavan's mu_w; starting guess; KaiC tunes by feel in M2."
+      "source": "The owner's feel session on the iPhone, 2026-11-15 (see jaw_restitution): 0.08. Before it, cushion_friction's 0.14 (Mathavan's mu_w) as a starting guess",
+      "note": "Ball-jaw sliding friction. Lower than the cushions': pots at tight angles were too hard, and the jaw's grip on a glancing ball is what threw it out."
     },
     "cue_mass_kg": {
       "unit": "kg",

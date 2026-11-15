@@ -3,11 +3,12 @@ name: Windows CI
 # The full local gate on a clean Windows runner: core tests, Godot tests, a headless run of the
 # game with its session log checked, the tools' and the workflows' tests, and the Windows export
 # (spec 16.8).
+#
+# Runs only when dispatched (the owner, 2026-11-15: nothing on push); scripts/gate.py is the same
+# check on the PC: gh workflow run windows-ci.yml --ref dev
 
 on:
-  push:
-    branches: [dev, main]
-  pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read

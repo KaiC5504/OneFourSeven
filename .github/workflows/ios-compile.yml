@@ -6,22 +6,11 @@ name: iOS compile check
 #
 # Godot 4.7.1's iOS template ships simulator slices (ios-arm64_x86_64-simulator in
 # libgodot.ios.*.xcframework), so the exported project builds and runs on the simulator.
+#
+# Runs only when dispatched (the owner, 2026-11-15: nothing on push), before a TestFlight build:
+# gh workflow run ios-compile.yml --ref main
 
 on:
-  push:
-    branches: [dev, main]
-    paths:
-      - "core/**"
-      - "gdext/**"
-      - "game/**"
-      - "thirdparty/**"
-      - "CMakeLists.txt"
-      - "scripts/build_ios_ext.sh"
-      - "scripts/build_macos_ext.sh"
-      - "scripts/godot_tools.py"
-      - "scripts/sync_data.py"
-      - "tools/check_logs.py"
-      - ".github/workflows/ios-compile.yml"
   workflow_dispatch:
 
 permissions:

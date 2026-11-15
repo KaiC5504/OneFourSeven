@@ -65,10 +65,12 @@ one plan KaiC approves, then parallel agents build, check, fix and ship.
 
 ## Building and shipping
 
-iOS app, developed on Windows with no Mac. GitHub Actions does everything:
-`ios-compile.yml` builds the iOS extension, exports the Godot project, compiles and
-screenshots on pushes that touch the game, extension, core or iOS scripts, and
-`testflight.yml` signs and uploads when `scripts/testflight.py start` dispatches it. The full playbook, including every manual
+iOS app, developed on Windows; the Mac mini (below) is the daily loop to the phone and GitHub
+Actions the way to TestFlight. No workflow runs on push (KaiC, 2026-11-15): each runs only when
+dispatched. `ios-compile.yml` builds the iOS extension, exports the Godot project, compiles and
+screenshots (`gh workflow run ios-compile.yml --ref main`); `windows-ci.yml` is the full gate on
+a clean runner (`gh workflow run windows-ci.yml --ref dev`); `testflight.yml` signs and uploads
+when `scripts/testflight.py start` dispatches it. The full playbook, including every manual
 step and known failures, is the global `ios-testflight` skill. Load it before touching
 signing, `testflight.yml`, the export presets or the compile workflow.
 
@@ -76,7 +78,8 @@ Identity: Godot project `game/`, exported Xcode project `OneFourSeven`, bundle i
 `com.kaichuan.onefourseven` (extensions: none). Repo `KaiC5504/OneFourSeven` (public).
 App Store Connect name: `One Four Seven`, home-screen label `147`, Apple ID `6829495084`.
 
-1. Work on `dev`. Push. Wait for the compile check: it proves the app builds, launches, loads
+1. Work on `dev`, gate locally, push. Before a TestFlight build, dispatch the compile check
+   and wait for it: it proves the app builds, launches, loads
    the table and logs cleanly. Its simulator screenshot is not the phone's look (the simulator
    falls back to the Compatibility renderer on software OpenGL and shows magenta); check every
    screen you touched with a Windows screenshot (`python scripts/run_debug.py -- --screenshot=<path>`),
@@ -170,3 +173,7 @@ x86_64-only and the Mac has no Rosetta.
   his usual paces (1.4 to 3.6 m/s) within 0.07 of their old place on the bar. A full screw from
   0.3 m now comes back about 1.5 table lengths (was 1.9, with spin for 8 on an open table). The
   bench's break-offs are 3, 4.5 and 6.5 m/s. His to judge: 6.5 itself (live over the link).
+  The jaws are softer and slicker, `jaw_restitution` 0.75 and `jaw_friction` 0.08 (were 0.8 and
+  0.14, guesses): tight angles were too hard. The corner near the side cushion takes 33-38 mm of
+  lines (was 16-27), straight on 68-79 (was 63-71); a firm ball rattles out from 20 mm over a jaw.
+  No workflow runs on push any more (above).
