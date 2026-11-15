@@ -88,6 +88,10 @@ func announce(calls: Array, person: int = 0) -> void:
 		kinds.append(kind)
 		if text_for(call, person).is_empty():
 			Kit.problem("RefereeLine: no words for the call \"%s\"" % kind)
+		elif kind == "foul" and not _has_value(call):
+			Kit.missing(WHO, "value")
+		elif kind == "frame_over" and not call.get("detail") is String:
+			Kit.missing(WHO, "detail")
 	var line := line_for(calls, person)
 	if line.is_empty():
 		return

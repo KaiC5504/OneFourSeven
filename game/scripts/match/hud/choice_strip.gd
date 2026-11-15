@@ -90,6 +90,8 @@ func offer(options: Array[String], frame: Dictionary) -> void:
 	_offering = not _buttons.is_empty()
 	_panel.visible = _offering
 	if _offering:
+		if _buttons.has("play") and not frame.get("free_ball") is bool:
+			Kit.missing(WHO, "free_ball")
 		_prompt.text = _question(_buttons.keys(), frame)
 		_fit()
 

@@ -169,7 +169,7 @@ func test_scoreboard_shows_what_is_there_when_keys_are_missing() -> void:
 	board.show_frame({}, {}, 0)
 	check_eq(board.texts()["turn"], "", "an empty frame names nobody")
 	var messages := _errors()
-	for key: String in ["scores", "points_remaining", "frames", "view", "config"]:
+	for key: String in ["scores", "points_remaining", "frames", "view", "config", "striker", "on", "free_ball"]:
 		check_eq(_count(messages, "\"%s\"" % key), 1, "one app.error naming %s: %s" % [key, messages])
 	board.free()
 
@@ -299,9 +299,13 @@ func test_a_call_the_line_does_not_know_is_logged_not_shown() -> void:
 	check_eq(line.text(), "", "nothing to say")
 	line.announce([{"value": 4}, "foul", {"kind": "free_ball"}], 0)
 	check_eq(line.text(), "FREE BALL", "what it does know still shows")
+	line.announce([{"kind": "foul"}], 0)
+	line.announce([{"kind": "foul"}, {"kind": "frame_over", "value": 0}], 0)
+	check_eq(line.text(), "FOUL · Frame over", "a foul with no value, a frame's end with no reason")
 	var messages := _errors()
 	check_eq(_count(messages, "applause"), 1, "one app.error naming the call: %s" % [messages])
-	check_eq(_count(messages, "\"kind\""), 1, "one naming the missing key: %s" % [messages])
+	for key: String in ["kind", "value", "detail"]:
+		check_eq(_count(messages, "\"%s\"" % key), 1, "one naming the missing %s: %s" % [key, messages])
 	line.free()
 
 
@@ -428,7 +432,8 @@ func test_the_strip_copes_with_a_decision_or_a_frame_it_does_not_know() -> void:
 	check_eq(strip.prompt(), "Computer fouled", "the question without the penalty")
 	var messages := _errors()
 	check_eq(_count(messages, "resign"), 1, "one app.error naming the decision: %s" % [messages])
-	check_eq(_count(messages, "\"last_penalty\""), 1, "one naming the missing key: %s" % [messages])
+	for key: String in ["last_penalty", "free_ball"]:
+		check_eq(_count(messages, "\"%s\"" % key), 1, "one naming the missing %s: %s" % [key, messages])
 	strip.free()
 
 

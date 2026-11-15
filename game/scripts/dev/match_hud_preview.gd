@@ -159,7 +159,7 @@ func _build_table(frame: Dictionary) -> void:
 	var camera := Camera3D.new()
 	camera.fov = 30.0
 	add_child(camera)
-	camera.look_at_from_position(TableSpace.core_to_godot(-3.3, 0.0, 1.25), TableSpace.core_to_godot(0.1, 0.0, 0.0))
+	camera.look_at_from_position(TableSpace.core_to_godot(-4.1, 0.0, 1.55), TableSpace.core_to_godot(-0.45, 0.0, 0.0))
 	camera.current = true
 
 

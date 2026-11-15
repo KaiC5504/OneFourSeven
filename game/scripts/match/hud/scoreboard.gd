@@ -26,6 +26,7 @@ const PAUSE_GAP := 8.0
 const SAFE_AREA_POLL_SECONDS := 1.0
 const FRAME := "Scoreboard: the frame view"
 const MATCH := "Scoreboard: the match"
+const ON := "Scoreboard: the ball on"
 
 ## When true the scoreboard keeps itself at the safe area's top; set false to call place_in.
 var auto_place := true
@@ -338,18 +339,22 @@ static func on_text(frame: Dictionary) -> String:
 
 
 static func _on_ball(frame: Dictionary) -> String:
-	if frame.get("free_ball") == true:
+	if Kit.flag(frame, "free_ball", FRAME):
 		return "free"
 	var on := Kit.dictionary(frame, "on", FRAME)
 	if on.is_empty():
 		return ""
-	match Kit.text(on, "kind", "Scoreboard: the ball on"):
+	var kind := Kit.text(on, "kind", ON)
+	match kind:
 		"red":
 			return "red"
 		"any_colour":
 			return "any"
 		"colour":
-			return Kit.text(on, "colour", "Scoreboard: the ball on")
+			return Kit.text(on, "colour", ON)
+		"":
+			return ""
+	Kit.problem("Scoreboard: no words for a ball on of kind \"%s\"" % kind)
 	return ""
 
 
