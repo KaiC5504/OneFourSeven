@@ -124,8 +124,9 @@ bool next_frame(MatchState& m, const phys::PhysicsParams& params) {
     return true;
 }
 
-// splitmix64's finaliser over a mix of the three: a bijection, so frames and re-racks of one match
-// never share a seed.
+// splitmix64's finaliser over a mix of the three. It is a bijection, so two frames or re-racks of
+// one match share a seed only if their mixes are equal, which no frame number and re-rack count a
+// match reaches are.
 std::uint64_t frame_seed(const MatchConfig& config, int number, int reracks) {
     std::uint64_t z = config.seed + 0x9E3779B97F4A7C15ULL * std::uint64_t(number) +
                       0xBF58476D1CE4E5B9ULL * std::uint64_t(reracks);

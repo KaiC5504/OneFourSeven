@@ -26,14 +26,14 @@ bool refuse(std::string& error, const std::string& where, const std::string& why
     return false;
 }
 
+// Godot's JSON reads every number as a float, so a whole float is taken as the integer it is.
 bool value(const json& v, const std::string& where, int& out, std::string& error) {
-    if (!v.is_number_integer()) return refuse(error, where, "want an integer");
-    constexpr std::int64_t lo = std::numeric_limits<int>::min();
-    constexpr std::int64_t hi = std::numeric_limits<int>::max();
-    const bool fits = v.is_number_unsigned() ? v.get<std::uint64_t>() <= std::uint64_t(hi)
-                                             : (v.get<std::int64_t>() >= lo && v.get<std::int64_t>() <= hi);
-    if (!fits) return refuse(error, where, "too large for an integer");
-    out = v.get<int>();
+    const double d = v.is_number() ? v.get<double>() : std::numeric_limits<double>::quiet_NaN();
+    if (!(d == std::floor(d))) return refuse(error, where, "want an integer");
+    if (d < double(std::numeric_limits<int>::min()) || d > double(std::numeric_limits<int>::max())) {
+        return refuse(error, where, "too large for an integer");
+    }
+    out = int(d);
     return true;
 }
 

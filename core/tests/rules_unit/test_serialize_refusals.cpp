@@ -220,7 +220,10 @@ TEST_CASE("a place or a player out of range is refused") {
          {"/winner", -2, "winner: -2 is not -1, 0 or 1"},
          {"/rerack_accepted", 2, "rerack_accepted: 2 is not -1, 0 or 1"},
          {"/strokes", 1099511627776, "strokes: too large for an integer"},
+         {"/strokes", -1.0e300, "strokes: too large for an integer"},
          {"/strokes", 41.5, "strokes: want an integer"},
+         {"/strokes", kNan, "strokes: want an integer"},
+         {"/cue_ball", 0.5, "cue_ball: want an integer"},
          {"/scores", {24}, "scores: want two entries"},
          {"/scores", {24, 31, 0}, "scores: want two entries"},
          {"/concede_any_time", {true}, "concede_any_time: want two entries"},
@@ -326,6 +329,37 @@ TEST_CASE("a seed must be a decimal string that fits") {
     frame["seed"] = "00147";
     REQUIRE_MESSAGE(frame_from_json(frame, s, error), error);
     CHECK(s.seed == 147);
+}
+
+TEST_CASE("a whole float is read as the integer it is, as a state that went through Godot's JSON has them") {
+    json frame = example_frame();
+    frame["cue_ball"] = 0.0;
+    frame["striker"] = 1.0;
+    frame["scores"] = {24.0, 31.0};
+    frame["strokes"] = 41.0;
+    frame["winner"] = -1.0;
+    frame["balls"][1]["index"] = 3.0;
+    frame["touching"] = {2.0};
+    FrameState s;
+    std::string error;
+    REQUIRE_MESSAGE(frame_from_json(json::parse(frame.dump()), s, error), error);
+    CHECK(s.striker == 1);
+    CHECK(s.strokes == 41);
+    CHECK(s.winner == -1);
+    CHECK(s.touching == std::vector<int>{2});
+    json expected = example_frame();
+    expected["striker"] = 1;
+    expected["touching"] = {2};
+    CHECK(frame_json(s) == expected);
+    CHECK(frame_json(s)["strokes"].is_number_integer());
+
+    MatchConfig c;
+    REQUIRE_MESSAGE(config_from_json(json::parse(R"({"best_of": 3.0, "first_breaker": -1.0, "seed": "147",
+                                                     "concede_any_time": [true, false]})"),
+                                     c, error),
+                    error);
+    CHECK(c.best_of == 3);
+    CHECK(c.first_breaker == -1);
 }
 
 TEST_CASE("keys the readers do not know are ignored, and an integral number is a fine double") {
