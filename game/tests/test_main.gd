@@ -28,12 +28,83 @@ const PHONE_SAFE_AREAS: Array[Rect2] = [
 ]
 
 
-func _spawn() -> Node:
+## The scene as the app opens it: at Home.
+func _spawn_home() -> Node:
 	check(not OfsTable.dimensions().is_empty(), "OfsTable.dimensions() returns the table")
 	var main: Node = load("res://scenes/main.tscn").instantiate()
 	tree.root.add_child(main)
 	await tree.process_frame
 	return main
+
+
+## The free table, entered from Home, with the camera landed behind the cue ball.
+func _spawn() -> Node:
+	var main: Node = await _spawn_home()
+	check(main.call("harness_open_screen", "table"), "Home leads to the free table")
+	(main.get_node("CameraRig") as CameraRig)._process(CameraRig.RETURN_S)
+	await tree.process_frame
+	return main
+
+
+func test_the_app_opens_at_home_over_the_whole_table() -> void:
+	var main: Node = await _spawn_home()
+	var hud: Node = main.get_node("Hud")
+	var state: Dictionary = main.call("harness_state")
+	check_eq(state["screen"], "home", "the screen")
+	check_eq(state["mode"], "home", "the mode")
+	check((hud.get_node("HomeScreen") as Control).visible, "the Home screen shows")
+	for control_name: String in ["FineTuneWheel", "StrokeCue", "PullCue", "ElevationControl", "SpinWidget", "EditPalette",
+			"FreeTableBar", "Scoreboard", "MatchSetupScreen", "PauseMenu", "FrameSummary", "MatchSummary", "SettingsPanel",
+			"Notice", "BreakPill"]:
+		check(not (hud.get_node(control_name) as Control).visible, "%s is not showing" % control_name)
+	check(not (hud.get_node("ChoiceStrip") as ChoiceStrip).is_offering(), "no choice is offered")
+	check(not (hud.get_node("CuePlacer") as CuePlacer).covered_rect().has_area(), "no cue ball to place")
+	check_eq((hud.get_node("RefereeLine") as RefereeLine).text(), "", "the referee says nothing")
+	check(not (main.get_node("Cue") as Node3D).visible, "no cue")
+	check(not (main.get_node("Guides/AimLine") as Node3D).visible, "no guides")
+	check(not (main.get_node("Nomination") as Nomination).is_marking(), "no nomination ring")
+	check(not (main.get_node("AimControl") as AimControl).enabled, "no aiming")
+	check(not (main.get_node("Gestures") as Gestures).enabled, "the table takes no touches")
+	check_eq(main.get_node("Balls").get_child_count(), 22, "the rack is on the table behind it")
+	var rig: CameraRig = main.get_node("CameraRig")
+	check_eq(state["camera"]["view"], "shot", "the camera is held")
+	check(rig.transform.is_equal_approx(rig.broadcast_pose(CameraRig.FULL_TABLE_YAW)), "at the full-table view from the black end")
+	# Above the controls and the bar, under the settings panel and the debug overlay.
+	var home := hud.get_node("HomeScreen").get_index()
+	for below: String in ["SpinWidget", "StrokeCue", "FreeTableBar", "Scoreboard", "ChoiceStrip", "CuePlacer"]:
+		check(home > hud.get_node(below).get_index(), "Home above %s" % below)
+	for above: String in ["SettingsPanel", "Overlay"]:
+		check(home < hud.get_node(above).get_index(), "Home under %s" % above)
+		for screen: String in ["MatchSetupScreen", "PauseMenu", "FrameSummary", "MatchSummary"]:
+			check(hud.get_node(screen).get_index() < hud.get_node(above).get_index(), "%s under %s" % [screen, above])
+	main.free()
+
+
+func test_home_leads_to_the_free_table_and_back() -> void:
+	var main: Node = await _spawn_home()
+	var hud: Node = main.get_node("Hud")
+	var home: HomeScreen = hud.get_node("HomeScreen")
+	var bar: FreeTableBar = hud.get_node("FreeTableBar")
+	var rig: CameraRig = main.get_node("CameraRig")
+	var table: FreeTable = main.get_node("FreeTable")
+	var before: Array[Dictionary] = table.balls.duplicate(true)
+	home.button("free_table").pressed.emit()
+	check(not home.visible and bar.visible, "the free table's bar takes Home's place")
+	check_eq(main.call("harness_state")["screen"], "table", "the screen")
+	check_eq(main.call("harness_state")["mode"], "free_table", "the mode")
+	check(not rig.is_held() and rig.is_easing(), "the camera comes down behind the cue ball")
+	check((main.get_node("Gestures") as Gestures).enabled and (main.get_node("AimControl") as AimControl).enabled, "aiming")
+	check_eq(table.balls, before, "the rack as it was racked")
+	check_eq(table.history_size(), 1, "and nothing added to its history")
+	bar.button("menu").button_pressed = true
+	bar.button("home").pressed.emit()
+	check(home.visible and not bar.visible and not bar.is_menu_open(), "the menu's Home goes back")
+	check_eq(main.call("harness_state")["screen"], "home", "the screen again")
+	check(rig.is_held() and not (main.get_node("Cue") as Node3D).visible, "the full-table view, no cue")
+	home.button("settings").pressed.emit()
+	check((hud.get_node("SettingsPanel") as Control).visible, "Settings opens the settings panel")
+	check(home.visible, "over Home")
+	main.free()
 
 
 func test_scene_has_22_balls() -> void:

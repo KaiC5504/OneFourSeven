@@ -20,11 +20,14 @@ var _log_start := 0
 var _t := [0.0]
 
 
+## The free table, entered from Home where the app opens, with the camera landed behind the cue ball.
 func _spawn() -> MainScript:
 	_reset_settings()
 	var main := load("res://scenes/main.tscn").instantiate() as MainScript
 	tree.root.add_child(main)
 	await tree.process_frame
+	check(main.harness_open_screen("table"), "Home leads to the free table")
+	(main.get_node("CameraRig") as CameraRig)._process(CameraRig.RETURN_S)
 	await tree.process_frame
 	_mark_log()
 	return main
@@ -439,6 +442,7 @@ func test_starts_in_a_saved_pull_mode() -> void:
 	var main := load("res://scenes/main.tscn").instantiate() as MainScript
 	tree.root.add_child(main)
 	await tree.process_frame
+	check(main.harness_open_screen("table"), "Home leads to the free table")
 	await tree.process_frame
 	_mark_log()
 	var pull: PullControl = main.get_node("Hud/PullCue")

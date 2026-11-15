@@ -56,6 +56,10 @@ func _request(engine: Object, player: int, seconds: float, for_choice: bool) -> 
 
 
 func _process(delta: float) -> void:
+	# Becoming ready turns processing back on: with nothing asked there is no engine to ask.
+	if _engine == null:
+		set_process(false)
+		return
 	# The first frame's delta is time from before the request.
 	if _fresh:
 		_fresh = false

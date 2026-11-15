@@ -166,6 +166,30 @@ func test_prefer_colour_takes_a_colour_over_an_easier_red() -> void:
 	check_eq(no_colours.get("ball"), "red 0", "no colours: falls back to any")
 
 
+func test_among_keeps_the_choice_to_the_places_given() -> void:
+	# The same table: an easy red on the top-left axis and a pink that cuts into the top right.
+	var red := [HALF_LENGTH - 0.3 * DIAG, HALF_WIDTH - 0.3 * DIAG]
+	var cue := [float(red[0]) - (0.4 + 2.0 * R) * DIAG, float(red[1]) - (0.4 + 2.0 * R) * DIAG]
+	var balls := _balls([["cue", cue], ["red", red], ["pink", [1.2, -0.2]]])
+	check_eq(NextTarget.choose(balls, 0, "any").get("ball"), "red 0", "with no places given, the easier red")
+	check_eq(NextTarget.choose(balls, 0, "any", []).get("ball"), "red 0", "an empty list is no list")
+	var pink := NextTarget.choose(balls, 0, "any", [2])
+	check_eq(pink.get("ball"), "pink", "only the pink's place: the pink")
+	check_eq(pink.get("pocket"), _pocket("top_right"), "and its pot")
+	check_eq(NextTarget.choose(balls, 0, "any", [2.0]).get("ball"), "pink", "a place read from JSON is a float")
+	check_eq(NextTarget.choose(balls, 0, "any", [2, 1]).get("ball"), "red 0", "both places: the easier again, in any order")
+	check_eq(NextTarget.choose(balls, 0, "colour", [1, 2]).get("ball"), "pink", "the preference holds among them")
+	check_eq(NextTarget.choose(balls, 0, "colour", [1]).get("ball"), "red 0", "and gives way when none of them is preferred")
+	_mark_log()
+	check_eq(NextTarget.choose(balls, 0, "any", [0, 7, -1, "red", null]).get("ball"), "red 0",
+			"places with no object ball are passed over, and with none left it chooses as without them")
+	check_eq(_logged("app.error").size(), 0, "without an error")
+	# Nothing clear among the places: straight at the nearest of them.
+	var blocked := _balls([["cue", [-1.0, -0.2]], ["blue", [0.0, 0.0]], ["red", [1.5, 0.3]], ["red", [1.0, 0.2]]])
+	var nearest := NextTarget.choose(blocked, 0, "any", [2])
+	check_eq([nearest.get("index"), nearest.get("reason")], [2, "no clear pot"], "the one place given, though another ball is nearer")
+
+
 func test_equal_pots_take_the_higher_value() -> void:
 	# Mirror images across the long axis: the pink into the top left and the black into the top
 	# right are exactly as easy, and a player on a colour takes the black.

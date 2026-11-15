@@ -9,13 +9,16 @@ command logs `harness.command`; the channel logs `harness.channel` (`docs/log-sc
 
 ```
 python scripts/run_debug.py -- --quit-after=0      # builds the Debug extension once; the game quits at once
-python tools/harness_client.py run --resolution 1912x880 -- --no-link < commands.jsonl
+python scripts/background.py python tools/harness_client.py run --resolution 1912x880 -- --no-link < commands.jsonl
 ```
+
+`scripts/background.py` keeps the game's window off the screen; every agent run goes through it.
 
 with `commands.jsonl` holding one request per line:
 
 ```
 {"cmd": "ping"}
+{"cmd": "open_screen", "args": {"name": "table"}}
 {"cmd": "load_position", "args": {"name": "straight_1m"}}
 {"cmd": "play_shot", "args": {"aim_rad": 0.0, "tip_x": 0.0, "tip_y": -0.3, "elevation_rad": 0.0, "speed_m_s": 2.0}}
 {"cmd": "wait_idle", "args": {"timeout_s": 30}}
@@ -38,14 +41,17 @@ warning and is ignored.
 | `--mute` | Mutes the master audio bus before anything plays. `run_debug.py` and `harness_client.py` always pass it (`run_debug.py --sound` leaves it out): agent runs make no sound. |
 | `--harness-port=<port>` | Opens the command channel on 127.0.0.1 (Windows only). `0` picks a free port; the game prints `harness listening on 127.0.0.1:<port>` to stdout. |
 | `--demo-position=<name>` | Loads `res://data/positions/<name>.json` one frame after the scene is ready. |
-| `--demo-screen=<name>` | Opens a screen (M2: `table`). |
-| `--screenshot=<path>` | Saves a PNG after one second. Not headless: that renders nothing. |
-| `--dump-state=<path>` | Writes the state (as `dump_state` below) after one second. |
+| `--demo-screen=<name>` | Opens a screen one frame after the scene is ready: `home` (where the app opens anyway), `match_setup` or `table` as `open_screen` does; `match` starts a best of 3 with seed 147 and the person to break; `pause`, `frame_summary` and `match_summary` show that screen for a picture with no match behind it, the summaries filled from `res://data/rules/example_match.json` (the match summary with its frame in play counted as the last). |
+| `--screenshot=<path>` | Saves a PNG after one second, and once the camera has landed where it is going. Not headless: that renders nothing. |
+| `--dump-state=<path>` | Writes the state (as `dump_state` below) at the same moment. |
 | `--quit-after=<seconds>` | Quits, after any capture above has finished. |
 | `--no-link` | Read by the phone link: starts it switched off. |
 
 iOS passes launch arguments as `-Name value` pairs, which the CI simulator run uses:
 `-DemoScreen table -DemoPosition straight_1m`.
+
+The dev preview scenes' own arguments (`--screen=`, `--state=`, `--frames=`, `--person=`) are
+passed over without a warning.
 
 Named positions are the physics fixtures (`core/tests/fixtures/positions/`, listed in their
 README), copied into `game/data/positions/` by `scripts/sync_data.py`.
@@ -79,14 +85,22 @@ with Harness(resolution="1912x880", extra_args=["--no-link"]) as game:
 | Command | Args | Result |
 | --- | --- | --- |
 | `ping` | | `"pong"` |
-| `load_position` | `{"name"}`, or `{"balls", "cue_ball"}` | `{"balls": n, "cue_ball"}`; an error when the scene refuses the position |
-| `play_shot` | `aim_rad`, `tip_x`, `tip_y`, `elevation_rad`, `speed_m_s` (all required, finite) | `{"shot_id"}`; an error when the scene refuses the shot. The strike plays exactly as given: the aim is not turned for side as a player's shot is |
+| `open_screen` | `name`: `home`, `match_setup` or `table` | `{"screen"}`, once the camera has landed there. A match on the table is left (abandoned) for it |
+| `load_position` | `{"name"}`, or `{"balls", "cue_ball"}` | `{"balls": n, "cue_ball"}`; an error when the scene refuses the position. The free table's: from Home it enters the free table, and during a match it is refused, saying so |
+| `play_shot` | `aim_rad`, `tip_x`, `tip_y`, `elevation_rad`, `speed_m_s` (all required, finite) | `{"shot_id"}`; an error when the scene refuses the shot. The strike plays exactly as given: the aim is not turned for side as a player's shot is. The free table's, as `load_position` |
 | `wait_idle` | `timeout_s` (default 30) | `{"waited_s"}` once no shot is playing; an error at the timeout |
 | `set_setting` | `key`, `value` | `{"key", "value"}` as stored; an error when Settings refuses it (`settings.changed` says why) |
 | `dump_state` | `path` (optional) | the state, also written to `path` when given (the result then has `path`) |
 | `screenshot` | `path` | the PNG's absolute path |
 | `overlay` | `visible` (true or false) | `{"visible"}`: the debug overlay, as F3 or a three-finger tap toggles it |
 | `input` | `events`, `frames_between` (default 1) | `{"sent": n}` after the last event has reached the scene |
+| `start_match` | `best_of` (1, 3, 5, 7, 9 or 11; default 3), `first_breaker` (`random`, `you`, `computer`; default `random`), `seed` (optional), `autoplay`, `fast` (default false) | `{"match_id"}`; an error when the engine refuses (`app.error` says why) |
+| `match_state` | | `MatchController.harness_state()`: `active`, `match_id`, `frame` (the frame view), `match`, `nominated`, `placing`, `blocked`, `autoplay`, `waiting` |
+| `match_shot` | a strike as `play_shot`'s, `nominated` (a colour, optional), `cue` `[x, y]` (optional, when the cue ball is in hand) | `{"shot_id"}`: the person's stroke exactly as given. The in-hand cue ball is put at `cue`, or left where it is, and confirmed; without `nominated` the aim line declares as it does for a player |
+| `match_choose` | `kind` (a decision name offered: `play`, `play_again`, `replace`, ...) | `{"kind"}` |
+| `match_wait` | `timeout_s` (default 30) | `{"waiting", "waited_s"}` once the match waits for the person: `shot`, `choice`, `frame_summary` or `match_summary`; an error at the timeout or with no match on the table |
+| `match_autoplay` | `on`, `fast` (default false) | `{"on", "fast"}`: the stand-in plays the person's strokes and choices too; `fast` skips each stroke's playback and every wait |
+| `match_continue` | | `{"screen"}`: from a frame summary to the next frame (after the last, to the match summary), from the match summary to Home |
 | `quit` | | `"quitting"`, then the game exits |
 
 `load_position` with `balls` takes the game's ball list, `[{"ball": "red", "index": 3, "x":
@@ -96,17 +110,45 @@ or the fixtures' form with `"r": [x, y]`; `cue_ball` is the cue ball's position 
 `dump_state` holds `screen`, `session`, `link_status`, `params_hash`, `params_pending_hash`,
 `perf` (the last second's fps, frame times, dropped frames, thermal state, memory footprint and
 idle) and `balls` (`name`, `ball`, `index`, `position` [x, y, height] in core metres), overlaid
-by the game's own state (`harness_state()` in `main.gd`: screen, ball list, shot setup,
-settings, last shot, camera, break and `practice`, the practice shot's position name or "").
+by the game's own state (`harness_state()` in `main.gd`: screen, mode, ball list, shot setup,
+settings, last shot, camera, break, `practice`, the practice shot's position name or "", and
+`match`, what `match_state` answers).
 
 | Field | What |
 | --- | --- |
 | `camera.pitch_deg`, `camera.zoom_scale` | the aiming camera's tilt and zoom (spec 8.5) |
 | `camera.view` | `aim` (behind the cue ball, including the swoop back to it), `shot` (a shot holds the camera: still behind the cue ball for the stroke, then cut to the full-table view), `pocket` (the shot cycle's camera behind the pocket of the first object ball to drop) or `overview` |
-| `break` | the running break as the counter shows it: the shot's pots count up as they drop, and it is 0 after a shot that pots nothing or the cue ball, a retake, undo, redo, setup, edit mode or `load_position` |
+| `break` | the running break as the counter shows it: the shot's pots count up as they drop, and it is 0 after a shot that pots nothing or the cue ball, a retake, undo, redo, setup, edit mode or `load_position`. In a match, the frame's break as the scoreboard shows it |
+| `screen` | `home`, `match_setup`, `table`, `match`, `pause`, `frame_summary` or `match_summary`, as `screen.changed` logged it |
+| `mode` | `home`, `free_table` or `match`: whose balls are on the table (`balls`, `cue_ball`) |
 
 `wait_idle` returns once the shot has settled, as the camera starts swooping back behind the cue
 ball; the swoop takes about 1.1 s more (`CameraRig.RETURN_S`).
+
+### A match
+
+The app opens at Home. `start_match` starts a match from any screen; with `autoplay` the stand-in
+plays both sides, and with `fast` no stroke is watched. A match played by hand through the
+channel:
+
+```
+{"cmd": "start_match", "args": {"best_of": 1, "first_breaker": "you", "seed": 147}}
+{"cmd": "match_shot", "args": {"cue": [-1.2, 0.05], "aim_rad": 0.02, "tip_x": 0.0, "tip_y": 0.0, "elevation_rad": 0.0, "speed_m_s": 3.0}}
+{"cmd": "match_wait", "args": {"timeout_s": 60}}
+{"cmd": "match_state"}
+```
+
+`match_wait` answers when the person must act: `shot` (their stroke; `match_state`'s `placing`
+and `blocked` say what it still needs), `choice` (`frame.view.options[0]` lists what
+`match_choose` takes), or a summary for `match_continue`. Pause, concessions and Quit are
+reached with `input` events on the scoreboard's pause button.
+
+`python tools/play_match.py` plays a whole match this way with the stand-in on both sides
+(`--best-of`, `--seed`, `--first-breaker`, `--slow`, `--out`), in a user folder of its own under
+`build/play-match`, saves the state and a picture at the match summary, and then has
+`ofs_sim_cli referee` (the Debug build's, or `$OFS_SIM_CLI`) re-judge every `rules.decision` of
+the session log. It prints the strokes, each frame and the result, and exits 0 only when the
+match finished, the log has no `app.error` and the referee agrees. It hides its own window.
 
 ### Input events
 

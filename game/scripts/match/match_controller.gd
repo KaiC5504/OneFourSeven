@@ -13,7 +13,8 @@ extends Node
 
 ## The balls on the table changed other than by a stroke's own motion. reason: &"frame" (a frame
 ## was racked), &"shot" (a stroke was judged: colours spotted, the cue ball in hand), &"replaced"
-## (balls put back after a miss), &"cue" (the in-hand cue ball was placed), &"ended" (the match
+## (balls put back after a miss), &"spotted" (any other choice that moved them: the re-spotted
+## black set again after the toss), &"cue" (the in-hand cue ball was placed), &"ended" (the match
 ## was left).
 signal table_changed(balls: Array[Dictionary], cue_ball: int, reason: StringName)
 ## The frame view after anything changed it; the scoreboard and the controls follow this.
@@ -28,7 +29,8 @@ signal choice_needed(options: Array[String])
 ## The opponent's stroke, as OfsMatch.standin_shot gives it: the table scene places the cue ball
 ## when places_cue, shows the cue on the line and plays `strike` exactly, nominating `nominated`.
 ## It also carries "player" and "shot_id", the id the stand-in's decision was logged under: strike
-## with that id.
+## with that id. A stand-in that claims or concedes in place of a stroke never comes here: its
+## decision is applied like a choice.
 signal opponent_ready(shot: Dictionary)
 ## The opponent chose `kind` (a decision name); it has been applied.
 signal opponent_chose(kind: String)
@@ -121,6 +123,16 @@ func version() -> int:
 ## "<session>-m<n>", on every log line of the match; "" when none has been started or it was left.
 func match_id() -> String:
 	return _match_id
+
+
+## The number of the frame in play, from 1; 0 with no match.
+func frame_number() -> int:
+	return _frame_number
+
+
+## What play waits for, as harness_state's "waiting".
+func waiting() -> String:
+	return _waiting
 
 
 ## config: {best_of: int, first_breaker: "random" | "you" | "computer", seed: int (optional; a
@@ -363,7 +375,8 @@ func next_frame() -> bool:
 	return true
 
 
-## Pause menu (spec 11.1). False when the engine refuses (not allowed now), or a stroke is in play.
+## Pause menu (spec 11.1). False when the engine refuses (not allowed now), a stroke is in play, or
+## a frame's summary is showing: with no frame in play there is nothing to concede.
 func concede_frame() -> bool:
 	return _concede("concede_frame")
 
@@ -449,8 +462,16 @@ func _leave() -> void:
 
 
 func _concede(kind: String) -> bool:
-	if not _active or _playing:
-		_error("%s refused: %s" % [kind, "a stroke is in play" if _playing else "no match is on"], false)
+	var why := ""
+	if not _active:
+		why = "no match is on"
+	elif _playing:
+		why = "a stroke is in play"
+	elif _waiting == "frame_summary":
+		# The engine offers nothing once a frame is over: between frames a match is left by Quit.
+		why = "no frame is in play (a frame's summary is showing)"
+	if not why.is_empty():
+		_error("%s refused: %s" % [kind, why], false)
 		return false
 	return _decide(kind, PERSON, false)
 
@@ -465,7 +486,7 @@ func _decide(kind: String, player: int, severe: bool = true) -> bool:
 	_moves += 1
 	_refusals = 0
 	_take_frame(answer)
-	_sync_balls()
+	var moved := _sync_balls()
 	var event := str(answer.get("event", "none"))
 	var tells: Array[Callable] = []
 	if player != PERSON:
@@ -477,6 +498,9 @@ func _decide(kind: String, player: int, severe: bool = true) -> bool:
 		tells.append(table_changed.emit.bind(balls, cue_ball, &"frame"))
 	elif kind == "replace":
 		tells.append(table_changed.emit.bind(balls, cue_ball, &"replaced"))
+	elif moved:
+		# No event says so: the toss for a re-spotted black sets the black and the cue ball again.
+		tells.append(table_changed.emit.bind(balls, cue_ball, &"spotted"))
 	tells.append(frame_changed.emit.bind(_frame))
 	if _announce(tells):
 		_settle(event)
@@ -495,11 +519,9 @@ func _settle(event: String) -> void:
 	var history := _list(state.get("history"))
 	var match_over := event == "match_ended" or bool(state.get("over", false))
 	var tells: Array[Callable] = []
-	# A match conceded at a frame's summary ends with that frame's end already announced.
-	if _waiting != "frame_summary":
-		if history.is_empty():
-			_error("frame %d ended (event \"%s\") with no summary in the match's history" % [_frame_number, event])
-		tells.append(frame_ended.emit.bind(_dict(history.back()) if not history.is_empty() else {}, state))
+	if history.is_empty():
+		_error("frame %d ended (event \"%s\") with no summary in the match's history" % [_frame_number, event])
+	tells.append(frame_ended.emit.bind(_dict(history.back()) if not history.is_empty() else {}, state))
 	if match_over:
 		_active = false
 		tells.append(match_ended.emit.bind(state))
@@ -551,6 +573,13 @@ func _on_shot_chosen(player: int, shot: Dictionary) -> void:
 		_refusals += 1
 		_refused("standin_shot", [_driver.last_seed, {"shot_id": shot.get("shot_id", "")}], shot)
 		_ask_standin()
+		return
+	var decision: Variant = shot.get("decision")
+	if decision is String and not (decision as String).is_empty():
+		# It claims or concedes in place of a stroke.
+		if not _decide(decision, player):
+			_refusals += 1
+			_ask_standin()
 		return
 	shot["player"] = player
 	opponent_ready.emit(shot)
@@ -605,15 +634,18 @@ func _take_frame(answer: Dictionary) -> void:
 	_frame = given if not given.is_empty() else _dict(engine.frame())
 
 
-func _sync_balls() -> void:
+## Takes the engine's balls; true when they are not the ones held.
+func _sync_balls() -> bool:
 	var now: Array[Dictionary] = []
 	for ball: Variant in _list(engine.balls()):
 		now.append(_dict(ball))
 	var place := int(engine.cue_ball())
-	if now != balls or place != cue_ball:
-		balls = now
-		cue_ball = place
-		_version += 1
+	if now == balls and place == cue_ball:
+		return false
+	balls = now
+	cue_ball = place
+	_version += 1
+	return true
 
 
 func _wait(waiting: String, player: int, person: bool) -> void:

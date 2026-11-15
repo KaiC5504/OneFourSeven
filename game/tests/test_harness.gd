@@ -579,6 +579,190 @@ func test_channel_quit_answers_then_quits() -> void:
 	scene.free()
 
 
+# The screens and a match, against a scene that stands in for main.gd's hooks and records what it
+# was asked.
+
+class MatchScene extends FakeScene:
+	var asked: Array[Array] = []
+	var polls := 0
+	var settling_frames := 0
+
+	func harness_open_screen(screen: String) -> bool:
+		asked.append(["open_screen", screen])
+		settling_frames = 3
+		return screen != "table"
+
+	func harness_refusal() -> String:
+		return "the table is being re-clothed"
+
+	func harness_settling() -> bool:
+		settling_frames -= 1
+		return settling_frames > 0
+
+	func harness_demo_screen(screen: String, match_state: Dictionary) -> bool:
+		asked.append(["demo_screen", screen, match_state])
+		return true
+
+	func harness_start_match(config: Dictionary, autoplay: bool, fast: bool) -> Dictionary:
+		asked.append(["start_match", config, autoplay, fast])
+		return {"match_id": "m-1"}
+
+	func harness_match_state() -> Dictionary:
+		return {"active": true, "waiting": "shot", "blocked": "", "frame": {"scores": [1, 2]}}
+
+	func harness_match_shot(strike: Dictionary, nominated: String, cue: Variant) -> Dictionary:
+		asked.append(["match_shot", strike, nominated, cue])
+		return {"shot_id": "s-1"}
+
+	func harness_match_choose(kind: String) -> Dictionary:
+		return {"error": "\"%s\" was not chosen" % kind} if kind == "replace" else {"kind": kind}
+
+	func harness_match_waiting() -> Dictionary:
+		polls += 1
+		return {"waiting": "shot" if polls >= 4 else "opponent", "person": polls >= 4}
+
+	func harness_match_autoplay(on: bool, fast: bool) -> Dictionary:
+		return {"on": on, "fast": fast}
+
+	func harness_match_continue() -> Dictionary:
+		return {"screen": "home"}
+
+
+func _match_scene() -> MatchScene:
+	var scene := MatchScene.new()
+	scene.name = "FakeMatch"
+	tree.root.add_child(scene)
+	return scene
+
+
+func test_channel_open_screen() -> void:
+	var scene := _match_scene()
+	var harness := _channel(scene)
+	var client := await _client(harness.channel_port())
+	var r := await client.ask(1, "open_screen", {"name": "match_setup"})
+	check_eq(r, {"id": 1.0, "ok": true, "result": {"screen": "match_setup"}}, "opened")
+	check_eq(scene.asked, [["open_screen", "match_setup"]], "the scene was asked")
+	check(scene.settling_frames <= 0, "answered once the scene had settled")
+	r = await client.ask(2, "open_screen", {"name": "table"})
+	check(not r.get("ok", true) and str(r.get("error")).contains("re-clothed"), "the scene's refusal, with its reason: %s" % r)
+	r = await client.ask(3, "open_screen", {"name": "pause"})
+	check(not r.get("ok", true) and str(r.get("error")).contains("home, match_setup, table"), "only the three screens: %s" % r)
+	r = await client.ask(4, "open_screen", {})
+	check(not r.get("ok", true), "a name is needed")
+	var plain := _fake_scene()
+	harness.scene_provider = func() -> Node: return plain
+	r = await client.ask(5, "open_screen", {"name": "home"})
+	check(not r.get("ok", true) and str(r.get("error")).contains("harness_open_screen"), "a scene without the hook: %s" % r)
+	r = await client.ask(6, "frobnicate")
+	check(str(r.get("error")).contains("open_screen") and str(r.get("error")).contains("match_continue"),
+			"the unknown-command answer lists the new commands: %s" % r)
+	harness.free()
+	plain.free()
+	scene.free()
+
+
+func test_channel_start_match_checks_and_types_its_config() -> void:
+	var scene := _match_scene()
+	var harness := _channel(scene)
+	var client := await _client(harness.channel_port())
+	var r := await client.ask(1, "start_match", {"best_of": 5, "first_breaker": "computer", "seed": 12, "autoplay": true, "fast": true})
+	check_eq(r, {"id": 1.0, "ok": true, "result": {"match_id": "m-1"}}, "started")
+	check_eq(scene.asked[0], ["start_match", {"best_of": 5, "first_breaker": "computer", "seed": 12}, true, true], "as asked")
+	check(scene.asked[0][1]["best_of"] is int and scene.asked[0][1]["seed"] is int, "whole numbers reach the scene as integers")
+	r = await client.ask(2, "start_match")
+	check_eq(scene.asked[1], ["start_match", {"best_of": 3, "first_breaker": "random"}, false, false],
+			"the defaults: best of 3, random, no seed, by hand")
+	for bad: Dictionary in [{"best_of": 2}, {"best_of": "3"}, {"first_breaker": "me"}, {"seed": -1}, {"seed": 1.5},
+			{"autoplay": "yes"}, {"fast": 1}]:
+		r = await client.ask(3, "start_match", bad)
+		check(not r.get("ok", true) and str(r.get("error")).contains(bad.keys()[0]), "refused, naming it: %s -> %s" % [bad, r])
+	check_eq(scene.asked.size(), 2, "and never reaching the scene")
+	harness.free()
+	scene.free()
+
+
+func test_channel_match_shot_choose_wait_autoplay_and_continue() -> void:
+	_mark_log()
+	var scene := _match_scene()
+	var harness := _channel(scene)
+	var client := await _client(harness.channel_port())
+	var strike := {"aim_rad": 0.25, "tip_x": 0.1, "tip_y": -0.2, "elevation_rad": 0.05, "speed_m_s": 2}
+	var r := await client.ask(1, "match_shot", strike)
+	check_eq(r, {"id": 1.0, "ok": true, "result": {"shot_id": "s-1"}}, "a stroke")
+	check_eq(scene.asked[0], ["match_shot", {"aim_rad": 0.25, "tip_x": 0.1, "tip_y": -0.2, "elevation_rad": 0.05,
+			"speed_m_s": 2.0}, "", null], "the strike alone: no colour, the cue ball where it is")
+	var full := strike.duplicate()
+	full["nominated"] = "blue"
+	full["cue"] = [-1.25, 0.5]
+	r = await client.ask(2, "match_shot", full)
+	check(r.get("ok", false), "with a colour and a place: %s" % r)
+	check_eq([scene.asked[1][2], scene.asked[1][3]], ["blue", Vector2(-1.25, 0.5)], "both reach the scene")
+	for bad: Dictionary in [{"cue": [1.0]}, {"cue": "baulk"}, {"nominated": 3}, {"speed_m_s": "fast"}]:
+		var args := strike.duplicate()
+		args.merge(bad, true)
+		r = await client.ask(3, "match_shot", args)
+		check(not r.get("ok", true) and str(r.get("error")).contains(bad.keys()[0]), "refused, naming it: %s -> %s" % [bad, r])
+	check_eq(scene.asked.size(), 2, "and never reaching the scene")
+
+	r = await client.ask(4, "match_choose", {"kind": "play"})
+	check_eq(r.get("result"), {"kind": "play"}, "a choice: %s" % r)
+	r = await client.ask(5, "match_choose", {"kind": "replace"})
+	check(not r.get("ok", true) and str(r.get("error")).contains("not chosen"), "the scene's refusal: %s" % r)
+	r = await client.ask(6, "match_choose", {})
+	check(not r.get("ok", true), "a kind is needed")
+
+	r = await client.ask(7, "match_wait", {"timeout_s": 5})
+	check(r.get("ok", false) and r["result"]["waiting"] == "shot", "match_wait answers when the person is waited for: %s" % r)
+	check_eq(scene.polls, 4, "having asked each frame until then")
+	scene.polls = -100000
+	r = await client.ask(8, "match_wait", {"timeout_s": 0.05})
+	check(not r.get("ok", true) and str(r.get("error")).contains("still waiting on \"opponent\""), "and gives up at the timeout: %s" % r)
+
+	r = await client.ask(9, "match_autoplay", {"on": true})
+	check_eq(r.get("result"), {"on": true, "fast": false}, "autoplay: %s" % r)
+	r = await client.ask(10, "match_autoplay", {"on": "yes"})
+	check(not r.get("ok", true), "on must be a bool")
+	r = await client.ask(11, "match_continue")
+	check_eq(r.get("result"), {"screen": "home"}, "continue: %s" % r)
+	r = await client.ask(12, "match_state")
+	check(r.get("ok", false) and r["result"]["frame"] == {"scores": [1.0, 2.0]}, "match_state is the scene's: %s" % r)
+	harness.free()
+	for data: Dictionary in _logged("harness.command"):
+		if data["command"] == "match_state":
+			check_eq(data["result"], {"active": true, "waiting": "shot", "blocked": ""}, "logged without the frame")
+	scene.free()
+
+
+func test_demo_screens_reach_the_scene() -> void:
+	var scene := _match_scene()
+	var harness: Node = HarnessScript.new()
+	harness.scene_provider = func() -> Node: return scene
+	tree.root.add_child(harness)
+	_mark_log()
+	for screen: String in ["home", "match", "frame_summary", "match_summary", "lobby"]:
+		harness.begin(true, "iOS", PackedStringArray(), PackedStringArray(["-DemoScreen", screen]))
+		for i in 8:
+			await tree.process_frame
+	check_eq(scene.asked[0], ["open_screen", "home"], "home opens as open_screen does")
+	check_eq(scene.asked[1], ["start_match", HarnessScript.DEMO_MATCH, false, false], "match starts the demo match, by hand")
+	check_eq(scene.asked[2][1], "frame_summary", "frame_summary is shown")
+	var example: Dictionary = scene.asked[2][2]
+	check(example.get("over") == false and (example.get("history") as Array).size() == 1, "from the example match as it stands")
+	var finished: Dictionary = scene.asked[3][2]
+	check_eq([scene.asked[3][1], finished.get("over"), finished.get("winner"), finished.get("frames")],
+			["match_summary", true, 1, [0.0, 2.0]], "match_summary from the example played out")
+	check_eq((finished.get("history") as Array).size(), 2, "its frame in play counted as the last")
+	check_eq(scene.asked.size(), 4, "an unknown screen reaches nothing")
+	var reports: Array[Array] = []
+	for data: Dictionary in _logged("harness.command"):
+		if data["command"] == "demo-screen":
+			reports.append([data["args"][0], data["ok"]])
+	check_eq(reports, [["home", true], ["match", true], ["frame_summary", true], ["match_summary", true], ["lobby", false]],
+			"each is logged")
+	harness.free()
+	scene.free()
+
+
 func _mark_log() -> void:
 	OfsLog.flush()
 	_log_start = FileAccess.get_file_as_bytes(OfsLog.file_path()).size()

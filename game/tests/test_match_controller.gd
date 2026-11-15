@@ -835,16 +835,90 @@ func test_concede() -> void:
 	c.free()
 
 
-func test_match_conceded_at_a_frame_summary() -> void:
+func test_nothing_is_conceded_at_a_frame_summary() -> void:
 	var e := _engine(_turn(0))
 	var c := _started(e)
-	var over := _turn(0, {"over": true, "winner": 1})
+	var over := _turn(0, {"over": true, "winner": 1, "options": [[], []]})
 	e.decisions.append(_decided(over, [], "frame_ended"))
-	c.concede_frame()
+	check(c.concede_frame(), "the frame is conceded")
+	check_eq(c.harness_state()["waiting"], "frame_summary", "its summary shows")
 	_events.clear()
-	e.decisions.append(_decided(over, [], "match_ended"))
-	check(c.concede_match(), "concede_match between frames")
-	check_eq(_names(), ["frame_changed", "match_ended"], "the frame's end is not announced twice")
+	_mark_log()
+	var asked := _count(e, "decide")
+	check(not c.concede_match(), "the match can't be conceded between frames")
+	check(not c.concede_frame(), "nor the frame that is over")
+	check_eq(_count(e, "decide"), asked, "the engine, which offers nothing then, is not asked")
+	check_eq(_names(), [] as Array[String], "nothing is announced")
+	check_eq(_errors_with("no frame is in play").size(), 2, "each is logged with why")
+	check_eq(c.harness_state()["waiting"], "frame_summary", "the summary still shows")
+	c.abandon()
+	check_eq(_names(), ["table_changed:ended"], "the match is left by abandoning it")
+	c.free()
+
+
+func test_the_stand_in_claims_or_concedes_in_place_of_a_stroke() -> void:
+	var e := _engine(_turn(1))
+	e.standin_shots.append({"ok": true, "error": "", "decision": "concede_frame", "why": {"kind": "hopeless"}, "us": 80})
+	var over := _turn(1, {"over": true, "winner": 0})
+	e.decisions.append(_decided(over, [{"kind": "frame_over", "value": 0, "detail": "conceded"}], "frame_ended"))
+	var c := _started(e)
+	await _frames(2)
+	check_eq(_last_call(e, "decide"), ["decide", "concede_frame", 1], "its decision is applied for it")
+	check_eq(_names(), ["opponent_chose", "calls_made", "frame_changed", "frame_ended"], "and announced as a choice")
+	check_eq(_events[0], ["opponent_chose", "concede_frame"], "what it chose")
+	check(not _names().has("opponent_ready"), "no stroke is handed to the table")
+	check_eq(c.harness_state()["waiting"], "frame_summary", "the frame is over")
+
+	# For the person, under autoplay, and refused by the engine: asked again, then left alone.
+	var again := _engine(_turn(0))
+	var d := _controller(again)
+	d.autoplay = true
+	for i in MatchController.MAX_REFUSALS + 2:
+		again.standin_shots.append({"ok": true, "error": "", "decision": "claim_frame", "why": {}, "us": 1})
+	_mark_log()
+	d.start(CONFIG)
+	await _frames(MatchController.MAX_REFUSALS + 4)
+	check_eq(_last_call(again, "decide"), ["decide", "claim_frame", 0], "decided for the person")
+	check_eq(_count(again, "decide"), MatchController.MAX_REFUSALS, "a refused decision is asked for again, a few times")
+	check(not _names().has("opponent_ready") and not _names().has("opponent_chose"), "nothing announced")
+	check_eq(_errors_with("engine.decide(\"claim_frame\", 0)").size(), MatchController.MAX_REFUSALS, "each refusal logged")
+	c.free()
+	d.free()
+
+
+func test_a_choice_that_moves_the_balls_says_so() -> void:
+	var toss := _turn(0, {"pending": "toss", "decider": 0, "options": [["play_first", "play_second"], []]})
+	var e := _engine(toss)
+	var c := _started(e)
+	var set_again := e.ball_list.duplicate(true)
+	set_again[0]["x"] = -1.2
+	e.decisions.append(_decided(_turn(0, {"cue_in_hand": true}), [], "none", {"balls": set_again}))
+	var version := c.version()
+	check(c.choose("play_first"), "the toss is answered")
+	check_eq(_names(), ["table_changed:spotted", "frame_changed", "turn_started"], "the balls set again are announced")
+	check_eq(_events[0], ["table_changed", &"spotted", set_again, 0], "as they now lie")
+	check_eq(c.version(), version + 1, "and counted")
+	_events.clear()
+	e.decisions.append(_decided(_turn(0)))
+	c.shot_started("s-1")
+	e.judgements.append(_judged(_json(FRAME_VIEW), _legal()))
+	c.shot_finished(null)
+	_events.clear()
+	c.choose("play")
+	check_eq(_names(), ["frame_changed", "turn_started"], "a choice that moves nothing announces no table")
+	c.free()
+
+
+func test_an_idle_controller_asks_nothing() -> void:
+	var e := _engine(_turn(1))
+	var c := _controller(e)
+	await _frames(3)
+	check_eq(e.calls.size(), 0, "with no match started the engine is left alone")
+	var bare := MatchController.new()
+	tree.root.add_child(bare)
+	await _frames(3)
+	check(not (bare.get_node("OpponentDriver") as OpponentDriver).is_processing(), "and with no engine the driver sleeps")
+	bare.free()
 	c.free()
 
 
