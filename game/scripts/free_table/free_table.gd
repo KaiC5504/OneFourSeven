@@ -94,6 +94,22 @@ func set_balls(new_balls: Array[Dictionary], new_cue_ball: int) -> bool:
 	return true
 
 
+## A named position (a practice shot) as a new history state: undo returns to the table before
+## it. Checked as set_balls checks, and refused the same way.
+func load_position(position_name: String, new_balls: Array[Dictionary], new_cue_ball: int) -> bool:
+	var problems := ball_list_problems(new_balls, new_cue_ball)
+	if problems.is_empty():
+		problems = off_table_problems(new_balls)
+	if not problems.is_empty():
+		Log.warn("app", "app.error", {"kind": "message", "message":
+				"FreeTable.load_position(%s) refused: %s" % [position_name, "; ".join(problems)]})
+		return false
+	_push({"balls": _copy_balls(new_balls), "cue_ball": new_cue_ball, "kind": "setup"})
+	_log_action("setup", {"position": position_name, "balls": new_balls.size()})
+	_show(&"setup")
+	return true
+
+
 ## setup_snapshot is ShotSetup.snapshot() as it was struck; shot_id the shot's id.
 func shot_started(setup_snapshot: Dictionary, shot_id: String = "") -> void:
 	_pending_shot = {"snapshot": setup_snapshot.duplicate(true), "shot_id": shot_id}

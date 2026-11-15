@@ -374,6 +374,30 @@ func test_signals() -> void:
 	table.free()
 
 
+func test_a_named_position_is_a_new_state_and_undo_goes_back() -> void:
+	var table := _table()
+	table.load_setup("empty")
+	_mark_log()
+	var position := _two_balls(0.5, 0.2, 1.0, -0.3)
+	check(table.load_position("a_shot", position, 0), "loads")
+	check_eq(table.balls, position, "the position is the table")
+	check_eq(table.history_size(), 2, "a new state")
+	check(table.can_undo() and not table.can_retake(), "undo, not retake")
+	var actions := _logged("freetable.action")
+	check(actions.size() == 1 and actions[0]["action"] == "setup" and actions[0]["detail"]["position"] == "a_shot",
+			"logged: %s" % [actions])
+	check_eq(_states[-1][2], &"setup", "shown as a setup")
+	table.undo()
+	check_eq(table.balls.size(), 1, "undo: the table before")
+	_mark_log()
+	var off := _two_balls(0.5, 0.2, 5.0, 0.0)
+	check(not table.load_position("off_table", off, 0), "a ball off the table is refused")
+	check(not table.load_position("no_cue", position, 1), "and a wrong cue ball")
+	check_eq(table.balls.size(), 1, "the table unchanged")
+	check_eq(_logged("app.error").size(), 2, "each refusal logged")
+	table.free()
+
+
 func _table() -> FreeTable:
 	_states.clear()
 	_histories.clear()

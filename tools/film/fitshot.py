@@ -38,7 +38,9 @@ class Shot:
         for b in self.balls:
             i = counts.get(b["ball"], 0)
             counts[b["ball"]] = i + 1
-            self.start.append({"ball": b["ball"], "index": i, "r": [float(b["r"][0]), float(b["r"][1])]})
+            # a ball measured a fraction inside a cushion lies against it; the game refuses one past the nose
+            self.start.append({"ball": b["ball"], "index": i,
+                               "r": [max(R - HALF_L, min(HALF_L - R, float(b["r"][0]))), max(R - HALF_W, min(HALF_W - R, float(b["r"][1])))]})
         self.cue = self.start[0]["r"]
         ob = self.d["object_ball"]
         self.object = self.index_of(ob["ball"], ob.get("r"))

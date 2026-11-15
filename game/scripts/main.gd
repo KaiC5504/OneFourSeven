@@ -1,14 +1,16 @@
 extends Node3D
 ## The free table (spec 12.1, 8), where the app opens: the table, balls and cue, one ShotSetup
 ## every control writes, the shot from strike to playback and its cycle (spec 8.5: the pocket
-## camera, the points, the break, the aim turned to the next ball), edit mode, and the harness's
-## hooks (spec 16.5, docs/harness.md).
+## camera, the points, the break, the aim turned to the next ball), edit mode, the practice shots
+## (spec 12.1) and the harness's hooks (spec 16.5, docs/harness.md).
 
 const HudScript := preload("res://scripts/hud.gd")
 const MODE := "free_table"
 const LAYOUT := "full_rack"
 const SCREEN := "table"
 const HARNESS_STRIKE := "harness"
+## A practice shot shown as filmed.
+const DEMO_STRIKE := "demo"
 const NOTICE_SECONDS := 2.5
 # iOS can report the safe area late and changes it on rotation without a resize.
 const SAFE_AREA_POLL_SECONDS := 1.0
@@ -52,6 +54,10 @@ var _break_pill := Label.new()
 var _break_band := Rect2()
 var _break_centre_x := 0.0
 var _pot_warned := false
+var _practices: Array[Dictionary] = []
+## The practice shot the strip is showing: its place in _practices, or -1.
+var _practice := -1
+var _strip := PracticeStrip.new()
 
 @onready var _stage: Stage = $Stage
 @onready var _table: TableView = $Table
@@ -145,6 +151,7 @@ func _ready() -> void:
 	_build_selection()
 	_build_notice()
 	_build_break_pill()
+	_build_practice()
 	get_viewport().size_changed.connect(_layout)
 	var poll := Timer.new()
 	poll.wait_time = SAFE_AREA_POLL_SECONDS
@@ -228,8 +235,9 @@ func skip_shot() -> void:
 
 
 ## Logs, simulates and starts playing the shot set up; its id, or "" when none could start.
-## strike_mode is what the logs call the way it was struck: stroke (Push), pull or harness.
-func _strike(strike_mode: String) -> String:
+## strike_mode is what the logs call the way it was struck: stroke (Push), pull, harness or demo.
+## as_given, when not empty, is the strike to play in place of the setup's own.
+func _strike(strike_mode: String, as_given: Dictionary = {}) -> String:
 	if _playing or _free.edit_mode:
 		return ""
 	var shot_id := Physics.new_shot_id()
@@ -237,8 +245,14 @@ func _strike(strike_mode: String) -> String:
 	_update_elevation_min()
 	Log.info("shot", "shot.input", _shot_input_fields(shot_id, strike_mode))
 	var strike := setup.to_strike()
+	if not as_given.is_empty():
+		# The setup holds the aim before the allowance for side; the log gets the difference.
+		Log.info("shot", "shot.side_allowed", {"shot_id": shot_id,
+				"turned_rad": angle_difference(float(strike["aim_rad"]), float(as_given["aim_rad"])), "target": "",
+				"residual_rad": 0.0, "reason": "played as given", "sims": 0, "us": 0})
+		strike = as_given.duplicate()
 	# A harness shot plays exactly as given.
-	if strike_mode != HARNESS_STRIKE:
+	elif strike_mode != HARNESS_STRIKE:
 		strike = _allowing_for_side(strike, shot_id)
 	var record := Physics.simulate(_free.balls, _free.cue_ball, strike,
 			{"shot_id": shot_id, "mode": MODE, "strike_mode": strike_mode})
@@ -437,8 +451,9 @@ func _set_playing(on: bool) -> void:
 	for control: Control in [_spin, _elevation, _wheel, _stroke, _pull]:
 		control.mouse_filter = Control.MOUSE_FILTER_IGNORE if on else Control.MOUSE_FILTER_STOP
 		control.modulate.a = PLAYING_ALPHA if on else 1.0
-	for id: String in ["edit", "rack", "empty", "overview"]:
+	for id: String in ["edit", "rack", "empty", "practice", "overview"]:
 		_bar.button(id).disabled = on
+	_strip.set_busy(on)
 	if on:
 		_bar.set_history(false, false, false)
 	else:
@@ -568,6 +583,8 @@ func _on_table_changed(balls: Array[Dictionary], _cue_ball: int, reason: StringN
 func _on_history_changed(can_undo: bool, can_redo: bool, can_retake: bool) -> void:
 	if not _playing:
 		_bar.set_history(can_undo, can_redo, can_retake)
+		# Redo coming or going changes the bar's width, which the practice strip sits against.
+		_layout()
 
 
 func _history(action: String) -> void:
@@ -596,13 +613,79 @@ func _history(action: String) -> void:
 
 func _choose_setup(setup_name: String) -> void:
 	if not _playing:
+		end_practice()
 		_free.load_setup(setup_name)
+
+
+## Puts practice shot `index` (its place in the menu) on the table with the aim on its line and
+## shows its strip. False when a shot is playing or the position can't be set up.
+func start_practice(index: int) -> bool:
+	if _playing or index < 0 or index >= _practices.size():
+		return false
+	if not _set_up_practice(_practices[index]):
+		return false
+	_practice = index
+	var shot := _practices[index]
+	_strip.set_shot(shot["title"], shot["hint"], Practice.cue_text(shot["strike"],
+			Physics.param("max_cue_speed_m_s", 10.0), Physics.param("miscue_limit", 0.55)))
+	_strip.visible = true
+	_layout()
+	return true
+
+
+## The practice position back on the table and the aim on its line; spin and power stay.
+func practice_again() -> bool:
+	if _playing or _practice < 0:
+		return false
+	return _set_up_practice(_practices[_practice])
+
+
+## Plays the practice shot as filmed; its shot id, or "" when it couldn't start. The setup is left
+## as the player would set it for the same shot, so a retake hands them the filmed cue.
+func show_practice() -> String:
+	if not practice_again():
+		return ""
+	var strike: Dictionary = _practices[_practice]["strike"]
+	var speed := float(strike["speed_m_s"])
+	setup.set_tip(float(strike["tip_x"]), float(strike["tip_y"]))
+	setup.set_elevation(float(strike["elevation_rad"]))
+	setup.set_speed(speed, PullControl.power_for_speed(speed, Physics.param("max_cue_speed_m_s", 10.0)))
+	setup.wander_rad = 0.0
+	return _strike(DEMO_STRIKE, strike)
+
+
+func end_practice() -> void:
+	if _practice < 0:
+		return
+	_practice = -1
+	_strip.visible = false
+	_layout()
+
+
+func _set_up_practice(shot: Dictionary) -> bool:
+	if _free.edit_mode:
+		_free.set_edit_mode(false)
+	var balls: Array[Dictionary] = shot["balls"]
+	var cue_ball := int(shot["cue_ball"])
+	if not (_free.cue_ball == cue_ball and Practice.same_balls(_free.balls, balls)) 			and not _free.load_position(String(shot["position"]), balls, cue_ball):
+		# FreeTable has logged why.
+		_show_notice("That practice shot couldn't be set up")
+		return false
+	var strike: Dictionary = shot["strike"]
+	var aim := float(strike["aim_rad"])
+	if bool(Settings.get_value("allow_for_side")):
+		# What the player points at: the allowance for side turns it into the filmed aim.
+		aim = Practice.player_aim(Physics.predict, _free.balls, _free.cue_ball, strike,
+				Physics.min_cue_elevation(_free.balls, _free.cue_ball, strike))
+	setup.set_aim(aim)
+	return true
 
 
 func _on_edit_mode_changed(on: bool) -> void:
 	_abort_drag()
 	_reset_break()
 	_bar.set_edit_mode(on)
+	_layout()
 	_update_aim_enabled()
 	_selected = -1
 	_spin.cancel_press("edit mode")
@@ -815,6 +898,22 @@ func _build_break_pill() -> void:
 	$Hud.add_child(_break_pill)
 
 
+func _build_practice() -> void:
+	_strip.name = "PracticeStrip"
+	$Hud.add_child(_strip)
+	# Under the bar, so its open menu covers the strip.
+	$Hud.move_child(_strip, _bar.get_index())
+	_strip.show_pressed.connect(show_practice)
+	_strip.again_pressed.connect(practice_again)
+	_strip.close_pressed.connect(end_practice)
+	_practices = Practice.load_all()
+	var titles: Array[String] = []
+	for shot in _practices:
+		titles.append(String(shot["title"]))
+	_bar.set_practices(titles)
+	_bar.practice_chosen.connect(start_practice)
+
+
 func _show_break() -> void:
 	var value := _cycle.shown_break
 	if value <= 0:
@@ -885,8 +984,15 @@ func _layout() -> void:
 	for key: String in ["bar", "spin", "elevation", "cue", "wheel"]:
 		if key != "wheel" or with_wheel:
 			controls.append(rects[key])
+	var notice_y := safe.position.y + HudScript.EDGE
+	if _strip.visible:
+		var bar: Rect2 = rects["bar"]
+		var left := bar.end.x + HudScript.GAP
+		_strip.place_in(Rect2(left, bar.position.y, (rects["cue"] as Rect2).position.x - HudScript.GAP - left, bar.size.y))
+		controls.append(Rect2(_strip.position, _strip.size))
+		notice_y = _strip.position.y + _strip.size.y + HudScript.GAP
 	_rig.keep_clear(controls)
-	var notice_at := Vector2(safe.get_center().x - _notice.size.x / 2.0, safe.position.y + HudScript.EDGE).round()
+	var notice_at := Vector2(safe.get_center().x - _notice.size.x / 2.0, notice_y).round()
 	if _notice.position != notice_at:
 		_notice.position = notice_at
 
@@ -973,6 +1079,7 @@ func harness_state() -> Dictionary:
 		"last_shot": _last_shot.duplicate(true),
 		"camera": {"pitch_deg": _rig.pitch_deg(), "zoom_scale": _rig.zoom_scale(), "view": _rig.view_name()},
 		"break": _cycle.shown_break,
+		"practice": String(_practices[_practice]["position"]) if _practice >= 0 else "",
 	}
 
 

@@ -137,3 +137,37 @@ func test_touch_targets_and_placement() -> void:
 	check_eq(bar.mouse_filter, Control.MOUSE_FILTER_IGNORE, "the bar itself takes no touches")
 	bar.queue_free()
 	await tree.process_frame
+
+
+func test_practice_swaps_the_menu_for_the_shots_and_a_choice_closes_it() -> void:
+	var bar := FreeTableBar.new()
+	tree.root.add_child(bar)
+	await tree.process_frame
+	check(not bar.button("practice").visible, "no Practice item without shots")
+	var titles: Array[String] = ["One", "Two", "Three"]
+	bar.set_practices(titles)
+	check(bar.button("practice").visible, "Practice shows once there are shots")
+	var got: Array = []
+	bar.practice_chosen.connect(func(index: int) -> void: got.append(index))
+	bar.open_menu()
+	bar.button("practice").pressed.emit()
+	check(bar.is_practice_open() and not bar.is_menu_open(), "the shots replace the menu")
+	check(bar.button("menu").button_pressed, "the menu button still shows it open")
+	check_eq(bar.shots_rect().position, bar.list_rect().position, "where the menu was")
+	for i in titles.size():
+		var b := bar.button("practice_%d" % i)
+		check(b != null and b.text == titles[i], "shot %d is listed" % i)
+		if b != null:
+			check(b.size.x >= 88.0 and b.size.y >= 88.0, "shot %d is big enough to touch" % i)
+	check(bar.shots_rect().size.x > 2.0 * FreeTableBar.SHOT_SIZE.x, "two to a row")
+	bar.button("practice_1").pressed.emit()
+	check_eq(got, [1], "the choice")
+	check(not bar.is_practice_open() and not bar.button("menu").button_pressed, "and the list closes")
+	bar.open_practice()
+	bar.close_menu()
+	check(not bar.is_practice_open(), "closing the menu closes the shots")
+	var fewer: Array[String] = ["Only"]
+	bar.set_practices(fewer)
+	check(bar.button("practice_0").text == "Only" and bar.button("practice_1") == null, "a new list replaces the old")
+	bar.free()
+

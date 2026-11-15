@@ -3,8 +3,9 @@ extends Control
 ## The free table's buttons (KaiC's M2 phone session: less clutter). A row of small icon buttons
 ## at the safe area's top-left: the menu, the overview, then Retake and Undo, with Redo only while
 ## there is something to redo and Done only in edit mode. The menu opens a compact list below it:
-## Rack, Empty table, Edit balls, Settings, and the phone link's status in words; the menu button
-## carries the link status as a dot. A press outside the open list closes it and does nothing else.
+## Rack, Empty table, Practice, Edit balls, Settings, and the phone link's status in words; the
+## menu button carries the link status as a dot. Practice swaps the list for the practice shots,
+## two to a row. A press outside the open list closes it and does nothing else.
 ##
 ## The bar covers the whole canvas but takes no touches itself; only its buttons, and the backdrop
 ## while the list is open, do.
@@ -15,12 +16,16 @@ signal redo_pressed
 signal edit_toggled(on: bool)
 ## "full_rack" or "empty".
 signal setup_chosen(name: String)
+## The practice shot's place in the list given to set_practices.
+signal practice_chosen(index: int)
 signal settings_pressed
 signal overview_toggled(on: bool)
 
 ## 88 canvas units is 44 pt on the phone, the minimum touch target.
 const BUTTON_SIZE := Vector2(88.0, 88.0)
 const ITEM_SIZE := Vector2(300.0, 88.0)
+const SHOT_SIZE := Vector2(470.0, 88.0)
+const SHOT_COLUMNS := 2
 const GAP := 6
 const GROUP_GAP := 14.0
 const EDGE_MARGIN := 16.0
@@ -50,6 +55,8 @@ var _icons := {}
 var _row: PanelContainer
 var _row_box: HBoxContainer
 var _list: PanelContainer
+var _shots: PanelContainer
+var _shot_grid: GridContainer
 var _backdrop: Control
 var _link_dot: Icon
 var _link_label: Label
@@ -138,8 +145,8 @@ func _ready() -> void:
 	_auto_place()
 
 
-## "menu", "overview", "retake", "undo", "redo", "done", or a menu item: "rack", "empty", "edit",
-## "settings".
+## "menu", "overview", "retake", "undo", "redo", "done", a menu item: "rack", "empty", "practice",
+## "edit", "settings", or a practice shot: "practice_0" and up.
 func button(id: String) -> Button:
 	return _buttons.get(id)
 
@@ -152,6 +159,27 @@ func row_rect() -> Rect2:
 ## The open menu's list, in canvas units.
 func list_rect() -> Rect2:
 	return Rect2(_list.position, _list.size)
+
+
+## The open practice list, in canvas units.
+func shots_rect() -> Rect2:
+	return Rect2(_shots.position, _shots.size)
+
+
+## The practice shots' titles, in the order practice_chosen counts them. With none, the menu has
+## no Practice item.
+func set_practices(titles: Array[String]) -> void:
+	for child in _shot_grid.get_children():
+		_buttons.erase(String(child.name))
+		_shot_grid.remove_child(child)
+		child.queue_free()
+	for i in titles.size():
+		var b := _text_button(_shot_grid, "practice_%d" % i, titles[i], SHOT_SIZE)
+		b.name = "practice_%d" % i
+		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		b.pressed.connect(_from_menu.bind(practice_chosen.emit.bind(i)))
+	(_buttons["practice"] as Button).visible = not titles.is_empty()
+	_fit()
 
 
 static func link_text(status: String) -> String:
@@ -208,6 +236,7 @@ func open_menu() -> void:
 
 func close_menu() -> void:
 	_list.visible = false
+	_shots.visible = false
 	_backdrop.visible = false
 	(_buttons["menu"] as Button).set_pressed_no_signal(false)
 	(_icons["menu"] as Icon).queue_redraw()
@@ -215,6 +244,16 @@ func close_menu() -> void:
 
 func is_menu_open() -> bool:
 	return _list.visible
+
+
+func is_practice_open() -> bool:
+	return _shots.visible
+
+
+func open_practice() -> void:
+	open_menu()
+	_list.visible = false
+	_shots.visible = true
 
 
 ## Puts the row at the top-left of safe_rect (canvas units) and the list below the menu button.
@@ -226,6 +265,8 @@ func place_in(safe_rect: Rect2) -> void:
 	var below := Vector2(at.x, at.y + _row.size.y + LIST_GAP).round()
 	if _list.position != below:
 		_list.position = below
+	if _shots.position != below:
+		_shots.position = below
 
 
 func _build() -> void:
@@ -269,6 +310,9 @@ func _build() -> void:
 	_list.add_child(items)
 	_text_button(items, "rack", "Rack", ITEM_SIZE).pressed.connect(_from_menu.bind(setup_chosen.emit.bind("full_rack")))
 	_text_button(items, "empty", "Empty table", ITEM_SIZE).pressed.connect(_from_menu.bind(setup_chosen.emit.bind("empty")))
+	var practice := _text_button(items, "practice", "Practice", ITEM_SIZE)
+	practice.visible = false
+	practice.pressed.connect(open_practice)
 	var edit := _text_button(items, "edit", "Edit balls", ITEM_SIZE)
 	edit.toggle_mode = true
 	edit.toggled.connect(func(on: bool) -> void: _from_menu(edit_toggled.emit.bind(on)))
@@ -289,6 +333,14 @@ func _build() -> void:
 	_link_label.size_flags_vertical = SIZE_FILL
 	link.add_child(_link_label)
 	items.add_child(link)
+
+	_shots = _panel("Shots")
+	_shots.visible = false
+	_shot_grid = GridContainer.new()
+	_shot_grid.columns = SHOT_COLUMNS
+	_shot_grid.add_theme_constant_override("h_separation", GAP)
+	_shot_grid.add_theme_constant_override("v_separation", GAP)
+	_shots.add_child(_shot_grid)
 	set_history(false, false, false)
 	set_link_status("off")
 	_fit()
@@ -355,6 +407,7 @@ func _on_backdrop_input(event: InputEvent) -> void:
 func _fit() -> void:
 	_row.size = _row.get_combined_minimum_size()
 	_list.size = _list.get_combined_minimum_size()
+	_shots.size = _shots.get_combined_minimum_size()
 
 
 func _auto_place() -> void:

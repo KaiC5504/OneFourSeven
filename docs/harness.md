@@ -97,7 +97,7 @@ or the fixtures' form with `"r": [x, y]`; `cue_ball` is the cue ball's position 
 `perf` (the last second's fps, frame times, dropped frames, thermal state, memory footprint and
 idle) and `balls` (`name`, `ball`, `index`, `position` [x, y, height] in core metres), overlaid
 by the game's own state (`harness_state()` in `main.gd`: screen, ball list, shot setup,
-settings, last shot, camera and break).
+settings, last shot, camera, break and `practice`, the practice shot's position name or "").
 
 | Field | What |
 | --- | --- |

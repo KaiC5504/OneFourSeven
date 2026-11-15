@@ -1,0 +1,50 @@
+{
+  "note": "The free table's practice shots, in menu order. Each names a position in core/tests/fixtures/positions that carries a strike (the shots measured from broadcasts: docs/calibration/targets.md, the filmed shots); title and hint are the words the player sees.",
+  "shots": [
+    {
+      "position": "selby_blue",
+      "title": "Selby: blue, three cushions",
+      "hint": "Top and right side, very hard. Three cushions round to the reds on the pink."
+    },
+    {
+      "position": "film_trump_screw_left",
+      "title": "Trump: black, screw and left side",
+      "hint": "Deep screw. Baulk and side cushions, then back to the reds."
+    },
+    {
+      "position": "film_trump_screw_check",
+      "title": "Trump: black, screw and check side",
+      "hint": "Screw and right side. Two cushions, back up to the red on the cushion."
+    },
+    {
+      "position": "film_allen_two_cushions",
+      "title": "Allen: thin blue, two cushions",
+      "hint": "Top and left side. Baulk and side cushions, back up the table to the pink."
+    },
+    {
+      "position": "film_osullivan_baulk_cushion",
+      "title": "O'Sullivan: brown, baulk cushion",
+      "hint": "Follow. Off the baulk cushion and the length of the table to the pink."
+    },
+    {
+      "position": "film_osullivan_stun_back",
+      "title": "O'Sullivan: black, straight back",
+      "hint": "A little follow. Off the top cushion, back to clip the red on the pink spot."
+    },
+    {
+      "position": "film_lee_hugs_cushion",
+      "title": "Lee: black, hugging the cushion",
+      "hint": "Top, nearly full. Off the top cushion, then pulled back along it into the red."
+    },
+    {
+      "position": "film_selby_one_cushion",
+      "title": "Selby: blue, one cushion",
+      "hint": "Follow, very hard. Off the side cushion to the reds by the top cushion."
+    },
+    {
+      "position": "film_higgins_left_side",
+      "title": "Higgins: follow and left side",
+      "hint": "Off the baulk cushion, wide of the natural line, into the ball by the cushion."
+    }
+  ]
+}

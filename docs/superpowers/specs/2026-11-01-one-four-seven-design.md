@@ -717,6 +717,13 @@ below it clearly over a long series. **Claude's call:** at least 70% of frames.
 - **Shot controls:** retake (restore the exact pre-shot state), plus undo and redo
   across the session's shots.
 - **No rules or fouls**, but the shot breakdown and replay are always available.
+- **Practice shots (2026-11-15).** The menu's Practice lists the professional shots measured
+  from broadcasts (7.5, real shots are the reference; `core/data/practice.json` names them).
+  Choosing one sets up its position with the aim on its line and shows a strip at the top:
+  the shot's name, what the cue ball should do, and the filmed cue in the controls' own words
+  (spin and power). **Show me** plays the shot exactly as fitted to the film; **Again** puts
+  the position back; retake after Show me hands the player the filmed cue to play it
+  themselves. Nothing is scored. Each further filmed shot joins the list.
 
 ### 12.2 Routines (each has a best score saved). **Claude's call:** this set
 1. **The Line-up:** the 15 reds in a line up the centre of the table between the colour
