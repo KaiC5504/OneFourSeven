@@ -169,6 +169,42 @@ bool whole(const Variant &v, int64_t &out) {
     return true;
 }
 
+// An int or whole float from 0, or a decimal String, the form match_state().config.seed has, which
+// carries seeds an int64 can't.
+bool read_seed(const Dictionary &d, std::uint64_t &out, std::string &why) {
+    if (!d.has("seed")) {
+        why = "config: missing \"seed\"";
+        return false;
+    }
+    const Variant v = d["seed"];
+    if (v.get_type() == Variant::STRING || v.get_type() == Variant::STRING_NAME) {
+        // The core's own reading of a config's seed.
+        const json probe = {{"best_of", 1},
+                            {"first_breaker", 0},
+                            {"seed", variant_text(v)},
+                            {"concede_any_time", json::array({false, false})}};
+        rules::MatchConfig parsed;
+        std::string error;
+        if (!rules::config_from_json(probe, parsed, error)) {
+            why = "config: " + error;
+            return false;
+        }
+        out = parsed.seed;
+        return true;
+    }
+    int64_t seed = 0;
+    if (!whole(v, seed)) {
+        why = "config: \"seed\" is not a whole number or a decimal String (" + variant_text(v) + ")";
+        return false;
+    }
+    if (seed < 0) {
+        why = "config: \"seed\" " + std::to_string(seed) + " is negative (a seed past an int64 goes as a decimal String)";
+        return false;
+    }
+    out = static_cast<std::uint64_t>(seed);
+    return true;
+}
+
 bool read_config(const Dictionary &d, rules::MatchConfig &out, std::string &why) {
     const auto number = [&](const char *key, int64_t &value) {
         if (!d.has(key)) {
@@ -183,8 +219,10 @@ bool read_config(const Dictionary &d, rules::MatchConfig &out, std::string &why)
     };
     int64_t best_of = 0;
     int64_t first_breaker = 0;
-    int64_t seed = 0;
-    if (!number("best_of", best_of) || !number("first_breaker", first_breaker) || !number("seed", seed)) return false;
+    std::uint64_t seed = 0;
+    if (!number("best_of", best_of) || !number("first_breaker", first_breaker) || !read_seed(d, seed, why)) {
+        return false;
+    }
     // valid_config says what is wrong with a number an int holds; one past an int would not reach it whole.
     const auto fits = [&why](const char *key, int64_t value) {
         if (value >= std::numeric_limits<int>::min() && value <= std::numeric_limits<int>::max()) return true;
@@ -204,7 +242,7 @@ bool read_config(const Dictionary &d, rules::MatchConfig &out, std::string &why)
     }
     out.best_of = int(best_of);
     out.first_breaker = int(first_breaker);
-    out.seed = static_cast<std::uint64_t>(seed);
+    out.seed = seed;
     out.concede_any_time = {bool(pair[0]), bool(pair[1])};
     return true;
 }
@@ -277,11 +315,12 @@ Dictionary match_view(const rules::MatchState &m) {
     return json_to_variant(j);
 }
 
-// The frame and match lines `event` brings, from the match as it stands after it.
-void log_event(const rules::MatchState &m, rules::MatchEvent event, const json &context) {
+// The frame and match lines `event` brings, from the match as it stands after it. frame.started
+// takes `racked`, which names the physics values the rack was laid with.
+void log_event(const rules::MatchState &m, rules::MatchEvent event, const json &context, const json &racked) {
     switch (event) {
         case rules::MatchEvent::none: break;
-        case rules::MatchEvent::reracked: rules::log_frame_started(m, context); break;
+        case rules::MatchEvent::reracked: rules::log_frame_started(m, racked); break;
         case rules::MatchEvent::frame_ended: rules::log_frame_ended(m, context); break;
         case rules::MatchEvent::match_ended: {
             rules::log_frame_ended(m, context);
@@ -396,6 +435,22 @@ json OfsMatch::log_context(const rules::MatchState &m, const String &shot_id) co
     return out;
 }
 
+json OfsMatch::rack_context(const rules::MatchState &m, const String &shot_id) const {
+    json out = log_context(m, shot_id);
+    out["params_hash"] = params_hash_;
+    return out;
+}
+
+json OfsMatch::scope_context(const String &shot_id) const {
+    return started_ ? log_context(match_, shot_id) : json::object();
+}
+
+void OfsMatch::refresh_params() {
+    if (physics_.is_null() || !physics_->is_ready()) return;
+    params_ = physics_->physics_params();
+    params_hash_ = to_std(physics_->params_hash());
+}
+
 void OfsMatch::refusal(const char *call, const std::string &why, const json &given) const {
     last_error_ = from_std(why);
     std::string detail = why;
@@ -411,10 +466,12 @@ Dictionary OfsMatch::refused(const char *call, const std::string &why, const jso
 
 Dictionary OfsMatch::thrown(const char *call, const std::string &message) const {
     last_error_ = from_std("exception: " + message);
-    std::string logged = message;
-    if (started_) logged += " (match " + to_std(match_id_) + ", frame " + std::to_string(match_.frame_number) + ")";
-    ofs::log::error("app", "app.error",
-                    {{"kind", "exception"}, {"message", logged}, {"function", std::string("OfsMatch.") + call}});
+    json data = {{"kind", "exception"}, {"message", message}, {"function", std::string("OfsMatch.") + call}};
+    if (started_) {
+        data["match_id"] = to_std(match_id_);
+        data["frame"] = match_.frame_number;
+    }
+    ofs::log::error("app", "app.error", std::move(data));
     return failure(last_error_);
 }
 
@@ -451,6 +508,7 @@ bool OfsMatch::configure(const Ref<OfsPhysics> &physics, const String &referee_j
             json data = {{"ok", ok},
                          {"values", rules::ref_params_values(ref)},
                          {"standin", standin_values(standin)},
+                         {"params_hash", have_physics ? to_std(physics->params_hash()) : std::string()},
                          {"problems", problems}};
             if (!ok) {
                 std::string all;
@@ -459,7 +517,9 @@ bool OfsMatch::configure(const Ref<OfsPhysics> &physics, const String &referee_j
                 ofs::log::error("rules", "rules.configured", std::move(data));
                 return false;
             }
+            physics_ = physics;
             params_ = physics->physics_params();
+            params_hash_ = to_std(physics->params_hash());
             table_ = physics->table();
             ref_ = ref;
             standin_ = standin;
@@ -487,13 +547,18 @@ Dictionary OfsMatch::start(const Dictionary &config, const String &match_id) {
             rules::MatchConfig c;
             std::string why;
             if (!read_config(config, c, why) || !rules::valid_config(c, why)) return refuse(why);
-            rules::MatchState next = rules::start_match(c, params_);
+            refresh_params();
+            rules::MatchState next;
+            {
+                const rules::ScopedLogContext scope({{"match_id", to_std(match_id)}});
+                next = rules::start_match(c, params_);
+            }
             Dictionary out = answer();
             out["match"] = match_view(next);
 
             // One match at a time: the one still on is left as Quit leaves it.
             abandon();
-            json context = {{"match_id", to_std(match_id)}, {"frame", next.frame_number}};
+            const json context = {{"match_id", to_std(match_id)}, {"frame", next.frame_number}};
             json started = context;
             if (config.has("person")) {
                 int64_t person = -1;
@@ -507,7 +572,9 @@ Dictionary OfsMatch::start(const Dictionary &config, const String &match_id) {
                 }
             }
             rules::log_match_started(next, started);
-            rules::log_frame_started(next, context);
+            json racked = context;
+            racked["params_hash"] = params_hash_;
+            rules::log_frame_started(next, racked);
             match_ = std::move(next);
             match_id_ = match_id;
             started_ = true;
@@ -574,6 +641,7 @@ Dictionary OfsMatch::place_cue(double x, double y) {
     };
     return guarded(
         [&]() -> Dictionary {
+            const rules::ScopedLogContext scope(scope_context());
             const json given = {{"x", ofs::phys::number_to_json(x)}, {"y", ofs::phys::number_to_json(y)}};
             std::string why = not_in_progress();
             // Before rules.cue_placed, whose x and y are numbers.
@@ -625,6 +693,9 @@ Dictionary OfsMatch::judge(const Ref<OfsShotRecord> &record, const Dictionary &i
     };
     return guarded(
         [&]() -> Dictionary {
+            const String shot_id = context_text(context, "shot_id");
+            const rules::ScopedLogContext scope(scope_context(shot_id));
+            refresh_params();
             std::string why = no_stroke_now();
             if (why.empty() && record.is_null()) why = "no shot record: the stroke was not simulated";
             rules::ShotInput in;
@@ -655,9 +726,8 @@ Dictionary OfsMatch::judge(const Ref<OfsShotRecord> &record, const Dictionary &i
             out["event"] = from_std(rules::match_event_name(event));
             out["frame"] = frame_view(next.frame);
 
-            const String shot_id = context_text(context, "shot_id");
             rules::log_decision(pre, in, facts, j, ref_, log_context(match_, shot_id));
-            log_event(next, event, log_context(next, shot_id));
+            log_event(next, event, log_context(next, shot_id), rack_context(next, shot_id));
             match_ = std::move(next);
             last_error_ = String();
             return out;
@@ -671,6 +741,9 @@ Dictionary OfsMatch::decide(const String &kind, int64_t player) {
     };
     return guarded(
         [&]() -> Dictionary {
+            const rules::ScopedLogContext scope(scope_context());
+            // An accepted re-rack lays a new rack.
+            refresh_params();
             std::string why = not_in_progress();
             rules::Decision d;
             if (why.empty() && !rules::parse_decision(to_std(kind), d.kind)) {
@@ -711,7 +784,7 @@ Dictionary OfsMatch::decide(const String &kind, int64_t player) {
             out["frame"] = frame_view(next.frame);
 
             rules::log_choice(before, d, true, "", after, calls, context);
-            log_event(next, event, log_context(next));
+            log_event(next, event, log_context(next), rack_context(next));
             match_ = std::move(next);
             last_error_ = String();
             return out;
@@ -722,6 +795,8 @@ Dictionary OfsMatch::decide(const String &kind, int64_t player) {
 Dictionary OfsMatch::next_frame() {
     return guarded(
         [&]() -> Dictionary {
+            const rules::ScopedLogContext scope(scope_context());
+            refresh_params();
             std::string why = not_in_progress();
             const std::string number = "frame " + std::to_string(match_.frame_number);
             if (why.empty() && !match_.frame.over) why = number + " is not over";
@@ -734,7 +809,7 @@ Dictionary OfsMatch::next_frame() {
             }
             Dictionary out = answer();
             out["frame"] = frame_view(next.frame);
-            rules::log_frame_started(next, log_context(next));
+            rules::log_frame_started(next, rack_context(next));
             match_ = std::move(next);
             last_error_ = String();
             return out;
@@ -748,10 +823,14 @@ Dictionary OfsMatch::standin_shot(int64_t seed, const Dictionary &context) {
     };
     return guarded(
         [&]() -> Dictionary {
+            const String shot_id = context_text(context, "shot_id");
+            const rules::ScopedLogContext scope(scope_context(shot_id));
+            refresh_params();
             const std::string why = no_stroke_now();
             if (!why.empty()) return refuse(why);
             const rules::FrameState &f = match_.frame;
-            ofs::Rng rng(static_cast<std::uint64_t>(seed));
+            const std::uint64_t drawn = static_cast<std::uint64_t>(seed);
+            ofs::Rng rng(drawn);
             const auto began = std::chrono::steady_clock::now();
             const opponent::StandinShot shot =
                 opponent::choose_shot(f, *table_, params_, *oracle_, ref_, standin_, rng);
@@ -760,6 +839,7 @@ Dictionary OfsMatch::standin_shot(int64_t seed, const Dictionary &context) {
             const json reasons = shot.why.is_object() ? shot.why : json::object();
             json line = {{"kind", shot.decides ? "choice" : "shot"},
                          {"player", f.striker},
+                         {"seed", std::to_string(drawn)},
                          {"why", reasons},
                          {"us", us}};
             Dictionary out = answer();
@@ -798,7 +878,8 @@ Dictionary OfsMatch::standin_shot(int64_t seed, const Dictionary &context) {
                 out["strike"] = strike;
                 problem = unplayable(shot, f, *oracle_);
             }
-            const json logged = log_context(match_, context_text(context, "shot_id"));
+            // A claim or concession strikes nothing, so no shot carries its id.
+            const json logged = log_context(match_, shot.decides ? String() : shot_id);
             if (!problem.empty()) {
                 line["error"] = problem;
                 log_standin(false, std::move(line), logged);
@@ -814,6 +895,8 @@ Dictionary OfsMatch::standin_shot(int64_t seed, const Dictionary &context) {
 String OfsMatch::standin_choice(int64_t player, int64_t seed) {
     return guarded(
         [&]() -> String {
+            const rules::ScopedLogContext scope(scope_context());
+            refresh_params();
             const json given = {{"player", player}, {"seed", seed}};
             std::string why = not_in_progress();
             if (why.empty() && player != 0 && player != 1) why = "player " + std::to_string(player) + " is not 0 or 1";
@@ -824,7 +907,12 @@ String OfsMatch::standin_choice(int64_t player, int64_t seed) {
             const rules::FrameState &f = match_.frame;
             const std::vector<rules::DecisionKind> open = rules::options(f, int(player));
             const json context = log_context(match_);
-            json line = {{"kind", "choice"}, {"player", player}, {"choice", ""}, {"options", names(open)}};
+            const std::uint64_t drawn = static_cast<std::uint64_t>(seed);
+            json line = {{"kind", "choice"},
+                         {"player", player},
+                         {"seed", std::to_string(drawn)},
+                         {"choice", ""},
+                         {"options", names(open)}};
             if (open.empty()) {
                 why = "nothing is open to player " + std::to_string(player) + " now";
                 line["error"] = why;
@@ -832,10 +920,12 @@ String OfsMatch::standin_choice(int64_t player, int64_t seed) {
                 refusal("standin_choice", why, given);
                 return String();
             }
-            ofs::Rng rng(static_cast<std::uint64_t>(seed));
+            ofs::Rng rng(drawn);
             const auto began = std::chrono::steady_clock::now();
-            rules::DecisionKind chosen = opponent::choose_decision(f, int(player), open, standin_, rng);
+            json weighed;
+            rules::DecisionKind chosen = opponent::choose_decision(f, int(player), open, standin_, rng, &weighed);
             line["us"] = us_since(began);
+            line["why"] = weighed.is_object() ? weighed : json::object();
             const bool ok = offered(open, chosen);
             if (!ok) {
                 // The game could not apply it. The first option is the plain one (play, accept,

@@ -36,7 +36,72 @@ func test_configure_takes_the_real_files() -> void:
 		check_eq(lines[0]["problems"], [], "no problems")
 		check_eq(lines[0]["values"], file["values"], "the referee's values as loaded")
 		check((lines[0]["standin"] as Dictionary).has("max_sims"), "the stand-in's values")
+		check_eq(lines[0]["params_hash"], Physics.sim.params_hash(), "and the physics values' hash")
 	_check_schema()
+
+
+func test_physics_values_changed_live_reach_the_match() -> void:
+	var table_text := _text("res://data/table_shape.json")
+	var physics := OfsPhysics.new()
+	var params_text := _text(Params.EMBEDDED_PATH)
+	check(physics.configure(params_text, "live-before", table_text), "the physics is configured")
+	var m := OfsMatch.new()
+	_mark_log()
+	check(m.configure(physics, _text(REFEREE_PATH), _text(STANDIN_PATH)), "configure: " + m.last_error())
+	check_eq(m.start(_config(3, 0, 147), _match_id()).get("ok"), true, "a match starts")
+	for line in _logged("rules.configured") + _logged("frame.started"):
+		check_eq(line.get("params_hash"), "live-before", "the values the match was set up with")
+
+	# As the phone link changes them, between strokes: a slower cue and wider gaps in the rack.
+	var changed := params_text.replace('"max_cue_speed_m_s": 6.5,', '"max_cue_speed_m_s": 2.0,') \
+			.replace('"rack_gap_max_m": 0.0001,', '"rack_gap_max_m": 0.0005,')
+	check(changed.contains('"max_cue_speed_m_s": 2.0,') and changed.contains('"rack_gap_max_m": 0.0005,'),
+			"both values are in the text changed")
+	check(physics.configure(changed, "live-after", table_text), "the new values are taken")
+	_mark_log()
+	var shot := m.standin_shot(5, {"shot_id": "live-1"})
+	check_eq(shot.get("ok"), true, "the stand-in plays: " + str(shot.get("error")))
+	check(float(shot.get("strike", {}).get("speed_m_s", 99.0)) <= 2.0, "within the new cap: " + str(shot.get("strike")))
+	check_eq(m.decide("concede_frame", 0).get("ok"), true, "frame 1 is conceded")
+	check_eq(m.next_frame().get("ok"), true, "frame 2 is racked: " + m.last_error())
+	var started := _logged("frame.started")
+	check_eq(started.size(), 1, "frame.started")
+	if started.size() == 1:
+		check_eq(int(started[0]["number"]), 2, "for frame 2")
+		check_eq(started[0]["params_hash"], "live-after", "with the values in use now")
+	_check_schema()
+
+	var unchanged := OfsPhysics.new()
+	check(unchanged.configure(params_text, "live-before", table_text), "the values as they were")
+	var before := OfsMatch.new()
+	check(before.configure(unchanged, _text(REFEREE_PATH), _text(STANDIN_PATH)), "configure: " + before.last_error())
+	check_eq(before.start(_config(3, 0, 147), _match_id()).get("ok"), true, "the same match on them")
+	check_eq(before.decide("concede_frame", 0).get("ok"), true, "frame 1 is conceded")
+	check_eq(before.next_frame().get("ok"), true, "to frame 2")
+	check(before.balls() != m.balls(), "racks frame 2 with other gaps")
+	check_eq(before.balls().size(), m.balls().size(), "and the same balls")
+
+
+func test_a_refusal_inside_the_engine_names_the_stroke() -> void:
+	var m := _started(_config(3, 1, 147))
+	var id := _last_id()
+	_mark_log()
+	# Blue can't be declared with red on: the engine says so from inside judge and plays on.
+	var answer: Dictionary = _stroke(m, _strike(_aim_at_the_pack(m.balls(), m.cue_ball()), 3.0), 11, "early-blue",
+			"blue")[1]
+	check_eq(answer.get("ok"), true, "judged: " + str(answer.get("error")))
+	var refused := _logged_what("nomination")
+	check_eq(refused.size(), 1, "rules.invalid from the engine")
+	if refused.size() == 1:
+		check_eq(refused[0].get("match_id"), id, "with the match id")
+		check_eq(int(refused[0].get("frame", 0)), 1, "the frame")
+		check_eq(refused[0].get("shot_id"), "early-blue", "and the stroke")
+	_check_schema()
+	_mark_log()
+	check_eq(m.place_cue(5.0, 5.0).get("ok"), false, "a cue ball off the table is refused")
+	for line in _logged("rules.invalid"):
+		check_eq(line.get("match_id"), id, "OfsMatch's own refusal carries the match too")
+		check(not line.has("shot_id"), "and no stroke")
 
 
 func test_configure_refusals_keep_what_was_there() -> void:
@@ -136,8 +201,19 @@ func test_start_with_each_kind_of_config() -> void:
 
 	for best_of: int in [1, 35]:
 		check_eq(m.start(_config(best_of, 0, 5), _match_id())["ok"], true, "best of %d" % best_of)
-	check_eq(m.start(_config(3, 0, -42), _match_id())["ok"], true, "a negative seed")
-	check_eq(m.match_state()["config"]["seed"], "18446744073709551574", "is the int64's bits as uint64")
+	check_eq(m.start(_config(3, 0, -42), _match_id())["ok"], false, "a negative seed is refused")
+	check(m.last_error().contains("negative"), "last_error says why: " + m.last_error())
+	var past_int64 := _changed(_config(3, 0, 0), "seed", "18446744073709551574")
+	check_eq(m.start(past_int64, _match_id())["ok"], true, "a seed past an int64, as a decimal String")
+	check_eq(m.match_state()["config"]["seed"], "18446744073709551574", "is taken whole")
+	var racked := m.balls()
+	var again := _changed(_config(3, 0, 0), "seed", m.match_state()["config"]["seed"])
+	check_eq(m.start(again, _match_id())["ok"], true, "the config's own seed goes back in")
+	check_eq(m.balls(), racked, "and racks the same balls")
+	check_eq(m.start(_changed(_config(3, 0, 0), "seed", "147"), _match_id())["ok"], true, "147 as a String")
+	var as_text := m.balls()
+	check_eq(m.start(_config(3, 0, 147), _match_id())["ok"], true, "and as an int")
+	check_eq(m.balls(), as_text, "are the same seed")
 	var from_json: Dictionary = JSON.parse_string(
 			'{"best_of": 3, "first_breaker": 1, "seed": 147, "concede_any_time": [false, true]}')
 	check_eq(m.start(from_json, _match_id())["ok"], true, "a config read from JSON, its numbers floats")
@@ -178,6 +254,10 @@ func test_start_refusals_leave_the_match_as_it_was() -> void:
 		"first_breaker 2": [_changed(good, "first_breaker", 2), "first_breaker"],
 		"first_breaker missing": [_without(good, "first_breaker"), "first_breaker"],
 		"seed a fraction": [_changed(good, "seed", 1.5), "seed"],
+		"seed negative": [_changed(good, "seed", -1), "seed"],
+		"seed a word": [_changed(good, "seed", "many"), "seed"],
+		"seed a negative String": [_changed(good, "seed", "-1"), "seed"],
+		"seed past a uint64": [_changed(good, "seed", "18446744073709551616"), "seed"],
 		"seed missing": [_without(good, "seed"), "seed"],
 		"concede_any_time one bool": [_changed(good, "concede_any_time", [true]), "concede_any_time"],
 		"concede_any_time numbers": [_changed(good, "concede_any_time", [1, 0]), "concede_any_time"],
@@ -920,10 +1000,14 @@ func test_forty_strokes_by_the_standin() -> void:
 	var shots := 0
 	for line in _logged("opponent.decision"):
 		check(ids.has(line["match_id"]), "opponent.decision carries its match")
+		check(line.get("seed") is String and str(line["seed"]).is_valid_int(), "and the seed it was made from")
+		check(line.get("why") is Dictionary, "and why")
 		if line["kind"] == "shot":
 			shots += 1
 			check(str(line["shot_id"]).begins_with("standin-"), "and its shot")
 			check((line["strike"] as Dictionary).has("speed_m_s"), "with the strike")
+		else:
+			check(not line.has("shot_id"), "a choice strikes nothing: no shot_id")
 	check_eq(shots, 40, "an opponent.decision for each stroke")
 	for id in ids:
 		_check_context(id)
@@ -948,6 +1032,15 @@ func test_standin_choice_for_a_pending_decision() -> void:
 		check_eq(line["options"], AFTER_FOUL, "among what was offered")
 		check_eq(line["match_id"], fouled["id"], "with the match id")
 		check_eq(int(line["frame"]), 1, "and the frame")
+		check_eq(line.get("seed"), "77", "the seed, to make it again")
+		check(not line.has("shot_id"), "no stroke")
+		var why: Dictionary = line.get("why", {})
+		check(why.get("rule") in AFTER_FOUL, "why names the rule it took: " + str(why))
+		check_eq(why.get("options"), AFTER_FOUL, "what it weighed")
+		check(why.has("scores") and why.has("points_remaining"), "with the scores")
+	check_eq(m.standin_choice(1, -1), kind, "a negative seed is the uint64 of its bits")
+	var last: Array[Dictionary] = _logged("opponent.decision")
+	check_eq(last.back().get("seed") if not last.is_empty() else "", "18446744073709551615", "as logged")
 
 	_mark_log()
 	check_eq(m.standin_choice(0, 77), "", "nothing for the player with nothing to choose")
@@ -1243,6 +1336,8 @@ func _check_schema() -> void:
 		check((spec["levels"] as Array).has(line.get("level")), "%s: level %s" % [event, line.get("level")])
 		var data: Dictionary = line.get("data", {})
 		var fields: Dictionary = spec["fields"]
+		for key: String in data:
+			check(fields.has(key), "undeclared field %s on %s" % [key, event])
 		for field: String in fields:
 			if not data.has(field):
 				check(not bool(fields[field].get("required", false)), "%s: missing %s" % [event, field])

@@ -1,7 +1,7 @@
 #pragma once
 
-// The stand-in opponent (spec 21, M3): simple and legal, so matches can be played end to end and
-// the rules fuzzed with whole frames. M4's opponent replaces it. Deterministic for one Rng state.
+// The stand-in opponent (spec 21): simple and legal, so matches can be played end to end and the
+// rules fuzzed with whole frames. Deterministic for one Rng state.
 //
 // core/data/standin_params.json holds its values the way table_params.json does.
 
@@ -44,8 +44,11 @@ struct StandinShot {
     rules::Vec2 cue_pos;
     rules::ShotInput input;
     phys::CueStrike strike;
-    // For opponent.decision: {"kind": "pot" | "safety" | "escape" | "break", "target": "red 3",
-    // "pocket": index or -1, "cut_rad", "candidates", "sims", "aim_error_rad", "speed_error"}.
+    // For opponent.decision. A stroke: {"kind": "pot" | "safety" | "escape" | "break", "target":
+    // "red 3", "pocket": index or -1, "cut_rad", "candidates", "sims", "penalty" (what the stroke
+    // chosen cost when simulated as aimed, -1 when nothing was), "aim_error_rad", "speed_error"}.
+    // A decision: {"kind": "claim"} or {"kind": "concede", "required": penalty points it needs}.
+    // When it could not work a stroke out: {"kind": "safety", "error"} and the plainest stroke.
     nlohmann::json why;
 };
 
@@ -56,8 +59,14 @@ StandinShot choose_shot(const rules::FrameState& s, const phys::TableShape& tabl
                         const rules::TableOracle& oracle, const rules::RefParams& ref, const StandinParams& sp,
                         Rng& rng);
 
-// One of `options` (not empty), which is rules::options(s, player).
+// One of `options` (not empty), which is rules::options(s, player). `why`, when given, gets what it
+// weighed, for opponent.decision: {"rule": "replace" | "play_again" | "play" | "accept_rerack" |
+// "refuse_rerack" | "play_first" | "first_option", "options", "scores", "points_remaining"}, and
+// what the rule looked at: "clear_path_before" (whether the position before a miss had a straight
+// stroke at a ball on), "pot" and "clear_path" (the position left), "score_gap" and
+// "rerack_within"; "error" when it threw and took the first option.
 rules::DecisionKind choose_decision(const rules::FrameState& s, int player,
-                                    const std::vector<rules::DecisionKind>& options, const StandinParams& sp, Rng& rng);
+                                    const std::vector<rules::DecisionKind>& options, const StandinParams& sp, Rng& rng,
+                                    nlohmann::json* why = nullptr);
 
 }  // namespace ofs::opponent

@@ -147,6 +147,32 @@ class ValidateLineTest(unittest.TestCase):
         self.assertTrue(lines)
         for number, line in enumerate(lines, start=1):
             self.assertIsNone(self.check(line), f"{FIXTURE.name}:{number}")
+            self.assertIsNone(check_logs.validate_line_strict(line, self.schema), f"{FIXTURE.name}:{number}")
+
+
+class StrictTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.schema = check_logs.load_schema()
+
+    def strict(self, line):
+        return check_logs.validate_line_strict(dumps(line), self.schema)
+
+    def test_undeclared_fields_are_named_one_by_one(self):
+        line = event(data={"state": "background", "zeta": 1, "extra": [1]})
+        self.assertEqual(self.strict(line),
+                         "undeclared field extra on app.lifecycle; undeclared field zeta on app.lifecycle")
+        self.assertIsNone(check_logs.validate_line(dumps(line), self.schema), "validate_line still takes it")
+
+    def test_declared_optional_fields_pass(self):
+        self.assertIsNone(self.strict(event("app.error")))
+        self.assertIsNone(self.strict(event("app.error", data={"kind": "exception", "message": "x",
+                                                                 "function": "choose_shot", "match_id": "m1",
+                                                                 "frame": 2})))
+
+    def test_other_faults_come_first(self):
+        self.assertIn("missing required field 'state'", self.strict(event(data={"extra": 1})))
+        self.assertIn("not JSON", check_logs.validate_line_strict("{", self.schema))
 
 
 class MainTest(unittest.TestCase):
@@ -180,6 +206,13 @@ class MainTest(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn(f"{path}:2: level 'nope'", out)
         self.assertIn(f"{path}:3: not JSON", out)
+        self.assertNotIn(":1:", out)
+
+    def test_an_undeclared_field_fails_the_file(self):
+        path = self.write("a.jsonl", [event(), event(data={"state": "foreground", "extra": 1})])
+        code, out = self.run_main(path)
+        self.assertEqual(code, 1)
+        self.assertIn(f"{path}:2: undeclared field extra on app.lifecycle", out)
         self.assertNotIn(":1:", out)
 
     def test_empty_line_and_bad_utf8(self):

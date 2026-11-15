@@ -34,22 +34,26 @@ protected:
     static void _bind_methods();
 
 public:
-    // Takes the physics' parameters and table (it must be configured) and the texts of
+    // Takes the physics (it must be configured) and its table, and the texts of
     // referee_params.json and standin_params.json. False when anything is refused, keeping the
     // previous configuration; either way logs rules.configured. Not allowed while a match is in
-    // progress (false).
+    // progress (false). The physics' values are read again at every call that racks, judges or
+    // asks the stand-in, so values changed live reach the match at its next stroke.
     bool configure(const godot::Ref<OfsPhysics> &physics, const godot::String &referee_json,
                    const godot::String &standin_json);
     bool is_ready() const;
 
-    // config: {best_of: int, first_breaker: int (-1 lots, 0, 1), seed: int, concede_any_time:
-    // [bool, bool]}. Starts frame 1 and logs match.started and frame.started with match_id on
-    // them. Returns {ok, error, match: match_state()}.
+    // config: {best_of: int, first_breaker: int (-1 lots, 0, 1), seed: an int from 0 or a decimal
+    // String (as match_state() gives it back), concede_any_time: [bool, bool], person: 0 or 1
+    // (optional, copied onto match.started)}. A match in progress is abandoned first (match.ended
+    // "abandoned"). Starts frame 1 and logs match.started and frame.started with match_id on them.
+    // Returns {ok, error, match: match_state()}.
     godot::Dictionary start(const godot::Dictionary &config, const godot::String &match_id);
     // A match was started and neither finished nor abandoned.
     bool in_progress() const;
     // Ends the match in progress with no winner (the player quit) and logs match.ended with
-    // reason "abandoned". Nothing happens without one.
+    // reason "abandoned"; match_state() then shows it over with winner -1. Nothing happens
+    // without one.
     void abandon();
 
     // match_json with "frame" as frame(); empty before start.
@@ -62,12 +66,14 @@ public:
 
     // Puts the in-hand cue ball at (x, y); logs rules.cue_placed. {ok, error, x, y}.
     godot::Dictionary place_cue(double x, double y);
-    // The legal placement nearest (x, y) for the in-hand cue ball: {x, y}. Empty when not ready or
-    // no match is in progress.
+    // The legal placement nearest (x, y) for the in-hand cue ball: {x, y}. Empty when not ready,
+    // no match is in progress or the point is not finite; each distinct refusal is logged once, 64
+    // at most a session, as this is asked on every drag.
     godot::Dictionary nearest_cue_placement(double x, double y) const;
 
     // The referee's decision on the stroke `record` holds, which must have been simulated from
-    // balls() and cue_ball(). input: {nominated: String, "" for none}; context: {shot_id}. Logs
+    // balls() and cue_ball(): a record that wasn't is refused, one a simulator guard stopped is
+    // still judged. input: {nominated: String, "" for none}; context: {shot_id}. Logs
     // rules.decision, and frame.ended, match.ended or frame.started when the stroke brings them.
     // Returns {ok, error, judgement: judgement_json with "post" left out, event:
     // match_event_name, frame: frame()}.
@@ -79,15 +85,17 @@ public:
     // Racks the next frame after one has ended; logs frame.started. {ok, error, frame}.
     godot::Dictionary next_frame();
 
-    // The stand-in's stroke for the striker; logs opponent.decision with `context` ({shot_id}).
-    // {ok, error, places_cue, cue: [x, y], nominated, strike: {aim_rad, tip_x, tip_y,
-    // elevation_rad, speed_m_s}, why, us}. The cue ball is not placed and nothing is judged: the
-    // game calls place_cue, simulates and calls judge as for a person's stroke. When the stand-in
-    // would rather claim or concede, the answer is {ok, error, decision: <decision name>, why, us}
-    // with no strike: the game calls decide with it.
+    // The stand-in's stroke for the striker; logs opponent.decision with `context` ({shot_id}) and
+    // the seed, so the choice can be made again from the log. {ok, error, places_cue, cue: [x,
+    // y], nominated, strike: {aim_rad, tip_x, tip_y, elevation_rad, speed_m_s}, why, us}. The cue
+    // ball is not placed and nothing is judged: the game calls place_cue, simulates and calls
+    // judge as for a person's stroke. When the stand-in would rather claim or concede, the answer
+    // is {ok, error, decision: <decision name>, why, us} with no strike, and the line no shot_id:
+    // the game calls decide with it.
     godot::Dictionary standin_shot(int64_t seed, const godot::Dictionary &context);
     // The stand-in's choice among the options for `player`, as a decision name; "" when there are
-    // none. Logs opponent.decision.
+    // none or the call is refused. A choice not offered is replaced by the first option and logged
+    // as a warning. Logs opponent.decision with the seed and what it weighed (`why`).
     godot::String standin_choice(int64_t player, int64_t seed);
 
     // Why the last call failed; "" when it didn't.
@@ -100,6 +108,12 @@ private:
     std::string no_stroke_now() const;
     // {"match_id", "frame"} for `m` and, when there is one, "shot_id": on every line a match logs.
     nlohmann::json log_context(const ofs::rules::MatchState &m, const godot::String &shot_id = godot::String()) const;
+    // log_context and "params_hash", the physics values a frame.started's rack was laid with.
+    nlohmann::json rack_context(const ofs::rules::MatchState &m, const godot::String &shot_id = godot::String()) const;
+    // log_context of the match in play for a ScopedLogContext; empty before a match is started.
+    nlohmann::json scope_context(const godot::String &shot_id = godot::String()) const;
+    // params_ and params_hash_ from physics_ as it is configured now.
+    void refresh_params();
     // Sets last_error and logs rules.invalid: the call, what was wrong, what it was given, the match.
     void refusal(const char *call, const std::string &why, const nlohmann::json &given) const;
     godot::Dictionary refused(const char *call, const std::string &why, const nlohmann::json &given) const;
@@ -108,7 +122,9 @@ private:
 
     bool ready_ = false;
     bool started_ = false;
+    godot::Ref<OfsPhysics> physics_;
     ofs::phys::PhysicsParams params_;
+    std::string params_hash_;
     std::shared_ptr<const ofs::phys::TableShape> table_;
     ofs::rules::RefParams ref_;
     ofs::opponent::StandinParams standin_;

@@ -34,6 +34,7 @@ struct Tally {
     int replayed = 0;
     int differences = 0;
     int unreadable = 0;
+    int unreplayed = 0;  // decisions with no shot.simulated of their shot_id in the log
 };
 
 std::string shot_id_of(const json& holder) {
@@ -143,7 +144,7 @@ void replay(const Line& decision, const Line& shot, const phys::TableShape& tabl
 }  // namespace
 
 int cmd_referee(const std::vector<std::string>& argv) {
-    const ArgSpec spec{{"line", "table"}, {}, 1, 1};
+    const ArgSpec spec{{"line", "table"}, {"allow-unreplayed"}, 1, 1};
     Args args;
     std::string error;
     if (!parse_args(argv, spec, args, error)) return usage_error("referee", error);
@@ -205,16 +206,21 @@ int cmd_referee(const std::vector<std::string>& argv) {
         ++tally.judged;
         const std::string difference = rules::rejudge(decision.data, table);
         if (!difference.empty()) differs(tally, decision.number, "rules.decision", difference);
-        const auto shot = shots.find(shot_id_of(decision.data));
-        if (shot != shots.end() && decision.data.contains("pre") && decision.data.contains("facts") &&
-            decision.data.contains("ref")) {
+        const std::string id = shot_id_of(decision.data);
+        const auto shot = shots.find(id);
+        if (shot == shots.end()) {
+            // Only the ruling was checked: what the referee saw goes unchecked unless asked for.
+            std::printf("NOT REPLAYED line %d shot_id %s\n", decision.number, id.empty() ? "(none)" : id.c_str());
+            ++tally.unreplayed;
+        } else if (decision.data.contains("pre") && decision.data.contains("facts") && decision.data.contains("ref")) {
             replay(decision, shot->second, table, table_hash, tally);
         }
     }
-    std::printf("re-judged %d decisions, replayed %d of their shots: %d differences, %d unreadable\n", tally.judged,
-                tally.replayed, tally.differences, tally.unreadable);
+    std::printf("re-judged %d decisions, replayed %d of their shots: %d differences, %d unreadable, %d not replayed\n",
+                tally.judged, tally.replayed, tally.differences, tally.unreadable, tally.unreplayed);
     if (tally.differences > 0) return kExitFailed;
-    return tally.unreadable > 0 ? kExitUsage : kExitOk;
+    if (tally.unreadable > 0) return kExitUsage;
+    return tally.unreplayed > 0 && !args.flag("allow-unreplayed") ? kExitFailed : kExitOk;
 }
 
 }  // namespace sim_cli

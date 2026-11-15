@@ -5,7 +5,8 @@
 // one line.
 //
 // `context` is the caller's own: {"match_id", "frame", "shot_id"} from the game, whatever
-// identifies the run from a tool. Its keys are copied onto the line's top level.
+// identifies the run from a tool. Its keys are copied onto the line's top level, except where the
+// line has a field of that name.
 
 #include <string>
 #include <vector>
@@ -43,8 +44,26 @@ void log_frame_ended(const MatchState& m, const nlohmann::json& context);
 // "conceded" | "abandoned"}.
 void log_match_ended(const MatchState& m, const std::string& reason, const nlohmann::json& context);
 
-// rules.invalid (warn): {"what", "detail"}: an input the engine refused or could not make sense of.
+// rules.invalid (warn): {"what", "detail"}: an input the engine refused or could not make sense of,
+// with the keys of the scoped log context on this thread beside them.
 void log_invalid(const std::string& what, const std::string& detail);
+
+// While one lives, rules.invalid lines logged on its thread carry `context`'s keys ({"match_id",
+// "frame", "shot_id"}): the engine refuses deep inside judge or next_frame, where none of them is
+// known. Scopes nest: an inner one's keys win until it ends.
+class ScopedLogContext {
+public:
+    explicit ScopedLogContext(const nlohmann::json& context);
+    ~ScopedLogContext();
+    ScopedLogContext(const ScopedLogContext&) = delete;
+    ScopedLogContext& operator=(const ScopedLogContext&) = delete;
+
+private:
+    nlohmann::json previous_;
+};
+
+// The innermost live scope's context on this thread; an empty object when there is none.
+const nlohmann::json& scoped_log_context();
 
 // Re-judges a rules.decision line's data: judge(pre, input, facts) with its "ref" and a geometry
 // oracle for `table`, compared with the logged judgement and post_hash. Returns "" when they

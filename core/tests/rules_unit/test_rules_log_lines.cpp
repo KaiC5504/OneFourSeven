@@ -5,6 +5,7 @@
 #include <limits>
 #include <memory>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "ofs/log.hpp"
@@ -282,6 +283,43 @@ TEST_CASE("rules.invalid says what was refused and why") {
     const Line line = only(logged([] { log_invalid("nomination", "\"cue\" cannot be declared"); }), "rules.invalid");
     check_line(line, "rules", Level::warn, json::object());
     CHECK(line.event.data == json{{"what", "nomination"}, {"detail", "\"cue\" cannot be declared"}});
+}
+
+TEST_CASE("rules.invalid carries the scoped context of its thread while the scope lives") {
+    const auto invalid = [] {
+        return only(logged([] { log_invalid("judge", "a frame it can't make sense of"); }), "rules.invalid");
+    };
+    CHECK(scoped_log_context() == json::object());
+    {
+        const ScopedLogContext match({{"match_id", "m1"}, {"frame", 2}});
+        Line line = invalid();
+        check_line(line, "rules", Level::warn, json{{"match_id", "m1"}, {"frame", 2}});
+        CHECK_FALSE(line.event.data.contains("shot_id"));
+        {
+            // A stroke within the match: its keys join and win, and the line's own fields stay.
+            const ScopedLogContext stroke({{"frame", 3}, {"shot_id", "s9"}, {"what", "not this"}});
+            line = invalid();
+            check_line(line, "rules", Level::warn, json{{"match_id", "m1"}, {"frame", 3}, {"shot_id", "s9"}});
+            CHECK(line.event.data["what"] == "judge");
+            CHECK(line.event.data["detail"] == "a frame it can't make sense of");
+        }
+        line = invalid();
+        check_line(line, "rules", Level::warn, json{{"match_id", "m1"}, {"frame", 2}});
+        CHECK_FALSE(line.event.data.contains("shot_id"));
+
+        // Another thread has its own, here none.
+        json elsewhere;
+        std::thread([&] { elsewhere = scoped_log_context(); }).join();
+        CHECK(elsewhere == json::object());
+        const ScopedLogContext ignored(json("not an object"));
+        CHECK(scoped_log_context() == json{{"match_id", "m1"}, {"frame", 2}});
+    }
+    CHECK(scoped_log_context() == json::object());
+    CHECK(invalid().event.data.size() == 2);
+    // Only rules.invalid: the other lines take their context from the caller.
+    const ScopedLogContext match({{"match_id", "m1"}});
+    const Line line = only(logged([] { log_frame_started(example_match(), json::object()); }), "frame.started");
+    CHECK_FALSE(line.event.data.contains("match_id"));
 }
 
 TEST_CASE("the context sits beside the fields and never replaces one") {

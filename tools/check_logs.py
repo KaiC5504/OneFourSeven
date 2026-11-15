@@ -1,7 +1,8 @@
 """Checks JSONL log files (or folders of them, recursively) against core/data/log_schema.json.
 
 Prints "ok N lines" per good file and every bad line with its reason; exits 1 on any bad
-line, an empty file, a path that does not exist, or when there are no files to check.
+line, an empty file, a path that does not exist, or when there are no files to check. A data key
+the event's schema does not declare makes a line bad ("undeclared field X on EVENT").
 """
 import argparse
 import json
@@ -117,6 +118,31 @@ def validate_line(line, schema):
     return validate_event(event, schema)
 
 
+def undeclared_fields(event, schema):
+    """The data keys of a line validate_event accepts that its event's schema does not declare."""
+    declared = schema.get("events", {}).get(event["event"], {}).get("fields", {})
+    return sorted(key for key in event["data"] if key not in declared)
+
+
+def validate_line_strict(line, schema):
+    """validate_line, and a data key the event's schema does not declare is a fault as well.
+
+    devlink.py takes the phone's lines with validate_line: a build newer than the PC's schema may
+    log a field the PC does not know yet, and those lines must still be kept.
+    """
+    try:
+        event = loads_strict(line)
+    except (ValueError, RecursionError) as error:
+        return f"not JSON: {error}"
+    reason = validate_event(event, schema)
+    if reason:
+        return reason
+    extra = undeclared_fields(event, schema)
+    if extra:
+        return "; ".join(f"undeclared field {key} on {event['event']}" for key in extra)
+    return None
+
+
 def collect(paths):
     """Returns (files to check, paths that do not exist)."""
     files = []
@@ -149,7 +175,7 @@ def check_file(path, schema):
         if not text.strip():
             bad.append((number, "empty line"))
             continue
-        reason = validate_line(text, schema)
+        reason = validate_line_strict(text, schema)
         if reason:
             bad.append((number, reason))
     return count, bad

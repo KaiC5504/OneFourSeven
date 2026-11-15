@@ -148,6 +148,46 @@ TEST_CASE("anything else offered gets the first option") {
     CHECK(choose_decision(s, 0, {DecisionKind::refuse_rerack}, sp, rng) == DecisionKind::refuse_rerack);
 }
 
+TEST_CASE("why says what each choice weighed") {
+    struct Case {
+        FrameState s;
+        DecisionKind kind;
+        const char* rule;
+        std::vector<const char*> looked_at;
+    };
+    FrameState rerack = open_red();
+    rerack.pending = Pending::rerack;
+    rerack.decider = 0;
+    rerack.scores = {30, 72};
+    const Case cases[] = {
+        {after_foul(open_red(), hidden_red(), true), DecisionKind::replace, "replace", {"clear_path_before"}},
+        {after_foul(hidden_red(), open_red(), false), DecisionKind::play_again, "play_again", {"pot", "clear_path"}},
+        {after_foul(open_red(), open_red(), true), DecisionKind::play, "play", {"clear_path_before", "pot"}},
+        {rerack, DecisionKind::refuse_rerack, "refuse_rerack", {"score_gap", "rerack_within"}},
+    };
+    for (const Case& c : cases) {
+        CAPTURE(c.rule);
+        Rng rng(1);
+        nlohmann::json why;
+        const std::vector<DecisionKind> open = rules::options(c.s, 0);
+        CHECK(choose_decision(c.s, 0, open, standin_params(), rng, &why) == c.kind);
+        CHECK(why.value("rule", "") == c.rule);
+        CHECK(why["options"].size() == open.size());
+        CHECK(why["scores"] == nlohmann::json::array({c.s.scores[0], c.s.scores[1]}));
+        CHECK(why["points_remaining"] == rules::points_remaining(c.s));
+        for (const char* key : c.looked_at) CHECK_MESSAGE(why.contains(key), key);
+    }
+
+    Rng rng(1);
+    nlohmann::json why;
+    choose_decision(rerack, 0, rules::options(rerack, 0), standin_params(), rng, &why);
+    CHECK(why.value("score_gap", 0) == 42);
+
+    CHECK(choose_decision(open_red(), 0, {DecisionKind::play_second}, standin_params(), rng, &why) ==
+          DecisionKind::play_second);
+    CHECK(why.value("rule", "") == "first_option");
+}
+
 TEST_CASE("the same choice whatever the Rng holds") {
     const FrameState s = after_foul(open_red(), hidden_red(), true);
     const std::vector<DecisionKind> open = rules::options(s, 0);
