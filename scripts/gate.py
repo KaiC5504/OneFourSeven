@@ -8,7 +8,9 @@ One Debug configure and build of the core, the extension and ofs_params_hash, th
 (ctest), a Release build of the core alone for the physics lane (first that the table outline is
 the one its dimensions give, tools/make_table_shape.py --check; then the calibration suite, a fuzz
 of random shots: 2,000 with --quick, otherwise the full 100,000 of spec C14 on each of two seeds,
-and the simulation benchmarks against the 2 ms budget and the baseline, only reported on CI), the
+the stand-in playing itself with every stroke and choice checked against the rules engine's
+invariants: 20 frames with --quick, otherwise 300 on each seed, and the simulation benchmarks
+against the 2 ms budget and the baseline, only reported on CI), the
 Godot tests (sync_data, --import, res://tests/run_tests.gd), a short headless run of the game
 whose session log must pass tools/check_logs.py with no app.error, the PC tools' tests
 and the workflow tests. The full gate adds a Windows export (build_windows.py --check). Lanes run
@@ -45,6 +47,8 @@ FUZZ_SHOTS_QUICK = 2000
 FUZZ_SHOTS_FULL = 100_000
 # The full gate fuzzes a second, unrelated shot set as well, so a fix tuned to seed 1 can't pass alone.
 FUZZ_SEEDS_FULL = (1, 4242)
+MATCH_FRAMES_QUICK = 20
+MATCH_FRAMES_FULL = 300
 LOGS = ROOT / "build" / "gate"
 GAME = ROOT / "game"
 # The logs lane's own user:// (Godot has no flag for it), so no other run's session can mix in.
@@ -153,8 +157,14 @@ def fuzz_step(shots: int, seed: int) -> Step:
     return lambda: run([sim_cli(), "fuzz", "--shots", str(shots), "--seed", str(seed), "--out", out], timeout=1800)
 
 
+def match_step(frames: int, seed: int) -> Step:
+    out = ROOT / "build" / "match-failures" / f"seed-{seed}"
+    return lambda: run([sim_cli(), "match", "--frames", str(frames), "--seed", str(seed), "--out", out], timeout=1800)
+
+
 def physics_steps(quick: bool) -> list[Step]:
     fuzz = [fuzz_step(FUZZ_SHOTS_QUICK, 1)] if quick else [fuzz_step(FUZZ_SHOTS_FULL, seed) for seed in FUZZ_SEEDS_FULL]
+    matches = [match_step(MATCH_FRAMES_QUICK, 1)] if quick else         [match_step(MATCH_FRAMES_FULL, seed) for seed in FUZZ_SEEDS_FULL]
     # A CI runner is a shared VM, neither the desktop core the 2 ms budget is for nor the PC the
     # baseline was timed on, so there the benchmarks are only reported.
     bench = ["bench"] if on_ci() else ["bench", "--check"]
@@ -165,6 +175,7 @@ def physics_steps(quick: bool) -> list[Step]:
         step(["ctest", "--test-dir", PHYSICS_BUILD, "-C", "Release", "-L", "calibration", "--output-on-failure"]),
         # Both report every failing shot before exiting, each with a replayable bundle.
         *fuzz,
+        *matches,
         lambda: run([sim_cli(), *bench]),
     ]
 
