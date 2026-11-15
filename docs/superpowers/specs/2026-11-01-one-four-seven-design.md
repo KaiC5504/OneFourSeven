@@ -561,9 +561,12 @@ level 1.
 - A confirm button commits the position.
 
 ### 8.7 Nomination
-- When the ball on is "a colour" or a free ball must be nominated, the game pre-selects
-  the ball the aim line hits first. The player can tap any eligible ball to change it.
-- The nominated ball is highlighted, and the referee logic uses it.
+- When the ball on is "a colour", the game pre-selects the colour the aim line hits
+  first. The player can tap any colour to change it. With no colour declared (the aim
+  line meets none and none was tapped) the stroke waits and the game says so.
+- A free ball need not be nominated: the first ball hit is taken as the one declared
+  (M3, `docs/rules/README.md`).
+- The nominated ball is ringed in its own colour, and the referee logic uses it.
 
 ### 8.8 Windows equivalents. **Owner:** agreed
 - A left-drag acts as a one-finger drag, the scroll wheel as pinch-zoom, and a right-drag
@@ -616,25 +619,30 @@ build one scenario test per rule clause they implement. The engine covers at lea
     stored pre-shot state, and the offender plays again.
   - The **three-miss rule**: warning after the second miss, frame awarded after the third,
     where the rulebook's condition applies.
-- **Re-spotted black** when scores are tied after the final black. A coin toss decides
-  who plays from hand.
+- **Re-spotted black** when scores are tied after the final black. The winner of the
+  lot chooses who plays first, from hand, as the rulebook has it.
 - **Touching ball:** the cue ball must be played away. No penalty for moving the touching
   ball when it's the ball on or could be on; otherwise per the rulebook.
-- **Conceding** a frame or the match.
+- **Conceding** a frame or the match. **Owner (M3):** the person may concede whenever
+  the stroke or a choice is theirs; the computer concedes only when it needs snookers.
+  With only the black left and more than seven ahead, the frame can be claimed.
 - **End of frame and match:** best of N frames.
 
 ### 9.1 Referee judgement, where the rulebook relies on a human referee
-- **Miss: "best possible attempt to hit the ball on."** The rulebook's objective case
-  applies first. Where it doesn't, a deterministic heuristic decides using geometry and
-  the shot record, such as the closest distance the cue ball came to the ball on and
-  whether a direct path existed. All thresholds are tunable. The same function judges
-  the human and the AI.
+- **Miss: "best possible attempt to hit the ball on."** **Owner (M3):** the television
+  standard. The rulebook's objective cases apply first (no miss when penalty points are
+  needed before or after the stroke, or when the ball on cannot be hit and the stroke
+  had the strength to reach it); after them every failed attempt is a miss. The
+  closest-distance allowance (`miss_lenient_gap_m`) stays as a tunable and is 0. The
+  order of the tests is in `docs/rules/README.md`. The same function judges the human
+  and the AI.
 - **Push stroke:** detected when the cue ball is very close to an object ball at the
   strike and the contact and speeds show the tip would still be on the cue ball.
   Thresholds are tunable and tested.
 - **Stalemate:** if no ball has been potted for a long stretch of safety exchanges, the
   game offers a re-rack, which the player can accept or refuse. The AI's answer follows
-  its level. Thresholds are the builder's call.
+  its level. Thresholds are the builder's call. A foul stroke counts neither towards
+  the offer nor towards the strokes played on after a refusal.
 
 ### 9.2 Rules engine contract
 Pure, deterministic C++. Input: the pre-shot state (balls, scores, ball on, nomination,
@@ -724,17 +732,19 @@ open, since a maximum cannot begin from the break-off.
 ## 11. Modes and flow
 
 ### 11.1 Screens
-- **Home:** Play vs Computer · Training · Stats · Settings. Until the home screen exists
-  (M3), the app opens straight into the free table (**Owner**, M2).
+- **Home:** Play vs Computer · Training · Stats · Settings. As built in M3: Play · Free
+  table · Settings over the table; Stats and the routines join with M5.
 - **Match setup:**
-  - opponent level (1–5);
-  - match length: best of 1, 3, 5, 7, 9 or 11 frames;
+  - opponent level (1–5), from M4; M3 has the one stand-in opponent;
+  - match length: best of 1, 3, 5, 7, 9 or 11 frames (default 3);
   - who breaks first: random, you, or the computer (default random); alternates
     afterwards.
 - **In match:**
   - a minimal scoreboard: both scores, frames, current break, points remaining,
     "snookers required" when relevant, and the ball on;
-  - a pause button with Resume, Concede frame, Concede match, Settings and Quit;
+  - a pause button with Resume, Concede frame, Concede match, Settings and Quit, and
+    Claim frame when the person can't be caught; the concessions, the claim and Quit
+    ask to confirm;
   - foul decision prompts, ball-in-hand placement and nomination;
   - after each frame, a short summary (frame score, highest break, pot success);
   - at the end, a match summary.

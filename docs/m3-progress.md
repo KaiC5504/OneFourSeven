@@ -64,6 +64,7 @@ table's bar, history and edit mode are hidden; a stroke's context is `mode: "mat
 | `match_wait` | `timeout_s` | once the person must act or the match is over: `{"waiting"}` |
 | `match_autoplay` | `on`, `fast` | `{"on", "fast"}`: the stand-in plays the person too; `fast` skips each stroke's playback |
 | `match_continue` | | from a frame summary to the next frame, from a match summary to Home |
+| `match_pause` | `on` | opens or closes the pause menu; `{"on", "can_concede"}` |
 
 `--demo-screen` gains `home`, `match_setup`, `match`, `pause`, `frame_summary`, `match_summary`.
 `tools/play_match.py` plays a whole match through these and checks the log with
@@ -98,3 +99,25 @@ Wave 2: K integrator: `game/scripts/main.gd`, `game/scenes/main.tscn`, `game/scr
 ## Log
 
 - 2026-11-15: contracts committed.
+- 2026-11-15: wave 1 merged (engine, geometry and spotting, observe and referee values, match
+  and JSON forms, screens, HUD, match flow, the independent rulebook scenarios and spec tests).
+  The independent scenarios changed four readings, all in `docs/rules/README.md`: the spotting
+  order when spots are taken (S3.7), a touching ball moved only as the cue ball leaves (S3.8(b)),
+  the touching gap (5 µm, under the rack's smallest seeded gap), and a miss with the ball on
+  impossible to hit (S3.14(a)(ii)).
+- 2026-11-16: wave 2 merged (the binding, the stand-in with `ofs_sim_cli match` and `referee`,
+  the table scene and harness commands); the stand-in's match run joined the gate's physics lane.
+- 2026-11-16: wave 3, the gate's best of 3 through the harness: `python tools/play_match.py` on
+  seeds 147 (person breaks, 174 strokes, 46-30 and 48-26), 7 (computer breaks, 164 strokes, 23-56
+  and 34-43) and 2026 (random, 161 strokes, 55-33 and 62-14). Each ended at the match summary,
+  its log passed `tools/check_logs.py` with no `app.error` and no `rules.invalid`, and
+  `ofs_sim_cli referee` re-judged every decision with no difference. Driven by `match_shot` and
+  `match_choose` on the real engine: a red then a nominated colour, the wrong ball first, play
+  again, an in-off and placing in the D (outside it refused or snapped in), a conceded frame into
+  the next frame with the other player breaking, a free ball. The re-spotted black was reached
+  only by the native run (38 times in 2,000 frames).
+- 2026-11-16: native match run, 2,000 frames (seed 7): 168,440 strokes, no invariant broken, no
+  physics anomaly.
+- 2026-11-16: check round, eleven checkers, no high-severity finding. Two rulebook reviews
+  re-derived about 51,000 stand-in strokes independently with no difference; the logging check
+  re-judged 2,926 decisions and replayed 2,926 shots with none diverging; 33 gap tests added.

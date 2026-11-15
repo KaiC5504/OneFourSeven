@@ -107,6 +107,20 @@ bool read_player(const json& j, const std::string& at, const char* key, bool or_
     return true;
 }
 
+// Scores, counts and points the engine adds to: bounded far above any real frame, so that no sum
+// it makes from a crafted log can overflow.
+constexpr int kMaxCount = 1000000;
+
+bool bounded(int v, int lo, const std::string& where, std::string& error) {
+    if (v >= lo && v <= kMaxCount) return true;
+    return refuse(error, where, std::to_string(v) + " is outside [" + std::to_string(lo) + ", " +
+                                    std::to_string(kMaxCount) + "]");
+}
+
+bool read_count(const json& j, const std::string& at, const char* key, int lo, int& out, std::string& error) {
+    return read(j, at, key, out, error) && bounded(out, lo, join(at, key), error);
+}
+
 template <typename T>
 bool read_pair(const json& j, const std::string& at, const char* key, std::array<T, 2>& out, std::string& error) {
     const json* v = read_array(j, at, key, error);
@@ -114,6 +128,12 @@ bool read_pair(const json& j, const std::string& at, const char* key, std::array
     const std::string where = join(at, key);
     if (v->size() != 2) return refuse(error, where, "want two entries, one per player");
     return value((*v)[0], item(where, 0), out[0], error) && value((*v)[1], item(where, 1), out[1], error);
+}
+
+bool read_scores(const json& j, const std::string& at, std::array<int, 2>& out, std::string& error) {
+    const std::string where = join(at, "scores");
+    return read_pair(j, at, "scores", out, error) && bounded(out[0], 0, item(where, 0), error) &&
+           bounded(out[1], 0, item(where, 1), error);
 }
 
 bool in_range(int place, std::size_t count) { return place >= 0 && std::size_t(place) < count; }
@@ -253,11 +273,11 @@ bool read_stats(const json& j, const std::string& at, std::array<PlayerStats, 2>
         const std::string here = item(where, i);
         if (!s.is_object()) return refuse(error, here, "want an object");
         PlayerStats& p = out[i];
-        if (!read(s, here, "shots", p.shots, error) || !read(s, here, "pots", p.pots, error) ||
-            !read(s, here, "pot_attempts", p.pot_attempts, error) || !read(s, here, "fouls", p.fouls, error) ||
-            !read(s, here, "misses", p.misses, error) ||
-            !read(s, here, "points_from_fouls", p.points_from_fouls, error) ||
-            !read(s, here, "highest_break", p.highest_break, error)) {
+        if (!read_count(s, here, "shots", 0, p.shots, error) || !read_count(s, here, "pots", 0, p.pots, error) ||
+            !read_count(s, here, "pot_attempts", 0, p.pot_attempts, error) ||
+            !read_count(s, here, "fouls", 0, p.fouls, error) || !read_count(s, here, "misses", 0, p.misses, error) ||
+            !read_count(s, here, "points_from_fouls", 0, p.points_from_fouls, error) ||
+            !read_count(s, here, "highest_break", 0, p.highest_break, error)) {
             return false;
         }
     }
@@ -267,22 +287,24 @@ bool read_stats(const json& j, const std::string& at, std::array<PlayerStats, 2>
 bool read_frame(const json& j, const std::string& at, FrameState& out, std::string& error) {
     FrameState s;
     if (!read_position(j, at, s, error) || !read_seed(j, at, s.seed, error) ||
-        !read_player(j, at, "striker", false, s.striker, error) || !read_pair(j, at, "scores", s.scores, error) ||
-        !read(j, at, "break_points", s.break_points, error) || !read_stats(j, at, s.stats, error) ||
-        !read(j, at, "strokes", s.strokes, error) || !read(j, at, "respotted_black", s.respotted_black, error) ||
+        !read_player(j, at, "striker", false, s.striker, error) || !read_scores(j, at, s.scores, error) ||
+        !read_count(j, at, "break_points", 0, s.break_points, error) || !read_stats(j, at, s.stats, error) ||
+        !read_count(j, at, "strokes", 0, s.strokes, error) ||
+        !read(j, at, "respotted_black", s.respotted_black, error) ||
         !read_pair(j, at, "concede_any_time", s.concede_any_time, error) ||
         !read_name(j, at, "pending", &parse_pending, s.pending, error) ||
         !read_player(j, at, "decider", false, s.decider, error) ||
         !read_player(j, at, "offender", false, s.offender, error) ||
-        !read(j, at, "last_penalty", s.last_penalty, error) || !read(j, at, "last_miss", s.last_miss, error)) {
+        !read_count(j, at, "last_penalty", 0, s.last_penalty, error) ||
+        !read(j, at, "last_miss", s.last_miss, error)) {
         return false;
     }
     const json* original = read_object(j, at, "original", error);
     if (original == nullptr || !read_position(*original, join(at, "original"), s.original, error)) return false;
-    if (!read(j, at, "miss_run", s.miss_run, error) || !read(j, at, "miss_warned", s.miss_warned, error) ||
-        !read(j, at, "quiet_strokes", s.quiet_strokes, error) ||
+    if (!read_count(j, at, "miss_run", 0, s.miss_run, error) || !read(j, at, "miss_warned", s.miss_warned, error) ||
+        !read_count(j, at, "quiet_strokes", 0, s.quiet_strokes, error) ||
         !read_player(j, at, "rerack_accepted", true, s.rerack_accepted, error) ||
-        !read(j, at, "rerack_deadline", s.rerack_deadline, error) || !read(j, at, "over", s.over, error) ||
+        !read_count(j, at, "rerack_deadline", -1, s.rerack_deadline, error) || !read(j, at, "over", s.over, error) ||
         !read_player(j, at, "winner", true, s.winner, error) ||
         !read_name(j, at, "end_reason", &parse_end_reason, s.end_reason, error) ||
         !read(j, at, "restart", s.restart, error)) {
@@ -308,8 +330,8 @@ bool read_summary(const json& j, const std::string& at, FrameSummary& out, std::
     if (!read(j, at, "number", s.number, error) || !read_player(j, at, "breaker", false, s.breaker, error) ||
         !read_player(j, at, "winner", true, s.winner, error) ||
         !read_name(j, at, "reason", &parse_end_reason, s.reason, error) ||
-        !read_pair(j, at, "scores", s.scores, error) || !read_stats(j, at, s.stats, error) ||
-        !read(j, at, "strokes", s.strokes, error) || !read(j, at, "reracks", s.reracks, error)) {
+        !read_scores(j, at, s.scores, error) || !read_stats(j, at, s.stats, error) ||
+        !read_count(j, at, "strokes", 0, s.strokes, error) || !read_count(j, at, "reracks", 0, s.reracks, error)) {
         return false;
     }
     out = s;
@@ -577,8 +599,11 @@ bool match_from_json(const nlohmann::json& j, MatchState& out, std::string& erro
     MatchState m;
     const json* config = read_object(j, "", "config", error);
     if (config == nullptr || !read_config(*config, "config", m.config, error)) return false;
-    if (!read_pair(j, "", "frames", m.frames, error) || !read(j, "", "frame_number", m.frame_number, error) ||
-        !read_player(j, "", "breaker", false, m.breaker, error) || !read(j, "", "reracks", m.reracks, error)) {
+    if (!read_pair(j, "", "frames", m.frames, error) || !bounded(m.frames[0], 0, "frames[0]", error) ||
+        !bounded(m.frames[1], 0, "frames[1]", error) ||
+        !read_count(j, "", "frame_number", 0, m.frame_number, error) ||
+        !read_player(j, "", "breaker", false, m.breaker, error) ||
+        !read_count(j, "", "reracks", 0, m.reracks, error)) {
         return false;
     }
     const json* frame = read_object(j, "", "frame", error);

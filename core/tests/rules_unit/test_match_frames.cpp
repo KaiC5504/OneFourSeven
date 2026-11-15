@@ -474,7 +474,9 @@ TEST_CASE("match_decide refuses what the engine refuses and leaves the match as 
 // These go through the engine's decide(), so they hold once the real engine is in.
 TEST_CASE("conceding the match ends it for the other player whatever the frames stand at" *
           doctest::test_suite("with the engine")) {
-    MatchState m = start_match(config(35), kParams);
+    MatchConfig c = config(35);
+    c.concede_any_time = {true, false};
+    MatchState m = start_match(c, kParams);
     finish(m, 0);
     REQUIRE(next_frame(m, kParams));
     MatchEvent event = MatchEvent::none;

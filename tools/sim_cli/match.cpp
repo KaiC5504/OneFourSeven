@@ -66,6 +66,7 @@ struct Capture {
     std::vector<std::string> lines;
     std::string decision_line;         // the last rules.decision
     std::vector<std::string> invalid;  // rules.invalid since the last step began
+    std::vector<std::string> errors;   // app.error since the last step began
     int anomalies = 0;                 // physics.anomaly lines
 };
 
@@ -82,6 +83,9 @@ public:
         } else if (event.event == "rules.invalid") {
             capture->invalid.push_back(event.data.value("what", std::string("?")) + ": " +
                                        event.data.value("detail", std::string()));
+        } else if (event.event == "app.error") {
+            capture->errors.push_back(event.data.value("function", std::string("?")) + ": " +
+                                      event.data.value("message", std::string()));
         } else if (event.event == "physics.anomaly") {
             ++capture->anomalies;
         }
@@ -428,6 +432,7 @@ std::string round_trip_problem(const FrameState& s) {
 struct Step {
     FrameState before;
     bool is_stroke = false;
+    std::uint64_t standin_seed = 0;  // the stand-in's Rng for its stroke or choice
     opponent::StandinShot shot;
     phys::SimInput in;
     bool simulated = false;
@@ -455,10 +460,12 @@ public:
             config.seed = match_seed_;
             m_ = rules::start_match(config, run_.setup.params);
             rules::log_match_started(m_, {{"match_id", match_id_}});
-            rules::log_frame_started(m_, context(false));
+            rules::log_frame_started(m_, rack_context());
             bool ok = check_frame(Step{});
             while (ok && !m_.over && !run_.stop.load(std::memory_order_relaxed)) {
                 capture_.invalid.clear();
+                capture_.errors.clear();
+                const rules::ScopedLogContext scope(context(false));
                 ok = m_.frame.pending == rules::Pending::none ? stroke() : pending_choice();
             }
         } catch (const std::exception& e) {
@@ -477,6 +484,30 @@ private:
         return c;
     }
 
+    json rack_context() const {
+        json c = context(false);
+        c["params_hash"] = run_.setup.params_hash;
+        return c;
+    }
+
+    // opponent.decision for a choice: after a foul, a re-rack or the toss, or a claim or
+    // concession in place of a stroke. No stroke is struck, so it has no shot_id.
+    void log_choice_made(int player, const std::vector<DecisionKind>& open, DecisionKind kind,
+                         std::uint64_t seed, const json& why, double us) {
+        if (!capture_.keep) return;
+        json names = json::array();
+        for (DecisionKind k : open) names.push_back(json(rules::decision_name(k)));
+        json line = {{"kind", "choice"},
+                     {"player", player},
+                     {"seed", std::to_string(seed)},
+                     {"choice", rules::decision_name(kind)},
+                     {"options", names},
+                     {"why", why.is_object() ? why : json::object()},
+                     {"us", us}};
+        line.update(context(false));
+        ofs::log::info("opponent", "opponent.decision", std::move(line));
+    }
+
     bool fail(const std::string& kind, const std::string& detail, const Step& step) {
         out_.breached = true;
         Breach& b = out_.breach;
@@ -492,6 +523,7 @@ private:
                        {"frame", b.frame},
                        {"stroke", b.stroke}}},
                      {"breach", {{"kind", kind}, {"detail", detail}}},
+                     {"standin_seed", std::to_string(step.standin_seed)},
                      {"frame", rules::frame_json(step.before)},
                      {"after", rules::frame_json(m_.frame)},
                      {"ref", rules::ref_params_values(run_.ref)}};
@@ -525,6 +557,8 @@ private:
         if (!capture_.invalid.empty()) {
             return fail("invalid", "the engine refused an input: " + capture_.invalid.front(), step);
         }
+        // The stand-in falls back on a plain stroke when it throws; the run must not pass over it.
+        if (!capture_.errors.empty()) return fail("error", "app.error: " + capture_.errors.front(), step);
         std::string problem = frame_problem(run_, m_.frame);
         if (!problem.empty()) return fail("frame", problem, step);
         problem = round_trip_problem(m_.frame);
@@ -563,13 +597,13 @@ private:
                 ++tally_.reracks;
                 pot_points_ = 0;
                 pot_allowance_ = 147;
-                rules::log_frame_started(m_, context(false));
+                rules::log_frame_started(m_, rack_context());
                 return true;
             case rules::MatchEvent::frame_ended:
                 rules::log_frame_ended(m_, context(false));
                 close_frame();
                 if (!rules::next_frame(m_, run_.setup.params)) return fail("match", "the next frame was refused", step);
-                rules::log_frame_started(m_, context(false));
+                rules::log_frame_started(m_, rack_context());
                 return check_frame(step);
             case rules::MatchEvent::match_ended:
                 rules::log_frame_ended(m_, context(false));
@@ -605,18 +639,12 @@ private:
         const int player = m_.frame.decider;
         const std::vector<DecisionKind> open = rules::options(m_.frame, player);
         if (open.empty()) return fail("options", "a decision is pending and its decider is offered nothing", step);
-        const DecisionKind kind = opponent::choose_decision(m_.frame, player, open, run_.standin, rng_);
-        if (capture_.keep) {
-            json names = json::array();
-            for (DecisionKind k : open) names.push_back(json(rules::decision_name(k)));
-            ofs::log::info("opponent", "opponent.decision",
-                           {{"kind", "choice"},
-                            {"player", player},
-                            {"choice", rules::decision_name(kind)},
-                            {"options", names},
-                            {"match_id", match_id_},
-                            {"frame", m_.frame_number}});
-        }
+        step.standin_seed = rng_.next_u64();
+        ofs::Rng standin(step.standin_seed);
+        json why;
+        const auto t0 = Clock::now();
+        const DecisionKind kind = opponent::choose_decision(m_.frame, player, open, run_.standin, standin, &why);
+        log_choice_made(player, open, kind, step.standin_seed, why, microseconds_since(t0));
         if (!listed(open, kind)) {
             return fail("standin", "it chose " + std::string(rules::decision_name(kind)) + ", which was not offered",
                         step);
@@ -662,8 +690,10 @@ private:
         const phys::PhysicsParams& params = run_.setup.params;
         const phys::TableShape& table = run_.setup.table;
 
+        step.standin_seed = rng_.next_u64();
+        ofs::Rng standin(step.standin_seed);
         const auto t0 = Clock::now();
-        step.shot = opponent::choose_shot(m_.frame, table, params, *run_.oracle, run_.ref, run_.standin, rng_);
+        step.shot = opponent::choose_shot(m_.frame, table, params, *run_.oracle, run_.ref, run_.standin, standin);
         const double us = microseconds_since(t0);
         tally_.choose_us += us;
         tally_.choose_worst_us = std::max(tally_.choose_worst_us, us);
@@ -671,13 +701,17 @@ private:
         const opponent::StandinShot& shot = step.shot;
         if (shot.decides) {
             step.is_stroke = false;
+            log_choice_made(m_.frame.striker, rules::options(m_.frame, m_.frame.striker), shot.decision,
+                            step.standin_seed, shot.why, us);
             return choose(step, m_.frame.striker, shot.decision);
         }
 
         ++frame_strokes_;
+        const rules::ScopedLogContext scope(context(true));
         if (capture_.keep) {
             json line = {{"kind", "shot"},
                          {"player", m_.frame.striker},
+                         {"seed", std::to_string(step.standin_seed)},
                          {"strike", phys::to_json(shot.strike)},
                          {"nominated", shot.input.has_nomination ? ofs::table::ball_name(shot.input.nominated) : ""},
                          {"why", shot.why},
@@ -766,7 +800,7 @@ private:
     Run& run_;
     std::uint64_t index_;
     std::uint64_t match_seed_;
-    ofs::Rng rng_;  // the stand-in's errors and each stroke's simulator seed
+    ofs::Rng rng_;  // each stand-in choice's seed and each stroke's simulator seed
     std::string match_id_;
     rules::MatchState m_;
     Capture capture_;

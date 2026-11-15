@@ -31,6 +31,10 @@ arise.
   declared (the referee asks only when it is not obvious, S2.12). If no ball was hit and exactly one ball that could be
   on was touching the cue ball and did not move, that ball is taken as declared (S3.8(c)(ii)).
   Otherwise nothing was declared.
+- Ruling: the game, not the engine, holds back a strike with a colour of choice on until a colour
+  is declared, by the aim line or a tap. A free ball need not be declared: the first ball hit is
+  taken as it, as above. The engine still judges an undeclared stroke as below, for the tools and
+  the logs.
 - A colour of choice on, nothing declared: hitting a red first is `reds_in_succession`, 7
   (S3.11(d)(iii)); any other foul in that stroke is also `before_nominating`, 7 (S3.11(d)(vi)).
   S3.11(d)(v) (failing to declare when asked) cannot arise: nobody is asked mid-stroke.
@@ -43,7 +47,9 @@ arise.
 - A ball not on first, or with a free ball nominated any ball but it first: `first_hit_not_on`, the
   ball on or the ball concerned, whichever is higher (S3.11(b)(iv)).
 - Two balls at once other than the legal pairs: `simultaneous_hit`, the ball on or the higher of the
-  two (S3.11(c)). "At once" is within `simultaneous_hit_s`.
+  two (S3.11(c)). "At once" is within `simultaneous_hit_s`. Ruling: with FREE BALL called and
+  nothing declared, a ball on and a ball not on struck at once is `simultaneous_hit` too: with two
+  balls hit first, neither is taken as declared, so no free ball was nominated.
 - Touching ball (S3.8): when the cue ball started touching a ball that is on, or that could be on
   and is the declared one, and that ball did not move, the first impact is taken as made on it:
   whatever the cue ball hits afterwards, or nothing, is no foul for the first impact. A ball that
@@ -98,7 +104,8 @@ arise.
 - `pending` is `after_foul`: the non-offender is `decider` and `striker`. `original` holds the
   position before the stroke.
 - FREE BALL (S3.12): called when the cue ball is snookered on every ball on (S2.17), from every
-  position in the D when it is in hand.
+  position in the D when it is in hand. The D is tested at points `d_sample_step_m` apart and,
+  when every one of them is snookered, again at `d_fine_step_m` apart before it is called.
 - `play`: the non-offender plays, with the free ball if one was called.
 - `play_again`: the offender plays from the position left; the free ball is void (S3.12(f)); a miss
   sequence ends (S3.14(d)(iii)).
@@ -116,11 +123,14 @@ path tests below take every object ball as one that could be on. In order:
 1. The stroke was played from a replaced position in a S3.14(d) run (`miss_run` at least 1): a
    miss, whatever the scores (`S3.14(d)`).
 2. Any player required penalty points before the stroke, or does once its penalty is added: no
-   miss (`S3.14(a)(i)`). Intent is never judged.
+   miss (`S3.14(a)(i)`). Intent is never judged. With a colour of choice on, the 7 it may add is
+   counted only for the striker: the other player cannot score it (`penalty_points_required`).
 3. `can_hit` is false: no miss (`S3.14(a)(ii)`) when the stroke was played at the ball on with the
    strength to reach it, which here means the cue ball hit some ball, or ran (`cue_travel_m`) at
    least the straight distance from where it started to the nearest ball on, less one ball
-   diameter. Any other stroke from there is a miss (`S3.14(a)`).
+   diameter. Any other stroke from there is a miss (`S3.14(a)`). Ruling, a known simplification:
+   a stroke whose cue ball hit any ball is excused whatever its strength, since the facts carry no
+   strike strength.
 4. `clear_path` holds: a miss (`S3.14(c)`).
 5. Otherwise (snookered): a miss (`S3.14(a)`), unless `miss_lenient_gap_m` is above 0 and the cue
    ball passed within it of a ball on (`lenient`). It is 0.
@@ -140,22 +150,27 @@ player (`three_misses`).
 - Only the black left, more than seven points apart, and not a re-spotted black: when the player to
   play trails, the frame is awarded to the other (S2.1(c)) at once; when they lead, `claim_frame`
   is among their options and they may play on (S2.1(b)).
-- `concede_frame` (S4.2): offered to a player with nothing pending when `concede_any_time` is set
-  for them or any player requires penalty points; `concede_match` likewise with nothing pending.
-  A concession takes effect at once: there is nobody to decline it (S4.2(a)).
+- `concede_frame` and `concede_match` (S4.2), the owner's ruling that the person may concede at
+  any time: with nothing pending, both are offered to a player with `concede_any_time`, and to
+  either player while any player requires penalty points. With a choice pending (`after_foul`,
+  `rerack`, `toss`), both are offered to the `decider` if they have `concede_any_time`, after the
+  choice's own options; never to the other player then. A concession takes effect at once: there
+  is nobody to decline it (S4.2(a)); a pending choice goes with the frame.
 - Three misses (S3.14(d)(ii)) as above.
 
 ## Stalemate (S3.17; spec 9.1 leaves the thresholds to us)
 
-A stroke is quiet when nothing is potted and the object balls end, summed, less than
+A legal stroke is quiet when nothing is potted and the object balls end, summed, less than
 `stalemate_quiet_travel_m` from where they began. After `stalemate_offer_strokes` quiet strokes in
 a row, with nothing else pending, a re-rack is offered to the player about to play
 (`pending` `rerack`); if they accept, the other is asked. Both accept: `restart`. Either refuses:
-play goes on, and if the next `stalemate_grace_strokes` strokes are all quiet the frame restarts
-anyway (S3.17(b)). Any stroke that is not quiet clears the count and the proviso; an in-off is
-never quiet. The match racks a restarted frame again with the same breaker and no score. In a
-re-spotted black the engine itself sets the black and the cue ball again, the same player to
-play, without `restart` (S3.17(d)).
+play goes on, and if the next `stalemate_grace_strokes` legal strokes are all quiet the frame
+restarts anyway (S3.17(b)). Any legal stroke that is not quiet clears the count and the proviso.
+A foul stroke, a FOUL AND A MISS later replaced among them, neither counts nor clears: the count
+and the grace strokes stand as they were, so the frame never restarts on a foul stroke or with
+its choice pending. The match racks a restarted frame again with the same breaker and no score.
+In a re-spotted black the engine itself sets the black and the cue ball again, the same player
+to play, without `restart` (S3.17(d)).
 
 ## In hand (S2.9, S3.5; spec 8.6)
 
@@ -177,4 +192,4 @@ the D between the brown and yellow spots.
 | S3.5(b), S3.11(a)(v): improperly from in hand | the D is enforced |
 | S3.18, S3.19: four-handed, six reds | not in the game |
 | S4.1, S4.3 to S4.7, Section 5: conduct, time, officials | no conduct to judge |
-| S4.2(b): conceding only when penalty points are required | the owner's ruling: the person may concede at any time; the opponent only then |
+| S4.2(b): conceding only when penalty points are required | the owner's ruling: the person may concede the frame or the match at any time, with a choice of theirs pending too; the opponent either only when a player requires penalty points and nothing is pending |

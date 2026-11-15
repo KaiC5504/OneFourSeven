@@ -147,6 +147,14 @@
         "stack": {
           "type": "array",
           "required": false
+        },
+        "match_id": {
+          "type": "string",
+          "required": false
+        },
+        "frame": {
+          "type": "integer",
+          "required": false
         }
       }
     },
@@ -1289,6 +1297,10 @@
           "type": "object",
           "required": true
         },
+        "params_hash": {
+          "type": "string",
+          "required": false
+        },
         "problems": {
           "type": "array",
           "required": true
@@ -1393,10 +1405,6 @@
         "frame": {
           "type": "integer",
           "required": false
-        },
-        "shot_id": {
-          "type": "string",
-          "required": false
         }
       }
     },
@@ -1455,6 +1463,18 @@
         "detail": {
           "type": "string",
           "required": true
+        },
+        "match_id": {
+          "type": "string",
+          "required": false
+        },
+        "frame": {
+          "type": "integer",
+          "required": false
+        },
+        "shot_id": {
+          "type": "string",
+          "required": false
         }
       }
     },
@@ -1478,10 +1498,6 @@
         },
         "frame": {
           "type": "integer",
-          "required": false
-        },
-        "shot_id": {
-          "type": "string",
           "required": false
         },
         "person": {
@@ -1547,6 +1563,10 @@
         "reracks": {
           "type": "integer",
           "required": true
+        },
+        "params_hash": {
+          "type": "string",
+          "required": false
         },
         "match_id": {
           "type": "string",
@@ -1635,10 +1655,6 @@
         "frame": {
           "type": "integer",
           "required": false
-        },
-        "shot_id": {
-          "type": "string",
-          "required": false
         }
       }
     },
@@ -1691,10 +1707,6 @@
         "frame": {
           "type": "integer",
           "required": false
-        },
-        "shot_id": {
-          "type": "string",
-          "required": false
         }
       }
     },
@@ -1712,6 +1724,10 @@
         "player": {
           "type": "integer",
           "required": true
+        },
+        "seed": {
+          "type": "string",
+          "required": false
         },
         "match_id": {
           "type": "string",

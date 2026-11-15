@@ -377,3 +377,68 @@ TEST_CASE("keys the readers do not know are ignored, and an integral number is a
     expected["balls"][1]["x"] = 1.0;
     CHECK(frame_json(s) == expected);
 }
+
+TEST_CASE("scores, counts and points outside 0 to 1,000,000 are refused, so no sum of the engine's can overflow") {
+    struct Case {
+        const char* pointer;
+        const char* path;
+        int lowest;
+    };
+    const Case cases[] = {
+        {"/scores/0", "scores[0]", 0},
+        {"/scores/1", "scores[1]", 0},
+        {"/break_points", "break_points", 0},
+        {"/strokes", "strokes", 0},
+        {"/last_penalty", "last_penalty", 0},
+        {"/miss_run", "miss_run", 0},
+        {"/quiet_strokes", "quiet_strokes", 0},
+        {"/rerack_deadline", "rerack_deadline", -1},
+        {"/stats/0/shots", "stats[0].shots", 0},
+        {"/stats/1/pots", "stats[1].pots", 0},
+        {"/stats/0/pot_attempts", "stats[0].pot_attempts", 0},
+        {"/stats/1/fouls", "stats[1].fouls", 0},
+        {"/stats/0/misses", "stats[0].misses", 0},
+        {"/stats/1/points_from_fouls", "stats[1].points_from_fouls", 0},
+        {"/stats/0/highest_break", "stats[0].highest_break", 0},
+    };
+    for (const Case& c : cases) {
+        CAPTURE(c.path);
+        const json::json_pointer at(c.pointer);
+        for (int bad : {c.lowest - 1, 1000001, std::numeric_limits<int>::max(), std::numeric_limits<int>::min()}) {
+            CAPTURE(bad);
+            json doc = example_frame();
+            doc[at] = bad;
+            FrameState s;
+            std::string error;
+            CHECK_FALSE(frame_from_json(doc, s, error));
+            CHECK(error.rfind(std::string(c.path) + ": " + std::to_string(bad) + " is outside [", 0) == 0);
+        }
+        for (int good : {c.lowest, 1000000}) {
+            json doc = example_frame();
+            doc[at] = good;
+            FrameState s;
+            std::string error;
+            CHECK_MESSAGE(frame_from_json(doc, s, error), error);
+        }
+    }
+}
+
+TEST_CASE("a match's frame counts and its history's scores are bounded the same way") {
+    const json good = fixture("example_match.json");
+    for (const char* pointer : {"/frames/0", "/frame_number", "/reracks", "/frame/scores/1"}) {
+        CAPTURE(pointer);
+        json doc = good;
+        doc[json::json_pointer(pointer)] = -1;
+        MatchState m;
+        std::string error;
+        CHECK_FALSE(match_from_json(doc, m, error));
+        CHECK(error.find("is outside [0, 1000000]") != std::string::npos);
+    }
+    REQUIRE_FALSE(good["history"].empty());
+    json doc = good;
+    doc["history"][0]["scores"][0] = 2000000;
+    MatchState m;
+    std::string error;
+    CHECK_FALSE(match_from_json(doc, m, error));
+    CHECK(error.rfind("history[0].scores[0]: 2000000 is outside", 0) == 0);
+}

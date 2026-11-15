@@ -66,18 +66,23 @@ TEST_CASE("a stroke that pots a ball or moves the balls about is not quiet and c
     pot(f, at(s, Ball::red, 0));
     CHECK(judge(s, {}, f, oracle, RefParams{}).post.quiet_strokes == 0);
 
+    // An in-off is a foul: it neither counts nor clears.
     ShotFacts g = hit(s, Ball::red, 0);
     in_off(g);
-    CHECK(judge(s, {}, g, oracle, RefParams{}).post.quiet_strokes == 0);
+    CHECK(judge(s, {}, g, oracle, RefParams{}).post.quiet_strokes == 8);
 }
 
-TEST_CASE("a quiet foul counts, but no re-rack is offered while its choice is pending") {
+TEST_CASE("a foul stroke neither counts nor clears, quiet or not, and brings no offer") {
     FakeOracle oracle;
     const FrameState s = after_safeties(open_table(6), 11);
     const Judgement j = judge(s, {}, scenario::quiet_facts(s), oracle, RefParams{});
-    CHECK(j.post.quiet_strokes == 12);
+    CHECK(j.post.quiet_strokes == 11);
     CHECK(j.post.pending == Pending::after_foul);
     CHECK_FALSE(has_call(j.calls, CallKind::rerack_offer));
+
+    ShotFacts lively = hit(s, Ball::pink);
+    lively.object_travel_m = 2.0;
+    CHECK(judge(s, {}, lively, oracle, RefParams{}).post.quiet_strokes == 11);
 }
 
 TEST_CASE("both players accepting restarts the frame (S3.17)") {

@@ -128,6 +128,32 @@ TEST_CASE("penalty points required: the deficit beyond the balls left") {
     CHECK(penalty_points_required(s, 2) == 0);
 }
 
+TEST_CASE("penalty points required: the colour of choice counts only for the striker (S3.14(a)(i), S4.2(b))") {
+    // The last red gone, a colour of choice on: 34 for the striker, the 27 of the colours for the other.
+    FrameState s = open_table(0);
+    s.on = {OnKind::any_colour, Ball::yellow};
+    s.striker = 0;
+    s.scores = {60, 30};
+    REQUIRE(points_remaining(s) == 34);
+    CHECK(penalty_points_required(s, 1) == 3);
+    CHECK(penalty_points_required(s, 0) == 0);
+    s.scores = {30, 63};
+    CHECK(penalty_points_required(s, 0) == 0);
+    s.scores = {30, 65};
+    CHECK(penalty_points_required(s, 0) == 1);
+
+    s.striker = 1;
+    s.scores = {60, 30};
+    CHECK(penalty_points_required(s, 1) == 0);
+    s.scores = {30, 60};
+    CHECK(penalty_points_required(s, 0) == 3);
+
+    // Red on, nothing extra for anyone.
+    FrameState red = open_table(1);
+    red.scores = {70, 34};
+    CHECK(penalty_points_required(red, 1) == 1);
+}
+
 TEST_CASE("the cue ball in hand goes where the striker puts it in the D (S3.5)") {
     FakeOracle oracle;
     FrameState s = open_table(15);
