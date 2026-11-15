@@ -43,7 +43,8 @@ nlohmann::json make_result(const ShotRecord& r);
 // its params not the values params_values_hash was taken over. The hash is recomputed from the
 // parsed values, so key order, whitespace or 120 for 120.0 don't matter and a changed value does.
 // Both hashes are optional in either version: without table_hash, in.table_hash is left empty;
-// without params_values_hash, the values aren't checked.
+// without params_values_hash, the values aren't checked. A value the bundle predates
+// (physics_params_from_values) is filled in and left out of the hash.
 bool parse_bundle(const nlohmann::json& bundle, SimInput& in, PhysicsParams& p, std::string& error);
 
 struct Divergence {

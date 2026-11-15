@@ -14,6 +14,7 @@
     "ball_rest_speed_m_s": 0.001,
     "cushion_restitution": 0.85,
     "cushion_friction": 0.14,
+    "cushion_side_grip": 4.0,
     "cushion_table_friction": 0.212,
     "cushion_contact_height_m": 0.03675,
     "cushion_rigid_limit_m_s": 2.5,
@@ -105,7 +106,12 @@
     "cushion_friction": {
       "unit": "",
       "source": "Mathavan, Jackson & Parkin (2010), Proc. IMechE C 224(9):1863-1873, sec. 3.5: mu_w = 0.14 (fitted with e_e = 0.98)",
-      "note": "Ball-cushion sliding friction."
+      "note": "Ball-cushion sliding friction up the cushion's face (the direction top and back spin rub in); along its length it is cushion_side_grip times this."
+    },
+    "cushion_side_grip": {
+      "unit": "",
+      "source": "The owner's feel session on the iPhone, 2026-11-15 (Selby's blue with top and left side, 2014 World final, last frame, would not run down the table), set against Dr. Dave Alciatore's bank and kick effects page, https://drdavepoolinfo.com/faq/bank-kick/effects/ (Patrick Johnson's rule: 1/3, 2/3 and 3/3 of maximum side straight into a cushion move the ball about 1, 2 and 3 diamonds across the table). 1 is the paper's cushion (Mathavan et al. 2010), which fitted mu_w to balls without side",
+      "note": "How many times harder the cushion grips a ball along its length than up its face. With one friction for both (1) side runs out of grip: a third, two thirds and all of the side straight in gave 1.0, 1.7 and 1.9 diamonds, and a cue ball arriving slowly with a lot of side (after a full-ball pot) barely turned. At 2 and above the rule holds (1.1, 2.2, 3.4); 4 is where the heavy-side shot stops gaining much (full grip by 5). A ball without side straight in is untouched; at an angle a rolling ball comes off shorter (45 degrees in: 49 out once rolling, was 56). Jaws keep one friction. A shot logged before this existed replays with 1."
     },
     "cushion_table_friction": {
       "unit": "",

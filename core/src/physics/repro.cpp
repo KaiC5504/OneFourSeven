@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <iterator>
 #include <limits>
 
 #include "ofs/log.hpp"
@@ -194,7 +195,12 @@ bool parse_bundle(const nlohmann::json& bundle, SimInput& in, PhysicsParams& p, 
             error = "params_values_hash: want a string";
             return false;
         }
-        const std::string values_hash = params::content_hash(physics_params_values(parsed_p));
+        // A bundle from before a field existed was hashed without it.
+        nlohmann::json hashed = physics_params_values(parsed_p);
+        for (auto it = hashed.begin(); it != hashed.end();) {
+            it = values->contains(it.key()) ? std::next(it) : hashed.erase(it);
+        }
+        const std::string values_hash = params::content_hash(hashed);
         if (logged_hash->get<std::string>() != values_hash) {
             error = "params_values_hash: the bundle records " + logged_hash->get<std::string>() +
                     " but its params hash to " + values_hash + ", so a value changed after the shot was logged";

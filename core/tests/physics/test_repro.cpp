@@ -233,6 +233,22 @@ TEST_CASE("bundle params_values_hash refuses an edited value, naming both hashes
     CHECK(p.slide_friction == 0.21);
 }
 
+TEST_CASE("bundle logged before cushion_side_grip existed parses, hashes and plays on the paper's cushion") {
+    nlohmann::json old = make_bundle(sample_input(), sample_params());
+    old["params"].erase("cushion_side_grip");
+    old["params_values_hash"] = ofs::params::content_hash(old["params"]);
+    SimInput in;
+    PhysicsParams p;
+    std::string error;
+    REQUIRE_MESSAGE(parse_bundle(nlohmann::json::parse(old.dump()), in, p, error), error);
+    CHECK(p.cushion_side_grip == 1.0);
+
+    // Its other values are still held to the hash.
+    old["params"]["slide_friction"] = 0.21;
+    CHECK_FALSE(parse_bundle(old, in, p, error));
+    CHECK_MESSAGE(error.rfind("params_values_hash:", 0) == 0, error);
+}
+
 TEST_CASE("bundle carries the table hash, and an older bundle without one reads as unknown") {
     SimInput in = sample_input();
     const PhysicsParams p = sample_params();

@@ -21,6 +21,7 @@ std::vector<std::string> stale_params(const nlohmann::json& fx) {
         {"ball_mass_kg", p.ball_mass_kg},
         {"cushion_restitution", p.cushion_restitution},
         {"cushion_friction", p.cushion_friction},
+        {"cushion_side_grip", p.cushion_side_grip},
         {"cushion_table_friction", p.cushion_table_friction},
         {"cushion_contact_height_m", p.cushion_contact_height_m},
         {"cushion_rigid_limit_m_s", p.cushion_rigid_limit_m_s},
@@ -167,7 +168,9 @@ TEST_CASE("C7 with the paper's cushion (e_e = 0.98) the model gives the paper's 
     REQUIRE_MESSAGE(lit.is_object(), "cushion_mathavan.json has no literature cases: run `uv run tools/gen_reference.py`");
     PhysicsParams paper = params();
     paper.cushion_restitution = lit["cushion_restitution"].get<double>();
+    paper.cushion_side_grip = lit["cushion_side_grip"].get<double>();
     CHECK(paper.cushion_restitution == 0.98);
+    CHECK(paper.cushion_side_grip == 1.0);
     int n = 0;
     std::vector<std::string> failures;
     double straight_in = 0.0;
@@ -228,12 +231,12 @@ TEST_CASE("C8 running side widens and check side narrows the rebound, by Mathava
     std::vector<std::string> failures;
     for (const Frame& f : kFrames) {
         for (const nlohmann::json& c : cases) {
-            if (c["group"] != "side") continue;
+            if (c["group"] != "side" && c["group"] != "heavy_side") continue;
             check_case(c, f, params(), failures);
             ++n;
         }
     }
-    CHECK(n >= 40 * 8);
+    CHECK(n >= 70 * 8);
     {
         INFO(failures.size() << " of " << n << " side-spin impacts (cases x 8 cushion placements) off Mathavan et "
                              << "al. (2010); the first:\n" << join(failures));
@@ -281,4 +284,122 @@ TEST_CASE("C8 strike convention: right-hand side runs off a cushion on the left 
     const StrikeOutcome out = strike(in.start, 0, CueStrike{0.6, 0.4, 0.0, 0.0, 2.0}, open_table(), params(), rng);
     INFO("strike outcome v " << vec_str(out.v) << " w " << vec_str(out.w));
     CHECK_MESSAGE(out.w.z > 0.0, "right-hand side gave w.z = " << out.w.z << " (anticlockwise from above expected)");
+}
+
+TEST_CASE("C8 side straight into a cushion: a third, two thirds and all of it land one, two and three diamonds along") {
+    // Patrick Johnson's rule, on Dr. Dave Alciatore's bank and kick effects page
+    // (https://drdavepoolinfo.com/faq/bank-kick/effects/): "1/3, 2/3 and 3/3 of maximum spin result
+    // in approximately 1, 2 or 3 diamonds of cross-table change with a kick straight into a
+    // cushion". A diamond is a quarter of the table's width. The paper's cushion, one friction in
+    // every direction, runs out of grip: 1.0, 1.7 and 1.75.
+    const PhysicsParams& p = params();
+    const TableShape box = box_table();
+    const double diamond = table::kPlayingWidth / 4.0;
+    for (int thirds = 1; thirds <= 3; ++thirds) {
+        SimInput in;
+        in.start.balls = {make_ball(table::Ball::cue, 0, {1.4, 0.0, 0.0})};
+        in.cue_ball = 0;
+        in.has_strike = true;
+        // Left-hand side for a ball heading into the left cushion carries it towards baulk.
+        in.strike = CueStrike{kPi / 2.0, -0.5 * thirds / 3.0, 0.0, 0.0, 3.5};
+        in.seed = 1;
+        in.params_hash = "calibration";
+        const ShotRecord rec = simulate(in, box, p);
+        INFO(thirds << "/3 of full side; record: " << record_summary(rec));
+        const ShotEvent* first = first_event(rec, EventKind::ball_line, 0);
+        REQUIRE(first != nullptr);
+        const ShotEvent* second = first_event(rec, EventKind::ball_line, 0, -1, first->t + 1e-6);
+        REQUIRE_MESSAGE(second != nullptr, "the ball never crossed back to the other cushion");
+        const Segment* at_first = segment_from(rec, 0, first->t);
+        const Segment* at_second = segment_from(rec, 0, second->t);
+        REQUIRE(at_first != nullptr);
+        REQUIRE(at_second != nullptr);
+        CHECK(at_second->start.r.y < 0.0);
+        const double along = (at_first->start.r.x - at_second->start.r.x) / diamond;
+        MESSAGE(thirds << "/3 of full side straight in lands " << along << " diamonds along");
+        CHECK_MESSAGE(std::abs(along - thirds) <= 0.5, along << " diamonds, the rule says about " << thirds);
+    }
+}
+
+TEST_CASE("C8 Selby's blue: top and left side carry the cue ball off the side cushion and down to the black end") {
+    // positions/selby_blue.json, read off the broadcast of the 2014 World Championship final's
+    // last frame: Selby pots the blue to a middle pocket almost straight and the cue ball, with
+    // top and left-hand side, comes off the side cushion beside the pocket and runs down to the
+    // reds at the black end. The owner could not play it (2026-11-15): on the paper's cushion the
+    // cue ball arrives slowly with far more side than a single friction can use and comes almost
+    // straight back off it.
+    const nlohmann::json fx = read_json(fixture_path("positions/selby_blue.json"));
+    REQUIRE_MESSAGE(!fx.is_null(), "missing positions/selby_blue.json");
+    SimInput in;
+    std::string error;
+    REQUIRE_MESSAGE(from_json(fx["start"], in.start, error), error);
+    REQUIRE_MESSAGE(from_json(fx["strike"], in.strike, error), error);
+    in.cue_ball = fx["cue_ball"].get<int>();
+    in.has_strike = true;
+    in.seed = 1;
+    in.params_hash = "calibration";
+    REQUIRE(loaded_table().ok);
+    const TableShape& t = loaded_table().t;
+
+    struct Run {
+        bool potted = false;
+        double cushion_x = 0.0;
+        double off_cushion_deg = 0.0;
+        double speed = 0.0;
+        double furthest_x = 0.0;
+        std::string summary;
+    };
+    // The fixture's aim is the centre-ball line; side moves the pot (squirt, swerve, throw), so
+    // the aim is turned until the blue drops, as a player's is (the game's SpinAim): the middle
+    // of the aims that pot it.
+    auto play = [&](const PhysicsParams& p) {
+        std::vector<double> pots;
+        for (int i = -60; i <= 60; ++i) {
+            SimInput tried = in;
+            tried.strike.aim_rad += i * 0.05 * kDeg;
+            const ShotRecord rec = simulate(tried, t, p);
+            if (rec.final_state.balls[1].motion == Motion::pocketed) pots.push_back(tried.strike.aim_rad);
+        }
+        Run out;
+        if (pots.empty()) return out;
+        SimInput shot = in;
+        shot.strike.aim_rad = pots[pots.size() / 2];
+        const ShotRecord rec = simulate(shot, t, p);
+        out.summary = record_summary(rec);
+        out.potted = rec.final_state.balls[1].motion == Motion::pocketed;
+        const ShotEvent* blue = first_event(rec, EventKind::ball_ball, 0, 1);
+        if (blue == nullptr) return out;
+        const ShotEvent* cushion = first_event(rec, EventKind::ball_line, 0, -1, blue->t);
+        if (cushion == nullptr) return out;
+        const Segment* at = segment_from(rec, 0, cushion->t);
+        const Segment* rolling = first_segment_in(rec, 0, Motion::rolling, cushion->t);
+        if (at == nullptr || rolling == nullptr) return out;
+        out.cushion_x = at->start.r.x;
+        out.off_cushion_deg = std::atan2(std::abs(rolling->start.v.y), rolling->start.v.x) / kDeg;
+        out.speed = norm_xy(rolling->start.v);
+        for (const Segment& s : rec.segments[0]) out.furthest_x = std::max(out.furthest_x, s.start.r.x);
+        out.furthest_x = std::max(out.furthest_x, rec.final_state.balls[0].r.x);
+        return out;
+    };
+
+    const Run ours = play(params());
+    INFO("the table's cushion; record: " << ours.summary);
+    REQUIRE(ours.potted);
+    MESSAGE("Selby's blue: the cue ball meets the side cushion " << ours.cushion_x << " m from the middle pocket, "
+            << "rolls away " << ours.off_cushion_deg << " deg off it at " << ours.speed << " m/s and gets to x = "
+            << ours.furthest_x << " m");
+    CHECK(ours.cushion_x < 0.0);
+    CHECK(ours.cushion_x > -0.6);
+    CHECK(ours.off_cushion_deg < 40.0);
+    CHECK(ours.speed > 0.8);
+    // The reds lie from the pink spot (0.89 m) to the top cushion (1.78 m).
+    CHECK(ours.furthest_x > 1.3);
+
+    PhysicsParams paper = params();
+    paper.cushion_side_grip = 1.0;
+    const Run before = play(paper);
+    INFO("the paper's cushion; record: " << before.summary);
+    REQUIRE(before.potted);
+    CHECK(before.off_cushion_deg > 55.0);
+    CHECK(before.furthest_x < 1.0);
 }

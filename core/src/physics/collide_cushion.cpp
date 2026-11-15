@@ -16,6 +16,14 @@
 // slips again, which is what the fine Euler scheme converges to. core/tests/physics/
 // test_collide_cushion.cpp keeps the 5000-step scheme as the reference.
 //
+// The table's one change to the paper (collide.hpp): the cushion's friction along its length is
+// mu_x, a multiple of mu_w, which stays the friction up its face. A slipping contact then takes the
+// friction on the ellipse (mu_x, mu_w) that takes the most energy out of the slip. With a strong
+// grip the slip along the cushion dies away long before the slip up the face does and then stays
+// at zero, which is stiff to integrate, so that state is a mode of its own (hold): the contact
+// carries along the cushion whatever keeps it there and slides up or down the face with the rest
+// of the ellipse. With mu_x = mu_w every line below is the paper's.
+//
 // Frame: x along the cushion, y into it (an approaching ball has vy > 0), z up. The independent
 // variable is the normal impulse at the cushion contact I per unit mass, p = P_I / M, and spins are
 // carried as u = R w, so mass and radius drop out. Contact I sits at angle theta above the ball's
@@ -41,8 +49,14 @@ constexpr double kSnap = 1e-3;
 // land on the point where the slip's direction is undefined.
 constexpr double kApproach = 0.8;
 constexpr int kMaxSteps = 400;
+// A slipping contact I is taken as held along the cushion once its friction there is within this
+// fraction of mu_x of the friction that holds it: the slip left along the cushion is then that
+// fraction of the slip up the face or less, and the impulse that clears it is the one its decay
+// would have given.
+constexpr double kGrip = 1e-3;
 
-enum class Mode : unsigned char { slip, stick };
+// hold is for I only: no slip along the cushion, slipping up or down its face.
+enum class Mode : unsigned char { slip, stick, hold };
 
 struct Dir {
     double x = 0.0;
@@ -70,9 +84,11 @@ using State = std::array<double, 6>;
 
 class Impact {
 public:
-    Impact(double sin_theta, double mu_w, double mu_s, double e)
-        : st_(sin_theta), ct_(std::sqrt(1.0 - sin_theta * sin_theta)), mu_w_(mu_w), mu_s_(mu_s), e_(e),
-          b_(1.0 - kQ * sin_theta), c_(sin_theta * sin_theta + kQ), d_(kQ - sin_theta) {}
+    // mu_w is the cushion's friction up its face, mu_x along its length (PhysicsParams'
+    // cushion_side_grip times mu_w; equal in the paper).
+    Impact(double sin_theta, double mu_w, double mu_x, double mu_s, double e)
+        : st_(sin_theta), ct_(std::sqrt(1.0 - sin_theta * sin_theta)), mu_w_(mu_w), mu_x_(mu_x), mu_s_(mu_s),
+          e_(e), b_(1.0 - kQ * sin_theta), c_(sin_theta * sin_theta + kQ), d_(kQ - sin_theta) {}
 
     // y0's work entry is ignored. False when the ball wedges between the contacts or the step
     // limit runs out (the result is then unusable).
@@ -98,6 +114,8 @@ private:
     // (it only goes negative for a cushion friction above tan(theta)).
     double cloth_normal(double fiy) const { return std::max(0.0, st_ - fiy * ct_); }
 
+    Dir slide_i(Dir d) const;
+    double load_i(const Friction& f) const;
     Friction friction(Mode mi, Mode mc, Dir di, Dir dc) const;
     bool feasible(Mode mi, Mode mc, const Friction& f) const;
     Dir slip_dir(Dir s, int contact) const;
@@ -106,10 +124,12 @@ private:
     double time_to_zero_slip(const State& y, const State& k, int& which) const;
     double time_to_end(const State& y, const State& k, bool restitution, double target) const;
     double stick_margin(const State& y) const;
-    void project(State& y, const bool zero[2]) const;
+    void project(State& y, bool zero_ix, bool zero_iy, bool zero_c) const;
     void resolve(State& y, bool no_stick_i, bool no_stick_c);
+    bool grip(State& y);
+    double grip_time(const State& y) const;
 
-    double st_, ct_, mu_w_, mu_s_, e_;
+    double st_, ct_, mu_w_, mu_x_, mu_s_, e_;
     double b_, c_, d_;  // cross and self terms of the contacts' mobility
     double zero_ = 0.0;
     double snap_ = 0.0;
@@ -118,11 +138,52 @@ private:
     Dir restart_[2];
 };
 
+// Friction at I per unit p while it slips along d. With one coefficient, Coulomb's; with two, the
+// friction on the ellipse (mu_x, mu_w) that takes the most energy out of the slip, which is not
+// opposite to it: the grippier direction gets the larger share.
+Dir Impact::slide_i(Dir d) const {
+    if (mu_x_ == mu_w_) return {-mu_w_ * d.x, -mu_w_ * d.y};
+    const double n = std::hypot(mu_x_ * d.x, mu_w_ * d.y);
+    return n > 0.0 ? Dir{-mu_x_ * mu_x_ * d.x / n, -mu_w_ * mu_w_ * d.y / n} : Dir{};
+}
+
+// The friction holding I, scaled so that mu_w is the most the contact can give in any direction.
+double Impact::load_i(const Friction& f) const {
+    if (mu_x_ == mu_w_) return std::hypot(f.ix, f.iy);
+    return std::hypot(f.ix * mu_w_ / mu_x_, f.iy);
+}
+
 Friction Impact::friction(Mode mi, Mode mc, Dir di, Dir dc) const {
     Friction f;
+    if (mi == Mode::hold) {
+        const double up = di.y < 0.0 ? -1.0 : 1.0;
+        f.iy = -up * mu_w_;
+        if (mc == Mode::stick) {
+            // Neither contact slips along the cushion, which needs no friction there (kA != |b_|).
+            f.cy = (ct_ - d_ * f.iy) / kA;
+            return f;
+        }
+        // I's friction along the cushion cancels what C's does to its slip there, and C's depends
+        // on I's up the face through the cloth's normal impulse: a few rounds settle it (b_ is
+        // small, and zero at the usual contact height).
+        for (int it = 0; it < 30; ++it) {
+            const double nc = cloth_normal(f.iy);
+            f.cx = -mu_s_ * nc * dc.x;
+            f.cy = -mu_s_ * nc * dc.y;
+            const double ix = -b_ * f.cx / kA;
+            const double left = 1.0 - (ix / mu_x_) * (ix / mu_x_);
+            const double iy = -up * mu_w_ * std::sqrt(std::max(0.0, left));
+            const bool settled = std::abs(ix - f.ix) + std::abs(iy - f.iy) < 1e-15;
+            f.ix = ix;
+            f.iy = iy;
+            if (settled) break;
+        }
+        return f;
+    }
     if (mi == Mode::slip) {
-        f.ix = -mu_w_ * di.x;
-        f.iy = -mu_w_ * di.y;
+        const Dir fi = slide_i(di);
+        f.ix = fi.x;
+        f.iy = fi.y;
         const double nc = cloth_normal(f.iy);
         if (mc == Mode::slip) {
             f.cx = -mu_s_ * nc * dc.x;
@@ -166,7 +227,8 @@ Friction Impact::friction(Mode mi, Mode mc, Dir di, Dir dc) const {
 bool Impact::feasible(Mode mi, Mode mc, const Friction& f) const {
     constexpr double kSlack = 1.0 + 1e-9;
     const double nc = st_ - f.iy * ct_;
-    if (mi == Mode::stick && std::hypot(f.ix, f.iy) > mu_w_ * kSlack) return false;
+    if (mi == Mode::stick && load_i(f) > mu_w_ * kSlack) return false;
+    if (mi == Mode::hold && std::abs(f.ix) > mu_x_ * kSlack) return false;
     if (mc == Mode::stick && (nc <= 0.0 || std::hypot(f.cx, f.cy) > mu_s_ * nc * kSlack)) return false;
     return true;
 }
@@ -239,7 +301,7 @@ double Impact::time_to_zero_slip(const State& y, const State& k, int& which) con
     double best = std::numeric_limits<double>::infinity();
     which = -1;
     for (int i = 0; i < 2; ++i) {
-        if (mode_[i] != Mode::slip) continue;
+        if (mode_[i] == Mode::stick) continue;
         const double n2 = sv[i]->x * sv[i]->x + sv[i]->y * sv[i]->y;
         const double closing = sv[i]->x * dv[i]->x + sv[i]->y * dv[i]->y;
         if (closing < 0.0 && n2 > zero_ * zero_ && -n2 / closing < best) {
@@ -268,7 +330,8 @@ double Impact::stick_margin(const State& y) const {
     const Slips s = slips(y);
     const Friction f = friction(mode_[0], mode_[1], slip_dir(s.i, 0), slip_dir(s.c, 1));
     double g = std::numeric_limits<double>::infinity();
-    if (mode_[0] == Mode::stick) g = std::min(g, mu_w_ - std::hypot(f.ix, f.iy));
+    if (mode_[0] == Mode::stick) g = std::min(g, mu_w_ - load_i(f));
+    if (mode_[0] == Mode::hold) g = std::min(g, (mu_x_ - std::abs(f.ix)) * mu_w_ / mu_x_);
     if (mode_[1] == Mode::stick) g = std::min(g, mu_s_ * (st_ - f.iy * ct_) - std::hypot(f.cx, f.cy));
     return g;
 }
@@ -277,24 +340,28 @@ double Impact::stick_margin(const State& y) const {
 // exactly that, solving the mobility M (slip_rates without the normal terms) restricted to them. A
 // contact that sticks on a leftover slip would let friction work on it, which can add energy; an
 // impulse that stops a slip s only takes energy out, s M^-1 s / 2 per unit mass.
-void Impact::project(State& y, const bool zero[2]) const {
+void Impact::project(State& y, bool zero_ix, bool zero_iy, bool zero_c) const {
+    if (!zero_ix && !zero_iy && !zero_c) return;
     const Slips s = slips(y);
     Friction j;
-    if (zero[0] && zero[1]) {
+    // The slips along the cushion and across it don't mix in M.
+    if (zero_ix && zero_c) {
         const double det_x = kA * kA - b_ * b_;
-        const double det_y = c_ * kA - d_ * d_;
         j.ix = -(kA * s.i.x - b_ * s.c.x) / det_x;
         j.cx = -(kA * s.c.x - b_ * s.i.x) / det_x;
+    } else if (zero_ix) {
+        j.ix = -s.i.x / kA;
+    } else if (zero_c) {
+        j.cx = -s.c.x / kA;
+    }
+    if (zero_iy && zero_c) {
+        const double det_y = c_ * kA - d_ * d_;
         j.iy = -(kA * s.i.y - d_ * s.c.y) / det_y;
         j.cy = -(c_ * s.c.y - d_ * s.i.y) / det_y;
-    } else if (zero[0]) {
-        j.ix = -s.i.x / kA;
+    } else if (zero_iy) {
         j.iy = -s.i.y / c_;
-    } else if (zero[1]) {
-        j.cx = -s.c.x / kA;
+    } else if (zero_c) {
         j.cy = -s.c.y / kA;
-    } else {
-        return;
     }
     // rhs() without the normal impulse.
     y[0] += j.ix + j.cx;
@@ -306,7 +373,8 @@ void Impact::project(State& y, const bool zero[2]) const {
 
 // At a zero slip (or a broken stick) choose each contact's mode: stick when friction can hold it,
 // otherwise slip in the direction that is a fixed point of "slip grows along its own rate", the
-// direction a fine Euler scheme settles into after the crossing.
+// direction a fine Euler scheme settles into after the crossing. With a side grip I can also hold
+// along the cushion alone, tried between the two. no_stick_i rules out both ways of holding I.
 void Impact::resolve(State& y, bool no_stick_i, bool no_stick_c) {
     bool zero[2];
     {
@@ -314,10 +382,12 @@ void Impact::resolve(State& y, bool no_stick_i, bool no_stick_c) {
         zero[0] = mode_[0] == Mode::stick || length(s.i) <= snap_;
         zero[1] = mode_[1] == Mode::stick || length(s.c) <= snap_;
     }
-    project(y, zero);
+    const bool zero_ix = zero[0] || mode_[0] == Mode::hold;
+    project(y, zero_ix, zero[0], zero[1]);
     const Slips s = slips(y);
     const Dir sv[2] = {s.i, s.c};
     const bool no_stick[2] = {no_stick_i, no_stick_c};
+    const bool can_hold = mu_x_ != mu_w_ && zero_ix && !no_stick_i;
 
     Dir guess[2];
     if (mode_[0] == Mode::stick || mode_[1] == Mode::stick) {
@@ -326,29 +396,34 @@ void Impact::resolve(State& y, bool no_stick_i, bool no_stick_c) {
         if (mode_[1] == Mode::stick) guess[1] = unit({-f.cx, -f.cy});
     }
 
-    const Mode order[4][2] = {
-        {Mode::stick, Mode::stick}, {Mode::stick, Mode::slip}, {Mode::slip, Mode::stick},
-        {Mode::slip, Mode::slip}};
+    const Mode order[6][2] = {
+        {Mode::stick, Mode::stick}, {Mode::stick, Mode::slip}, {Mode::hold, Mode::stick},
+        {Mode::hold, Mode::slip},   {Mode::slip, Mode::stick}, {Mode::slip, Mode::slip}};
     Mode chosen[2] = {Mode::slip, Mode::slip};
     Dir dirs[2] = {unit(sv[0]), unit(sv[1])};
     Dir fallback[2] = {dirs[0], dirs[1]};
     bool found = false;
+    // A held I slips up or down the face only.
+    const auto face = [](double y_part) { return Dir{0.0, y_part < 0.0 ? -1.0 : 1.0}; };
     for (const auto& modes : order) {
         bool allowed = true;
         for (int i = 0; i < 2; ++i) {
             if (modes[i] == Mode::stick && (!zero[i] || no_stick[i])) allowed = false;
         }
+        if (modes[0] == Mode::hold && !can_hold) allowed = false;
         if (!allowed) continue;
+        const bool hold = modes[0] == Mode::hold;
         bool restart[2];
         Dir d[2];
         for (int i = 0; i < 2; ++i) {
-            restart[i] = zero[i] && modes[i] == Mode::slip;
+            restart[i] = zero[i] && modes[i] != Mode::stick;
             d[i] = restart[i] ? guess[i] : unit(sv[i]);
         }
+        if (hold) d[0] = face(restart[0] ? guess[0].y : sv[0].y);
         Slips rates{};
         for (int it = 0; it < 60; ++it) {
             rates = slip_rates(friction(modes[0], modes[1], d[0], d[1]));
-            const Dir r[2] = {unit(rates.i), unit(rates.c)};
+            const Dir r[2] = {hold ? face(rates.i.y) : unit(rates.i), unit(rates.c)};
             double change = 0.0;
             for (int i = 0; i < 2; ++i) {
                 if (!restart[i]) continue;
@@ -389,6 +464,32 @@ void Impact::resolve(State& y, bool no_stick_i, bool no_stick_c) {
     }
 }
 
+// Takes a slipping I as held along the cushion once that is what its friction has come to
+// (kGrip), clearing the little slip left there.
+bool Impact::grip(State& y) {
+    const Slips s = slips(y);
+    if (std::abs(s.i.y) <= zero_) return false;
+    const Dir dc = slip_dir(s.c, 1);
+    const Friction held = friction(Mode::hold, mode_[1], s.i, dc);
+    if (!feasible(Mode::hold, mode_[1], held)) return false;
+    const Friction slid = friction(Mode::slip, mode_[1], slip_dir(s.i, 0), dc);
+    if (std::abs(slid.ix - held.ix) > kGrip * mu_x_) return false;
+    project(y, true, false, mode_[1] == Mode::stick);
+    mode_[0] = Mode::hold;
+    return true;
+}
+
+// The p over which I's slip along the cushion decays under the ellipse's friction: with a strong
+// grip far shorter than the impact, and steps longer than it would only rattle about the decay.
+double Impact::grip_time(const State& y) const {
+    const Slips s = slips(y);
+    const double n = std::hypot(mu_x_ * s.i.x, mu_w_ * s.i.y);
+    if (n <= zero_) return std::numeric_limits<double>::infinity();
+    const double face = mu_w_ * s.i.y / n;
+    const double rate = kA * mu_x_ * mu_x_ * face * face / n;
+    return rate > 0.0 ? 1.0 / rate : std::numeric_limits<double>::infinity();
+}
+
 bool Impact::solve(const State& y0, State& out) {
     constexpr double inf = std::numeric_limits<double>::infinity();
     const double scale = std::hypot(y0[0], y0[1]) + std::sqrt(y0[2] * y0[2] + y0[3] * y0[3] + y0[4] * y0[4]);
@@ -410,6 +511,7 @@ bool Impact::solve(const State& y0, State& out) {
     State yn;
     State kn;
     for (int steps = 0; steps < kMaxSteps; ++steps) {
+        if (mu_x_ != mu_w_ && mode_[0] == Mode::slip && grip(y)) k = rhs(y);
         if (mode_[0] == Mode::stick && mode_[1] == Mode::stick) {
             // Both contacts holding wedge the ball: their slips up the contacts are both zero only
             // with no normal speed, and every rate is zero, so it never leaves. Both can hold only
@@ -428,7 +530,8 @@ bool Impact::solve(const State& y0, State& out) {
                 continue;
             }
         }
-        const double hh = std::min({h, te, kApproach * ts});
+        const double tg = mu_x_ != mu_w_ && mode_[0] == Mode::slip ? grip_time(y) : inf;
+        const double hh = std::min({h, te, kApproach * ts, kApproach * tg});
         const bool to_end = hh == te;
         const double err = step(y, hh, k, yn, kn);
         if (err > tol && hh > 1e-9 * p_total) {
@@ -460,7 +563,7 @@ bool Impact::solve(const State& y0, State& out) {
                 }
             }
             y = yhi;
-            resolve(y, mode_[0] == Mode::stick, mode_[1] == Mode::stick);
+            resolve(y, mode_[0] != Mode::slip, mode_[1] == Mode::stick);
             k = rhs(y);
             continue;
         }
@@ -496,6 +599,7 @@ struct Surface {
     Vec3 normal;  // horizontal, unit, from the cushion towards the ball
     double restitution;
     double friction;
+    double side_grip;
 };
 
 bool collide(BallState& b, const Surface& s, const PhysicsParams& p) {
@@ -514,7 +618,7 @@ bool collide(BallState& b, const Surface& s, const PhysicsParams& p) {
         const double sin_theta = std::clamp((p.cushion_contact_height_m - R) / R, 0.0, 1.0);
         const State y0{vx, vy, R * (-b.w.x * ny + b.w.y * nx), -R * (b.w.x * nx + b.w.y * ny), R * b.w.z, 0.0};
         State y;
-        Impact impact(sin_theta, s.friction, p.cushion_table_friction, e);
+        Impact impact(sin_theta, s.friction, s.friction * s.side_grip, p.cushion_table_friction, e);
         if (!impact.solve(y0, y)) {
             // A plain restitution bounce keeps the ball valid.
             solved = false;
@@ -531,12 +635,13 @@ bool collide(BallState& b, const Surface& s, const PhysicsParams& p) {
 }  // namespace
 
 bool collide_line(BallState& b, const LineCushion& c, const PhysicsParams& p) {
-    return collide(b, {{c.normal.x, c.normal.y, 0.0}, p.cushion_restitution, p.cushion_friction}, p);
+    return collide(b, {{c.normal.x, c.normal.y, 0.0}, p.cushion_restitution, p.cushion_friction, p.cushion_side_grip},
+                   p);
 }
 
 bool collide_arc(BallState& b, const ArcCushion& c, const PhysicsParams& p) {
     const Vec3 n = unit_or_zero(Vec3{b.r.x - c.centre.x, b.r.y - c.centre.y, 0.0});
-    return collide(b, {n, p.jaw_restitution, p.jaw_friction}, p);
+    return collide(b, {n, p.jaw_restitution, p.jaw_friction, 1.0}, p);
 }
 
 }  // namespace ofs::phys

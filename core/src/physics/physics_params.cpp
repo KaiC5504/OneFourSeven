@@ -18,6 +18,9 @@ struct Field {
     // Inclusive bounds; a value outside them is rejected rather than clamped.
     double min = 0.0;
     double max = kInf;
+    // What a bundle logged before the field existed is read with: the value that plays its shot
+    // as it was played. NaN where the key must be there.
+    double absent = std::numeric_limits<double>::quiet_NaN();
 };
 
 // Bounds reject values that would break the model (a negative friction, a restitution above
@@ -54,6 +57,10 @@ const std::vector<Field>& fields() {
         // 0.0494 m, clear of the 0.045 cap below (0 fallbacks in 140k impacts per friction pair). At
         // 0.3 fallbacks appear, and at mu >= 1 every height wedges.
         {"cushion_friction", &PhysicsParams::cushion_friction, nullptr, 0.0, 0.25},
+        // Only the friction up the face can wedge the ball (a held contact carries none along the
+        // cushion), so this has no such bound: 0 fallbacks in 10,000 impacts across 0.1 to 20
+        // with both frictions up to 0.25. 0 would need a frictionless branch of its own.
+        {"cushion_side_grip", &PhysicsParams::cushion_side_grip, nullptr, 0.1, 20.0, 1.0},
         {"cushion_table_friction", &PhysicsParams::cushion_table_friction, nullptr, 0.0, 0.25},
         // The impact solver starts giving up as the contact nears the top of the ball (2R): on 1
         // of 20,000 random impacts at 0.049, on 8% at 0.052. 0.045 is sin(theta) 0.71.
@@ -128,7 +135,7 @@ bool apply(const Field& field, const nlohmann::json& value, PhysicsParams& out, 
 }
 
 bool read_values(const nlohmann::json& values, PhysicsParams& out, std::vector<std::string>& problems,
-                 bool log_problems) {
+                 bool log_problems, bool fill_absent) {
     const std::size_t before = problems.size();
     auto report = [&](const std::string& key, const nlohmann::json& value, const std::string& reason) {
         problems.push_back(key + ": " + reason);
@@ -143,7 +150,11 @@ bool read_values(const nlohmann::json& values, PhysicsParams& out, std::vector<s
     for (const Field& field : fields()) {
         const auto it = values.find(field.name);
         if (it == values.end()) {
-            report(field.name, nullptr, "missing");
+            if (fill_absent && field.real != nullptr && !std::isnan(field.absent)) {
+                out.*field.real = field.absent;
+            } else {
+                report(field.name, nullptr, "missing");
+            }
             continue;
         }
         std::string problem;
@@ -181,7 +192,7 @@ bool load_physics_params(const nlohmann::json& file, PhysicsParams& out, std::ve
         log::error("params", "params.invalid", {{"key", "values"}, {"value", nullptr}, {"reason", "missing"}});
         return false;
     }
-    return read_values(file["values"], out, problems, true);
+    return read_values(file["values"], out, problems, true, false);
 }
 
 nlohmann::json physics_params_values(const PhysicsParams& p) {
@@ -198,7 +209,7 @@ nlohmann::json physics_params_values(const PhysicsParams& p) {
 
 bool physics_params_from_values(const nlohmann::json& values, PhysicsParams& out,
                                 std::vector<std::string>& problems) {
-    return read_values(values, out, problems, false);
+    return read_values(values, out, problems, false, true);
 }
 
 }  // namespace ofs::phys

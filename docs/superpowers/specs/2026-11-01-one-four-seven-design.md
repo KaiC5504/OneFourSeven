@@ -276,11 +276,19 @@ elevation θ and cue speed V.
   cloth during the impact. That produces correct rebound angles, the effect of running
   and check side, and speed-dependent loss. Han (2005) is an acceptable fallback only if
   Mathavan proves unworkable, and the builder notes the trade-off.
+- **Owner (2026-11-15): the cushion grips side.** The paper has one cushion friction, fitted
+  to balls without side, and with it side spin ran out of grip: a cue ball arriving slowly
+  with a lot of side (Selby's blue, 2014 World final) came almost straight back off the
+  cushion. The friction along the cushion's length is now a multiple of the friction up its
+  face (`cushion_side_grip`, 4; 1 is the paper's model). Side straight into a cushion then
+  follows the players' rule (a third, two thirds and all of it: one, two and three diamonds
+  along), and a ball without side straight in is unchanged. Jaws keep one friction.
 - Straight cushion sections are line segments, and so are the facings behind the cushion
   tips. Pocket jaws are circular arcs using the same impact model with their own tunable
   restitution.
 - With the contact at height h, both contacts (cushion and cloth) can stick and wedge the
-  ball once h ≥ 2R / (1 + μ²), μ the lower of the cushion and cloth frictions. The impact
+  ball once h ≥ 2R / (1 + μ²), μ the lower of the cushion's friction up its face and the
+  cloth's. The impact
   then falls back to a plain restitution bounce and logs it. The parameter ranges (height
   ≤ 45 mm, frictions ≤ 0.25) keep every allowed table clear of that height.
 

@@ -33,6 +33,10 @@ struct PhysicsParams {
     // Cushions and jaws (spec 7.5, Mathavan et al. 2010).
     double cushion_restitution = 0.85;
     double cushion_friction = 0.14;        // mu_w, ball-cushion
+    // Friction along the cushion's length as a multiple of mu_w, which is then the friction up its
+    // face only. 1 is the paper's cushion, fitted to balls without side: it runs out of grip at about
+    // half of full side.
+    double cushion_side_grip = 4.0;
     double cushion_table_friction = 0.212;  // mu_s, ball-cloth during the impact
     double cushion_contact_height_m = 0.03675;  // height of the cushion nose's contact above the cloth
     // Mathavan's model loses the same fraction of speed at any speed; above this normal speed the
@@ -90,7 +94,8 @@ bool load_physics_params(const nlohmann::json& file, PhysicsParams& out, std::ve
 
 // {"name": value, ...} for every field: the "params" of a repro bundle.
 nlohmann::json physics_params_values(const PhysicsParams& p);
-// The inverse, strict: any problem makes it false and is appended to `problems`.
+// The inverse, strict: any problem makes it false and is appended to `problems`. A bundle logged
+// before cushion_side_grip existed leaves it out and gets 1, the cushion it was played on.
 bool physics_params_from_values(const nlohmann::json& values, PhysicsParams& out,
                                 std::vector<std::string>& problems);
 

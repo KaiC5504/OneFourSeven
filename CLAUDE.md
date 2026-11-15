@@ -178,4 +178,14 @@ x86_64-only and the Mac has no Rosetta.
   lines (was 16-27), straight on 68-79 (was 63-71); a firm ball rattles out from 20 mm over a jaw.
   His first word on them: much better, maybe now too easy; he wants more play before any retune
   (both values are live over the link).
+  The cushion grips side (same day): he could not play Selby's blue (2014 World final: top and
+  left side, the cue ball off the side cushion and down to the reds). The paper's one cushion
+  friction ran out of grip with side, so the friction along the cushion is now
+  `cushion_side_grip` (4) times the friction up its face; 1 is the paper's model, which shots
+  logged before it replay with. Side straight in now lands 1, 2 and 3 diamonds along for a
+  third, two thirds and all of it (was 1.0, 1.7, 1.75), and the shot is a calibration case
+  (`positions/selby_blue.json`, C8). A rolling ball at an angle comes off shorter and slower
+  than before (50 degrees in: 0.71 of its speed at 40.5, was 0.80 at 48). His to judge, live
+  over the link. He will bring more shots from broadcasts: each becomes a position fixture with
+  the real outcome as its target, and later a practice position.
   No workflow runs on push any more (above).

@@ -73,6 +73,32 @@ TEST_CASE("values round-trip through the bundle form") {
     CHECK(physics_params_values(back) == physics_params_values(p));
 }
 
+TEST_CASE("a bundle from before cushion_side_grip existed reads as the paper's cushion; the file must have it") {
+    nlohmann::json values = physics_params_values(PhysicsParams{});
+    REQUIRE(values.contains("cushion_side_grip"));
+    values.erase("cushion_side_grip");
+    PhysicsParams p;
+    std::vector<std::string> problems;
+    CHECK(physics_params_from_values(values, p, problems));
+    CHECK(problems.empty());
+    CHECK(p.cushion_side_grip == 1.0);
+    // Any other missing key is still a problem.
+    values.erase("cushion_friction");
+    CHECK_FALSE(physics_params_from_values(values, p, problems));
+    CHECK(problems.size() == 1);
+
+    nlohmann::json file = read_params_file();
+    file["values"].erase("cushion_side_grip");
+    PhysicsParams from_file;
+    problems.clear();
+    bool ok = true;
+    const auto events = load_capturing(file, from_file, problems, ok);
+    CHECK_FALSE(ok);
+    CHECK(problems.size() == 1);
+    CHECK(events.size() == 1);
+    CHECK(from_file.cushion_side_grip == PhysicsParams{}.cushion_side_grip);
+}
+
 TEST_CASE("bad values are refused, logged and leave the default") {
     nlohmann::json file = read_params_file();
     file["values"]["slide_friction"] = -0.1;

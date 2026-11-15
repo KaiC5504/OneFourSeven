@@ -37,8 +37,11 @@ using Local = std::array<double, 5>;
 // impulse with dP = (1 + e) M V0 sin(alpha) / N and N = 5000 (the paper's choice), slip angles
 // from the current state, the work at I by the trapezium rule (16a), compression until the
 // normal velocity is zero and restitution until e^2 of its work is returned (16b). The same
-// scheme as pooltool's physics/resolve/ball_cushion/mathavan_2010/model.py (Apache-2.0).
-Local mathavan_reference(Local y, double sin_theta, double mu_w, double mu_s, double e, int n = 5000) {
+// scheme as pooltool's physics/resolve/ball_cushion/mathavan_2010/model.py (Apache-2.0). mu_x is
+// the cushion's friction along its length: a slipping contact takes the friction on the ellipse
+// (mu_x, mu_w) that works hardest against the slip, which is the paper's when the two are equal.
+Local mathavan_reference(Local y, double sin_theta, double mu_w, double mu_x, double mu_s, double e,
+                         int n = 5000) {
     const double st = sin_theta;
     const double ct = std::sqrt(1.0 - st * st);
     const double dp = (1.0 + e) * y[1] / n;
@@ -47,10 +50,10 @@ Local mathavan_reference(Local y, double sin_theta, double mu_w, double mu_s, do
         const double sIy = -s[1] * st + s[2];
         const double sCx = s[0] - s[3];
         const double sCy = s[1] + s[2];
-        const double nI = std::hypot(sIx, sIy);
+        const double nI = std::hypot(mu_x * sIx, mu_w * sIy);
         const double nC = std::hypot(sCx, sCy);
-        const double fIx = nI > 0.0 ? -mu_w * sIx / nI : 0.0;
-        const double fIy = nI > 0.0 ? -mu_w * sIy / nI : 0.0;
+        const double fIx = nI > 0.0 ? -mu_x * mu_x * sIx / nI : 0.0;
+        const double fIy = nI > 0.0 ? -mu_w * mu_w * sIy / nI : 0.0;
         const double nc = std::max(0.0, st - fIy * ct);
         const double fCx = nC > 0.0 ? -mu_s * nc * sCx / nC : 0.0;
         const double fCy = nC > 0.0 ? -mu_s * nc * sCy / nC : 0.0;
@@ -92,12 +95,13 @@ Local mathavan_reference(Local y, double sin_theta, double mu_w, double mu_s, do
 
 double sin_theta(const PhysicsParams& p) { return (p.cushion_contact_height_m - R) / R; }
 
-// The cushion as Mathavan et al. (2010) fitted it (sec. 3.5: e_e = 0.98 with mu_w = 0.14). The
-// paper's figures and the grid below are for that cushion; the table's own cushion_restitution is
-// the owner's (table_params.json).
+// The cushion as Mathavan et al. (2010) fitted it (sec. 3.5: e_e = 0.98 with mu_w = 0.14 in every
+// direction). The paper's figures and the grid below are for that cushion; the table's own
+// cushion_restitution and cushion_side_grip are the owner's (table_params.json).
 PhysicsParams paper_params() {
     PhysicsParams p;
     p.cushion_restitution = 0.98;
+    p.cushion_side_grip = 1.0;
     return p;
 }
 
@@ -226,7 +230,7 @@ TEST_CASE("cushion: fast Mathavan model matches the 5000-step reference over the
             for (double top : {-1.0, 0.0, 0.5, 1.0, 2.0}) {
                 for (double side : {-2.0, -1.0, 0.0, 1.0, 2.0}) {
                     const Local y0 = paper_state(v0, alpha_deg * kPi / 180.0, top, side);
-                    const Local ref = mathavan_reference(y0, sin_theta(p), p.cushion_friction,
+                    const Local ref = mathavan_reference(y0, sin_theta(p), p.cushion_friction, p.cushion_friction,
                                                          p.cushion_table_friction, kGridRestitution[row][col]);
                     const Local got = hit_line(y0, p);
                     const double ds = std::abs(speed(got) - speed(ref)) / speed(ref);
@@ -244,6 +248,103 @@ TEST_CASE("cushion: fast Mathavan model matches the 5000-step reference over the
     }
     MESSAGE("C7 grid, " << cases << " impacts: worst speed error " << worst_speed * 100.0
                         << "%, worst angle error " << worst_angle << " deg");
+}
+
+TEST_CASE("cushion: with a side grip the fast model matches the fine-step reference over the same grid") {
+    // The paper's cushion with the one change the table makes to it (collide.hpp): the same grid,
+    // and side up to three times the ball's speed, where the grip holds or lets go.
+    for (double grip : {0.5, 2.0, 4.0, 8.0}) {
+        PhysicsParams p = paper_params();
+        p.cushion_side_grip = grip;
+        double worst_speed = 0.0;
+        double worst_angle = 0.0;
+        for (int col = 0; col < 9; ++col) {
+            const int alpha_deg = 5 + 10 * col;
+            for (int row = 0; row < 4; ++row) {
+                const double v0 = kGridSpeeds[row];
+                for (double top : {-1.0, 0.0, 1.0, 2.0}) {
+                    for (double side : {-3.0, -1.0, 0.0, 1.0, 3.0}) {
+                        const Local y0 = paper_state(v0, alpha_deg * kPi / 180.0, top, side);
+                        const Local ref = mathavan_reference(y0, sin_theta(p), p.cushion_friction,
+                                                             grip * p.cushion_friction, p.cushion_table_friction,
+                                                             kGridRestitution[row][col], 20000);
+                        bool solved = false;
+                        const Local got = hit_line(y0, p, &solved);
+                        INFO("grip " << grip << " alpha " << alpha_deg << " v0 " << v0 << " top " << top << " side "
+                                     << side);
+                        CHECK(solved);
+                        const double ds = std::abs(speed(got) - speed(ref)) / speed(ref);
+                        const double da = std::abs(rebound_deg(got) - rebound_deg(ref));
+                        worst_speed = std::max(worst_speed, ds);
+                        worst_angle = std::max(worst_angle, da);
+                        CHECK(ds <= 0.005);
+                        CHECK(da <= 0.1);
+                    }
+                }
+            }
+        }
+        MESSAGE("side grip " << grip << ": worst speed error " << worst_speed * 100.0 << "%, worst angle error "
+                             << worst_angle << " deg");
+    }
+}
+
+TEST_CASE("cushion: the grip turns side into speed along the cushion in proportion, the paper's runs out") {
+    // The owner's session, 2026-11-15, against Patrick Johnson's rule on Dr. Dave Alciatore's bank
+    // and kick effects page: a third, two thirds and all of the side straight into a cushion move
+    // the ball one, two and three diamonds. A rolling ball straight in at 1 m/s with side 0.6, 1.2
+    // and 1.8 of its speed (full side on a rolling ball is about 1.75).
+    PhysicsParams grip;
+    PhysicsParams paper = grip;
+    paper.cushion_side_grip = 1.0;
+    REQUIRE(grip.cushion_side_grip >= 2.0);
+    double along_grip[3];
+    double along_paper[3];
+    const double sides[3] = {0.6, 1.2, 1.8};
+    for (int i = 0; i < 3; ++i) {
+        along_grip[i] = hit_line({0.0, 1.0, -1.0, 0.0, sides[i]}, grip)[0];
+        along_paper[i] = hit_line({0.0, 1.0, -1.0, 0.0, sides[i]}, paper)[0];
+    }
+    MESSAGE("speed along the cushion for side 0.6, 1.2, 1.8: with the grip " << along_grip[0] << ", "
+            << along_grip[1] << ", " << along_grip[2] << "; the paper's cushion " << along_paper[0] << ", "
+            << along_paper[1] << ", " << along_paper[2]);
+    CHECK(along_grip[1] / along_grip[0] == doctest::Approx(2.0).epsilon(0.05));
+    CHECK(along_grip[2] / along_grip[0] == doctest::Approx(3.0).epsilon(0.05));
+    CHECK(along_paper[2] / along_paper[0] < 2.2);
+    // Without side the grip changes nothing straight in.
+    const Local plain_grip = hit_line({0.0, 1.0, -1.0, 0.0, 0.0}, grip);
+    const Local plain_paper = hit_line({0.0, 1.0, -1.0, 0.0, 0.0}, paper);
+    for (std::size_t k = 0; k < 5; ++k) CHECK(plain_grip[k] == plain_paper[k]);
+}
+
+TEST_CASE("cushion: with any side grip kinetic energy never increases and the ball always leaves") {
+    // Spec 7.11 C12: the ellipse's friction works against the slip whatever its two coefficients.
+    Rng rng(20261115);
+    double worst_gain = -1.0;
+    int fallbacks = 0;
+    for (int i = 0; i < 10000; ++i) {
+        PhysicsParams p;
+        p.cushion_restitution = rng.uniform(0.3, 1.0);
+        p.cushion_friction = rng.uniform(0.0, 0.25);
+        p.cushion_side_grip = rng.uniform(0.1, 20.0);
+        p.cushion_table_friction = rng.uniform(0.0, 0.25);
+        const double v0 = rng.uniform(0.01, 8.0);
+        const double a = rng.uniform(0.01, kPi - 0.01);
+        const Local y0{v0 * std::cos(a), v0 * std::sin(a), rng.uniform(-3.0, 3.0) * v0,
+                       rng.uniform(-3.0, 3.0) * v0, rng.uniform(-3.0, 3.0) * v0};
+        bool solved = false;
+        const Local got = hit_line(y0, p, &solved);
+        fallbacks += solved ? 0 : 1;
+        bool finite = true;
+        for (double x : got) finite = finite && std::isfinite(x);
+        REQUIRE(finite);
+        const double gain = (energy(got) - energy(y0)) / energy(y0);
+        worst_gain = std::max(worst_gain, gain);
+        CHECK_MESSAGE(gain <= 1e-9, "impact " << i);
+        CHECK(got[1] <= 0.0);
+    }
+    MESSAGE("largest relative energy change over 10,000 impacts: " << worst_gain << "; " << fallbacks
+            << " fell back to a plain bounce");
+    CHECK(fallbacks == 0);
 }
 
 TEST_CASE("cushion: a rolling ball at normal incidence rebounds at Mathavan's 0.91 of its speed") {
