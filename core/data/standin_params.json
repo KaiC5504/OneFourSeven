@@ -19,7 +19,7 @@
     "speed_error": {
       "unit": "fraction",
       "source": "ours, a starting guess",
-      "note": "Standard deviation of its cue speed as a fraction of the speed it chose."
+      "note": "Standard deviation of its cue speed as a fraction of the speed it chose. The speed stays between 0.3 m/s and the physics' maximum."
     },
     "max_cut_rad": {
       "unit": "rad",
@@ -29,17 +29,17 @@
     "pot_speed_m_s": {
       "unit": "m/s",
       "source": "ours",
-      "note": "Cue speed for a pot with a metre of travel in all; scaled with the distance and kept inside the physics' limits."
+      "note": "Cue speed for a pot with a metre of travel in all, cue ball and object ball together. It goes with the square root of the travel and up with the cut, inside the physics' limits, and is halved, up to twice, when the simulated cue ball follows the pot in."
     },
     "safety_speed_m_s": {
       "unit": "m/s",
       "source": "ours",
-      "note": "Cue speed when it has no pot and plays to hit a ball on and leave it."
+      "note": "Cue speed when it has no pot and plays to hit a ball on and leave it, and for its escapes from a snooker."
     },
     "max_sims": {
       "unit": "simulations",
-      "source": "ours; spec 10.6 allows the real opponent 1.5 s, a simulation takes about a millisecond",
-      "note": "How many candidate strokes it may simulate before choosing, so one decision stays a few milliseconds on the phone."
+      "source": "ours; spec 10.6 allows the real opponent 1.5 s. Measured on the development PC over 1,000 frames of ofs_sim_cli match: 0.17 ms a stroke on average, 2.1 ms at worst",
+      "note": "How many candidate strokes it may simulate on the whole table before choosing, so one decision stays a few milliseconds on the phone. 0 plays its first choice unchecked. Aiming an escape off the cushions also simulates the cue ball alone, at most 40 times (kCourses in standin.cpp), each a small share of one of these."
     },
     "concede_required_points": {
       "unit": "points",

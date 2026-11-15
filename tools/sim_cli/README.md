@@ -2,7 +2,8 @@
 
 The physics core on the command line (spec 16.1, 16.10, 21 M1): run one shot, replay a logged
 shot, fuzz thousands of random shots, time the benchmark shots, write the calibration data and
-measure how wide the pockets play.
+measure how wide the pockets play. From M3 also the rules: play whole matches between two stand-in
+opponents with every stroke checked, and judge a log's referee decisions again.
 
 Build it with the core (`cmake --build build/windows --config Release --target ofs_sim_cli`); it
 lands in `build/windows/tools/sim_cli/<config>/`. Every command reads the physics parameters from
@@ -11,8 +12,8 @@ lands in `build/windows/tools/sim_cli/<config>/`. Every command reads the physic
 stopping at the first.
 
 Exit codes: 0 when everything passed, 1 when a check failed (a divergence, a failing fuzz shot, a
-benchmark over budget), 2 for bad arguments or unreadable input. `ofs_sim_cli help` lists every
-option.
+benchmark over budget, a frame that broke an invariant, a decision judged differently), 2 for bad
+arguments or unreadable input. `ofs_sim_cli help` lists every option.
 
 ## simulate
 
@@ -215,3 +216,86 @@ ofs_sim_cli pots --against old_table_shape.json --out build/pots.json
 - `--out FILE` writes every row as JSON: `width_mm`, `lo_mm`, `hi_mm`, the `lines` swept and
   `out_inside`, the lines inside the band that stay out.
 - Exit 1 when any of its shots had a physics anomaly.
+
+## match
+
+The stand-in opponent (`core/include/ofs/opponent/standin.hpp`) against itself over whole matches,
+as the game plays them: `choose_shot`, the cue ball placed when in hand, the stroke simulated,
+judged and settled into the match, each pending decision answered by `choose_decision`. It is the
+rules engine's fuzz (spec 16.2): every stroke and every choice is checked, and the first check that
+fails stops the run.
+
+```
+ofs_sim_cli match
+ofs_sim_cli match --frames 500 --seed 1 --threads 8
+ofs_sim_cli match --frames 6 --best-of 5 --seed 3 --log build/match.jsonl --out build/match-failures
+```
+
+- Matches are best of `--best-of` (default 3) and are played until `--frames` frames (default 100)
+  are done; the last match stops there. Match `k` of seed `S` is always the same match, and frames
+  are counted in match order, so the summary, the log and any failure are the same whatever
+  `--threads` is. Each stroke's simulator seed and the stand-in's errors come from the match's own
+  stream. The referee's and the stand-in's values are `core/data/referee_params.json` and
+  `standin_params.json`.
+- Checked after every stroke and choice:
+  - the scores change only by the stroke's points for the striker and its penalty for the other
+    player, and a choice changes neither them nor the stroke count; a penalty is 4 to 7, the
+    highest foul's value, never with points; the break is the points scored in a row;
+  - the table: the cue ball listed once, no ball twice, no two balls overlapping, every ball on the
+    cloth inside the cushions, no red back on the table; while a red remains all six colours are
+    on it, and afterwards exactly the colours from the one on upwards;
+  - the turn: `on`, `striker`, `decider` and `pending` agree with each other and with `options` (a
+    pending frame offers its decider something and the other player nothing; a frame that is over
+    offers nobody anything and has a winner and a reason), FREE BALL only after a foul, the cue ball
+    in hand lying where it may be placed;
+  - the points potted in a frame never exceed 147, plus 8 for each free ball potted and 7 for a
+    re-spotted black;
+  - judging the stroke a second time from its shot record gives the same frame (`frame_hash`), the
+    frame's JSON reads back as the same frame, and `rules::rejudge` finds no difference in the
+    stroke's `rules.decision` line as logged;
+  - the engine refused nothing (`rules.invalid`): the stand-in's cue place, nomination and strike
+    were ones it accepts, and its choice one of those offered;
+  - a frame ends within 3,000 strokes, re-racks included.
+- A broken check prints one `BREACH` line (match, frame, stroke, what broke) and writes
+  `match-<seed>-<match>-f<frame>-s<stroke>.json` to `--out` (default `build/match-failures`, cleared
+  of earlier `match-*.json` first): the frame before the stroke or choice (`frame`) and after it
+  (`after`), the stroke (cue place, nomination, strike, simulator seed, the stand-in's `why`) with
+  its repro `bundle`, `facts` and `judgement`, or the `decision` and its calls, and the referee's
+  values. The run stops there with the summary of the frames before it and exit 1.
+- The summary: frames, matches and strokes; strokes per frame (mean, longest); points per frame and
+  how many of them were penalties; the highest break; the stand-in's strokes by kind (pot, safety,
+  escape, break) with how many scored and how many were fouls; fouls by kind, misses, free balls,
+  re-spotted blacks and re-racks; every call and every choice made; how the frames ended; physics
+  anomalies (the stand-in's trial simulations included); `choose_shot`'s mean and worst time; the
+  wall time. The last line is the same as JSON: `summary`, which depends only on the seed and
+  the arguments (`frames_digest` is a hash over every frame's final state), and `timing`.
+- `--log FILE` writes the run's log as JSONL: `params.loaded`, then each match in order with its
+  `match.started`, `frame.started`, `opponent.decision`, `rules.cue_placed`, `shot.simulated`,
+  `rules.decision`, `rules.choice`, `frame.ended` and `match.ended` lines, the events the game
+  logs, with `match_id` `sim-<seed>-<match>` and a `shot_id` per stroke. `referee`, `replay` and
+  `tools/check_logs.py` all read it. It is about 10 kB a stroke.
+
+## referee
+
+Judges a log's referee decisions again (spec 16.10), whether the log came from the phone or from
+`match --log`.
+
+```
+ofs_sim_cli referee logs/2026-11-16/20261116-101500-a1b2c3.jsonl
+ofs_sim_cli referee build/match.jsonl --line 412
+```
+
+- Every `rules.decision` line (or just `--line N`) carries the frame before the stroke, the
+  nomination, the facts read from the shot and the referee's values: `rules::rejudge` judges it
+  again and compares the fouls, penalty, miss and its reason, points, nomination, spotted colours
+  and calls, then the hash of the frame afterwards.
+- Where the log also holds the stroke's `shot.simulated` line (the same `shot_id`), the shot is
+  replayed from its bundle and read again from the decision's own frame, and the facts are compared
+  with the logged ones: the first ball hit, the pots (ball and pocket), the cue ball potted, a push,
+  touching balls moved and the anomaly flag exactly, every resting position within 1e-6 m. The
+  bundle carries its parameters; the cushion outline is the local `table_shape.json` (or `--table`),
+  and a shot that ran on another outline is reported as unreadable, not compared.
+- It prints one line per difference, with its line number in the log and what was logged against
+  what came out, and a count at the end. Exit 1 on any difference; 2 when the log cannot be read,
+  has no `rules.decision` line, has a line that is not a log line or a shot whose bundle cannot be
+  used; 0 otherwise.
