@@ -53,7 +53,7 @@ const KEY_MODIFIERS: Array[String] = ["ctrl", "shift", "alt", "meta"]
 const STRIKE_KEYS: Array[String] = ["aim_rad", "tip_x", "tip_y", "elevation_rad", "speed_m_s"]
 const COMMANDS: Array[String] = ["ping", "load_position", "play_shot", "wait_idle", "set_setting", "dump_state",
 		"screenshot", "overlay", "input", "open_screen", "start_match", "match_state", "match_shot", "match_choose",
-		"match_wait", "match_autoplay", "match_continue", "quit"]
+		"match_wait", "match_autoplay", "match_pause", "match_continue", "quit"]
 const OVERLAY_PATH := "Hud/Overlay"
 
 ## The scene commands act on; tests swap in a fake one.
@@ -643,6 +643,11 @@ func run_command(cmd: String, args: Dictionary) -> Dictionary:
 				outcome = _ask_scene("harness_match_autoplay", [args["on"], args.get("fast", false)])
 			else:
 				outcome = _fail("on must be true or false, and fast when given")
+		"match_pause":
+			if args.get("on") is bool:
+				outcome = _ask_scene("harness_match_pause", [args["on"]])
+			else:
+				outcome = _fail("on must be true or false")
 		"match_continue":
 			outcome = _ask_scene("harness_match_continue", [])
 		"quit":

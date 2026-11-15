@@ -13,8 +13,12 @@ state.json and the screen saved as match_summary.png. Then the session log is re
 `ofs_sim_cli referee` (the Debug build's, or $OFS_SIM_CLI) re-judges every rules.decision in it.
 
 Prints the strokes, each frame and the result. Exit code 0 only when the match finished, the log
-has no app.error and the referee agrees; 1 when any of those fails; 2 for bad arguments, or when
-the game or ofs_sim_cli could not be run.
+fits the schema (tools/check_logs.py) and has no app.error or rules.invalid, and the referee
+agrees; 1 when any of those fails; 2 for bad arguments, or when the game or ofs_sim_cli could
+not be run.
+
+The seed is the match's: the rack and who breaks. The stand-in's choices and each shot's own
+seed are fresh every run, so two runs on one seed are different matches.
 
 On Windows it runs itself on the hidden desktop (scripts/background.py), so the game's window
 never shows on the screen; --show keeps it there. The Debug extension must be built first
@@ -37,6 +41,7 @@ from typing import Callable, Sequence, TextIO
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import check_logs  # noqa: E402
 from harness_client import Harness, HarnessError  # noqa: E402
 
 MATCH_LENGTHS = (1, 3, 5, 7, 9, 11)
@@ -98,8 +103,9 @@ def newest_session_log(logs: Path) -> Path | None:
 
 def read_log(path: Path, match_id: str = "") -> dict:
     """What a session log says of a match: its strokes (rules.decision lines), each frame.ended
-    summary, the match.ended line, every app.error and the lines that are not JSON. With match_id,
-    only that match's rules, frame and match lines count; app.error lines always do."""
+    summary, the match.ended line, every app.error and rules.invalid, and the lines that are not
+    JSON. With match_id, only that match's rules, frame and match lines count; app.error and
+    rules.invalid lines always do."""
     seen = {"lines": 0, "strokes": 0, "frames": [], "result": None, "errors": [], "not_json": 0}
     with open(path, encoding="utf-8", errors="replace") as handle:
         for line in handle:
@@ -118,6 +124,9 @@ def read_log(path: Path, match_id: str = "") -> dict:
             data = event.get("data") if isinstance(event.get("data"), dict) else {}
             if name == "app.error":
                 seen["errors"].append(f"{event.get('level', '?')} {data.get('kind', '?')}: {data.get('message', '')}")
+                continue
+            if name == "rules.invalid":
+                seen["errors"].append(f"{event.get('level', '?')} rules.invalid {data.get('what', '?')}: {data.get('detail', '')}")
                 continue
             if match_id and data.get("match_id") != match_id:
                 continue
@@ -232,9 +241,14 @@ def run(args: argparse.Namespace, make_game: Callable[..., object] = Harness,
         if result.get("reason") == "abandoned":
             failures.append("the match was abandoned, not played out")
     if seen["errors"]:
-        failures.append(f"the log has {len(seen['errors'])} app.error lines:\n    " + "\n    ".join(seen["errors"][:20]))
+        failures.append(f"the log has {len(seen['errors'])} app.error or rules.invalid lines:\n    "
+                        + "\n    ".join(seen["errors"][:20]))
     if seen["not_json"]:
         failures.append(f"{seen['not_json']} lines of the log are not JSON")
+    _, off_schema = check_logs.check_file(log, check_logs.load_schema())
+    if off_schema:
+        failures.append(f"{len(off_schema)} lines of the log do not fit the schema (tools/check_logs.py):\n    "
+                        + "\n    ".join(f"line {number}: {reason}" for number, reason in off_schema[:10]))
     if seen["strokes"] == 0:
         failures.append("the log has no rules.decision to re-judge")
 

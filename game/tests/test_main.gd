@@ -69,6 +69,28 @@ func test_the_app_opens_at_home_over_the_whole_table() -> void:
 	var rig: CameraRig = main.get_node("CameraRig")
 	check_eq(state["camera"]["view"], "shot", "the camera is held")
 	check(rig.transform.is_equal_approx(rig.broadcast_pose(CameraRig.FULL_TABLE_YAW)), "at the full-table view from the black end")
+	# The whole table stands between Home's name and its buttons.
+	var title := (hud.get_node("HomeScreen/Title") as Control).get_rect()
+	var row := (hud.get_node("HomeScreen/Buttons") as Control).get_rect()
+	var bounds: AABB = (main.get_node("Table") as TableView).bounds()
+	var camera: Camera3D = main.get_node("CameraRig/Camera3D")
+	var canvas: Vector2 = main.get_viewport().get_visible_rect().size
+	var top := INF
+	var bottom := -INF
+	for x: float in [bounds.position.x, bounds.end.x]:
+		for z: float in [bounds.position.z, bounds.end.z]:
+			var at := camera.unproject_position(Vector3(x, bounds.end.y, z))
+			top = minf(top, at.y)
+			bottom = maxf(bottom, at.y)
+			check(at.x > 0.0 and at.x < canvas.x, "the table's corner %s is on the screen" % at)
+	check(top > title.end.y, "the table's far end is under the name: %s under %s" % [top, title.end.y])
+	check(bottom < row.position.y, "its near end is above the buttons: %s above %s" % [bottom, row.position.y])
+	check(bottom - top > (row.position.y - title.end.y) * 0.6, "and it fills most of the room between them: %s of %s"
+			% [bottom - top, row.position.y - title.end.y])
+	# The fit is worked out once, not at every poll of the safe area.
+	var pose := rig.transform
+	main.call("_layout")
+	check(rig.transform == pose, "laying out again moves nothing")
 	# Above the controls and the bar, under the settings panel and the debug overlay.
 	var home := hud.get_node("HomeScreen").get_index()
 	for below: String in ["SpinWidget", "StrokeCue", "FreeTableBar", "Scoreboard", "ChoiceStrip", "CuePlacer"]:

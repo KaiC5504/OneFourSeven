@@ -624,6 +624,9 @@ class MatchScene extends FakeScene:
 	func harness_match_autoplay(on: bool, fast: bool) -> Dictionary:
 		return {"on": on, "fast": fast}
 
+	func harness_match_pause(on: bool) -> Dictionary:
+		return {"on": on, "can_concede": true}
+
 	func harness_match_continue() -> Dictionary:
 		return {"screen": "home"}
 
@@ -724,6 +727,10 @@ func test_channel_match_shot_choose_wait_autoplay_and_continue() -> void:
 	check(not r.get("ok", true), "on must be a bool")
 	r = await client.ask(11, "match_continue")
 	check_eq(r.get("result"), {"screen": "home"}, "continue: %s" % r)
+	r = await client.ask(13, "match_pause", {"on": true})
+	check_eq(r.get("result"), {"on": true, "can_concede": true}, "pause: %s" % r)
+	r = await client.ask(14, "match_pause", {"on": 1})
+	check(not r.get("ok", true), "on must be a bool")
 	r = await client.ask(12, "match_state")
 	check(r.get("ok", false) and r["result"]["frame"] == {"scores": [1.0, 2.0]}, "match_state is the scene's: %s" % r)
 	harness.free()

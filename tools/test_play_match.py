@@ -207,7 +207,7 @@ class RunTests(unittest.TestCase):
         self.referee_calls = []
         self.made = []
 
-    def run_with(self, game, verdict=(0, "re-judged 6 decisions: all agree\n"), cli=True):
+    def run_with(self, game, verdict=(0, "re-judged 6 decisions: all agree\n"), cli=True, off_schema=()):
         def referee(sim_cli, log):
             self.referee_calls.append((sim_cli, log))
             return verdict
@@ -218,7 +218,9 @@ class RunTests(unittest.TestCase):
 
         said = io.StringIO()
         environ = {"OFS_SIM_CLI": str(self.cli)} if cli else {"OFS_SIM_CLI": str(self.cli) + ".gone"}
-        with mock.patch.dict(os.environ, environ):
+        # The logs written here are a match's bones, not whole schema lines.
+        with mock.patch.dict(os.environ, environ), \
+                mock.patch.object(play_match.check_logs, "check_file", return_value=(0, list(off_schema))):
             code = play_match.run(self.args, make_game=make_game, referee=referee,
                                   user_dir_for=lambda base: ({"OFS_TEST_USER": str(base)}, self.user), out=said)
             self.moved_user_dir = os.environ.get("OFS_TEST_USER")
@@ -263,8 +265,26 @@ class RunTests(unittest.TestCase):
                         match_log(errors=("MatchController: engine.judge refused",)))
         code, said = self.run_with(game)
         self.assertEqual(code, 1)
-        self.assertIn("1 app.error lines", said)
+        self.assertIn("1 app.error or rules.invalid lines", said)
         self.assertIn("engine.judge refused", said)
+
+    def test_a_rules_invalid_in_the_log_fails(self):
+        text = match_log() + line("rules.invalid", {"what": "OfsMatch.judge", "detail": "the record is another table's"}, "warn") + "\n"
+        code, said = self.run_with(FakeGame(["frame_summary", "frame_summary", "match_summary"], self.user, text))
+        self.assertEqual(code, 1)
+        self.assertIn("rules.invalid OfsMatch.judge: the record is another table's", said)
+
+    def test_a_line_off_the_schema_fails(self):
+        code, said = self.run_with(self.game(), off_schema=[(12, "unknown event 'match.frobnicated'")])
+        self.assertEqual(code, 1)
+        self.assertIn("line 12: unknown event 'match.frobnicated'", said)
+
+    def test_the_schema_check_is_check_logs_own(self):
+        log = self.dir / "real.jsonl"
+        log.write_text(line("frame.ended", {"summary": {}}) + "\n" + line("no.such.event", {}) + "\n", encoding="utf-8")
+        count, bad = play_match.check_logs.check_file(log, play_match.check_logs.load_schema())
+        self.assertEqual(count, 2)
+        self.assertEqual([number for number, _ in bad], [1, 2])
 
     def test_a_referee_who_disagrees_fails(self):
         code, said = self.run_with(self.game(), verdict=(1, "line 40: points 4, the log says 7\n"))

@@ -36,6 +36,10 @@ const LINEUP_SECONDS := 0.5
 ## Ball in hand: how far back from the baulk line the camera's place is looked for, and in what steps.
 const PLACING_STEP_M := 0.05
 const PLACING_STEPS := 40
+## Home: the steps, in canvas units, in which room is taken from the sides of its full-table view,
+## and the most taken from each side as a share of the screen's width.
+const HOME_MARGIN_STEP := 16.0
+const HOME_MARGIN_MAX := 0.4
 const NOMINATE_NOTICE := "Tap a colour to nominate it"
 const NO_MATCH_NOTICE := "The match couldn't be started"
 ## What the person is told of the opponent's choice, where the table alone doesn't show it.
@@ -121,6 +125,8 @@ var _placing_view := false
 ## The place of the ball a tapped nomination looked past on the aim line, or -1.
 var _tap_over := -1
 var _starting := false
+var _home_clear_key: Array = []
+var _home_clear_rects: Array[Rect2] = []
 ## A match's shot is ending because the match is being left: there is nothing to judge.
 var _unjudged := false
 var _harness_why := ""
@@ -626,7 +632,9 @@ func _settle_match() -> void:
 	_sync_match_ui()
 	_preselect()
 	_refresh()
-	_rig.hold(false)
+	# A frame that ended keeps the whole table behind its summary.
+	if not _frame_summary.visible:
+		_rig.hold(false)
 
 
 ## Turns the aim to the next ball (spec 8.5, the return) unless "aim_next_ball" is off; shot.result's
@@ -1211,6 +1219,11 @@ func _place_break() -> void:
 		_break_pill.position = at
 
 
+func _hide_notice() -> void:
+	_notice_timer.stop()
+	_notice.visible = false
+
+
 ## A line at the top of the screen for a moment: no pop-up, nothing to dismiss (spec 11.2).
 func _show_notice(text: String) -> void:
 	_notice.text = text
@@ -1257,8 +1270,7 @@ func _layout() -> void:
 	# under it whether one shows or not, so the view is the same shot after shot. Home has its name.
 	var controls: Array[Rect2] = []
 	if _mode == HOME:
-		var title := _home.get_node("Title") as Control
-		controls.append(Rect2(title.position, title.size))
+		controls = _home_clear(canvas)
 	else:
 		for key: String in ["bar", "spin", "elevation", "cue", "wheel"]:
 			if key == "bar" and _mode == MATCH:
@@ -1280,6 +1292,40 @@ func _layout() -> void:
 	var notice_at := Vector2(safe.get_center().x - _notice.size.x / 2.0, notice_y).round()
 	if _notice.position != notice_at:
 		_notice.position = notice_at
+
+
+## What Home's full-table view is kept clear of, so the whole table stands between Home's name
+## and its buttons. The rig fits the table to rectangles the pockets must stay out of and has
+## none for the bottom of the screen, so room is taken from both sides, in steps, until the
+## table's near end is above the buttons. Worked out again only when the screen's layout changes.
+func _home_clear(canvas: Vector2) -> Array[Rect2]:
+	var title := _home.get_node("Title") as Control
+	var row := _home.get_node("Buttons") as Control
+	var key := [canvas, title.position, title.size, row.position, _table.bounds()]
+	if key == _home_clear_key:
+		return _home_clear_rects
+	var band := Rect2(0.0, 0.0, canvas.x, title.position.y + title.size.y)
+	var rects: Array[Rect2] = [band]
+	var corners: Array[Vector3] = []
+	var bounds := _table.bounds()
+	for x: float in [bounds.position.x, bounds.end.x]:
+		for z: float in [bounds.position.z, bounds.end.z]:
+			corners.append(Vector3(x, bounds.end.y, z))
+	var margin := 0.0
+	while margin < canvas.x * HOME_MARGIN_MAX:
+		if margin > 0.0:
+			rects = [band, Rect2(0.0, 0.0, margin, canvas.y), Rect2(canvas.x - margin, 0.0, margin, canvas.y)]
+		_rig.keep_clear(rects)
+		var pose := _rig.broadcast_pose(CameraRig.FULL_TABLE_YAW)
+		var lowest := 0.0
+		for corner in corners:
+			lowest = maxf(lowest, _rig.project(pose, corner, CameraRig.BROADCAST_FOV_DEG).y)
+		if lowest <= row.position.y - HudScript.GAP:
+			break
+		margin += HOME_MARGIN_STEP
+	_home_clear_key = key
+	_home_clear_rects = rects
+	return rects
 
 
 static func _rect_list(rect: Rect2) -> Array:
@@ -1416,6 +1462,7 @@ func _start_match(config: Dictionary, autoplay: bool = false, fast: bool = false
 	_pause.close()
 	_frame_summary.close()
 	_match_summary.close()
+	_hide_notice()
 	_finished = {}
 	_set_screen(MATCH)
 	_apply_mode()
@@ -1444,6 +1491,7 @@ func _leave_match() -> void:
 func _close_match() -> void:
 	_cancel_lineup()
 	_hold_match(false)
+	_hide_notice()
 	_pause.close()
 	_frame_summary.close()
 	_match_summary.close()
@@ -1757,6 +1805,7 @@ func _on_cue_move_requested() -> void:
 func _open_pause() -> void:
 	if _screen != MATCH:
 		return
+	_hide_notice()
 	_pause.open(_person_options().has("concede_frame") and not _playing)
 	_hold_match(true)
 	_set_screen(PAUSE)
@@ -1792,8 +1841,15 @@ func _on_frame_ended(summary: Dictionary, match_state: Dictionary) -> void:
 	_cancel_lineup()
 	_pause.close()
 	_hold_match(false)
+	# What was said of the frame's last moments has no place round its summary, which says how
+	# the frame ended itself.
+	_hide_notice()
+	_referee.clear()
 	_frame_summary.show_summary(summary, match_state, PERSON)
 	_set_screen(FRAME_SUMMARY)
+	# The whole table stands behind the summary until the next frame is racked.
+	_rig.hold(true)
+	_rig.show_broadcast()
 	_sync_match_ui()
 
 
@@ -1809,6 +1865,9 @@ func _on_continue() -> void:
 	elif _match.next_frame():
 		_referee.clear()
 		_set_screen(MATCH)
+		_rig.reset_view()
+		_refresh()
+		_rig.hold(false)
 	else:
 		# MatchController has logged why. With no frame to play, the match can only be left.
 		Log.warn("app", "app.error", {"kind": "message", "message":
@@ -2019,6 +2078,19 @@ func harness_match_autoplay(on: bool, fast: bool) -> Dictionary:
 	_match.autoplay = on
 	_sync_match_ui()
 	return {"on": _match.autoplay, "fast": _fast}
+
+
+## Opens the pause menu as the scoreboard's button does, or resumes from it. {"on", "can_concede"},
+## or {"error"} when the match's own screen is not the one showing.
+func harness_match_pause(on: bool) -> Dictionary:
+	if _mode != MATCH or (on and _screen != MATCH) or (not on and _screen != PAUSE):
+		return {"error": "%s (screen \"%s\")" % ["no match is on the table" if _mode != MATCH
+				else "the pause menu opens from the match's own screen" if on else "the pause menu is not open", _screen]}
+	if on:
+		_open_pause()
+	else:
+		_close_pause()
+	return {"on": _pause.visible, "can_concede": not _pause.button("concede_frame").disabled}
 
 
 ## From a frame summary on to the next frame (or the match's summary), from a match summary Home.

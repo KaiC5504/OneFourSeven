@@ -499,8 +499,10 @@ func test_pause_resumes_concedes_and_holds_the_opponent() -> void:
 	var board: Scoreboard = hud.get_node("Scoreboard")
 	var summary: FrameSummary = hud.get_node("FrameSummary")
 	_mark_log()
+	main._show_notice("said before the menu opened")
 	board.pause_button().pressed.emit()
 	check(pause.visible and not pause.button("concede_frame").disabled, "the pause menu, with Concede frame as the engine offers it")
+	check(not (hud.get_node("Notice") as Control).visible, "with no earlier notice left over it")
 	pause.button("resume").pressed.emit()
 	check(not pause.visible and m.is_active(), "Resume goes back to the match")
 	board.pause_button().pressed.emit()
@@ -570,9 +572,14 @@ func test_the_frames_end_leads_to_the_next_frame_and_the_last_to_the_match_summa
 	_engine.match_view["frames"] = [1, 1]
 	_engine.judgements.append(_judged(over, {}, {"event": "frame_ended"}))
 	main.harness_match_shot(STRIKE, "", null)
+	main._show_notice("said of the last stroke")
 	main.skip_shot()
 	await _until_idle(main)
 	check(frame_summary.visible, "the frame's summary shows")
+	check(not (hud.get_node("Notice") as Control).visible, "with no earlier notice left over it")
+	var rig: CameraRig = main.get_node("CameraRig")
+	check(rig.is_held() and rig.transform.is_equal_approx(rig.broadcast_pose(CameraRig.FULL_TABLE_YAW)),
+			"over the whole table, from the full-table view")
 	check_eq([frame_summary.texts()["title"], frame_summary.texts()["score_you"], frame_summary.texts()["frames_you"]],
 			["You won the frame", 70, 1], "with the frame and the match: %s" % [frame_summary.texts()])
 	_check_controls(main, false, false, "at the summary")
@@ -594,6 +601,7 @@ func test_the_frames_end_leads_to_the_next_frame_and_the_last_to_the_match_summa
 	_engine.standin_shots.append(_standin(STRIKE))
 	frame_summary.button("continue").pressed.emit()
 	check(not frame_summary.visible and _engine.called().has("next_frame"), "Continue racks the next frame")
+	check(not rig.is_held() and rig.is_easing(), "and the camera comes down to it")
 	_check_nodes_match(main, next["balls"], "its balls are on the table")
 	check_eq((hud.get_node("Scoreboard") as Scoreboard).texts()["you"], 0, "and its scores on the scoreboard")
 
@@ -685,6 +693,18 @@ func test_the_harness_drives_a_match() -> void:
 			and r["result"]["screen"] == "match", "dump_state has the mode and the match")
 	r = await harness.run_command("match_wait", {"timeout_s": 5})
 	check(r["ok"] and r["result"]["waiting"] == "shot", "match_wait returns at the person's stroke: %s" % r)
+
+	r = await harness.run_command("match_pause", {"on": false})
+	check(not r["ok"] and str(r["error"]).contains("not open"), "nothing to resume from: %s" % r)
+	r = await harness.run_command("match_pause", {"on": true})
+	check(r["ok"] and r["result"] == {"on": true, "can_concede": true} and main.harness_state()["screen"] == "pause",
+			"match_pause opens the pause menu: %s" % r)
+	r = await harness.run_command("match_pause", {"on": true})
+	check(not r["ok"], "it is open already")
+	r = await harness.run_command("match_pause", {"on": false})
+	check(r["ok"] and r["result"]["on"] == false and main.harness_state()["screen"] == "match", "and resumes: %s" % r)
+	r = await harness.run_command("match_pause", {})
+	check(not r["ok"], "on is needed")
 
 	r = await harness.run_command("load_position", {"name": "straight_1m"})
 	check(not r["ok"] and str(r["error"]).contains("a match is on"), "load_position is refused in a match, with why: %s" % r)

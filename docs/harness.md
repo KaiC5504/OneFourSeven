@@ -100,6 +100,7 @@ with Harness(resolution="1912x880", extra_args=["--no-link"]) as game:
 | `match_choose` | `kind` (a decision name offered: `play`, `play_again`, `replace`, ...) | `{"kind"}` |
 | `match_wait` | `timeout_s` (default 30) | `{"waiting", "waited_s"}` once the match waits for the person: `shot`, `choice`, `frame_summary` or `match_summary`; an error at the timeout or with no match on the table |
 | `match_autoplay` | `on`, `fast` (default false) | `{"on", "fast"}`: the stand-in plays the person's strokes and choices too; `fast` skips each stroke's playback and every wait |
+| `match_pause` | `on` | `{"on", "can_concede"}`: opens the pause menu as the scoreboard's button does, or resumes from it. While it is up the opponent waits; `match_choose` with `concede_frame` or `concede_match` concedes from it. An error unless the match's own screen (to open) or the menu (to resume) is showing |
 | `match_continue` | | `{"screen"}`: from a frame summary to the next frame (after the last, to the match summary), from the match summary to Home |
 | `quit` | | `"quitting"`, then the game exits |
 
@@ -140,15 +141,20 @@ channel:
 
 `match_wait` answers when the person must act: `shot` (their stroke; `match_state`'s `placing`
 and `blocked` say what it still needs), `choice` (`frame.view.options[0]` lists what
-`match_choose` takes), or a summary for `match_continue`. Pause, concessions and Quit are
-reached with `input` events on the scoreboard's pause button.
+`match_choose` takes), or a summary for `match_continue`. The in-hand cue ball is placed and
+confirmed by `match_shot`'s `cue`; `match_pause` opens the pause menu, and `open_screen` with
+`home` leaves the match as Quit does. A place outside the D is refused, with `rules.invalid` and
+an `app.error` in the log.
 
 `python tools/play_match.py` plays a whole match this way with the stand-in on both sides
 (`--best-of`, `--seed`, `--first-breaker`, `--slow`, `--out`), in a user folder of its own under
 `build/play-match`, saves the state and a picture at the match summary, and then has
 `ofs_sim_cli referee` (the Debug build's, or `$OFS_SIM_CLI`) re-judge every `rules.decision` of
 the session log. It prints the strokes, each frame and the result, and exits 0 only when the
-match finished, the log has no `app.error` and the referee agrees. It hides its own window.
+match finished, the log fits the schema with no `app.error` or `rules.invalid`, and the referee
+agrees. It hides its own window. A best of 3 takes under ten seconds. The seed is the match's
+(the rack, who breaks): the stand-in's choices are fresh each run, so one seed gives different
+matches.
 
 ### Input events
 
