@@ -402,7 +402,7 @@ TEST_CASE("S3.5: the cue ball cannot be placed on or against another ball") {
     CHECK_FALSE(place_cue_ball(s, table::spot(Ball::brown), *rig().oracle, error));
     CHECK_FALSE(place_cue_ball(s, {yellow.x, yellow.y + kDiameter - 0.001}, *rig().oracle, error));
     // Touching: closer than the referee can tell from contact.
-    CHECK_FALSE(place_cue_ball(s, {yellow.x, yellow.y + kDiameter + 1.0e-5}, *rig().oracle, error));
+    CHECK_FALSE(place_cue_ball(s, {yellow.x, yellow.y + kDiameter + 2.0e-6}, *rig().oracle, error));
     CHECK(same(cue_pos(s), {-1.2, 0.1}));
 
     const Vec2 clear{yellow.x, yellow.y + kDiameter + 0.001};

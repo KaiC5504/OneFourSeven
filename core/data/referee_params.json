@@ -2,7 +2,7 @@
   "schema_version": 1,
   "_note": "The referee's thresholds (spec 9.1): where the rulebook relies on a human referee's eye. 'values' is what the rules engine loads; 'docs' gives each value's unit, source and note. Rule numbers are the WPBSA Official Rules of Snooker, 2024-25.",
   "values": {
-    "touching_gap_m": 5e-05,
+    "touching_gap_m": 5e-06,
     "simultaneous_hit_s": 1e-09,
     "push_contact_time_s": 0.001,
     "push_fine_edge_rad": 1.3962634015954636,
@@ -18,7 +18,7 @@
     "touching_gap_m": {
       "unit": "m",
       "source": "Section 3 Rule 8 (touching ball), Section 2 Rule 18 (spot occupied); the value is ours",
-      "note": "Balls the simulator leaves in contact rest within a nanometre of touching; 0.05 mm is far below what a referee can see and above any rounding. The opening rack's seeded gaps (0.01 to 0.1 mm) only separate reds from reds, which this never asks about."
+      "note": "Balls the simulator leaves in contact rest within a nanometre of touching; 0.005 mm is far below what a referee can see and above any rounding. It must stay under the opening rack's smallest seeded gap (rack_gap_min_m, 0.01 mm): the apex red sits that close to the pink, and the pink's spot has to count as free with the pack untouched (S3.2(a)(i))."
     },
     "simultaneous_hit_s": {
       "unit": "s",

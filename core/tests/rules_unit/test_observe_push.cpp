@@ -86,7 +86,7 @@ TEST_CASE("two reds met at the same instant are both the first impact; a millime
 }
 
 TEST_CASE("a touching ball played into is a push and has moved") {
-    for (const double gap : {0.0, 2e-5}) {
+    for (const double gap : {0.0, 2e-6}) {
         CAPTURE(gap);
         REQUIRE(gap < sc::rig().ref.touching_gap_m);
         const FrameState s = pair_with_gap(gap);
@@ -103,7 +103,7 @@ TEST_CASE("a touching ball played into is a push and has moved") {
 }
 
 TEST_CASE("a touching ball played away from is neither a push nor moved") {
-    for (const double gap : {0.0, 2e-5}) {
+    for (const double gap : {0.0, 2e-6}) {
         for (const double aim : {kPi, 0.75 * kPi, -0.6 * kPi}) {
             CAPTURE(gap);
             CAPTURE(aim);
@@ -136,10 +136,11 @@ TEST_CASE("a touching ball clipped at a fine edge has moved, though the contact 
     CHECK_FALSE(same(f.rest[1], s.balls[1].pos));
 }
 
-TEST_CASE("a ball called touching across a 0.02 mm gap, clipped at a fine edge, has moved too") {
-    // The cue ball reaches it a tenth of a millisecond after the strike, having gone a quarter of
-    // a millimetre: still its way out, as far as a straight line can go to a ball that near.
-    const double gap = 2e-5;
+TEST_CASE("a ball called touching across a 0.002 mm gap, clipped at a fine edge, has moved too") {
+    // The cue ball reaches it some hundredth of a millisecond after the strike, having gone a
+    // fortieth of a millimetre: still its way out, as far as a straight line can go to a ball that
+    // near.
+    const double gap = 2e-6;
     const double off_line = 85.0 * kPi / 180.0;
     REQUIRE(gap < sc::rig().ref.touching_gap_m);
     REQUIRE(cut_at_contact(gap, off_line) > sc::rig().ref.push_fine_edge_rad);

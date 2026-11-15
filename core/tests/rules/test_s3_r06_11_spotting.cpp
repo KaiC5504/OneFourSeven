@@ -290,10 +290,10 @@ TEST_CASE("S3.7(g): the nearest place is measured from the balls in the way, not
 }
 
 TEST_CASE("S3.7(i): a gap a ball only just fits is no place to spot a colour") {
-    // Two reds on the line with 20 micrometres more than a ball between them: a colour put there
+    // Two reds on the line with 2 micrometres more than a ball between them: a colour put there
     // would be touching both, by the referee's measure.
     const Vec2 blue = table::spot(Ball::blue);
-    const double second = 4.0 * kR + 2.0e-5;
+    const double second = 4.0 * kR + 2.0e-6;
     REQUIRE(second - 4.0 * kR < rig().ref.touching_gap_m);
     std::vector<BallOnTable> on_table = colours_on_spots_except({Ball::blue});
     on_table.push_back(red_at(blue, 0));

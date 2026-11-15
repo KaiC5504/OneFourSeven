@@ -14,7 +14,7 @@ namespace ofs::rules {
 struct RefParams {
     // Two balls closer than this are touching (S3.8), and a spot is occupied when a ball on it
     // would be this close to another (S2.18, S3.7(i)).
-    double touching_gap_m = 5.0e-5;
+    double touching_gap_m = 5.0e-6;
     // Cue-ball contacts no further apart than this are one impact (S3.6).
     double simultaneous_hit_s = 1.0e-9;
 
@@ -32,8 +32,8 @@ struct RefParams {
     // cushions reaches any part of it.
     int escape_max_cushions = 2;
 
-    // A stroke was an attempt to pot when the first ball hit was potted or passed within this of a
-    // pocket's drop circle (frame summary's pot success).
+    // A stroke was an attempt to pot when the first ball hit was potted, or came within this of a
+    // pocket's drop circle having moved towards it (frame summary's pot success).
     double pot_attempt_radius_m = 0.2;
 
     // Stalemate (S3.17): a stroke is quiet when nothing is potted and the object balls end less

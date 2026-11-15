@@ -343,7 +343,7 @@ TEST_CASE("S2.17(e): a cushion in the way is no snooker") {
 TEST_CASE("S2.18: a spot is occupied when a ball put on it would touch another") {
     const Vec2 spot = table::spot(Ball::black);
     // A red overlapping the place, and one a hair's breadth from a ball put there.
-    for (double gap : {-0.0025, 2.0e-5}) {
+    for (double gap : {-0.0025, 2.0e-6}) {
         CAPTURE(gap);
         FrameState s = frame({ball(Ball::cue, kCue.x, kCue.y), ball(Ball::black, kObject.x, kObject.y),
                               ball(Ball::red, spot.x + kDiameter + gap, spot.y)});
