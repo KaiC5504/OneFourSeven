@@ -215,4 +215,19 @@ x86_64-only and the Mac has no Rosetta.
   (`Practice.player_aim`). Nothing is scored; the fuller practice mode (attempt scoring, the
   filmed path drawn on the table) waits until after M3. A new filmed shot needs its fixture and
   one entry in `practice.json`.
+- The next ball and the cannon camera (2026-11-16): KaiC found the suggested next ball often not
+  close to the best. His logs agreed: of 304 suggestions he played another ball 91 times, mostly a
+  red when a far colour was offered. `NextTarget` now ranks every clear pot by its chance (the aim
+  error it forgives against a player's, fitted to his 262 logged shots: cut costs far more than
+  geometry says) times the ball's worth; a match keeps to the balls on, the free table lets the
+  other kind in at 0.6. On those 304 positions picks under an even chance fell from 114 to 53.
+  `shot.result` logs `next_chance`: refit `AIM_SIGMA_RAD` and `CUT_SIGMA_PER_RAD` from later
+  sessions the same way. It does not look at where the cue ball finishes; that waits for M4's
+  evaluation. Camera: a practice shot, and any shot at a pocket whose cue ball goes on into
+  another ball (off a cushion or after 0.4 m) or takes three cushions, keeps the full-table view
+  (`ShotCycle.journey`), matches included. For M4 he wants a sixth tier, the 147 (perfect aim and
+  position, plays only for a maximum), and views to watch the opponent from above and walk round
+  the table (spec 10.1, 10.5).
+  The link server reads the log schema when it starts: restart it (`uv run tools/devlink.py`)
+  after adding an event or field, or the phone's lines land in `logs/<date>/rejected.jsonl`.
   No workflow runs on push any more (above).
