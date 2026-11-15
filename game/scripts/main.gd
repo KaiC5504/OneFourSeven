@@ -42,6 +42,7 @@ const HOME_MARGIN_STEP := 16.0
 const HOME_MARGIN_MAX := 0.4
 const NOMINATE_NOTICE := "Tap a colour to nominate it"
 const NO_MATCH_NOTICE := "The match couldn't be started"
+const STALLED_NOTICE := "The match can't go on"
 ## What the person is told of the opponent's choice, where the table alone doesn't show it.
 const OPPONENT_CHOSE := {
 	"play_again": "Computer puts you back in",
@@ -130,6 +131,8 @@ var _home_clear_rects: Array[Rect2] = []
 ## A match's shot is ending because the match is being left: there is nothing to judge.
 var _unjudged := false
 var _harness_why := ""
+## The frame view's keys found missing, each logged once.
+var _view_missing := {}
 
 @onready var _stage: Stage = $Stage
 @onready var _table: TableView = $Table
@@ -250,6 +253,7 @@ func _ready() -> void:
 	_match.opponent_chose.connect(_on_opponent_chose)
 	_match.frame_ended.connect(_on_frame_ended)
 	_match.match_ended.connect(func(match_state: Dictionary) -> void: _finished = match_state)
+	_match.stalled.connect(_on_stalled)
 	_scoreboard.auto_place = false
 	_scoreboard.pause_pressed.connect(_open_pause)
 	_choices.chosen.connect(_on_chosen)
@@ -260,6 +264,7 @@ func _ready() -> void:
 	_pause.resume_pressed.connect(_close_pause)
 	_pause.concede_frame_confirmed.connect(_concede.bind(false))
 	_pause.concede_match_confirmed.connect(_concede.bind(true))
+	_pause.claim_frame_confirmed.connect(_claim_frame)
 	_pause.quit_confirmed.connect(_quit_match)
 	_pause.settings_pressed.connect(_settings_panel.open)
 	_frame_summary.continue_pressed.connect(_on_continue)
@@ -678,6 +683,7 @@ func _set_playing(on: bool) -> void:
 	for id: String in ["edit", "rack", "empty", "practice", "overview", "home"]:
 		_bar.button(id).disabled = on
 	_strip.set_busy(on)
+	_refresh_pause()
 	if on:
 		_bar.set_history(false, false, false)
 	else:
@@ -1293,6 +1299,9 @@ func _layout() -> void:
 		controls.append(Rect2(_strip.position, _strip.size))
 		notice_y = _strip.position.y + _strip.size.y + HudScript.GAP
 	_rig.keep_clear(controls)
+	# The aiming view of a match centres below the scoreboard and the referee's line, so the far end
+	# of the table is not under them.
+	_rig.set_aim_top(under + HudScript.LINE_HEIGHT if _mode == MATCH else 0.0)
 	var notice_at := Vector2(safe.get_center().x - _notice.size.x / 2.0, notice_y).round()
 	if _notice.position != notice_at:
 		_notice.position = notice_at
@@ -1366,7 +1375,7 @@ func _apply_mode() -> void:
 	var free := _mode == FREE_TABLE
 	_bar.visible = free
 	_strip.visible = free and _practice >= 0
-	_scoreboard.visible = _mode == MATCH
+	_show_scoreboard()
 	# Behind Home nothing is tappable.
 	_gestures.set_enabled(_mode != HOME)
 	_show_controls()
@@ -1441,6 +1450,9 @@ func _start_match(config: Dictionary, autoplay: bool = false, fast: bool = false
 		_free_setup = setup.snapshot()
 		_free_setup.erase("strike_mode")
 		_free_setup["pace"] = setup.last_stroke_speed_m_s
+	# A match starts from centre ball, the cue as low as it goes and the opening power.
+	setup.last_stroke_speed_m_s = 0.0
+	setup.restore({"tip_x": 0.0, "tip_y": 0.0, "elevation_rad": 0.0, "speed_m_s": 0.0, "power": 0.0})
 	_match.autoplay = autoplay
 	_match.pace = 0.0 if fast else 1.0
 	_fast = fast
@@ -1540,7 +1552,14 @@ func _match_fields(fields: Dictionary) -> Dictionary:
 func _view_list(key: String) -> Array:
 	var view: Variant = _match.frame().get("view")
 	var list: Variant = (view as Dictionary).get(key) if view is Dictionary else null
-	return list if list is Array else []
+	if list is Array:
+		return list
+	if _match.is_active() and not _view_missing.has(key):
+		_view_missing[key] = true
+		Log.error("app", "app.error", {"kind": "message", "message":
+				"main: match %s frame %d: the frame view has no list \"%s\" (view %s); taken as empty" % [
+				_match.match_id(), _match.frame_number(), key, JSON.stringify(view).left(400)]})
+	return []
 
 
 ## The places in the match's balls of the balls on.
@@ -1596,10 +1615,17 @@ func _on_match_table_changed(balls: Array[Dictionary], _cue_ball: int, reason: S
 
 func _on_frame_changed(frame: Dictionary) -> void:
 	_scoreboard.show_frame(frame, _match.match_state(), PERSON)
+	# The scoreboard widens while someone needs snookers: placed again, and the camera keeps clear
+	# of what it covers now. Nothing is written or refitted when nothing moved.
+	_layout()
+	_refresh_pause()
 
 
-func _on_calls_made(calls: Array, _shot_id: String) -> void:
-	_referee.announce(calls, PERSON)
+func _on_calls_made(calls: Array, shot_id: String) -> void:
+	var fields := {"match_id": _match.match_id(), "frame": _match.frame_number()}
+	if not shot_id.is_empty():
+		fields["shot_id"] = shot_id
+	_referee.announce(calls, PERSON, fields)
 
 
 func _on_turn_started(_player: int, person: bool) -> void:
@@ -1611,6 +1637,7 @@ func _on_turn_started(_player: int, person: bool) -> void:
 			_turn_to_next()
 	_sync_match_ui()
 	_preselect()
+	_refresh_pause()
 
 
 func _on_choice_needed(options: Array[String]) -> void:
@@ -1618,6 +1645,7 @@ func _on_choice_needed(options: Array[String]) -> void:
 	_offered = options
 	_choices.offer(options, _match.frame())
 	_sync_match_ui()
+	_refresh_pause()
 
 
 func _on_chosen(kind: String) -> void:
@@ -1653,8 +1681,10 @@ func _on_opponent_ready(shot: Dictionary) -> void:
 				break
 	if not problem.is_empty():
 		Log.error("app", "app.error", _match_fields({"kind": "message",
-				"message": "main: the stand-in's stroke can't be played: %s; the match waits for it: %s" % [problem,
+				"message": "main: the stand-in's stroke can't be played: %s; the stand-in is asked again: %s" % [problem,
 				JSON.stringify(shot)]}))
+		if _mode == MATCH and not _playing:
+			_match.opponent_failed(str(shot.get("shot_id", "")), problem)
 		return
 	if bool(shot.get("places_cue", false)):
 		var cue: Variant = shot.get("cue")
@@ -1693,10 +1723,12 @@ func _play_opponent() -> void:
 	var by := AUTOPLAY_STRIKE if int(shot.get("player", MatchController.OPPONENT)) == PERSON else OPPONENT_STRIKE
 	var shot_id := _strike(by, shot["strike"], str(shot.get("shot_id", "")))
 	if shot_id.is_empty():
+		var blocked := _match.strike_blocked()
 		Log.error("app", "app.error", _match_fields({"kind": "message",
-				"message": "main: the stand-in's stroke was not struck (strike_blocked \"%s\"; shot.rejected says if the physics refused it); the match waits for it: %s"
-				% [_match.strike_blocked(), JSON.stringify(shot)]}))
+				"message": "main: the stand-in's stroke was not struck (strike_blocked \"%s\"; shot.rejected says if the physics refused it); the stand-in is asked again: %s"
+				% [blocked, JSON.stringify(shot)]}))
 		_sync_match_ui()
+		_match.opponent_failed(str(shot.get("shot_id", "")), "not struck (strike_blocked \"%s\")" % blocked)
 	elif _fast:
 		skip_shot()
 
@@ -1821,9 +1853,20 @@ func _open_pause() -> void:
 	if _screen != MATCH:
 		return
 	_hide_notice()
-	_pause.open(_person_options().has("concede_frame") and not _playing)
+	_pause.open(_offers("concede_frame"), _offers("concede_match"), _offers("claim_frame"))
 	_hold_match(true)
 	_set_screen(PAUSE)
+
+
+## Whether the pause menu offers the person `kind`: the engine offers it and no stroke plays.
+func _offers(kind: String) -> bool:
+	return _mode == MATCH and not _playing and _match.open_to_person(kind)
+
+
+## The open pause menu follows what is offered as the frame, the turn and the stroke change.
+func _refresh_pause() -> void:
+	if _pause.visible and _mode == MATCH:
+		_pause.set_available(_offers("concede_frame"), _offers("concede_match"), _offers("claim_frame"))
 
 
 func _close_pause() -> void:
@@ -1845,6 +1888,25 @@ func _concede(whole_match: bool) -> void:
 	if not conceded:
 		# MatchController has logged why.
 		_show_notice("That can't be conceded now")
+		_refresh_pause()
+
+
+func _claim_frame() -> void:
+	# A claim made ends the frame, whose summary takes the menu's place.
+	if not _match.claim_frame():
+		_show_notice("The frame can't be claimed now")
+		_refresh_pause()
+
+
+## The engine kept refusing, or the stand-in's strokes couldn't be played: the person is told and
+## offered the pause menu, whose Quit leaves the match.
+func _on_stalled(_why: String) -> void:
+	if _mode != MATCH:
+		return
+	_cancel_lineup()
+	if _screen == MATCH:
+		_open_pause()
+	_show_notice(STALLED_NOTICE)
 
 
 func _quit_match() -> void:
@@ -1860,16 +1922,29 @@ func _on_frame_ended(summary: Dictionary, match_state: Dictionary) -> void:
 	# the frame ended itself.
 	_hide_notice()
 	_referee.clear()
-	_frame_summary.show_summary(summary, match_state, PERSON)
-	_set_screen(FRAME_SUMMARY)
+	if str(summary.get("reason", "")) == "match_conceded" and bool(match_state.get("over", false)):
+		# Nothing of the frame is left to tell: the match's summary comes at once.
+		_finished = match_state
+		_match_summary.show_summary(match_state, PERSON)
+		_set_screen(MATCH_SUMMARY)
+	else:
+		_frame_summary.show_summary(summary, match_state, PERSON)
+		_set_screen(FRAME_SUMMARY)
+	_show_scoreboard()
 	# The whole table stands behind the summary until the next frame is racked.
 	_rig.hold(true)
 	_rig.show_broadcast()
 	_sync_match_ui()
 
 
-## The frame summary's Continue: the next frame, or after the last one the match's summary.
-func _on_continue() -> void:
+## The scoreboard shows in a match but not under a summary, where its last state would be stale.
+func _show_scoreboard() -> void:
+	_scoreboard.visible = _mode == MATCH and not _frame_summary.visible and not _match_summary.visible
+
+
+## The frame summary's Continue: the next frame, or after the last one the match's summary. False
+## when the next frame was refused and the match left.
+func _on_continue() -> bool:
 	_frame_summary.close()
 	if _mode != MATCH:
 		# Shown by the harness, with no match behind it.
@@ -1885,11 +1960,21 @@ func _on_continue() -> void:
 		_rig.hold(false)
 	else:
 		# MatchController has logged why. With no frame to play, the match can only be left.
+		_harness_why = "next frame refused: %s" % _engine_error()
 		Log.warn("app", "app.error", {"kind": "message", "message":
-				"main: no next frame after frame %d of match %s (waiting \"%s\"); the match is left"
-				% [_match.frame_number(), _match.match_id(), _match.waiting()]})
+				"main: no next frame after frame %d of match %s (waiting \"%s\", %s); the match is left"
+				% [_match.frame_number(), _match.match_id(), _match.waiting(), _harness_why]})
 		_leave_match()
 		_show_notice("The next frame couldn't be started")
+		return false
+	_show_scoreboard()
+	return true
+
+
+## What the engine last refused, for a harness answer; "" with no engine.
+func _engine_error() -> String:
+	var engine: Object = _match.engine
+	return str(engine.last_error()) if engine != null and engine.has_method("last_error") else ""
 
 
 func _on_summary_home() -> void:
@@ -2007,7 +2092,8 @@ func harness_open_screen(screen: String) -> bool:
 func harness_demo_screen(screen: String, match_state: Dictionary) -> bool:
 	match screen:
 		PAUSE:
-			_pause.open(true)
+			# Every button, Claim frame too, for the picture.
+			_pause.open(true, true, true)
 		FRAME_SUMMARY:
 			var history: Variant = match_state.get("history")
 			var last: Variant = (history as Array).back() if history is Array and not (history as Array).is_empty() else null
@@ -2025,12 +2111,24 @@ func harness_demo_screen(screen: String, match_state: Dictionary) -> bool:
 ## part too and fast skips every stroke's playback. {"match_id"}, or {"error"}.
 func harness_start_match(config: Dictionary, autoplay: bool, fast: bool) -> Dictionary:
 	if not _start_match(config, autoplay, fast):
-		return {"error": "the match did not start; app.error in the log says why"}
+		return {"error": "the match did not start: %s; app.error in the log says more" % _engine_error()}
 	return {"match_id": _match.match_id()}
 
 
 func harness_match_state() -> Dictionary:
-	return _match.harness_state()
+	var state := _match.harness_state()
+	state["waiting"] = _shown_waiting()
+	return state
+
+
+## What the match waits for as the screen shows it: the last frame's summary stands before the
+## match's, which MatchController already waits on.
+func _shown_waiting() -> String:
+	if _frame_summary.visible:
+		return FRAME_SUMMARY
+	if _match_summary.visible:
+		return MATCH_SUMMARY
+	return _match.waiting()
 
 
 ## The person's stroke exactly as given: the in-hand cue ball put at `cue` (a Vector2, else where
@@ -2046,7 +2144,8 @@ func harness_match_shot(strike: Dictionary, nominated: String, cue: Variant) -> 
 		_match.move_cue_again()
 		if not _match.place_cue(cue):
 			_sync_match_ui()
-			return {"error": "the engine refused the cue ball at [%s, %s]" % [(cue as Vector2).x, (cue as Vector2).y]}
+			return {"error": "the engine refused the cue ball at [%s, %s]: %s" % [(cue as Vector2).x, (cue as Vector2).y,
+					_engine_error()]}
 	if _match.placing():
 		_sync_match_ui()
 		# As the person confirms it, so the placer and the match agree.
@@ -2070,8 +2169,21 @@ func harness_match_shot(strike: Dictionary, nominated: String, cue: Variant) -> 
 
 ## The person's choice among those offered. {"kind"}, or {"error"}.
 func harness_match_choose(kind: String) -> Dictionary:
-	if _mode != MATCH or not _match.choose(kind):
-		return {"error": "\"%s\" was not chosen (offered: %s)" % [kind, _person_options() if _mode == MATCH else []]}
+	var taken := false
+	if _mode == MATCH:
+		match kind:
+			# The pause menu's, as its buttons take them.
+			"concede_frame":
+				taken = _match.concede_frame()
+			"concede_match":
+				taken = _match.concede_match()
+			"claim_frame":
+				taken = _match.claim_frame()
+			_:
+				taken = _match.choose(kind)
+	if not taken:
+		return {"error": "\"%s\" was not chosen (offered: %s; engine: %s)" % [kind,
+				_person_options() if _mode == MATCH else [], _engine_error()]}
 	return {"kind": kind}
 
 
@@ -2080,7 +2192,7 @@ func harness_match_choose(kind: String) -> Dictionary:
 func harness_match_waiting() -> Dictionary:
 	if _mode != MATCH:
 		return {"error": "no match is on the table"}
-	var waiting := _match.waiting()
+	var waiting := _shown_waiting()
 	return {"waiting": waiting, "person": not _playing and not _lining_up
 			and ["shot", "choice", "frame_summary", "match_summary"].has(waiting)}
 
@@ -2112,7 +2224,8 @@ func harness_match_pause(on: bool) -> Dictionary:
 ## {"screen"}, or {"error"} when neither shows.
 func harness_match_continue() -> Dictionary:
 	if _frame_summary.visible:
-		_on_continue()
+		if not _on_continue():
+			return {"error": harness_refusal()}
 	elif _match_summary.visible:
 		_on_summary_home()
 	else:
@@ -2139,7 +2252,7 @@ func harness_state() -> Dictionary:
 		"camera": {"pitch_deg": _rig.pitch_deg(), "zoom_scale": _rig.zoom_scale(), "view": _rig.view_name()},
 		"break": int(_match.frame().get("break_points", 0)) if _mode == MATCH else _cycle.shown_break,
 		"practice": String(_practices[_practice]["position"]) if _practice >= 0 else "",
-		"match": _match.harness_state(),
+		"match": harness_match_state(),
 	}
 
 

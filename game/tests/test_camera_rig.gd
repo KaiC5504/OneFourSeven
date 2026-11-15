@@ -906,3 +906,26 @@ func test_the_tv_view_changes_to_its_long_lens_smoothly_and_back() -> void:
 	rig._process(CameraRig.BLEND_S)
 	check_eq(rig.camera().fov, CameraRig.FOV_DEG, "back on the normal lens")
 	rig.free()
+
+
+# A match's aiming view centres below its scoreboard rows; the rest of the framing stays as it was.
+func test_the_aiming_view_can_centre_below_a_band_at_the_top() -> void:
+	var rig := _loose_rig()
+	var cue := Vector2(-1.2, 0.1)
+	var level := rig.pose_for(cue, 0.0)
+	var raised := rig.pose_for(cue, 0.0, deg_to_rad(20.0))
+	var ahead := TableSpace.core_to_godot(1.7, 0.1, 0.03)
+	var was := rig.project(level, ahead)
+	var was_raised := rig.project(raised, ahead)
+	rig.set_aim_top(170.0)
+	var now := rig.project(rig.pose_for(cue, 0.0), ahead)
+	check_near(now.y - was.y, 85.0, 4.0, "the far cushion moves down by half the band: %s to %s" % [was, now])
+	check_near(now.x, was.x, 0.5, "and not across")
+	check(rig.pose_for(cue, 0.0).origin.is_equal_approx(level.origin), "the eye stays where it was")
+	var now_raised := rig.project(rig.pose_for(cue, 0.0, deg_to_rad(20.0)), ahead)
+	# A turn, not a slide: far from the centre a point moves a little more.
+	check(now_raised.y - was_raised.y > 80.0 and now_raised.y - was_raised.y < 110.0,
+			"over a raised cue too: %s to %s" % [was_raised, now_raised])
+	rig.set_aim_top(0.0)
+	check(rig.pose_for(cue, 0.0).is_equal_approx(level), "0 frames the whole canvas again")
+	rig.free()

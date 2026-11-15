@@ -67,12 +67,21 @@ class FakeGame:
             return {"screen": self.screen}
         if cmd == "dump_state":
             if "path" in args:
-                pathlib.Path(args["path"]).write_text("{}", encoding="utf-8")
+                self.saved(args["path"]).write_text("{}", encoding="utf-8")
             return {"screen": self.screen}
         if cmd == "screenshot":
-            pathlib.Path(args["path"]).write_bytes(b"png")
-            return args["path"]
+            path = self.saved(args["path"])
+            path.write_bytes(b"png")
+            return str(path)
         raise AssertionError(f"unexpected command {cmd}")
+
+    def saved(self, path):
+        """Where the game saves a path it is given: a relative one in its user folder (user://)."""
+        assert not pathlib.Path(path).is_absolute(), f"an absolute path reaches the game's log: {path}"
+        if self.user_dir is None:
+            self.user_dir = pathlib.Path(tempfile.mkdtemp())
+        self.user_dir.mkdir(parents=True, exist_ok=True)
+        return self.user_dir / path
 
     def stop(self):
         self.stopped = True
@@ -236,11 +245,13 @@ class RunTests(unittest.TestCase):
         self.assertEqual(game.calls[0], ("start_match", {"best_of": 3, "first_breaker": "random", "seed": 147,
                                                          "autoplay": True, "fast": True}))
         self.assertEqual(game.commands(), ["start_match", "match_wait", "match_continue", "match_wait", "match_continue",
-                                           "match_wait", "dump_state", "match_continue", "dump_state", "screenshot"])
+                                           "match_wait", "dump_state", "screenshot"])
+        self.assertEqual([args["path"] for cmd, args in game.calls if "path" in args], ["state.json", "match_summary.png"])
         self.assertTrue(game.stopped)
         self.assertEqual(self.made, [{"resolution": "1912x880", "extra_args": ["--no-link"], "godot": None}])
         self.assertEqual(self.moved_user_dir, str((self.dir / "out").resolve() / "user"))
         self.assertTrue((self.dir / "out" / "state.json").is_file() and (self.dir / "out" / "match_summary.png").is_file())
+        self.assertFalse((self.user / "state.json").exists(), "moved out of the user folder")
         self.assertEqual(self.referee_calls, [(self.cli, self.user / "logs" / "session.jsonl")])
         for words in ("6 strokes judged, 3 frames ended", "frame 2: 20-71, computer (black, 2 strokes)",
                       "result: you, frames [2, 1], frames", "referee (ofs_sim_cli referee): exit 0", "all agree", "ok:"):

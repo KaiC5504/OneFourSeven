@@ -50,6 +50,9 @@ DEFAULT_OUT = ROOT / "build" / "play-match"
 # Set for the copy of this script that runs on the hidden desktop.
 HIDDEN = "OFS_PLAY_MATCH_HIDDEN"
 REFEREE_TIMEOUT = 600
+# Saved in the game's user folder, then moved to --out.
+STATE_FILE = "state.json"
+PICTURE_FILE = "match_summary.png"
 EXIT_OK, EXIT_FAILED, EXIT_UNUSABLE = 0, 1, 2
 
 
@@ -140,8 +143,10 @@ def read_log(path: Path, match_id: str = "") -> dict:
 
 
 def play(game, args: argparse.Namespace, out: Path, clock: Callable[[], float] = time.monotonic) -> dict:
-    """Plays the match to its summary. {"match_id", "frames" (summaries left behind), "finished",
-    "problem" ("" when it finished)}; the state dump and the screenshot are written on the way."""
+    """Plays the match to its summary. {"match_id", "frames" (frame summaries left behind),
+    "finished", "problem" ("" when it finished)}. The state dump and the screenshot are saved on
+    the way as STATE_FILE and PICTURE_FILE in the game's user folder: a relative path keeps the
+    user's own folders out of the harness.command lines, and run() moves them to `out`."""
     played = {"match_id": "", "frames": 0, "finished": False, "problem": ""}
     deadline = clock() + args.timeout
     try:
@@ -158,16 +163,12 @@ def play(game, args: argparse.Namespace, out: Path, clock: Callable[[], float] =
                 played["frames"] += 1
                 game.call("match_continue")
             elif waiting == "match_summary":
-                played["frames"] += 1
-                # The last frame's summary stands in front of the match's.
-                if game.call("dump_state").get("screen") != "match_summary":
-                    game.call("match_continue")
                 break
             else:
                 played["problem"] = f"the match waits for the person ({waiting!r}) though the stand-in plays for them"
                 return played
-        game.call("dump_state", path=str(out / "state.json"))
-        game.call("screenshot", path=str(out / "match_summary.png"))
+        game.call("dump_state", path=STATE_FILE)
+        game.call("screenshot", path=PICTURE_FILE)
         played["finished"] = True
     except HarnessError as error:
         played["problem"] = str(error)
@@ -215,6 +216,9 @@ def run(args: argparse.Namespace, make_game: Callable[..., object] = Harness,
         played = play(game, args, folder)
     finally:
         code = game.stop()
+    for name in (STATE_FILE, PICTURE_FILE):
+        if (user_dir / name).is_file():
+            shutil.move(str(user_dir / name), str(folder / name))
     failures = []
     if not played["finished"]:
         failures.append(f"the match did not finish: {played['problem']}")

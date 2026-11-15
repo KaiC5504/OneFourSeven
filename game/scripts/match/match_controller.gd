@@ -13,9 +13,9 @@ extends Node
 
 ## The balls on the table changed other than by a stroke's own motion. reason: &"frame" (a frame
 ## was racked), &"shot" (a stroke was judged: colours spotted, the cue ball in hand), &"replaced"
-## (balls put back after a miss), &"spotted" (any other choice that moved them: the re-spotted
-## black set again after the toss), &"cue" (the in-hand cue ball was placed), &"ended" (the match
-## was left).
+## (balls put back after a miss), &"spotted" (any other choice that moved them: a re-rack accepted
+## while the black is re-spotted, S3.17(d), which the engine reports with no event), &"cue" (the
+## in-hand cue ball was placed), &"ended" (the match was left).
 signal table_changed(balls: Array[Dictionary], cue_ball: int, reason: StringName)
 ## The frame view after anything changed it; the scoreboard and the controls follow this.
 signal frame_changed(frame: Dictionary)
@@ -24,7 +24,8 @@ signal calls_made(calls: Array, shot_id: String)
 ## `player` may play a stroke now. `person` is false for the opponent, whose stroke arrives by
 ## opponent_ready, and for the person while autoplay plays for them.
 signal turn_started(player: int, person: bool)
-## The person must choose one of `options` (decision names) before play goes on.
+## The person must choose one of `options` (decision names) before play goes on: the engine's
+## options without PAUSE_DECISIONS, in its order.
 signal choice_needed(options: Array[String])
 ## The opponent's stroke, as OfsMatch.standin_shot gives it: the table scene places the cue ball
 ## when places_cue, shows the cue on the line and plays `strike` exactly, nominating `nominated`.
@@ -34,6 +35,9 @@ signal choice_needed(options: Array[String])
 signal opponent_ready(shot: Dictionary)
 ## The opponent chose `kind` (a decision name); it has been applied.
 signal opponent_chose(kind: String)
+## The engine refused MAX_REFUSALS times in a row, or the stand-in's strokes could not be played
+## that often: the stand-in is no longer asked and the match can't go on. `why` is the last refusal.
+signal stalled(why: String)
 ## A frame ended: its summary (serialize.hpp) and the match. The match went on unless match_ended
 ## follows.
 signal frame_ended(summary: Dictionary, match_state: Dictionary)
@@ -50,6 +54,8 @@ const STANDIN_PATH := "res://data/standin_params.json"
 ## stand-in is no longer asked: at pace 0 a broken engine would be asked, and logged, every frame.
 const MAX_REFUSALS := 5
 const BREAKERS := {"random": -1, "you": PERSON, "computer": OPPONENT}
+## Offered with a pending choice too, but taken from the pause menu, never the choice strip.
+const PAUSE_DECISIONS: Array[String] = ["concede_frame", "concede_match", "claim_frame"]
 
 ## Matches started this session, for the match id.
 static var _matches := 0
@@ -93,6 +99,9 @@ var _refusals := 0
 ## Counts every change of what play waits for: an announcement stops when a listener made one.
 var _moves := 0
 var _nearest_failed := false
+## The engine answers' keys found missing, each logged once.
+var _missing := {}
+var _last_refusal := ""
 
 
 func _init() -> void:
@@ -150,6 +159,7 @@ func start(config: Dictionary) -> bool:
 		"first_breaker": int(BREAKERS[first]),
 		"seed": int(config["seed"]) if config.has("seed") else Physics.new_seed(),
 		"concede_any_time": [true, false],
+		"person": PERSON,
 	}):
 		return true
 	# The match that was on is gone all the same.
@@ -326,8 +336,8 @@ func shot_finished(record: OfsShotRecord) -> Dictionary:
 	var tells: Array[Callable] = []
 	if judged:
 		_refusals = 0
-		judgement = _dict(answer.get("judgement"))
-		event = str(answer.get("event", "none"))
+		judgement = _expect(answer, "judgement", {}, "judge")
+		event = _expect(answer, "event", "none", "judge")
 		_take_frame(answer)
 		var calls := _list(judgement.get("calls"))
 		if not calls.is_empty():
@@ -346,11 +356,12 @@ func shot_finished(record: OfsShotRecord) -> Dictionary:
 	return judgement
 
 
-## The person's choice among the options offered. False when it is not one of them.
+## The person's choice among the options offered. False when it is not one of them, and for
+## PAUSE_DECISIONS, which go through concede_frame, concede_match and claim_frame.
 func choose(kind: String) -> bool:
 	var offered: Array[String] = []
 	if _active and not _playing:
-		offered = _options(PERSON)
+		offered = _choices(PERSON)
 	if not offered.has(kind):
 		_error("choose(\"%s\") is not one of the person's options %s" % [kind, JSON.stringify(offered)], false)
 		return false
@@ -368,21 +379,33 @@ func next_frame() -> bool:
 		return false
 	_moves += 1
 	_take_frame(answer)
-	_frame_number = int(_dict(engine.match_state()).get("frame_number", _frame_number + 1))
+	_frame_number = int(_expect(_dict(engine.match_state()), "frame_number", _frame_number + 1, "match_state"))
 	_sync_balls()
 	if _announce([table_changed.emit.bind(balls, cue_ball, &"frame"), frame_changed.emit.bind(_frame)]):
 		_advance()
 	return true
 
 
-## Pause menu (spec 11.1). False when the engine refuses (not allowed now), a stroke is in play, or
-## a frame's summary is showing: with no frame in play there is nothing to concede.
+## Pause menu (spec 11.1). False, with match.refused logged and the engine not asked, when it is
+## not open now (open_to_person); false too when the engine refuses it all the same.
 func concede_frame() -> bool:
 	return _concede("concede_frame")
 
 
 func concede_match() -> bool:
 	return _concede("concede_match")
+
+
+## The person claims the frame (S2.1(b): only the black left and more than seven ahead), as
+## concede_frame.
+func claim_frame() -> bool:
+	return _concede("claim_frame")
+
+
+## Whether the person may take `kind` (concede_frame, concede_match, claim_frame) now: the frame
+## view offers it to them and no stroke is in play.
+func open_to_person(kind: String) -> bool:
+	return _closed(kind).is_empty()
 
 
 ## The harness's part of the state dump: {active, match_id, frame, match, nominated, placing,
@@ -410,7 +433,7 @@ func _start(engine_config: Dictionary) -> bool:
 	_refusals = 0
 	_nearest_failed = false
 	var state := _dict(engine.match_state())
-	_frame_number = int(state.get("frame_number", 1))
+	_frame_number = int(_expect(state, "frame_number", 1, "match_state"))
 	_frame = _dict(engine.frame())
 	_sync_balls()
 	if _announce([table_changed.emit.bind(balls, cue_ball, &"frame"), frame_changed.emit.bind(_frame)]):
@@ -462,18 +485,26 @@ func _leave() -> void:
 
 
 func _concede(kind: String) -> bool:
-	var why := ""
-	if not _active:
-		why = "no match is on"
-	elif _playing:
-		why = "a stroke is in play"
-	elif _waiting == "frame_summary":
-		# The engine offers nothing once a frame is over: between frames a match is left by Quit.
-		why = "no frame is in play (a frame's summary is showing)"
+	var why := _closed(kind)
 	if not why.is_empty():
-		_error("%s refused: %s" % [kind, why], false)
+		Log.info("match", "match.refused", {"kind": kind, "why": why, "match_id": _match_id, "frame": _frame_number})
 		return false
 	return _decide(kind, PERSON, false)
+
+
+## Why the person may not take `kind` now; "" when they may.
+func _closed(kind: String) -> String:
+	if not _active:
+		return "no match is on"
+	if _playing:
+		return "a stroke is in play"
+	if _waiting == "frame_summary":
+		# Between frames a match is left by Quit.
+		return "no frame is in play (a frame's summary is showing)"
+	var offered := _options(PERSON)
+	if not offered.has(kind):
+		return "not offered now (pending \"%s\", offered %s)" % [_pending(), JSON.stringify(offered)]
+	return ""
 
 
 ## Applies `kind` for `player` and announces what it brought. `severe`: a refusal is an engine
@@ -487,7 +518,7 @@ func _decide(kind: String, player: int, severe: bool = true) -> bool:
 	_refusals = 0
 	_take_frame(answer)
 	var moved := _sync_balls()
-	var event := str(answer.get("event", "none"))
+	var event: String = _expect(answer, "event", "none", "decide")
 	var tells: Array[Callable] = []
 	if player != PERSON:
 		tells.append(opponent_chose.emit.bind(kind))
@@ -499,7 +530,7 @@ func _decide(kind: String, player: int, severe: bool = true) -> bool:
 	elif kind == "replace":
 		tells.append(table_changed.emit.bind(balls, cue_ball, &"replaced"))
 	elif moved:
-		# No event says so: the toss for a re-spotted black sets the black and the cue ball again.
+		# No event says so: a re-rack accepted while the black is re-spotted (S3.17(d)).
 		tells.append(table_changed.emit.bind(balls, cue_ball, &"spotted"))
 	tells.append(frame_changed.emit.bind(_frame))
 	if _announce(tells):
@@ -515,6 +546,7 @@ func _settle(event: String) -> void:
 		return
 	_driver.cancel()
 	_placing = false
+	_nominated = ""
 	var state := _dict(engine.match_state())
 	var history := _list(state.get("history"))
 	var match_over := event == "match_ended" or bool(state.get("over", false))
@@ -534,8 +566,8 @@ func _advance() -> void:
 	_driver.cancel()
 	_placing = false
 	if _pending() != "none":
-		var decider := int(_frame.get("decider", 0))
-		var offered := _options(decider)
+		var decider := int(_expect(_frame, "decider", 0, "frame"))
+		var offered := _choices(decider)
 		if offered.is_empty():
 			_error("the frame is pending \"%s\" for player %d, who is offered nothing" % [_pending(), decider])
 		if decider == PERSON and not autoplay:
@@ -546,7 +578,7 @@ func _advance() -> void:
 			_ask_standin()
 		return
 	_nominated = ""
-	var striker := int(_frame.get("striker", 0))
+	var striker := int(_expect(_frame, "striker", 0, "frame"))
 	var by_hand := striker == PERSON and not autoplay
 	_placing = by_hand and bool(_frame.get("cue_in_hand", false))
 	_wait("shot" if by_hand else "opponent", striker, by_hand)
@@ -555,10 +587,24 @@ func _advance() -> void:
 	turn_started.emit(striker, by_hand)
 
 
+## The table scene could not play the stand-in's stroke `shot_id` (opponent_ready's): malformed,
+## or refused by the physics. It counts as a refusal and the stand-in is asked again, until
+## MAX_REFUSALS stalls the match.
+func opponent_failed(shot_id: String, why: String) -> void:
+	if not _stroke_awaited() or _waiting != "opponent":
+		_error("opponent_failed(\"%s\") when no stand-in stroke is awaited (waiting \"%s\"%s); ignored" % [shot_id,
+				_waiting, ", a stroke in play" if _playing else ""], false)
+		return
+	_refusals += 1
+	_last_refusal = "the stand-in's stroke %s could not be played: %s" % [shot_id, why]
+	_ask_standin()
+
+
 func _ask_standin() -> void:
 	if _refusals >= MAX_REFUSALS:
-		_error("the engine refused %d times in a row; the stand-in is not asked again until it accepts something"
-				% _refusals)
+		_error("%d refusals in a row, the last: %s; the stand-in is not asked again and the match can't go on"
+				% [_refusals, _last_refusal])
+		stalled.emit(_last_refusal)
 		return
 	if _pending() != "none":
 		_driver.request_choice(engine, _turn_player, CHOICE_SECONDS * pace)
@@ -568,6 +614,8 @@ func _ask_standin() -> void:
 
 func _on_shot_chosen(player: int, shot: Dictionary) -> void:
 	if not _stroke_awaited() or _waiting != "opponent" or player != _turn_player:
+		_error("the stand-in's stroke %s for player %d came when none is asked for (waiting \"%s\" for player %d%s); dropped"
+				% [shot.get("shot_id", ""), player, _waiting, _turn_player, ", a stroke in play" if _playing else ""], false)
 		return
 	if not bool(shot.get("ok", false)):
 		_refusals += 1
@@ -587,10 +635,13 @@ func _on_shot_chosen(player: int, shot: Dictionary) -> void:
 
 func _on_choice_made(player: int, kind: String) -> void:
 	if not _active or _playing or _waiting != "opponent" or _pending() == "none" or player != _turn_player:
+		_error("the stand-in's choice \"%s\" for player %d came when none is asked for (waiting \"%s\" for player %d, pending \"%s\"%s); dropped"
+				% [kind, player, _waiting, _turn_player, _pending(), ", a stroke in play" if _playing else ""], false)
 		return
 	var offered := _options(player)
 	var chosen := kind
 	if not offered.has(kind):
+		offered = _choices(player)
 		if offered.is_empty():
 			_error("engine.standin_choice(%d, %d) gave \"%s\" with nothing offered; the match waits" % [player,
 					_driver.last_seed, kind])
@@ -626,6 +677,15 @@ func _options(player: int) -> Array[String]:
 	if player >= 0 and player < all.size():
 		for kind: Variant in _list(all[player]):
 			out.append(str(kind))
+	return out
+
+
+## The options of the pending choice itself: _options without PAUSE_DECISIONS, order kept.
+func _choices(player: int) -> Array[String]:
+	var out: Array[String] = []
+	for kind in _options(player):
+		if not PAUSE_DECISIONS.has(kind):
+			out.append(kind)
 	return out
 
 
@@ -669,8 +729,25 @@ func _refused(method: String, args: Array, answer: Dictionary, severe: bool = tr
 	var given: PackedStringArray = []
 	for arg: Variant in args:
 		given.append(JSON.stringify(arg))
-	_error("engine.%s(%s) refused: %s (last_error: %s)" % [method, ", ".join(given),
-			str(answer.get("error", "no error given")), str(engine.last_error())], severe)
+	_last_refusal = "engine.%s(%s) refused: %s (last_error: %s)" % [method, ", ".join(given),
+			str(answer.get("error", "no error given")), str(engine.last_error())]
+	_error(_last_refusal, severe)
+
+
+## answer[key] when it is there as the engine's JSON forms promise; else `fallback`, with
+## app.error logged the first time that key is missing from what `from` gave.
+func _expect(answer: Dictionary, key: String, fallback: Variant, from: String) -> Variant:
+	var value: Variant = answer.get(key)
+	if typeof(value) == typeof(fallback):
+		return value
+	if fallback is int and value is float and is_finite(value):
+		return int(value)
+	var said := "%s.%s" % [from, key]
+	if not _missing.has(said):
+		_missing[said] = true
+		_error("engine.%s() gave no usable \"%s\" (%s); taking %s" % [from, key, JSON.stringify(value),
+				JSON.stringify(fallback)])
+	return fallback
 
 
 func _error(message: String, severe: bool = true) -> void:
