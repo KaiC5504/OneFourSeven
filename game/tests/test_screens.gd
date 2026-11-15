@@ -1,0 +1,523 @@
+extends TestCase
+## The M3 screens (spec 11.1): Home, match setup, the pause menu and the two summaries. Every
+## button emits its signal, setup sends what was chosen, pause asks before conceding or quitting,
+## the summaries say what the example match holds from either chair, each screen sits inside the
+## safe area it is given, and a malformed Dictionary shows what is there and is logged once.
+
+const MATCH_PATH := "res://data/rules/example_match.json"
+const END_REASONS := {
+	"black": "On the black",
+	"respotted_black": "On the re-spotted black",
+	"claimed": "Frame claimed",
+	"awarded": "Frame claimed",
+	"conceded": "Conceded",
+	"three_misses": "Three misses",
+	"match_conceded": "Match conceded",
+}
+## The phone's canvas with the Dynamic Island's insets, and a narrow canvas.
+const SAFE_RECTS: Array[Rect2] = [Rect2(120.0, 0.0, 1672.0, 880.0), Rect2(0.0, 0.0, 1200.0, 880.0)]
+const MIN_FONT_SIZE := 22
+
+var _log_start := 0
+
+
+func test_every_screen_starts_hidden_and_covers_the_canvas() -> void:
+	var screens: Array[Control] = [HomeScreen.new(), MatchSetupScreen.new(), PauseMenu.new(), FrameSummary.new(),
+			MatchSummary.new()]
+	for screen in screens:
+		var screen_name: String = screen.get_script().get_global_name()
+		check(not screen.visible, "%s is hidden until opened" % screen_name)
+		check_eq([screen.anchor_left, screen.anchor_top, screen.anchor_right, screen.anchor_bottom], [0.0, 0.0, 1.0, 1.0],
+				"%s covers the canvas" % screen_name)
+		var backdrop := screen.get_node("Backdrop") as Control
+		check_eq([backdrop.anchor_right, backdrop.anchor_bottom], [1.0, 1.0], "%s: its backdrop covers the canvas" % screen_name)
+		check_eq(backdrop.mouse_filter, Control.MOUSE_FILTER_STOP, "%s takes every touch" % screen_name)
+		screen.free()
+
+
+func test_home_buttons_emit_their_signals() -> void:
+	var home := HomeScreen.new()
+	var got: Array = []
+	home.play_pressed.connect(func() -> void: got.append("play"))
+	home.free_table_pressed.connect(func() -> void: got.append("free_table"))
+	home.settings_pressed.connect(func() -> void: got.append("settings"))
+	for id: String in ["play", "free_table", "settings"]:
+		home.button(id).pressed.emit()
+	check_eq(got, ["play", "free_table", "settings"], "signals")
+	check_eq([home.button("play").text, home.button("free_table").text, home.button("settings").text],
+			["Play", "Free table", "Settings"], "the buttons' words")
+	check(_says(home, "One Four Seven"), "the game's name")
+	check(home.button("stats") == null, "no Stats button before M5")
+	home.open()
+	check(home.visible, "open shows it")
+	home.close()
+	check(not home.visible, "close hides it")
+	home.free()
+
+
+func test_setup_starts_at_best_of_three_and_a_random_break() -> void:
+	var setup := MatchSetupScreen.new()
+	check_eq(setup.config(), {"best_of": 3, "first_breaker": "random"}, "defaults")
+	check((setup.control("best_of:3") as Button).button_pressed, "best of 3 shows chosen")
+	check((setup.control("first_breaker:random") as Button).button_pressed, "random shows chosen")
+	check(setup.control("level") == null and setup.control("level:1") == null, "no opponent level before M4")
+	setup.free()
+
+
+func test_setup_sends_each_choice() -> void:
+	var setup := MatchSetupScreen.new()
+	var sent: Array[Dictionary] = []
+	var backs := [0]
+	setup.start_pressed.connect(func(config: Dictionary) -> void: sent.append(config))
+	setup.back_pressed.connect(func() -> void: backs[0] += 1)
+	for n in MatchSetupScreen.LENGTHS:
+		(setup.control("best_of:%d" % n) as Button).button_pressed = true
+		check_eq(setup.config(), {"best_of": n, "first_breaker": "random"}, "best of %d" % n)
+		for other in MatchSetupScreen.LENGTHS:
+			check_eq((setup.control("best_of:%d" % other) as Button).button_pressed, other == n,
+					"best of %d: only it shows chosen (%d)" % [n, other])
+	for who in MatchSetupScreen.BREAKERS:
+		(setup.control("first_breaker:" + who) as Button).button_pressed = true
+		check_eq(setup.config(), {"best_of": 11, "first_breaker": who}, "break: %s" % who)
+	(setup.control("best_of:5") as Button).button_pressed = true
+	(setup.control("first_breaker:you") as Button).button_pressed = true
+	check_eq(sent, [], "choosing sends nothing")
+	(setup.control("start") as Button).pressed.emit()
+	check_eq(sent, [{"best_of": 5, "first_breaker": "you"}], "Start sends the choices")
+	check_eq(typeof(sent[0]["best_of"]), TYPE_INT, "best_of is an int")
+	(setup.control("back") as Button).pressed.emit()
+	check_eq(backs[0], 1, "Back")
+	check_eq(sent.size(), 1, "Back starts nothing")
+	setup.free()
+
+
+func test_setup_remembers_the_last_choice() -> void:
+	var setup := MatchSetupScreen.new()
+	setup.open()
+	(setup.control("best_of:7") as Button).button_pressed = true
+	(setup.control("first_breaker:computer") as Button).button_pressed = true
+	setup.close()
+	check(not setup.visible, "closed")
+	setup.open()
+	check(setup.visible, "open again")
+	check_eq(setup.config(), {"best_of": 7, "first_breaker": "computer"}, "the choices are still there")
+	check((setup.control("best_of:7") as Button).button_pressed, "and still show")
+	setup.free()
+
+
+func test_pause_resume_and_settings_emit_at_once() -> void:
+	var pause := PauseMenu.new()
+	var got := _pause_signals(pause)
+	pause.open(true)
+	check(pause.visible, "open")
+	pause.button("resume").pressed.emit()
+	pause.button("settings").pressed.emit()
+	check_eq(got, ["resume", "settings"], "signals")
+	check_eq(pause.confirming(), "", "nothing to confirm")
+	check(pause.button("confirm") == null and pause.button("cancel") == null, "no Confirm or Cancel without a question")
+	for id: String in ["resume", "concede_frame", "concede_match", "settings", "quit"]:
+		check(pause.button(id) != null and _shows(pause, pause.button(id)), "%s is on the menu" % id)
+	pause.close()
+	check(not pause.visible, "close")
+	pause.free()
+
+
+func test_pause_asks_before_conceding_or_quitting() -> void:
+	var asks := {
+		"concede_frame": ["concede_frame_confirmed", "Your opponent wins the frame"],
+		"concede_match": ["concede_match_confirmed", "Your opponent wins the match"],
+		"quit": ["quit_confirmed", "The match will be discarded"],
+	}
+	for action: String in asks:
+		var pause := PauseMenu.new()
+		var got := _pause_signals(pause)
+		pause.open(true)
+		pause.button(action).pressed.emit()
+		check_eq(got, [], "%s: nothing before Confirm" % action)
+		check_eq(pause.confirming(), action, "%s is waiting" % action)
+		check(_says(pause, asks[action][1]), "%s says what will happen: %s" % [action, _shown(pause)])
+		check(not _shows(pause, pause.button("resume")) and not _shows(pause, pause.button(action)),
+				"%s: the menu's buttons give way" % action)
+		check(_shows(pause, pause.button("confirm")) and _shows(pause, pause.button("cancel")), "%s: Confirm and Cancel show" % action)
+		check_eq([pause.button("confirm").text, pause.button("cancel").text], ["Confirm", "Cancel"], "their words")
+		pause.button("confirm").pressed.emit()
+		check_eq(got, [asks[action][0]], "%s: Confirm emits it, and only it" % action)
+		check_eq(pause.confirming(), "", "%s: nothing waits after" % action)
+		pause.free()
+
+
+func test_pause_cancel_goes_back_to_the_menu() -> void:
+	var pause := PauseMenu.new()
+	var got := _pause_signals(pause)
+	pause.open(true)
+	for action: String in ["concede_frame", "concede_match", "quit"]:
+		pause.button(action).pressed.emit()
+		pause.button("cancel").pressed.emit()
+		check_eq(pause.confirming(), "", "%s cancelled" % action)
+		check(_shows(pause, pause.button("resume")), "%s: the menu is back" % action)
+		check(pause.button("confirm") == null, "%s: no Confirm left to press" % action)
+	check_eq(got, [], "cancelling emits nothing")
+	pause.button("quit").pressed.emit()
+	pause.open(true)
+	check_eq(pause.confirming(), "", "opening again drops a question left open")
+	pause.free()
+
+
+func test_pause_concede_frame_follows_the_engine() -> void:
+	var pause := PauseMenu.new()
+	pause.open(false)
+	check(pause.button("concede_frame").disabled, "disabled when the engine doesn't offer it")
+	check(not pause.button("concede_match").disabled and not pause.button("quit").disabled, "the rest stay on")
+	pause.open(true)
+	check(not pause.button("concede_frame").disabled, "enabled when it does")
+	pause.free()
+
+
+func test_pause_tap_outside_the_card_resumes() -> void:
+	var pause := PauseMenu.new()
+	var got := _pause_signals(pause)
+	pause.open(true)
+	var backdrop: Control = pause.get_node("Backdrop")
+	backdrop.gui_input.emit(_click(false))
+	check_eq(got, [], "a finger that went down elsewhere and lifts here resumes nothing")
+	backdrop.gui_input.emit(_click(true))
+	check_eq(got, [], "nothing on the press")
+	backdrop.gui_input.emit(_click(false))
+	check_eq(got, ["resume"], "a tap resumes")
+	pause.button("quit").pressed.emit()
+	backdrop.gui_input.emit(_click(true))
+	backdrop.gui_input.emit(_click(false))
+	check_eq(got, ["resume", "resume"], "a tap outside a question resumes too, confirming nothing")
+	check_eq(pause.confirming(), "", "and drops the question")
+	pause.free()
+
+
+func test_frame_summary_from_either_chair() -> void:
+	var match_state := _example_match()
+	var summary: Dictionary = match_state["history"][0]
+	var card := FrameSummary.new()
+	_mark_log()
+	card.show_summary(summary, match_state, 0)
+	check(card.visible, "showing opens it")
+	check_eq(card.texts(), {"title": "You lost the frame", "reason": "On the black", "score_you": 41, "score_opponent": 63,
+			"break_you": 16, "break_opponent": 31, "pots_you": "11 of 17", "pots_opponent": "16 of 20",
+			"frames_you": 0, "frames_opponent": 1}, "as player 0")
+	for words: String in ["You lost the frame", "On the black", "41", "63", "16", "31", "11 of 17", "16 of 20", "0", "1",
+			"You", "Computer", "Score", "Highest break", "Pot success", "Frames"]:
+		check(_says(card, words), "the card says %s: %s" % [words, _shown(card)])
+	card.show_summary(summary, match_state, 1)
+	check_eq(card.texts(), {"title": "You won the frame", "reason": "On the black", "score_you": 63, "score_opponent": 41,
+			"break_you": 31, "break_opponent": 16, "pots_you": "16 of 20", "pots_opponent": "11 of 17",
+			"frames_you": 1, "frames_opponent": 0}, "as player 1")
+	for key: String in ["score_you", "break_you", "frames_you"]:
+		check_eq(typeof(card.texts()[key]), TYPE_INT, "%s is an int" % key)
+	check_eq(_logged("app.error"), [], "nothing missing from the example")
+	card.close()
+	check(not card.visible, "close")
+	card.free()
+
+
+func test_frame_summary_of_a_conceded_frame() -> void:
+	var match_state := _example_match()
+	var summary: Dictionary = (match_state["history"][0] as Dictionary).duplicate(true)
+	summary["reason"] = "conceded"
+	summary["winner"] = 0
+	summary["stats"][0]["pots"] = 0
+	summary["stats"][0]["pot_attempts"] = 0
+	var card := FrameSummary.new()
+	card.show_summary(summary, match_state)
+	var texts := card.texts()
+	check_eq([texts["title"], texts["reason"]], ["You won the frame", "Conceded"], "won by a concession, behind on points")
+	check_eq([texts["score_you"], texts["score_opponent"]], [41, 63], "the scores as they stood")
+	check_eq(texts["pots_you"], "0 of 0", "no attempts")
+	card.free()
+
+
+func test_reason_text_for_every_end_reason() -> void:
+	for reason: String in END_REASONS:
+		check_eq(FrameSummary.reason_text(reason), END_REASONS[reason], reason)
+	check_eq(FrameSummary.reason_text("none"), "", "a frame still in play has no reason")
+	check_eq(FrameSummary.reason_text("nonsense"), "", "an unknown reason")
+
+
+func test_match_summary_won_and_lost() -> void:
+	var match_state := _finished_match()
+	var card := MatchSummary.new()
+	_mark_log()
+	card.show_summary(match_state, 0)
+	check(card.visible, "showing opens it")
+	check_eq(card.texts(), {"title": "You lost", "frames_you": 0, "frames_opponent": 2, "frames": ["41-63", "24-70"],
+			"break_you": 16, "break_opponent": 45}, "as player 0")
+	for words: String in ["You lost", "Frame 1", "Frame 2", "41", "63", "24", "70", "16", "45", "Highest break", "Frames"]:
+		check(_says(card, words), "the card says %s: %s" % [words, _shown(card)])
+	card.show_summary(match_state, 1)
+	check_eq(card.texts(), {"title": "You won", "frames_you": 2, "frames_opponent": 0, "frames": ["63-41", "70-24"],
+			"break_you": 45, "break_opponent": 16}, "as player 1")
+	check(not _says(card, "You lost"), "the earlier match's words are gone")
+	check_eq(_logged("app.error"), [], "nothing missing")
+	card.free()
+
+
+func test_summary_buttons_emit_their_signals() -> void:
+	var frame := FrameSummary.new()
+	var match_card := MatchSummary.new()
+	var got: Array = []
+	frame.continue_pressed.connect(func() -> void: got.append("continue"))
+	match_card.home_pressed.connect(func() -> void: got.append("home"))
+	frame.button("continue").pressed.emit()
+	match_card.button("home").pressed.emit()
+	check_eq(got, ["continue", "home"], "signals")
+	check_eq([frame.button("continue").text, match_card.button("home").text], ["Continue", "Home"], "their words")
+	check(frame.button("home") == null and match_card.button("continue") == null, "no other buttons")
+	frame.free()
+	match_card.free()
+
+
+func test_each_screen_sits_inside_the_safe_area() -> void:
+	var match_state := _example_match()
+	var home := HomeScreen.new()
+	var setup := MatchSetupScreen.new()
+	var pause := PauseMenu.new()
+	var question := PauseMenu.new()
+	var frame := FrameSummary.new()
+	var short_match := MatchSummary.new()
+	var long_match := MatchSummary.new()
+	var screens := {"home": home, "setup": setup, "pause": pause, "pause question": question, "frame summary": frame,
+			"match summary": short_match, "an eleven-frame match summary": long_match}
+	for screen_name: String in screens:
+		(screens[screen_name] as Control).set("auto_place", false)
+		tree.root.add_child(screens[screen_name])
+	home.open()
+	setup.open()
+	pause.open(true)
+	question.open(true)
+	question.button("quit").pressed.emit()
+	frame.show_summary(match_state["history"][0], match_state)
+	short_match.show_summary(_finished_match())
+	long_match.show_summary(_finished_match(11))
+	await tree.process_frame
+	var menu_card_size := Vector2.ZERO
+	for safe in SAFE_RECTS:
+		for screen_name: String in screens:
+			(screens[screen_name] as Control).call("place_in", safe)
+		# The containers lay their rows out at the end of the frame.
+		await tree.process_frame
+		for screen_name: String in screens:
+			var screen: Control = screens[screen_name]
+			var where := "%s in %s" % [screen_name, safe]
+			var card := screen.get_node_or_null("Card") as Control
+			if card != null:
+				check(safe.encloses(card.get_global_rect()), "%s: the card is inside: %s" % [where, card.get_global_rect()])
+				check_near(card.get_global_rect().get_center().x, safe.get_center().x, 1.0, "%s: centred across" % where)
+				check_near(card.get_global_rect().get_center().y, safe.get_center().y, 1.0, "%s: centred down" % where)
+			var shown := _visible_controls(screen)
+			check(shown.size() >= 3, "%s shows its controls: %d" % [where, shown.size()])
+			for control in shown:
+				var rect := control.get_global_rect()
+				check(safe.encloses(rect), "%s: '%s' is inside: %s" % [where, control.get("text"), rect])
+				check(card == null or card.get_global_rect().encloses(rect), "%s: '%s' is on the card" % [where, control.get("text")])
+				check(control.get_theme_font_size("font_size") >= MIN_FONT_SIZE, "%s: '%s' is readable" % [where, control.get("text")])
+				if control is Button:
+					check(rect.size.y >= 88.0, "%s: %s is at least 88 units tall" % [where, control.get("text")])
+					check_eq(control.focus_mode, Control.FOCUS_NONE, "%s: %s takes no focus" % [where, control.get("text")])
+				for other in shown:
+					check(other == control or not rect.grow(-1.0).intersects(other.get_global_rect().grow(-1.0)),
+							"%s: '%s' and '%s' overlap" % [where, control.get("text"), other.get("text")])
+		menu_card_size = (pause.get_node("Card") as Control).size
+		check_eq((question.get_node("Card") as Control).size, menu_card_size, "%s: the card is one size, asking or not" % safe)
+		# Confirm is not where any button that asks was, so a second tap on one confirms nothing.
+		var confirm := question.button("confirm").get_global_rect()
+		for id: String in ["concede_frame", "concede_match", "quit"]:
+			check(not confirm.intersects(pause.button(id).get_global_rect()), "%s: Confirm is clear of %s" % [safe, id])
+		var title := home.get_node("Title") as Control
+		var buttons := home.get_node("Buttons") as Control
+		check(title.get_global_rect().end.y < safe.position.y + safe.size.y * 0.25, "%s: the name is at the top" % safe)
+		check(buttons.get_global_rect().position.y > safe.position.y + safe.size.y * 0.75, "%s: the buttons are at the bottom" % safe)
+	for screen_name: String in screens:
+		(screens[screen_name] as Control).queue_free()
+	await tree.process_frame
+
+
+func test_an_open_screen_places_itself_and_follows_the_viewport() -> void:
+	var setup := MatchSetupScreen.new()
+	tree.root.add_child(setup)
+	setup.open()
+	await tree.process_frame
+	var card := setup.get_node("Card") as Control
+	var safe := SettingsPanel.canvas_safe_rect(setup)
+	check(safe.encloses(card.get_global_rect()), "opened inside the safe area: %s in %s" % [card.get_global_rect(), safe])
+	var placed := card.position
+	card.position = Vector2(3.0, 5.0)
+	tree.root.size_changed.emit()
+	check_eq(card.position, placed, "a viewport size change puts it back")
+	setup.auto_place = false
+	card.position = Vector2(3.0, 5.0)
+	tree.root.size_changed.emit()
+	check_eq(card.position, Vector2(3.0, 5.0), "left alone when auto_place is off")
+	setup.queue_free()
+	await tree.process_frame
+
+
+func test_a_malformed_frame_summary_shows_what_is_there_and_is_logged_once() -> void:
+	var card := FrameSummary.new()
+	_mark_log()
+	card.show_summary({}, {})
+	check(card.visible, "it still shows")
+	check_eq(card.texts(), {"title": "Frame over", "reason": "", "score_you": -1, "score_opponent": -1, "break_you": -1,
+			"break_opponent": -1, "pots_you": "– of –", "pots_opponent": "– of –", "frames_you": -1, "frames_opponent": -1},
+			"nothing to show")
+	var logged := _logged("app.error")
+	check_eq(logged.size(), 1, "one app.error")
+	if logged.size() == 1:
+		check_eq(logged[0].get("kind"), "message", "kind")
+		for key: String in ["summary.winner", "summary.reason", "summary.scores.0", "summary.scores.1",
+				"summary.stats.0.highest_break", "summary.stats.1.pots", "summary.stats.1.pot_attempts",
+				"match.frames.0", "match.frames.1"]:
+			check(String(logged[0].get("message", "")).contains(key), "it names %s: %s" % [key, logged[0].get("message")])
+		check(String(logged[0].get("message", "")).begins_with("FrameSummary"), "and the screen")
+
+	var match_state := _example_match()
+	var summary: Dictionary = (match_state["history"][0] as Dictionary).duplicate(true)
+	summary["scores"] = [41]
+	summary["stats"][1].erase("highest_break")
+	summary["stats"][0]["pots"] = "many"
+	match_state["frames"] = "level"
+	_mark_log()
+	card.show_summary(summary, match_state)
+	check_eq(card.texts(), {"title": "You lost the frame", "reason": "On the black", "score_you": 41, "score_opponent": -1,
+			"break_you": 16, "break_opponent": -1, "pots_you": "– of 17", "pots_opponent": "16 of 20",
+			"frames_you": -1, "frames_opponent": -1}, "what is there shows")
+	check(_says(card, "41") and _says(card, "–"), "a dash stands where a number is missing")
+	logged = _logged("app.error")
+	check_eq(logged.size(), 1, "one app.error for the lot")
+	if logged.size() == 1:
+		var message := String(logged[0].get("message", ""))
+		for key: String in ["summary.scores.1", "summary.stats.1.highest_break", "summary.stats.0.pots", "match.frames.0"]:
+			check(message.contains(key), "it names %s: %s" % [key, message])
+		check_eq(message.count("summary.scores.1"), 1, "each key once")
+		check(not message.contains("summary.scores.0") and not message.contains("summary.winner"), "and only what is missing")
+	card.free()
+
+
+func test_a_malformed_match_summary_shows_what_is_there_and_is_logged_once() -> void:
+	var card := MatchSummary.new()
+	_mark_log()
+	card.show_summary({})
+	check(card.visible, "it still shows")
+	check_eq(card.texts(), {"title": "Match over", "frames_you": -1, "frames_opponent": -1, "frames": [], "break_you": -1,
+			"break_opponent": -1}, "nothing to show")
+	var logged := _logged("app.error")
+	check_eq(logged.size(), 1, "one app.error")
+	if logged.size() == 1:
+		for key: String in ["match.winner", "match.history", "match.frames.0", "match.frames.1"]:
+			check(String(logged[0].get("message", "")).contains(key), "it names %s: %s" % [key, logged[0].get("message")])
+
+	var match_state := _finished_match()
+	match_state["history"][1].erase("scores")
+	match_state["history"].append("a frame")
+	match_state.erase("winner")
+	_mark_log()
+	card.show_summary(match_state)
+	check_eq(card.texts(), {"title": "Match over", "frames_you": 0, "frames_opponent": 2, "frames": ["41-63", "–-–", "–-–"],
+			"break_you": 16, "break_opponent": 45}, "what is there shows")
+	logged = _logged("app.error")
+	check_eq(logged.size(), 1, "one app.error for the lot")
+	if logged.size() == 1:
+		var message := String(logged[0].get("message", ""))
+		for key: String in ["match.winner", "match.history.1.scores.0", "match.history.2"]:
+			check(message.contains(key), "it names %s: %s" % [key, message])
+		check(not message.contains("match.history.0"), "and only what is missing: %s" % message)
+	card.free()
+
+
+func _pause_signals(pause: PauseMenu) -> Array:
+	var got: Array = []
+	pause.resume_pressed.connect(func() -> void: got.append("resume"))
+	pause.settings_pressed.connect(func() -> void: got.append("settings"))
+	pause.concede_frame_confirmed.connect(func() -> void: got.append("concede_frame_confirmed"))
+	pause.concede_match_confirmed.connect(func() -> void: got.append("concede_match_confirmed"))
+	pause.quit_confirmed.connect(func() -> void: got.append("quit_confirmed"))
+	return got
+
+
+func _click(pressed: bool) -> InputEventMouseButton:
+	var click := InputEventMouseButton.new()
+	click.button_index = MOUSE_BUTTON_LEFT
+	click.pressed = pressed
+	click.position = Vector2(40.0, 40.0)
+	return click
+
+
+func _example_match() -> Dictionary:
+	return JSON.parse_string(FileAccess.get_file_as_string(MATCH_PATH))
+
+
+## The example match with a second frame, conceded by player 0, which ends it 0-2; padded with
+## copies of that frame to `frames` frames.
+func _finished_match(frames: int = 2) -> Dictionary:
+	var match_state := _example_match()
+	var second: Dictionary = (match_state["history"][0] as Dictionary).duplicate(true)
+	second["number"] = 2
+	second["breaker"] = 1
+	second["reason"] = "conceded"
+	second["scores"] = [24, 70]
+	second["stats"][1]["highest_break"] = 45
+	second["stats"][0]["highest_break"] = 12
+	while (match_state["history"] as Array).size() < frames:
+		match_state["history"].append(second.duplicate(true))
+	match_state["frames"] = [0, frames]
+	match_state["over"] = true
+	match_state["winner"] = 1
+	return match_state
+
+
+## Whether a control would show with its screen open: every node from it up to the screen is
+## set visible.
+func _shows(screen: Control, control: Control) -> bool:
+	var node: Node = control
+	while node != null and node != screen:
+		if node is CanvasItem and not (node as CanvasItem).visible:
+			return false
+		node = node.get_parent()
+	return node == screen
+
+
+## The buttons and the labels with words that show on a screen.
+func _visible_controls(screen: Control, node: Node = null) -> Array[Control]:
+	var found: Array[Control] = []
+	for child in (screen if node == null else node).get_children():
+		if child is CanvasItem and not (child as CanvasItem).visible:
+			continue
+		if child is Button or (child is Label and not (child as Label).text.is_empty()):
+			found.append(child)
+		else:
+			found.append_array(_visible_controls(screen, child))
+	return found
+
+
+func _shown(screen: Control) -> Array[String]:
+	var words: Array[String] = []
+	for control in _visible_controls(screen):
+		words.append(String(control.get("text")))
+	return words
+
+
+func _says(screen: Control, words: String) -> bool:
+	return _shown(screen).has(words)
+
+
+func _mark_log() -> void:
+	OfsLog.flush()
+	_log_start = FileAccess.get_file_as_bytes(OfsLog.file_path()).size()
+
+
+## The data of each `event` logged since _mark_log, read from the session file.
+func _logged(event: String) -> Array[Dictionary]:
+	OfsLog.flush()
+	var text := FileAccess.get_file_as_bytes(OfsLog.file_path()).slice(_log_start).get_string_from_utf8()
+	var found: Array[Dictionary] = []
+	for line in text.split("\n", false):
+		var parsed: Variant = JSON.parse_string(line)
+		if parsed is Dictionary and (parsed as Dictionary).get("event") == event:
+			found.append((parsed as Dictionary).get("data", {}))
+	return found
