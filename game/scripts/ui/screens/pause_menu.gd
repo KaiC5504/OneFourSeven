@@ -1,6 +1,7 @@
 class_name PauseMenu
 extends Control
-## The match's pause menu (spec 11.1): Resume, Concede frame, Concede match, Settings and Quit.
+## The match's pause menu (spec 11.1): Resume, Concede frame, Concede match, Settings and Quit, and
+## Claim frame while the person can't be caught (S2.1(b)).
 ## Quit asks to confirm in place, on the same card, since the match is discarded (spec 11.2); so do
 ## the two concessions, which cannot be withdrawn (Section 4 Rule 2(e)). A modal card in the middle
 ## of the safe area; tapping outside it resumes.
@@ -12,6 +13,7 @@ signal resume_pressed
 ## Each is emitted only after the confirming press.
 signal concede_frame_confirmed
 signal concede_match_confirmed
+signal claim_frame_confirmed
 signal quit_confirmed
 signal settings_pressed
 
@@ -22,11 +24,13 @@ const TITLES := {
 	"": "Paused",
 	"concede_frame": "Concede frame",
 	"concede_match": "Concede match",
+	"claim_frame": "Claim frame",
 	"quit": "Quit",
 }
 const CONSEQUENCES := {
 	"concede_frame": "Your opponent wins the frame",
 	"concede_match": "Your opponent wins the match",
+	"claim_frame": "You win the frame",
 	"quit": "The match will be discarded",
 }
 
@@ -52,13 +56,26 @@ func _ready() -> void:
 	Kit.follow_safe_area(self, _auto_place)
 
 
-## can_concede_frame: whether the engine offers the person concede_frame now (the frame view's
-## options); the button is disabled otherwise.
-func open(can_concede_frame: bool) -> void:
-	(_buttons["concede_frame"] as Button).disabled = not can_concede_frame
+## Each flag is whether the engine offers the person that decision now (the frame view's options)
+## and no stroke is playing. A concession not offered is disabled; Claim frame shows only when it is.
+func open(can_concede_frame: bool, can_concede_match: bool = true, can_claim_frame: bool = false) -> void:
+	set_available(can_concede_frame, can_concede_match, can_claim_frame)
 	_ask("")
 	_backdrop_down = false
 	visible = true
+	_auto_place()
+
+
+## What is offered changed while the menu is open. A question about something no longer offered
+## goes back to the menu.
+func set_available(can_concede_frame: bool, can_concede_match: bool, can_claim_frame: bool) -> void:
+	var offered := {"concede_frame": can_concede_frame, "concede_match": can_concede_match,
+		"claim_frame": can_claim_frame}
+	(_buttons["concede_frame"] as Button).disabled = not can_concede_frame
+	(_buttons["concede_match"] as Button).disabled = not can_concede_match
+	(_buttons["claim_frame"] as Button).visible = can_claim_frame
+	if offered.has(_confirming) and not bool(offered[_confirming]):
+		_ask("")
 	_auto_place()
 
 
@@ -66,15 +83,16 @@ func close() -> void:
 	visible = false
 
 
-## "resume", "concede_frame", "concede_match", "settings", "quit", and while a confirmation
-## shows, "confirm" and "cancel".
+## "resume", "claim_frame", "concede_frame", "concede_match", "settings", "quit", and while a
+## confirmation shows, "confirm" and "cancel".
 func button(id: String) -> Button:
 	if _confirming.is_empty() and (id == "confirm" or id == "cancel"):
 		return null
 	return _buttons.get(id)
 
 
-## Which action is waiting for its confirming press: "concede_frame", "concede_match", "quit" or "".
+## Which action is waiting for its confirming press: "claim_frame", "concede_frame",
+## "concede_match", "quit" or "".
 func confirming() -> String:
 	return _confirming
 
@@ -99,6 +117,9 @@ func _build() -> void:
 	body.add_child(_menu)
 	var resume := _add(_menu, "resume", "Resume", true)
 	resume.pressed.connect(resume_pressed.emit)
+	var claim := _add(_menu, "claim_frame", "Claim frame")
+	claim.pressed.connect(_ask.bind("claim_frame"))
+	claim.visible = false
 	var concessions := _pair(_menu)
 	_add(concessions, "concede_frame", "Concede frame").pressed.connect(_ask.bind("concede_frame"))
 	_add(concessions, "concede_match", "Concede match").pressed.connect(_ask.bind("concede_match"))
@@ -151,6 +172,8 @@ func _on_confirm() -> void:
 			concede_frame_confirmed.emit()
 		"concede_match":
 			concede_match_confirmed.emit()
+		"claim_frame":
+			claim_frame_confirmed.emit()
 		"quit":
 			quit_confirmed.emit()
 

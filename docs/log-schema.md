@@ -137,5 +137,6 @@ New subsystems: `input`, `ui`, `audio`, `settings`, `freetable`. A played shot l
 | `frame.ended` | info | a frame ended | `summary` (`number`, `breaker`, `winner`, `reason`, `scores`, `stats`, `strokes`, `reracks`) |
 | `match.call` | info | the referee line showed calls | `calls` (kinds), `text` (the words shown) |
 | `match.nominated` | info | the declared colour changed | `ball`, `how` (`aim`, `tap`, `harness`, `opponent`) |
+| `match.refused` | info | the person asked for a decision that is not open now (a concession or claim while a stroke plays or the other player is choosing); nothing changed | `kind` (the decision), `why`, `match_id`, `frame` |
 | `match.turn` | info | play waits for someone | `player`, `person`, `waiting` (`shot`, `choice`, `opponent`, `frame_summary`, `match_summary`) |
 | `opponent.decision` | info/warn | the stand-in chose a stroke or a choice (warn when it could not) | `kind` (`shot`, `choice`), `player`, and for a stroke `strike`, `nominated`, `cue` (when it places the cue ball), `why`, `us` (time taken); for a choice `choice`, `options`; `error` |
