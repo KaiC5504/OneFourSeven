@@ -278,11 +278,18 @@ elevation θ and cue speed V.
   Mathavan proves unworkable, and the builder notes the trade-off.
 - **Owner (2026-11-15): the cushion grips side.** The paper has one cushion friction, fitted
   to balls without side, and with it side spin ran out of grip: a cue ball arriving slowly
-  with a lot of side (Selby's blue, 2014 World final) came almost straight back off the
-  cushion. The friction along the cushion's length is now a multiple of the friction up its
-  face (`cushion_side_grip`, 4; 1 is the paper's model). Side straight into a cushion then
-  follows the players' rule (a third, two thirds and all of it: one, two and three diamonds
-  along), and a ball without side straight in is unchanged. Jaws keep one friction.
+  with a lot of side came almost straight back off the cushion. The friction along the
+  cushion's length is now a multiple of the friction up its face (`cushion_side_grip`, 4; 1
+  is the paper's model). Side straight into a cushion then follows the players' rule in step
+  (a third, two thirds and all of it: 0.94, 1.71 and 2.38 diamonds along on this cushion,
+  about one, two and three on a pool table's), and a ball without side straight in is
+  unchanged. Jaws keep one friction.
+- **Real shots are the reference (2026-11-15).** A shot tracked from a broadcast, with each
+  cushion's place and time, outranks a value set by feel: Selby's blue from the 2014 World
+  final (three cushions to the reds on the pink) plays within 5 cm and 0.2 s on the paper's
+  cushion restitution, 0.98, and a roll friction of 0.010, and stops short on slower values.
+  Such shots live in `core/tests/fixtures/positions/` with a `measured` block and are held by
+  the calibration suite (docs/calibration/targets.md).
 - Straight cushion sections are line segments, and so are the facings behind the cushion
   tips. Pocket jaws are circular arcs using the same impact model with their own tunable
   restitution.

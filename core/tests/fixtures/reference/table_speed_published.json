@@ -15,13 +15,5 @@
   },
   "cushion_rebound_ratio": 0.818,
   "speed_margin_rel": 0.05,
-  "speed_margin_why": "TP B.6 treats the rebound as pure stun at a fixed ratio; the Mathavan model leaves some spin, which moves the post-skid speed by a few percent",
-  "owner_tuned": {
-    "session": "KaiC's feel sessions on the iPhone, 2026-11-13 to 15",
-    "why": "He set the cloth's pace and the cushions' bounce by feel, live over the phone link (roll_friction 0.010 to 0.015, cushion_restitution 0.98 to 0.85): a slower table than the published fast-cloth range above, which stays as the reference. C11 holds the lag to what his table does. Change these numbers only with a new owner tuning; without this block C11 checks the published range again.",
-    "lag_speed_m_s": 2.873,
-    "last_length_s": 6.84,
-    "effective_slope": 0.0153,
-    "tolerance_rel": 0.05
-  }
+  "speed_margin_why": "TP B.6 treats the rebound as pure stun at a fixed ratio; the Mathavan model leaves some spin, which moves the post-skid speed by a few percent"
 }

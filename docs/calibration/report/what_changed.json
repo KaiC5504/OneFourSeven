@@ -50,7 +50,12 @@
     {
       "what": "The cushion's grip on side",
       "params": {"cushion_side_grip": [null, 4.0]},
-      "why": "the same session: Selby's blue from the 2014 World final (top and left-hand side, the cue ball off the side cushion and down to the reds) would not play. The paper's one cushion friction was fitted to balls without side and runs out of grip with it. The friction along the cushion is now this many times the friction up its face (1 is the paper's cushion): a third, two thirds and all of the side straight in land 1, 2 and 3 diamonds along, the players' rule, where they gave 1.0, 1.7 and 1.75."
+      "why": "the same session: side did too little off a cushion (the shot he was after, Selby's blue from the 2014 World final, was misread at the time; the next entry has it as filmed). The paper's one cushion friction was fitted to balls without side and runs out of grip with it. The friction along the cushion is now this many times the friction up its face (1 is the paper's cushion): a third, two thirds and all of the side straight in land 1, 2 and 3 diamonds along, the players' rule, where they gave 1.0, 1.7 and 1.75."
+    },
+    {
+      "what": "The cloth's pace and the cushions' bounce, back to the published values",
+      "params": {"roll_friction": [0.015, 0.01], "cushion_restitution": [0.85, 0.98]},
+      "why": "Selby's blue from the 2014 World final, tracked from the broadcast frame by frame (positions/selby_blue.json): three cushions and 5.5 m to the reds on the pink, reached 6.9 s after the blue at about 0.4 m/s. With the published values the cue ball meets each cushion within 5 cm and 0.2 s of the film; with the feel values of 2026-11-13 to 15 (set while the cue was half as strong again) it stops 0.3 m short at full power. C11 checks the published lag range again."
     }
   ]
 }

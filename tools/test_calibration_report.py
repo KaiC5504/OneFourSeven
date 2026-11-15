@@ -384,18 +384,36 @@ def fake_shots():
     }
 
 
-# The cushion as Mathavan et al. fitted it; the committed table has the owner's.
+# The cushion as Mathavan et al. fitted it.
 PAPER_PARAMS = dict(PARAMS, cushion_restitution=0.98)
+# A table the owner tuned by feel, as the committed one was from 2026-11-13 to 15: the report's
+# "owner's value" paths.
+OWNER_PARAMS = dict(PARAMS, roll_friction=0.015, cushion_restitution=0.85)
+OWNER_STRAIGHT_IN = 0.797
 
 
-def plain_text(shots=None, series=None, params=PARAMS):
+def owner_fixtures():
+    """The fixtures of that table: the lag block, and a cushion reference recorded for its restitution."""
+    fixtures = report.load_fixtures()
+    fixtures["table_speed"]["owner_tuned"] = {
+        "session": "KaiC's feel sessions on the iPhone, 2026-11-13 to 15",
+        "lag_speed_m_s": 2.873, "last_length_s": 6.84, "effective_slope": 0.0153, "tolerance_rel": 0.05}
+    cushion = fixtures["cushion"]
+    cushion["params"] = dict(cushion["params"], cushion_restitution=OWNER_PARAMS["cushion_restitution"])
+    scale = OWNER_STRAIGHT_IN / report.straight_in(cushion["cases"])
+    for case in cushion["cases"]:
+        case["rebound_speed_m_s"] *= scale
+    return fixtures
+
+
+def plain_text(shots=None, series=None, params=PARAMS, fixtures=None):
     return "\n".join(report.plain_words(fake_shots() if shots is None else shots,
                                         full_series() if series is None else series, params,
-                                        report.load_fixtures()))
+                                        report.load_fixtures() if fixtures is None else fixtures))
 
 
 def owner_lag():
-    """The lag as the owner's cloth plays it (table_speed_published.json, owner_tuned)."""
+    """The lag as that cloth plays it (owner_fixtures, owner_tuned)."""
     series, shots = full_series(), fake_shots()
     series["lag"].summary.update({"lag_cue_speed_m_s": 2.0693, "lag_ball_speed_m_s": 2.8732})
     shots["lag"]["t_baulk"] = shots["lag"]["t_top"] + 6.844
@@ -470,7 +488,7 @@ class PlainWordsTest(unittest.TestCase):
     def test_a_cushion_set_by_feel_keeps_the_papers_figure_beside_it(self):
         series = full_series()
         series["cushion_rebound"].rows[0][4] = 0.797
-        cushions = self.bullet("Cushions.", plain_text(series=series))
+        cushions = self.bullet("Cushions.", plain_text(series=series, params=OWNER_PARAMS, fixtures=owner_fixtures()))
         self.assertIn("at 1 m/s comes off with 80% of its speed", cushions)
         self.assertIn("(This bounce is set by feel: with the cushion value Mathavan and colleagues fitted, their "
                       "model, which the game uses, gives 91%; their one set of measurements on a snooker table "
@@ -486,7 +504,7 @@ class PlainWordsTest(unittest.TestCase):
     def test_a_cloth_set_by_feel_says_so(self):
         self.assertNotIn("set by feel", self.bullet("Cloth speed."))
         series, shots = owner_lag()
-        text = plain_text(shots=shots, series=series)
+        text = plain_text(shots=shots, series=series, params=OWNER_PARAMS, fixtures=owner_fixtures())
         self.assertIn("takes 6.8 seconds. This pace is set by feel; it is slower than the published range for a "
                       "fast cloth (C11 below has both).", self.bullet("Cloth speed.", text))
         guesses = self.bullet("Still starting guesses", text)
@@ -543,50 +561,53 @@ class ResultsTest(unittest.TestCase):
 
     def test_the_owners_cloth_is_shown_against_the_published_range(self):
         series, shots = owner_lag()
-        row = self.rows(shots=shots, series=series)["C11"]
+        fixtures = owner_fixtures()
+        row = self.rows(shots=shots, series=series, params=OWNER_PARAMS, fixtures=fixtures)["C11"]
         self.assertEqual(row[4], report.OWNER)
         self.assertIn("cue ball 2.87 m/s; back down from the top cushion in 6.8 s, effective slope 0.0153: 24% above "
                       "the published speeds, the slope 46% above the published slopes", row[2])
         self.assertIn("published: 1.55-2.32 m/s (TP B.6 for slopes 0.0055-0.0105, +-5%); slope 0.0055-0.0105; the "
                       "owner's cloth (KaiC's feel sessions on the iPhone, 2026-11-13 to 15): 2.87 m/s, slope 0.0153, "
                       "+-5%", row[3])
-        context = report.report_context(shots, series, PARAMS, report.load_fixtures())
+        context = report.report_context(shots, series, OWNER_PARAMS, fixtures)
         self.assertEqual(report.evaluate(series["lag"], context).status, report.OWNER)
         # Off the owner's band as well, it is simply not met.
         shots["lag"]["t_baulk"] += 1.0
-        self.assertEqual(self.rows(shots=shots, series=series)["C11"][4], report.NOT_MET)
+        self.assertEqual(self.rows(shots=shots, series=series, params=OWNER_PARAMS, fixtures=fixtures)["C11"][4],
+                         report.NOT_MET)
         # Without the owner's block the published range is the only target.
-        fixtures = report.load_fixtures()
-        del fixtures["table_speed"]["owner_tuned"]
+        self.assertNotIn("owner_tuned", report.load_fixtures()["table_speed"])
         series, shots = owner_lag()
-        self.assertEqual(self.rows(shots=shots, series=series, fixtures=fixtures)["C11"][4], report.NOT_MET)
+        self.assertEqual(self.rows(shots=shots, series=series)["C11"][4], report.NOT_MET)
 
     def test_cushions_against_the_mathavan_reference(self):
-        fixtures = report.load_fixtures()
-        cases = [c for c in fixtures["cushion"]["cases"] if c["group"] == "rolling"]
         columns = ["speed_m_s", "incidence_deg", "incidence_measured_deg", "rebound_deg", "speed_ratio",
                    "rebound_rolling_deg"]
 
-        def rebound(shift_deg):
+        def rebound(fixtures, shift_deg):
             rows = [[c["speed_m_s"], c["incidence_deg"], c["incidence_deg"], c["rebound_angle_deg"] + shift_deg,
-                     c["rebound_speed_m_s"] / c["speed_m_s"], None] for c in cases]
+                     c["rebound_speed_m_s"] / c["speed_m_s"], None]
+                    for c in fixtures["cushion"]["cases"] if c["group"] == "rolling"]
             return make("cushion_rebound", columns, rows, target="C7")
 
+        fixtures = owner_fixtures()
+        cases = [c for c in fixtures["cushion"]["cases"] if c["group"] == "rolling"]
         series = full_series()
-        series["cushion_rebound"] = rebound(0.3)
-        row = self.rows(series=series)["C7"]
-        # The committed cushion is the owner's: the model is checked at his value, the paper's shown beside it.
+        series["cushion_rebound"] = rebound(fixtures, 0.3)
+        row = self.rows(series=series, params=OWNER_PARAMS, fixtures=fixtures)["C7"]
+        # A cushion the owner set: the model is checked at his value, the paper's shown beside it.
         self.assertEqual(row[4], report.OWNER)
         self.assertIn(f"worst 0.30 deg and 0.00% of the speed off the fine-step Mathavan solution over "
                       f"{len(cases)} cases; straight in at 1 m/s the ball keeps 79.7% of its speed", row[2])
         self.assertIn("1 deg, 2% of the model at the owner's `cushion_restitution` 0.85", row[3])
         self.assertIn("with the paper's 0.98 the ball keeps 91.1%, so this is -12.5%", row[3])
+        # The committed cushion is the paper's.
         paper = report.load_fixtures()
-        paper["cushion"]["literature"]["cushion_restitution"] = PARAMS["cushion_restitution"]
-        row = self.rows(series=series, fixtures=paper)["C7"]
+        series["cushion_rebound"] = rebound(paper, 0.3)
+        row = self.rows(series=series)["C7"]
         self.assertEqual(row[4], report.MET)
         self.assertEqual(row[3], "1 deg, 2% (the suite also checks side, stun and screw)")
-        series["cushion_rebound"] = rebound(1.5)
+        series["cushion_rebound"] = rebound(paper, 1.5)
         self.assertEqual(self.rows(series=series)["C7"][4], report.NOT_MET)
         stale = dict(PARAMS, cushion_friction=0.2)
         row = self.rows(series=series, params=stale)["C7"]

@@ -142,8 +142,8 @@ x86_64-only and the Mac has no Rosetta.
   30 degrees off the diagonal, middles 1.5 to 2.8; a dying ball along a cushion drops less often.
   Without the folder (CI, TestFlight) `procedural_table.gd` draws the same outline; a headless run
   always uses it. `OFS_TABLE=procedural` forces it; `game/scenes/dev/table_preview.tscn` pictures both.
-  KaiC's cloth values are committed (roll friction 0.015, cushion restitution 0.85): calibration C7
-  and C11 are now his values, not the papers'. The shot cycle follows his recording of the mobile
+  KaiC's cloth values were committed (roll friction 0.015, cushion restitution 0.85) and withdrawn
+  the same day for the published ones (the measured shots, below). The shot cycle follows his recording of the mobile
   game he plays (spec 8.5): instant cuts to a low pocket camera and to a still full-table view from
   the black end, and a 1.1 s swoop back as the only animated move. `scripts/mac.py phone` copies the
   fitted model to the Mac. Open: the model on the phone is unmeasured (frame time, first launch, about
@@ -178,14 +178,31 @@ x86_64-only and the Mac has no Rosetta.
   lines (was 16-27), straight on 68-79 (was 63-71); a firm ball rattles out from 20 mm over a jaw.
   His first word on them: much better, maybe now too easy; he wants more play before any retune
   (both values are live over the link).
-  The cushion grips side (same day): he could not play Selby's blue (2014 World final: top and
-  left side, the cue ball off the side cushion and down to the reds). The paper's one cushion
-  friction ran out of grip with side, so the friction along the cushion is now
-  `cushion_side_grip` (4) times the friction up its face; 1 is the paper's model, which shots
-  logged before it replay with. Side straight in now lands 1, 2 and 3 diamonds along for a
-  third, two thirds and all of it (was 1.0, 1.7, 1.75), and the shot is a calibration case
-  (`positions/selby_blue.json`, C8). A rolling ball at an angle comes off shorter and slower
-  than before (50 degrees in: 0.71 of its speed at 40.5, was 0.80 at 48). His to judge, live
-  over the link. He will bring more shots from broadcasts: each becomes a position fixture with
-  the real outcome as its target, and later a practice position.
+  The cushion grips side (same day): he could not play Selby's blue (2014 World final), then
+  misread as one cushion and a run down the table. The paper's one cushion friction ran out of
+  grip with side, so the friction along the cushion is now `cushion_side_grip` (4) times the
+  friction up its face; 1 is the paper's model, which shots logged before it replay with. It
+  rests on the pool players' rule alone (a third, two thirds and all of the side straight in:
+  about 1, 2 and 3 diamonds along on a pool table).
+- Real shots are the reference (2026-11-15): KaiC sent the broadcast of Selby's blue and a reel
+  of ten cannons with the spin named. Selby's blue, tracked frame by frame, is the blue to a
+  middle pocket almost straight, hit very hard with top and right-hand side, and the cue ball
+  round three cushions (right side past the baulk line, baulk, left side) to the two reds on the
+  pink: 5.5 m, there 6.85 s after the blue at about 0.4 m/s. It is `positions/selby_blue.json`
+  with the film's places and times in `measured`, held by C8 within 10 cm and 0.25 to 0.4 s. On
+  the published cloth and cushions (roll friction 0.010, cushion restitution 0.98) our table
+  plays it within 5 cm and 0.2 s at 6.3 of the 6.5 m/s cap; on his feel values (0.015 and 0.85,
+  set while the cue was 10 m/s) the cue ball stopped 0.3 m short at full power, which was the
+  "sticks to the cushion" he reported. So both went back to the published values; C7 and C11
+  check the published numbers again (no `owner_tuned` block). The shot plays the same at side
+  grips of 1, 2 and 4. On the livelier cushion the side rule lands 0.94, 1.71 and 2.38
+  diamonds, and a rolling ball at 50 degrees comes off at 37 with 0.77 of its speed (the
+  paper's cushion: 43.5 and 0.85). His to judge: ordinary shots run about half as far again and
+  come off a cushion with 91% of their pace, not 80%; if that is too much, reshape the power
+  bar (`PullControl.POWER_EXPONENT`, the stroke curve) rather than slow the table, or the real
+  shots stop playing. A full-power screw or follow also carries half as far again, the thing he
+  cut the cue speed for: open. How to measure a clip (per-framing homography from the colours
+  on their spots, checked at each cushion contact): `docs/calibration/targets.md`, "Selby's
+  blue, measured". Each further shot becomes a position fixture with a `measured` block, and
+  later a practice position.
   No workflow runs on push any more (above).
