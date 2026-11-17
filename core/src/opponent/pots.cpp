@@ -1,6 +1,9 @@
 // A port of the game's next-ball geometry (game/scripts/play/next_target.gd: _mouths, _pot_line,
 // _room, _reaches_pocket) to the table in hand, so the opponent and the suggestion see the same
 // pots. Only the geometry: the chance and the ranking are the error model's and the search's.
+//
+// One difference: a ball beside a cushion has no straight line into the corner at the cushion's
+// end, and the suggestion offers none, but the opponent lists it along the cushion (rail_run()).
 
 #include "ofs/opponent/pots.hpp"
 
@@ -40,6 +43,29 @@ constexpr double kAwayFromCushion = 0.3;
 constexpr double kBesideCue_m = 0.015;
 // Places in the D closer than this are the same place.
 constexpr double kSamePlace_m = 0.01;
+
+// A pot along a cushion, as the simulator plays it on this table (measured 2026-11-18: an object
+// ball 0.12 to 3 m from the corner and from touching the cushion to where a straight line opens,
+// the cue ball 0.15 to 1 m away at cuts to 70 degrees, cue speeds 1.5 to 6 m/s, top, screw and
+// side; all four cushions alike). The ball is sent at the cushion's end: the point kRailEnd_m
+// past the corner where a ball touching the cushion would be. Arriving within about 8 mm either
+// side of that point at any pace (at a slow one from 30 mm on the cushion's side of it to 17 mm
+// on the table's) it drops off the far jaw, and a ball that meets the cushion on the way runs
+// along it there. Nothing goes into a middle pocket this way. The straight-line geometry above
+// leaves these balls out: it lists a ball only from where the hole itself comes into view.
+constexpr double kRailEnd_m = 0.03;
+// What is claimed of that width, either side: about the tenth percentile of the windows measured
+// (the middle one is twice it), less for a ball on the cushion, which can only be sent into the
+// cushion or met off it. The full width from kRailFullWidthGap_m off the cushion.
+constexpr double kRailHalfWidth_m = 0.0065;
+constexpr double kRailHalfWidthTouching_m = 0.004;
+constexpr double kRailFullWidthGap_m = 0.004;
+// Nearer the corner than this the ball is in the jaws, and the measurements stop.
+constexpr double kRailFrom_m = 0.12;
+// The gap to the cushion as a share of the run to its end: beyond it the ball has a straight line.
+constexpr double kRailSlope = 0.15;
+// The widest cut measured.
+const double kCosRailMaxCut = std::cos(70.0 * kTau / 360.0);
 
 // One side of a pocket's mouth as a ball's centre meets it, looking into the pocket.
 struct MouthSide {
@@ -335,14 +361,49 @@ bool ghost_on_cloth(double gx, double gy) {
 }
 
 // The object ball's run into the mouth: a line in, room past every ball but `place` and the cue
-// ball, and nothing touched before the hole.
+// ball, and nothing touched before the hole. `straight` says whether it has such a line at all,
+// other balls aside.
 bool clear_run(const Position& p, int place, const phys::TableShape& t, const Mouth& m, PotLine& line,
-               double& object_room) {
+               double& object_room, bool& straight) {
     const Vec2 o = p.balls[std::size_t(place)].pos;
+    straight = false;
     if (!pot_line(m, o.x, o.y, line)) return false;
+    straight = reaches_pocket(t, m, o.x, o.y, line.ux, line.uy);
+    if (!straight) return false;
     object_room = room(p.balls, p.cue_ball, place, o.x, o.y, o.x + line.ux * line.length, o.y + line.uy * line.length);
-    if (!(object_room > 0.0)) return false;
-    return reaches_pocket(t, m, o.x, o.y, line.ux, line.uy);
+    return object_room > 0.0;
+}
+
+// The run of a ball with no straight line into a corner pocket along a cushion that ends there:
+// to the cushion's end, past every ball but `place` and the cue ball. `line` is filled as
+// pot_line() fills it, its half width the measured one as the ball sees it.
+bool rail_run(const Position& p, int place, const Mouth& m, PotLine& line, double& object_room) {
+    if (!m.corner) return false;
+    const Vec2 o = p.balls[std::size_t(place)].pos;
+    const double sx = signf(m.dcx);
+    const double sy = signf(m.dcy);
+    const double cx = sx * table::kPlayingLength / 2.0;
+    const double cy = sy * table::kPlayingWidth / 2.0;
+    // The side cushion, then the top or baulk cushion: the way along it to the corner, and the way
+    // off it into the table.
+    const double cushions[2][4] = {{sx, 0.0, 0.0, -sy}, {0.0, sy, -sx, 0.0}};
+    for (const auto& c : cushions) {
+        const double run = (cx - o.x) * c[0] + (cy - o.y) * c[1];
+        const double gap = (o.x - cx) * c[2] + (o.y - cy) * c[3] - kR;
+        if (run < kRailFrom_m || gap < -kOutsideSlack_m || gap > kRailSlope * (run + kRailEnd_m)) continue;
+        const double dx = cx + c[0] * kRailEnd_m + c[2] * kR - o.x;
+        const double dy = cy + c[1] * kRailEnd_m + c[3] * kR - o.y;
+        const double length = std::sqrt(dx * dx + dy * dy);
+        object_room = room(p.balls, p.cue_ball, place, o.x, o.y, o.x + dx, o.y + dy);
+        if (!(object_room > 0.0)) continue;
+        const double share = std::clamp(gap / kRailFullWidthGap_m, 0.0, 1.0);
+        line.ux = dx / length;
+        line.uy = dy / length;
+        line.length = length;
+        line.half_rad = (kRailHalfWidthTouching_m + (kRailHalfWidth_m - kRailHalfWidthTouching_m) * share) / length;
+        return true;
+    }
+    return false;
 }
 
 // A cushion nose within kAwkward_m behind the cue ball, or a ball close behind it on the cue's line.
@@ -413,7 +474,12 @@ void add_pots(const Position& p, Vec2 cue, const Env& env, const std::vector<Mou
         for (std::size_t k = 0; k < m.size(); ++k) {
             PotLine line;
             double object_room = 0.0;
-            if (!clear_run(p, target.place, env.table, m[k], line, object_room)) continue;
+            bool straight = false;
+            bool along = false;
+            if (!clear_run(p, target.place, env.table, m[k], line, object_room, straight)) {
+                if (straight || !rail_run(p, target.place, m[k], line, object_room)) continue;
+                along = true;
+            }
             if (!m[k].corner && line.ux * m[k].ax + line.uy * m[k].ay < kCosMaxMiddle) continue;
             const double gx = o.x - 2.0 * kR * line.ux;
             const double gy = o.y - 2.0 * kR * line.uy;
@@ -422,7 +488,7 @@ void add_pots(const Position& p, Vec2 cue, const Env& env, const std::vector<Mou
             double vy = gy - cue.y;
             const double travel = std::sqrt(vx * vx + vy * vy);
             const double cos_cut = travel > kMinTravel_m ? (vx * line.ux + vy * line.uy) / travel : 1.0;
-            if (cos_cut < cos_max_cut) continue;
+            if (cos_cut < cos_max_cut || (along && cos_cut < kCosRailMaxCut)) continue;
             const double cue_room = room(p.balls, p.cue_ball, target.place, cue.x, cue.y, gx, gy);
             if (cue_room < 0.0) continue;
             // The pocket's half width seen from the object ball, brought back through the contact
@@ -447,6 +513,7 @@ void add_pots(const Position& p, Vec2 cue, const Env& env, const std::vector<Mou
             pot.margin_rad = margin;
             const double norm = std::sqrt(vx * vx + vy * vy);
             pot.awkward = awkward(p, cue, vx / norm, vy / norm);
+            pot.along_cushion = along;
             pot.value = target.value;
             pot.input = target.input;
             out.push_back(pot);
@@ -467,7 +534,8 @@ std::vector<int> open_pockets(const Position& p, int place, const Env& env, cons
     for (std::size_t k = 0; k < m.size(); ++k) {
         PotLine line;
         double object_room = 0.0;
-        if (clear_run(p, place, env.table, m[k], line, object_room)) out.push_back(int(k));
+        bool straight = false;
+        if (clear_run(p, place, env.table, m[k], line, object_room, straight)) out.push_back(int(k));
     }
     return out;
 }

@@ -392,6 +392,7 @@ nlohmann::json pot_why(const FrameState& s, const Level& level, const Pot& pot, 
                             {"tip_x", meant.tip_x},
                             {"tip_y", meant.tip_y},
                             {"elevation_rad", meant.elevation_rad}}}};
+    if (pot.along_cushion) why["along_cushion"] = true;
     say_maximum(why, s, level);
     return why;
 }

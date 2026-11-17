@@ -197,11 +197,14 @@ TEST_CASE("a red on a corner's axis goes along it, and a 30 degree cut aims at t
     }
 }
 
-TEST_CASE("no pot where the jaws leave no way in") {
+TEST_CASE("no straight pot where the jaws leave no way in: only the one along the cushion") {
     const rules::Vec2 red{table::kPlayingLength / 2.0 - 0.5, table::kPlayingWidth / 2.0 - kR - 0.003};
     const rules::FrameState s =
         rules::scenario::frame({ball(Ball::cue, red.x - 0.4, red.y), ball(Ball::red, red.x, red.y)});
-    CHECK(find(from_cue(s), 1, pocket("top_left")) == nullptr);
+    const std::vector<Pot> list = from_cue(s);
+    const Pot* pot = find(list, 1, pocket("top_left"));
+    REQUIRE(pot != nullptr);
+    CHECK(pot->along_cushion);
     const std::vector<int> open = pockets_open_to(s, 1, rig::env());
     CHECK(std::find(open.begin(), open.end(), pocket("top_left")) == open.end());
 }
