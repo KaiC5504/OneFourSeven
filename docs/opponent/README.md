@@ -154,8 +154,9 @@ by `choose_option`, judged by `rules::judge_shot`, exactly as a match in the gam
 
 Stage 1's marks (the gate): Beginner against itself over 2,000 frames pots 30 to 40% of medium
 attempts and 5 to 15% of long ones, its mean break when in is under 10, and it plays safe on
-fewer than 10% of the strokes where a pot was listed (it has no pot at all in about one position
-in seven, mostly among the colours and balls on cushions; that share is reported, not marked). The 147 pots every attempt it plans (no error: a planned pot that stays out is a
+fewer than 10% of the strokes where it had a pot it could make (a pot attempt, or a safety or
+escape whose `why.pots` is above 0). It has no such pot on about one stroke in six, escapes
+included, mostly among the colours and balls on cushions; that share is reported, not marked. The 147 pots every attempt it plans (no error: a planned pot that stays out is a
 bug), makes 147 on every table of `exhibitions.json`, and wins at least 95% of frames against
 Beginner. Its rate of maximums from real break-offs is reported, not marked.
 
