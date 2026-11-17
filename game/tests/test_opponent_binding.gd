@@ -15,6 +15,7 @@ const STRIKE_KEYS: Array[String] = ["aim_rad", "elevation_rad", "speed_m_s", "ti
 const THINK_KEYS: Array[String] = ["candidates", "depth", "ms", "sims", "steps", "stopped"]
 ## Inside the D, clear of the baulk colours.
 const IN_THE_D := Vector2(-1.2, 0.1)
+const BALL_R := 0.02625
 ## Far past any budget a test gives a level.
 const ANSWER_WAIT_MS := 15000
 
@@ -47,6 +48,9 @@ func test_configure_opponent_takes_the_real_files() -> void:
 		var logged: Array = (lines[0]["levels"] as Array).map(func(l: Dictionary) -> String: return l["id"])
 		check_eq(logged, ["beginner", "maximum"], "each level's values")
 		check((lines[0]["levels"][0] as Dictionary).has("aim_sigma_rad"), "in full")
+		for entry: Dictionary in lines[0]["levels"]:
+			check_eq(entry.get("hash"), OfsLog.content_hash(_text("res://data/opponent_%s.json" % entry["id"])),
+					entry["id"] + ": the file's content hash, as ofs_sim_cli tournament reports it")
 		check_eq(lines[0]["exhibitions"], _layout_names(), "and the tables' names")
 	_check_schema()
 
@@ -203,9 +207,6 @@ func test_a_level_thinks_and_its_stroke_is_played() -> void:
 		var asked := Time.get_ticks_usec()
 		check(m.opponent_think(level, 5, {"shot_id": shot_id}, {}), level + ": thinks: " + m.last_error())
 		check(m.opponent_thinking(), level + ": thinking")
-		check(not m.opponent_think(level, 6, {"shot_id": "again"}, {}), level + ": a second think is refused")
-		check(m.last_error().contains("thinking") or m.last_error().contains("not been taken"),
-				level + ": last_error says why: " + m.last_error())
 		# Until the search is built a level answers in well under a frame, so this may already have it.
 		var early := m.opponent_take()
 		if early.is_empty():
@@ -236,8 +237,9 @@ func test_a_level_thinks_and_its_stroke_is_played() -> void:
 		check_eq(judged.get("ok"), true, level + ": played and judged: " + str(judged.get("error")))
 
 		var thought := _logged("opponent.think")
-		check_eq(thought.size(), 1, level + ": opponent.think once, the refused one not")
+		check_eq(thought.size(), 1, level + ": opponent.think once")
 		if thought.size() == 1:
+			check_eq(thought[0].get("params_hash"), Physics.sim.params_hash(), level + ": the physics values it plans with")
 			check_eq(thought[0]["level"], level, level + ": think: the level")
 			check_eq(int(thought[0]["player"]), 1, level + ": the striker")
 			check_eq(thought[0]["seed"], "5", level + ": the seed as a decimal string")
@@ -258,6 +260,9 @@ func test_a_level_thinks_and_its_stroke_is_played() -> void:
 			check((line["meant"] as Dictionary).has("speed_m_s"), level + ": the stroke meant")
 			check_eq((line["think"] as Dictionary).get("stopped"), think.get("stopped"), level + ": how it thought")
 			check_eq((line["why"] as Dictionary).get("level"), level, level + ": why names the level")
+			check_eq(str(line.get("pre_hash", "")).length(), 16, level + ": the frame it decided from")
+			check(not line.has("params_changed"), level + ": the physics values as they were")
+			check(not line.has("pre"), level + ": the frame itself only on a refusal")
 		check_eq(_logged("app.error").size(), 0, level + ": nothing threw")
 		_check_schema()
 
@@ -300,6 +305,22 @@ func test_twelve_strokes_alternating_levels_are_never_refused() -> void:
 		if not failures.is_empty():
 			return
 	check_eq(strokes, 12, "twelve strokes in %d steps" % steps)
+	# Each level's decision names the frame it was made from: the one the last judgement or choice left.
+	var last_hash := ""
+	var chained := 0
+	for line in _lines():
+		var data: Dictionary = line.get("data", {})
+		var event := str(line.get("event"))
+		if event in ["rules.decision", "rules.choice"]:
+			last_hash = str(data.get("post_hash", ""))
+		elif event == "frame.started":
+			last_hash = ""
+		elif event == "opponent.decision" and data.has("think"):
+			check_eq(str(data.get("pre_hash", "")).length(), 16, "%s: pre_hash" % data.get("shot_id"))
+			if not last_hash.is_empty():
+				check_eq(data.get("pre_hash"), last_hash, "%s: decided from the frame left" % data.get("shot_id"))
+				chained += 1
+	check(chained >= 6, "most decisions follow a logged frame: %d" % chained)
 	check_eq(_logged_what("OfsMatch.opponent_take").size(), 0, "none refused")
 	check_eq(_logged("app.error").size(), 0, "nothing threw")
 	_check_schema()
@@ -324,6 +345,9 @@ func test_cancel_drops_the_answer() -> void:
 		check_eq(lines[0]["why"], "the test", "why")
 		check(float(lines[0]["ms"]) >= 0.0, "how long it had thought")
 		check_eq(lines[0]["match_id"], _last_id(), "the match")
+		check_eq(int(lines[0].get("player", -1)), 1, "whose stroke it was")
+		check_eq(lines[0].get("seed"), "3", "the seed")
+		check_eq(lines[0].get("shot_id"), "cancelled", "and the shot")
 	check(m.opponent_think("beginner", 3, {"shot_id": "after"}, {}), "a new think works: " + m.last_error())
 	var answer := await _answer(m)
 	check_eq(answer.get("ok"), true, "and answers: " + str(answer.get("error")))
@@ -361,8 +385,24 @@ func test_an_answer_for_a_frame_that_changed_is_refused() -> void:
 			refused.append(line["data"])
 	check_eq(refused.size(), 1, "opponent.decision at warn")
 	if refused.size() == 1:
-		check_eq(refused[0].get("level"), "beginner", "for the level")
-		check(str(refused[0].get("error")).contains("frame changed"), "with the error")
+		var line := refused[0]
+		check_eq(line.get("level"), "beginner", "for the level")
+		check(str(line.get("error")).contains("frame changed"), "with the error")
+		var pre: Dictionary = line.get("pre", {})
+		check_eq(int(pre.get("strokes", -1)), 0, "the frame it was asked about, before the stand-in's stroke")
+		check_eq((pre.get("balls", []) as Array).size(), 22, "with its balls")
+		var between := _logged("rules.decision").filter(func(d: Dictionary) -> bool: return d.get("shot_id") == "between")
+		check_eq(between.size(), 1, "the stand-in's stroke judged")
+		if between.size() == 1:
+			check_eq(line.get("now_hash"), between[0]["post_hash"], "now_hash: the frame that stroke left")
+		check_eq(str(line.get("pre_hash", "")).length(), 16, "pre_hash")
+		check(line.get("pre_hash") != line.get("now_hash"), "and not the frame now")
+		check_eq(line.get("kind"), "shot", "a stroke was chosen")
+		for key: String in ["strike", "meant"]:
+			var strike: Dictionary = line.get(key, {})
+			var got := strike.keys()
+			got.sort()
+			check_eq(got, STRIKE_KEYS, key + ": the stroke it chose")
 	check_eq(_logged_what("OfsMatch.opponent_take").size(), 1, "and rules.invalid")
 	_check_schema()
 	if not m.frame()["over"] and m.frame()["pending"] == "none":
@@ -398,6 +438,8 @@ func test_the_147_says_when_the_maximum_is_on() -> void:
 	check_eq(lines.size(), 1, "opponent.maximum once in the frame")
 	if lines.size() == 1:
 		check_eq(lines[0]["state"], "on", "on")
+		check_eq(lines[0].get("level"), "maximum", "by the level")
+		check(not lines[0].has("why"), "no why while it is on")
 		check_eq(int(lines[0]["player"]), 1, "for the 147 at the table")
 		check_eq(int(lines[0]["break_points"]), 0, "no break yet")
 		check_eq(int(lines[0]["reds"]), 15, "fifteen reds")
@@ -410,6 +452,178 @@ func test_the_147_says_when_the_maximum_is_on() -> void:
 	check(beginner.opponent_think("beginner", 60, {"shot_id": "b"}, {}), "thinks: " + beginner.last_error())
 	check_eq((await _answer(beginner)).get("ok"), true, "answers")
 	check_eq(_logged("opponent.maximum").size(), 0, "a level that doesn't play for one says nothing")
+	_check_schema()
+
+
+func test_the_147_says_its_break_ended_when_the_stroke_is_judged() -> void:
+	var m := _exhibition("maximum", 52)
+	_mark_log()
+	check(m.opponent_think("maximum", 70, {"shot_id": "lost"}, {}), "thinks: " + m.last_error())
+	check_eq((await _answer(m)).get("ok"), true, "answers")
+	# Its stroke is not played: a touch that reaches no ball is, and the break ends on it.
+	var nudged := _nudge(m, "lost")
+	check_eq(nudged.get("ok"), true, "the touch is judged: " + str(nudged.get("error")))
+	check(not (nudged.get("judgement", {}).get("fouls", []) as Array).is_empty(), "a foul")
+	var lines := _logged("opponent.maximum")
+	var states: Array = lines.map(func(l: Dictionary) -> String: return l["state"])
+	check_eq(states, ["on", "gone"], "gone as the stroke is judged, before anyone is asked again")
+	if lines.size() == 2:
+		check_eq(lines[1].get("why"), "the break ended", "why")
+		check_eq(lines[1].get("shot_id"), "lost", "with the stroke that lost it")
+		check_eq(lines[1].get("level"), "maximum", "by the level")
+		check_eq(int(lines[1]["player"]), 1, "the 147's")
+		check_eq(int(lines[1]["break_points"]), 0, "the break it made")
+		check_eq(int(lines[1]["reds"]), 15, "the reds left")
+
+	var options: Array = m.frame()["view"]["options"][0]
+	var again := "play_again" if options.has("play_again") else "replace"
+	check(options.has(again), "the 147 can be put back in: %s" % [options])
+	check_eq(m.decide(again, 0).get("ok"), true, again + ": " + m.last_error())
+	check_eq(int(m.frame()["striker"]), 1, "the 147 at the table again")
+	for i in 2:
+		check(m.opponent_think("maximum", 71 + i, {"shot_id": "again-%d" % i}, {}), "thinks: " + m.last_error())
+		check_eq((await _answer(m)).get("ok"), true, "answers")
+	lines = _logged("opponent.maximum")
+	states = lines.map(func(l: Dictionary) -> String: return l["state"])
+	check_eq(states, ["on", "gone", "on"], "on again at the start of a visit that has it, once")
+	if lines.size() == 3:
+		check_eq(lines[2].get("shot_id"), "again-0", "at the visit's first stroke")
+	_check_schema()
+
+
+func test_the_147_says_a_colour_other_than_the_black_lost_it() -> void:
+	var m := _exhibition("maximum", 53)
+	_mark_log()
+	check(m.opponent_think("maximum", 80, {"shot_id": "red"}, {}), "thinks: " + m.last_error())
+	var red := await _answer(m)
+	check_eq(_play(m, red, "red").get("ok"), true, "its red is played")
+	check_eq(int(m.frame()["break_points"]), 1, "and potted")
+	check(m.opponent_think("maximum", 81, {"shot_id": "colour"}, {}), "thinks: " + m.last_error())
+	check_eq((await _answer(m)).get("ok"), true, "answers")
+	# Its black is not played: a pot of another colour is.
+	var pot := _colour_pot(m)
+	check(not pot.is_empty(), "a colour other than the black can be potted from here")
+	if pot.is_empty():
+		return
+	var record := Physics.sim.simulate(m.balls(), m.cue_ball(), pot["strike"], 9, _context("colour"))
+	var judged := m.judge(record, {"nominated": pot["colour"]}, {"shot_id": "colour"})
+	check_eq(judged.get("ok"), true, "judged: " + str(judged.get("error")))
+	var judgement: Dictionary = judged.get("judgement", {})
+	check((judgement.get("fouls", [null]) as Array).is_empty() and int(judgement.get("points", 0)) > 1,
+			"the %s potted: %s" % [pot["colour"], judgement])
+	var lines := _logged("opponent.maximum")
+	var states: Array = lines.map(func(l: Dictionary) -> String: return l["state"])
+	check_eq(states, ["on", "gone"], "on, then gone with the colour")
+	if lines.size() == 2:
+		check_eq(lines[1].get("why"), "a colour other than the black", "why")
+		check_eq(lines[1].get("shot_id"), "colour", "with the stroke that lost it")
+		check_eq(int(lines[1]["break_points"]), 1 + int(judgement.get("points", 0)), "the break as it stands")
+		check_eq(int(lines[1]["reds"]), 14, "the reds left")
+	_check_schema()
+
+
+func test_the_147_says_a_red_is_off_the_table_at_its_first_visit() -> void:
+	var m := _opponent()
+	var config := _config(3, 0, 54)
+	config["level"] = "maximum"
+	check_eq(m.start(config, _match_id()).get("ok"), true, "starts")
+	_mark_log()
+	var asked := false
+	for step in 300:
+		var frame := m.frame()
+		if bool(frame["over"]):
+			break
+		if frame["pending"] != "none":
+			var decider: int = frame["decider"]
+			check_eq(m.decide(m.standin_choice(decider, step), decider).get("ok"), true, "a choice: " + m.last_error())
+			continue
+		var reds := m.balls().filter(func(b: Dictionary) -> bool: return b["ball"] == "red").size()
+		if int(frame["striker"]) == 1 and int(frame["break_points"]) == 0 and reds < 15:
+			for i in 2:
+				check(m.opponent_think("maximum", 90 + i, {"shot_id": "visit-%d" % i}, {}), "thinks: " + m.last_error())
+				check_eq((await _answer(m)).get("ok"), true, "answers")
+			asked = true
+			break
+		# Until then the stand-in plays both sides.
+		var shot_id := "standin-%d" % step
+		var shot := m.standin_shot(step, {"shot_id": shot_id})
+		if shot.has("decision"):
+			check_eq(m.decide(shot["decision"], frame["striker"]).get("ok"), true, "its decision applies")
+			continue
+		check_eq(_play(m, shot, shot_id).get("ok"), true, shot_id + ": judged")
+	check(asked, "a red went before the 147's first visit")
+	var lines := _logged("opponent.maximum")
+	check_eq(lines.size(), 1, "once, however often it is asked")
+	if lines.size() == 1:
+		check_eq(lines[0]["state"], "gone", "gone")
+		check_eq(lines[0].get("why"), "a red is off the table", "why")
+		check_eq(lines[0].get("shot_id"), "visit-0", "at the visit's start")
+		check_eq(int(lines[0]["break_points"]), 0, "no break under way")
+		check(int(lines[0]["reds"]) < 15, "the reds left")
+	_check_schema()
+
+
+func test_a_new_think_replaces_the_one_before() -> void:
+	var m := _started_with("maximum")
+	_mark_log()
+	check(m.opponent_think("maximum", 11, {"shot_id": "first"}, {"max_ms": 0}), "thinks: " + m.last_error())
+	check(not m.opponent_think("nobody", 12, {"shot_id": "refused"}, {}), "an unknown level is refused")
+	check(m.opponent_thinking(), "and the first goes on thinking")
+	check_eq(_logged("opponent.cancelled").size(), 0, "uncancelled")
+	check(m.opponent_think("beginner", 13, {"shot_id": "second"}, {}), "a second request: " + m.last_error())
+	var cancelled := _logged("opponent.cancelled")
+	check_eq(cancelled.size(), 1, "the first is cancelled")
+	if cancelled.size() == 1:
+		check_eq(cancelled[0]["why"], "replaced", "replaced")
+		check_eq(cancelled[0]["level"], "maximum", "its level")
+		check_eq(int(cancelled[0].get("player", -1)), 1, "whose stroke")
+		check_eq(cancelled[0].get("seed"), "11", "its seed")
+		check_eq(cancelled[0].get("shot_id"), "first", "its shot")
+	var answer := await _answer(m)
+	check_eq(answer.get("ok"), true, "the second answers: " + str(answer.get("error")))
+	check_eq(answer.get("level"), "beginner", "for its level")
+	var decided := _logged("opponent.decision")
+	check_eq(decided.size(), 1, "one decision")
+	if decided.size() == 1:
+		check_eq(decided[0].get("shot_id"), "second", "the second's")
+	_check_schema()
+
+
+func test_physics_values_changed_while_it_thinks() -> void:
+	var table_text := _text("res://data/table_shape.json")
+	var sim := OfsPhysics.new()
+	check(sim.configure(Params.current_text(), Params.current_hash(), table_text), "physics: " + sim.last_error())
+	var m := OfsMatch.new()
+	check(m.configure(sim, _text(REFEREE_PATH), _text(STANDIN_PATH)), "configure: " + m.last_error())
+	check(m.configure_opponent(_level_files(), _text(EXHIBITIONS_PATH)), "configure_opponent: " + m.last_error())
+	var config := _config(3, 1, 81)
+	config["level"] = "beginner"
+	check_eq(m.start(config, _match_id()).get("ok"), true, "starts")
+	_mark_log()
+	check(m.opponent_think("beginner", 8, {"shot_id": "old-values"}, {}), "thinks: " + m.last_error())
+	var changed := RegEx.create_from_string("\"roll_friction\":\\s*[0-9.eE+-]+").sub(Params.current_text(),
+			"\"roll_friction\": 0.0101")
+	check(changed != Params.current_text(), "roll_friction changed")
+	var new_hash := OfsLog.content_hash(changed)
+	check(sim.configure(changed, new_hash, table_text), "new values over the link: " + sim.last_error())
+	var answer := await _answer(m)
+	check_eq(answer.get("ok"), true, "the stroke is still given: " + str(answer.get("error")))
+	check_eq(answer.get("params_changed"), true, "saying it was planned on the old values")
+	var thought := _logged("opponent.think")
+	check_eq(thought[0].get("params_hash") if thought.size() == 1 else null, Params.current_hash(),
+			"opponent.think: the values it planned with")
+	var decided := _logged("opponent.decision")
+	check_eq(decided[0].get("params_changed") if decided.size() == 1 else null, true, "opponent.decision says so")
+
+	_mark_log()
+	check(m.opponent_think("beginner", 9, {"shot_id": "new-values"}, {}), "thinks again: " + m.last_error())
+	answer = await _answer(m)
+	check_eq(answer.get("ok"), true, "answers: " + str(answer.get("error")))
+	check(not answer.has("params_changed"), "planned and played on the same values")
+	thought = _logged("opponent.think")
+	check_eq(thought[0].get("params_hash") if thought.size() == 1 else null, new_hash, "the new values")
+	decided = _logged("opponent.decision")
+	check(decided.size() == 1 and not decided[0].has("params_changed"), "and the decision says nothing")
 	_check_schema()
 
 
@@ -515,6 +729,80 @@ func _started_with(level: String, breaker: int = 1) -> OfsMatch:
 	var started := m.start(config, _match_id())
 	check_eq(started.get("ok"), true, "start: " + str(started.get("error")))
 	return m
+
+
+## The first exhibition table with `level` at it as player 1 and the person, player 0, watching.
+func _exhibition(level: String, seed: int) -> OfsMatch:
+	var m := _opponent()
+	var config := _config(1, 0, seed)
+	config["level"] = level
+	config["exhibition"] = 0
+	config["person"] = 0
+	check_eq(m.start(config, _match_id()).get("ok"), true, "an exhibition starts: " + m.last_error())
+	return m
+
+
+## The striker's cue ball touched away from the nearest ball, too softly to reach any: judged.
+func _nudge(m: OfsMatch, shot_id: String) -> Dictionary:
+	var balls := m.balls()
+	var cue: Dictionary = balls[m.cue_ball()]
+	var from := Vector2(cue["x"], cue["y"])
+	var nearest := Vector2.ZERO
+	var best := INF
+	for i in balls.size():
+		var at := Vector2(balls[i]["x"], balls[i]["y"])
+		if i != m.cue_ball() and from.distance_to(at) < best:
+			best = from.distance_to(at)
+			nearest = at
+	var record := Physics.sim.simulate(balls, m.cue_ball(), _strike((from - nearest).angle(), 0.03), 9, _context(shot_id))
+	check(record != null, shot_id + ": simulated: " + Physics.sim.last_error())
+	if record == null:
+		return {}
+	return m.judge(record, {"nominated": ""}, {"shot_id": shot_id})
+
+
+## {strike, colour}: a straight pot of a colour other than the black that nothing is in the way of
+## and that pots it alone, as simulated; {} when there is none.
+func _colour_pot(m: OfsMatch) -> Dictionary:
+	var balls := m.balls()
+	var from := Vector2(balls[m.cue_ball()]["x"], balls[m.cue_ball()]["y"])
+	for colour: String in ["yellow", "green", "brown", "blue", "pink"]:
+		var target := -1
+		for i in balls.size():
+			if balls[i]["ball"] == colour:
+				target = i
+		if target < 0:
+			continue
+		var at := Vector2(balls[target]["x"], balls[target]["y"])
+		for p: Dictionary in Physics.table_shape()["pockets"]:
+			var pocket := Vector2(p["drop_centre"][0], p["drop_centre"][1])
+			var ghost := at - (pocket - at).normalized() * 2.0 * BALL_R
+			if not _clear(balls, [m.cue_ball(), target], from, ghost) or not _clear(balls, [m.cue_ball(), target], at, pocket):
+				continue
+			for speed: float in [1.0, 1.6, 2.4]:
+				var strike := _strike((ghost - from).angle(), speed)
+				var record := Physics.sim.predict(balls, m.cue_ball(), strike)
+				if record == null:
+					continue
+				var potted: Array[int] = []
+				var final := record.final_balls()
+				for i in final.size():
+					if int(final[i]["pocket"]) >= 0:
+						potted.append(i)
+				if potted.size() == 1 and potted[0] == target:
+					return {"strike": strike, "colour": colour}
+	return {}
+
+
+## No ball but those in `skip` within a ball's width of the line from `a` to `b`.
+func _clear(balls: Array, skip: Array, a: Vector2, b: Vector2) -> bool:
+	for i in balls.size():
+		if i in skip:
+			continue
+		var at := Vector2(balls[i]["x"], balls[i]["y"])
+		if Geometry2D.get_closest_point_to_segment(at, a, b).distance_to(at) < 2.0 * BALL_R:
+			return false
+	return true
 
 
 func _level_files() -> Dictionary:

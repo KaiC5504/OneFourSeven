@@ -124,21 +124,25 @@ public:
     // one), red on, and exhibition.started is logged.
 
     // Starts `level` thinking about the striker's stroke on a worker thread and returns at once:
-    // true when it started (opponent.think is logged with `context`'s shot_id and the seed).
-    // False, with last_error, for an unknown level, when no stroke can be played now, or while an
-    // earlier answer is still thinking or waiting to be taken. budget: {max_sims, max_steps,
-    // max_ms}, each optional. max_sims and max_steps: 0 or absent leave the level's own and no
-    // limit; max_ms: absent is 1500 (spec 10.6), 0 or negative no clock stop.
+    // true when it started (opponent.think is logged with `context`'s shot_id, the seed and the
+    // physics values' hash). False, with last_error, for an unknown level or budget, or when no
+    // stroke can be played now; an earlier request still thinking or waiting to be taken is then
+    // left as it was. Accepted, it replaces any earlier one (opponent.cancelled, why "replaced").
+    // budget: {max_sims, max_steps, max_ms}, each optional. max_sims and max_steps: 0 or absent
+    // leave the level's own and no limit; max_ms: absent is 1500 (spec 10.6), 0 or negative no
+    // clock stop.
     bool opponent_think(const godot::String &level, int64_t seed, const godot::Dictionary &context,
                         const godot::Dictionary &budget);
     // Thinking was started and its answer has not been taken or cancelled.
     bool opponent_thinking() const;
     // The answer once it is ready, in standin_shot's form plus "level", "meant" (the strike as
-    // planned) and "think" ({candidates, sims, steps, depth, stopped, ms}); empty while it is
-    // still thinking or when nothing was asked, and never waits. Taking it logs
-    // opponent.decision, and opponent.maximum and opponent.fallback when they apply. {ok: false,
-    // error} when the frame is no longer the one it was asked about, the thinking threw, or the
-    // stroke could not be played; the answer is spent either way.
+    // planned) and "think" ({candidates, sims, steps, depth, stopped, ms}), and "params_changed":
+    // true when the physics values changed while it thought (the stroke is still given: it was
+    // planned on the old ones and plays on the new). Empty while it is still thinking or when
+    // nothing was asked, and never waits. Taking it logs opponent.decision, and opponent.maximum
+    // and opponent.fallback when they apply. {ok: false, error} when the frame is no longer the
+    // one it was asked about, the thinking threw, or the stroke could not be played; the answer
+    // is spent either way.
     godot::Dictionary opponent_take();
     // Stops the thinking and drops its answer; logs opponent.cancelled when there was any.
     // abandon(), start() and freeing the engine do this too.
@@ -174,8 +178,14 @@ private:
     godot::String choose(const char *call, const std::string *level, int64_t player, int64_t seed);
     // opponent_cancel without its guard.
     void cancel_thinking(const std::string &why);
-    // opponent.maximum for the 147 about to play the frame in play, when its state has changed.
-    void log_maximum(const nlohmann::json &stroke_why, const nlohmann::json &context);
+    // Which frame of which match maximum_state_ is for; a new one starts it afresh.
+    std::string maximum_key() const;
+    // opponent.maximum as the 147 (`level`) is handed its stroke: "on" or "gone" at the start of
+    // a visit. `strikes` arms maximum_judged for the stroke handed over.
+    void maximum_visit(const ofs::opponent::Level &level, bool strikes, const nlohmann::json &context);
+    // opponent.maximum "gone" when the 147's stroke, judged from `pre` to `post`, lost it.
+    void maximum_judged(const ofs::rules::FrameState &pre, const ofs::rules::FrameState &post, bool scored,
+                        const godot::String &shot_id);
 
     // One level's thinking: what the worker was handed, and what it gives back.
     struct OpponentJob;
@@ -194,8 +204,13 @@ private:
     std::vector<ofs::opponent::Level> levels_;  // by tier, the 147 last
     std::vector<ofs::opponent::Exhibition> exhibitions_;
     std::unique_ptr<OpponentJob> job_;
-    // opponent.maximum is logged when this changes within one frame: "" (not yet on), "on", "gone".
+    // The last opponent.maximum state logged in maximum_frame_: "" (none yet), "on", "gone".
     std::string maximum_state_;
-    std::string maximum_frame_;  // the frame maximum_state_ belongs to
+    std::string maximum_frame_;
+    // The 147's stroke handed over and not yet judged: whose, by which level, under which shot_id.
+    bool maximum_armed_ = false;
+    int maximum_player_ = -1;
+    std::string maximum_level_;
+    std::string maximum_shot_;
     mutable godot::String last_error_;
 };
