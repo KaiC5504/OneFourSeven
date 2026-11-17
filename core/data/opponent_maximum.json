@@ -19,7 +19,7 @@
     "position_weight": 1.0,
     "judgement_sigma": 0.0,
     "safety_below": 0.0,
-    "max_sims": 10000,
+    "max_sims": 6000,
     "maximum": true
   },
   "docs": {
