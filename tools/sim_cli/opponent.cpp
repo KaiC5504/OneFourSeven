@@ -262,6 +262,7 @@ public:
                 think.max_steps = steps->get<int>();
             }
         }
+        think.seed = seed;
         if (kind == "shot") return remake_shot(line, levels, *standin, seed, think, tally);
         if (kind == "choice") return remake_choice(index, levels, *standin, seed, player->get<int>(), think, tally);
         unreadable(tally, line.number, "kind: '" + kind + "' is neither shot nor choice");

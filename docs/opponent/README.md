@@ -98,7 +98,7 @@ What can be seen from outside, and so tested:
 
 - **Candidates**: each listed pot (`pots`) struck each way the level can: `level.speeds` cue speeds
   on a ladder between `least_pot_speed` and the cue's most (few speeds sit in the firm middle,
-  35% to 60% of the way for two; eight or more start at the least and reach the top), and
+  10% to 45% of the way for two, so a soft pace is among a beginner's choices; eight or more start at the least and reach the top), and
   `level.spins` tip offsets within `level.max_tip`, centre ball first. One candidate is one
   **step**. A candidate counts when `solve_pot` finds its aim and the referee
   (`rules::judge_shot` on the simulated stroke) calls no foul.

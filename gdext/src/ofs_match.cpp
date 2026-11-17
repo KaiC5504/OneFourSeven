@@ -492,6 +492,7 @@ bool read_budget(const Dictionary &budget, opponent::Think &out, std::string &wh
 json think_json(const opponent::Stroke &s, double ms) {
     json out = {{"candidates", s.candidates}, {"sims", s.sims},       {"steps", s.steps},
                 {"depth", s.depth},           {"stopped", s.stopped}, {"ms", ms}};
+    if (s.errors > 0) out["errors"] = s.errors;
     return out;
 }
 
@@ -1325,6 +1326,7 @@ bool OfsMatch::opponent_think(const String &level_id, int64_t seed, const Dictio
             job->standin = standin_;
             job->level = *level;
             job->seed = drawn;
+            think.seed = drawn;
             job->think = think;
             job->hash = rules::frame_hash(match_.frame);
             job->params_hash = params_hash_;

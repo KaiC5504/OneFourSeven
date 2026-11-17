@@ -435,6 +435,7 @@ int band_index(const json& why) {
 json think_json(const opponent::Stroke& st, double us) {
     json think = {{"candidates", st.candidates}, {"sims", st.sims},     {"steps", st.steps},
                   {"depth", st.depth},           {"stopped", st.stopped}, {"ms", us / 1000.0}};
+    if (st.errors > 0) think["errors"] = st.errors;
     return think;
 }
 
@@ -824,6 +825,7 @@ private:
         ofs::Rng rng(step.seed);
         opponent::Think think;
         think.max_ms = run_.max_ms;
+        think.seed = step.seed;
         const auto t0 = Clock::now();
         step.stroke = opponent::choose_stroke(m_.frame, me.level, env(), rng, think);
         const double us = microseconds_since(t0);
@@ -892,7 +894,7 @@ private:
         step.in.seed = mix(mix(frame_seed_, kShotStream), static_cast<std::uint64_t>(frame_strokes_));
         step.in.params_hash = run_.setup.params_hash;
         step.in.table_hash = run_.setup.table_hash;
-        const double least = phys::min_cue_elevation(step.in.start, pre.cue_ball, st.strike.aim_rad, table, params);
+        const double least = phys::min_cue_elevation(step.in.start, pre.cue_ball, st.strike, table, params);
         if (st.strike.elevation_rad < least - 1e-12 || st.strike.elevation_rad > params.max_elevation_rad) {
             const std::string elevation = format("its elevation %g rad is outside [%g, %g], what the cue allows there",
                                                  st.strike.elevation_rad, least, params.max_elevation_rad);

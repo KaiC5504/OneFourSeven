@@ -11,8 +11,8 @@ of random shots: 2,000 with --quick, otherwise the full 100,000 of spec C14 on e
 the stand-in playing itself with every stroke and choice checked against the rules engine's
 invariants: 20 frames with --quick, otherwise 300 on each seed, and the simulation benchmarks
 against the 2 ms budget and the baseline, only reported on CI), with that build the computer
-opponent's tournaments (Beginner against itself and the 147 against Beginner with the exhibition
-tables, 30 and 3 frames with --quick, each to play clean; otherwise 2,000 and 100, and
+opponent's tournaments (Beginner against itself and the 147 against Beginner, 30 and 3 frames
+with --quick, each to play clean; otherwise 2,000 and 100 with the exhibition tables, and
 tools/opponent_report.py --check stage1 on their reports, written to build/opponent/), the
 Godot tests (sync_data, --import, res://tests/run_tests.gd), a short headless run of the game
 whose session log must pass tools/check_logs.py with no app.error, the PC tools' tests
@@ -230,8 +230,9 @@ def opponent_steps(quick: bool) -> list[Step]:
     """The computer opponent's tournaments: with --quick only that they play clean, otherwise also
     stage 1's marks (docs/opponent/README.md) through tools/opponent_report.py."""
     if quick:
+        # The fifty exhibition tables take two minutes: the full gate plays them.
         return [tournament_step("beginner", "beginner", BEGINNER_FRAMES_QUICK, False, timeout=300),
-                tournament_step("maximum", "beginner", MAXIMUM_FRAMES_QUICK, True, timeout=300)]
+                tournament_step("maximum", "beginner", MAXIMUM_FRAMES_QUICK, False, timeout=300)]
     beginner = OPPONENT_REPORTS / "beginner.json"
     maximum = OPPONENT_REPORTS / "maximum.json"
     return [

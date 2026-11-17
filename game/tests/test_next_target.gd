@@ -223,6 +223,14 @@ func test_no_clear_pot_aims_at_the_nearest_preferred_ball() -> void:
 	check_eq(NextTarget.choose(balls, 0, "colour").get("ball"), "blue", "the blue when a colour is on")
 
 
+func test_a_ball_touching_the_cue_ball_from_behind_hides_no_pot() -> void:
+	# The red at the cue ball's back is not in the way of the red in front of it.
+	var balls := _balls([["cue", [0.5, 0.0]], ["red", [0.5 - 2.0 * R, 0.0]], ["red", [1.2, 0.0]]])
+	var result := NextTarget.choose(balls, 0, "red")
+	check_eq(result.get("index"), 2, "the red in the clear")
+	check(int(result.get("pocket", -1)) >= 0, "with a pocket")
+
+
 func test_only_the_cue_ball_gives_nothing() -> void:
 	_mark_log()
 	check_eq(NextTarget.choose(_balls([["cue", [0.0, 0.0]]]), 0, "red"), {}, "no object ball")

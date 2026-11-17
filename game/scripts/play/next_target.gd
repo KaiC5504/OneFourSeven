@@ -526,15 +526,18 @@ static func _room(xs: PackedFloat64Array, ys: PackedFloat64Array, on_table: Pack
 			continue
 		var wx := xs[j] - ax
 		var wy := ys[j] - ay
-		var s := clampf((wx * dx + wy * dy) / length2, 0.0, 1.0) if length2 > 0.0 else 0.0
+		var along := wx * dx + wy * dy
+		# Behind a, or level with it, the path only moves away from the ball, even from one
+		# touching the ball at a.
+		if not along > 0.0:
+			continue
+		var s := minf(along / length2, 1.0)
 		var ex := wx - s * dx
 		var ey := wy - s * dy
 		var gap2 := ex * ex + ey * ey
 		if gap2 < 4.0 * r * r:
 			return -1.0
-		# A ball level with a or behind it is never turned into.
-		if s > 0.0:
-			room = minf(room, (sqrt(gap2) - 2.0 * r) / (s * length))
+		room = minf(room, (sqrt(gap2) - 2.0 * r) / (s * length))
 	return room
 
 

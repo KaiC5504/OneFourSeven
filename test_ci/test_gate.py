@@ -196,10 +196,10 @@ class Lanes(unittest.TestCase):
         beginner, maximum = calls
         self.assertEqual(["sim", "tournament", "--a", "beginner", "--b", "beginner", "--frames", "30"], beginner[:8])
         self.assertEqual(["sim", "tournament", "--a", "maximum", "--b", "beginner", "--frames", "3"], maximum[:8])
-        self.assertIn("--exhibitions", maximum)
         for command in calls:
             self.assertEqual("4", command[command.index("--threads") + 1])
             self.assertNotIn("--report", command)
+            self.assertNotIn("--exhibitions", command)
 
     def test_full_checks_stage1_on_the_two_reports(self):
         with tempfile.TemporaryDirectory() as temp, mock.patch.object(gate, "OPPONENT_REPORTS", Path(temp)):
