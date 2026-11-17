@@ -155,6 +155,22 @@
         "frame": {
           "type": "integer",
           "required": false
+        },
+        "shot_id": {
+          "type": "string",
+          "required": false
+        },
+        "level": {
+          "type": "string",
+          "required": false
+        },
+        "seed": {
+          "type": "string",
+          "required": false
+        },
+        "more": {
+          "type": "integer",
+          "required": false
         }
       }
     },
@@ -1800,6 +1816,22 @@
         "think": {
           "type": "object",
           "required": false
+        },
+        "pre_hash": {
+          "type": "string",
+          "required": false
+        },
+        "now_hash": {
+          "type": "string",
+          "required": false
+        },
+        "pre": {
+          "type": "object",
+          "required": false
+        },
+        "params_changed": {
+          "type": "boolean",
+          "required": false
         }
       }
     },
@@ -1835,6 +1867,10 @@
         },
         "frame": {
           "type": "integer",
+          "required": false
+        },
+        "params_hash": {
+          "type": "string",
           "required": false
         }
       }
@@ -1942,6 +1978,18 @@
           "required": false
         },
         "frame": {
+          "type": "integer",
+          "required": false
+        },
+        "shot_id": {
+          "type": "string",
+          "required": false
+        },
+        "seed": {
+          "type": "string",
+          "required": false
+        },
+        "player": {
           "type": "integer",
           "required": false
         }

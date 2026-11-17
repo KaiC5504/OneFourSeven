@@ -122,7 +122,9 @@ What can be seen from outside, and so tested:
 - **Budget**: checked before each step but the first, which is always taken (a decision logged
   with no steps would replay with no limit). `stopped` is `done` when the search ran out of
   candidates by itself, else `sims`, `steps`, `time` or `cancelled`. The simulations may pass
-  `max_sims` by the step in hand. The answer is a pure function of the frame, the level, the
+  `max_sims` by the step in hand (at most 14), and the stand-in's few for a safety or escape are
+  outside it. A negative `max_sims`, `max_steps` or `max_ms` is as 0: the level's own, or no
+  limit. The answer is a pure function of the frame, the level, the
   seed and the steps taken, so `max_steps` set to a logged `think.steps` gives that stroke again.
   Stopped before the first step finished, it plays the stand-in's stroke with the level's error
   and says so (`fallback`).
@@ -132,8 +134,10 @@ What can be seen from outside, and so tested:
 - **`why.maximum`**: `on` when the level plays for a maximum and `maximum_on` holds for the frame
   it was asked about, `gone` when the level plays for one and it does not, `off` for any other
   level. With `gone`, `why.maximum_why` says which: `a red is off the table` (fewer than fifteen
-  reds and no break under way) or `the break lost it`.
-- **A claim** (`claim_frame` open to the striker) is taken in place of a stroke, except by the
+  reds and no break under way), `a free ball` (the frame's first stroke is a free ball: 147 is
+  what it plays for, not 155) or `the break lost it`.
+- **A claim** (`claim_frame` open to the striker, which the rules offer only with the black alone
+  left) is taken in place of a stroke, except by the
   147 while its maximum is on: it plays the frame out to the last black. No level concedes in
   stage 1.
 
