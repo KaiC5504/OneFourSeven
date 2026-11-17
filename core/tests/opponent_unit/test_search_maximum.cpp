@@ -385,3 +385,35 @@ TEST_CASE("a stroke that pots two reds ends the maximum: the 147 takes one that 
     CHECK(p.potted.size() == 1);
     CHECK(maximum_on(p.judgement.post));
 }
+
+TEST_CASE("a maximum not yet begun waits: with no black to follow any red the 147 does not pot one") {
+    // The black frozen to the top cushion with a red either side and one in front; a red dead
+    // straight into the top-left corner as the straight_red position has it.
+    const double x = table::top_cushion_x() - table::kBallRadius - 0.0005;
+    std::vector<BallOnTable> balls{ball(Ball::cue, 0.8084, 0.206), ball(Ball::red, 1.3, 0.55, 0),
+                                   ball(Ball::black, x, 0.0),      ball(Ball::red, x, kGap, 1),
+                                   ball(Ball::red, x, -kGap, 2),   ball(Ball::red, x - kGap, 0.0, 3)};
+    line_of_reds(balls, 4, 11);
+    for (const Ball c : {Ball::yellow, Ball::green, Ball::brown, Ball::blue, Ball::pink}) balls.push_back(spotted(c));
+    FrameState s = rules::scenario::frame(std::move(balls));
+    REQUIRE(maximum_on(s));
+    bool red_on = false;
+    for (const Pot& pot : pots(s, rig::env(), maximum().max_cut_rad)) red_on = red_on || pot.target == 1;
+    REQUIRE(red_on);
+
+    const Stroke waiting = choose(s, 1, sims(4000));
+    REQUIRE_FALSE(waiting.decides);
+    CHECK(word(waiting, "kind") != "pot");
+    CHECK(word(waiting, "maximum") == "on");
+    CHECK(waiting.why.value("pots", 0) > 0);
+    CHECK(waiting.fallback.empty());
+    CHECK(same(waiting.strike, waiting.meant));
+
+    // With a break under way there is nothing to wait for: the red is worth its point.
+    s.balls.erase(s.balls.begin() + rules::scenario::place_of(s, Ball::red, 14));
+    s.break_points = 8;
+    s.scores = {8, 0};
+    REQUIRE(maximum_on(s));
+    const Stroke going = choose(s, 1, sims(4000));
+    CHECK(word(going, "kind") == "pot");
+}

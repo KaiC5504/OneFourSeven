@@ -553,6 +553,24 @@ public:
     bool found() const { return !nodes_[0].cands.empty(); }
     int candidates() const { return int(nodes_[0].cands.size()); }
 
+    // A maximum not yet begun is still there at the next visit. When no red it found leaves a
+    // black to follow, potting one would only end it: the 147 plays safe and waits. A black is
+    // taken as following when one was made from a leave looked into or, where too few were
+    // looked into to say, when a leave has one by geometry.
+    bool waits() const {
+        const Node& root = nodes_[0];
+        if (!root.on || root.s.on.kind != OnKind::red || root.s.break_points != 0) return false;
+        int looked_into = 0;
+        for (const Cand& c : root.cands) {
+            if (!c.goes_on) return false;
+            if (c.reached < 1) continue;
+            ++looked_into;
+            if (c.best[1] >= 0) return false;
+        }
+        if (looked_into >= kBeam[1] || looked_into == int(root.beam.size())) return true;
+        return std::none_of(root.cands.begin(), root.cands.end(), [](const Cand& c) { return c.leaf.next >= 0; });
+    }
+
     void fill(Stroke& out, Rng& rng) const {
         const Node& root = nodes_[0];
         const std::vector<int> order = finished(stage_);
@@ -1008,13 +1026,15 @@ Stroke choose(const FrameState& s, const Level& level, const Env& env, Rng& rng,
     if (level.maximum) {
         Planning planning(s, level, env, budget);
         planning.run();
-        if (planning.found()) {
+        if (planning.found() && !planning.waits()) {
             planning.fill(out, rng);
             count(out, budget, planning.candidates());
             return out;
         }
         const int weighed = from_standin(false);
-        count(out, budget, weighed);
+        // The pots it had made and would not play, when it is waiting for the black.
+        out.why["pots"] = planning.candidates();
+        count(out, budget, std::max(weighed, planning.candidates()));
         return out;
     }
 
