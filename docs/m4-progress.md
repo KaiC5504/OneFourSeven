@@ -92,3 +92,18 @@ finger, the picker and the view button against the screen's edges, heat over a l
 ## Log
 
 - 2026-11-17: contracts committed.
+- 2026-11-17: wave 1 merged (pots, solve, error model, evaluation, binding, tournament runner,
+  controller, show, camera views, screens). Quick gate green.
+- 2026-11-18: wave 2 merged (the search, the independent behaviour tests, the table scene).
+  The 147 against Beginner over 300 frames: 300 won, 284 maximums, no foul, no planned pot that
+  stayed out; a decision takes 0.2 s on average, 0.74 s at worst (Release, this PC). Beginner
+  against itself: medium 45.7%, long 16.8%, mean break 3.7 (wave 3 tunes it). The 147 takes no
+  claim while its maximum is on. Beginner's safety mark now counts only strokes where it had a
+  pot: it has none in about one position in seven.
+- Known of the 147 after wave 2: a ball on a cushion is shut to it (wave 3 adds pots along a
+  cushion); it plans no split or cannon and mostly sees one stroke ahead (stage 2).
+- For the check round: the exhibition's scoreboard still reads "You 0 ... best of 1"; the
+  elevation label reads "raised to 25 degrees" during the opponent's turn (its cue or a leftover
+  of the person's?).
+- 2026-11-18: wave 3 started: Beginner's tuning with the gate's opponent lane, eight exhibition
+  tables with `tools/make_exhibitions.py`, pots along a cushion.
