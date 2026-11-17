@@ -200,18 +200,25 @@ three next best: `target`, `pocket`, `worth`); `drawn` (`aim_rad`, `speed`, `tip
 - `OpponentDriver.request_shot(engine, player, seconds, level := "")` and `request_choice(...,
   level := "")`: with a level it calls `opponent_think` and polls `opponent_take` each frame,
   answering once the stroke is there and `seconds` have passed; `""` is the stand-in as before.
-  `cancel()` also stops the thinking (`opponent_cancel`).
+  A level's stroke is asked for with `max_ms` 800 (`LEVEL_MAX_MS`: spec 10.6's bound with room
+  for the show). `cancel(why := "left")` also stops the thinking (`opponent_cancel`), saying
+  `left`, `replaced`, `conceded` or `claimed`; pausing holds the thinking, it does not cancel it.
+- `MatchController.judged_break()`: the break as the last stroke left it, kept after an
+  exhibition's end clears the frame. In an exhibition nothing can be conceded or claimed.
 - `OpponentShow` (`game/scripts/match/opponent_show.gd`): the cue standing, feathering and going
   through, as a clock the table scene poses the cue from.
 - `CameraRig.set_watch(view)`, `watch()`, `signal watch_changed(view)` with `cue`, `above` (the
-  whole table from straight above, its length across the screen, inside the keep-clear area) and
+  whole table from straight above, its length across the screen, inside the keep-clear area and
+  the safe area given by `set_safe_area(rect)`) and
   `round` (the overview's walk); `WatchButton` steps through them. A stroke played while watching
   from `above` or `round` is watched whole from there (`shot.camera` reason `watching`).
 - Screens: `MatchSetupScreen.set_levels(levels)` and `level` in its config; `HomeScreen` has
   `watch_pressed` (button id `watch`); `ExhibitionSummary`; `Scoreboard`, `FrameSummary` and
-  `MatchSummary` take `set_opponent_name(name)`.
-- During the opponent's show the dimmed spin ball and power bar show its strike (the owner,
-  2026-11-17); the person's own come back at their turn.
+  `MatchSummary` take `set_opponent_name(name)`; `Scoreboard.set_exhibition(on)` shows the one
+  side that plays: its name, its break, the ball on and the points remaining.
+- During the opponent's show, in a match and in an exhibition, the dimmed spin ball and power
+  bar show its strike (the owner, 2026-11-17); while it thinks or chooses no stroke control
+  shows; the person's own come back at their turn.
 - Harness (`docs/harness.md`): `start_match` takes `level`; `start_exhibition` (`layout`, `seed`,
   `fast`); `watch` (`view`); `match_state` gains `level`, `exhibition`, `thinking`, `watch`;
   `--demo-screen exhibition_summary`.
