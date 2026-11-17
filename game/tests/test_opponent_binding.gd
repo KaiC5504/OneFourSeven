@@ -179,7 +179,9 @@ func test_start_an_exhibition() -> void:
 		_check_schema()
 
 	var before := m.match_state()
-	for bad: Array in [[3, 0, "best of 3"], [1, 1, "index 1"], [1, -1, "index -1"], [1, "0", "a String"]]:
+	var past_the_last: int = ((_fixture(EXHIBITIONS_PATH) as Dictionary)["layouts"] as Array).size()
+	for bad: Array in [[3, 0, "best of 3"], [1, past_the_last, "an index past the last table"], [1, -1, "index -1"],
+			[1, "0", "a String"]]:
 		var config := _config(bad[0], 0, 21)
 		config["exhibition"] = bad[1]
 		check_eq(m.start(config, "never").get("ok"), false, bad[2] + " is refused")
