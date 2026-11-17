@@ -27,21 +27,27 @@ signal turn_started(player: int, person: bool)
 ## The person must choose one of `options` (decision names) before play goes on: the engine's
 ## options without PAUSE_DECISIONS, in its order.
 signal choice_needed(options: Array[String])
-## The opponent's stroke, as OfsMatch.standin_shot gives it: the table scene places the cue ball
-## when places_cue, shows the cue on the line and plays `strike` exactly, nominating `nominated`.
-## It also carries "player" and "shot_id", the id the stand-in's decision was logged under: strike
-## with that id. A stand-in that claims or concedes in place of a stroke never comes here: its
-## decision is applied like a choice.
+## The opponent's stroke, as OfsMatch.standin_shot gives it (from a level, opponent_take's, with
+## its "level", "meant" and "think"): the table scene places the cue ball when places_cue, shows
+## the cue on the line and plays `strike` exactly, nominating `nominated`. It also carries
+## "player" and "shot_id", the id the decision was logged under: strike with that id. An opponent
+## that claims or concedes in place of a stroke never comes here: its decision is applied like a
+## choice.
 signal opponent_ready(shot: Dictionary)
 ## The opponent chose `kind` (a decision name); it has been applied.
 signal opponent_chose(kind: String)
-## The engine refused MAX_REFUSALS times in a row, or the stand-in's strokes could not be played
-## that often: the stand-in is no longer asked and the match can't go on. `why` is the last refusal.
+## The engine refused MAX_REFUSALS times in a row, or the opponent's strokes could not be played
+## that often: the opponent is no longer asked and the match can't go on. `why` is the last refusal.
 signal stalled(why: String)
 ## A frame ended: its summary (serialize.hpp) and the match. The match went on unless match_ended
 ## follows.
 signal frame_ended(summary: Dictionary, match_state: Dictionary)
 signal match_ended(match_state: Dictionary)
+## The opponent's level started thinking about its stroke (true), or stopped.
+signal opponent_thinking(on: bool)
+## Watch a 147 is over: {break_points, maximum (147 made), why: "maximum" | "fouled" | "missed" |
+## "left"}. The match is then left (table_changed(&"ended")) unless a listener moved it on.
+signal exhibition_ended(result: Dictionary)
 
 const PERSON := 0
 const OPPONENT := 1
@@ -50,8 +56,13 @@ const THINK_SECONDS := 0.9
 const CHOICE_SECONDS := 1.2
 const REFEREE_PATH := "res://data/referee_params.json"
 const STANDIN_PATH := "res://data/standin_params.json"
-## Refusals in a row (a stand-in stroke or choice, or the judging of a stroke) after which the
-## stand-in is no longer asked: at pace 0 a broken engine would be asked, and logged, every frame.
+const LEVEL_IDS: Array[String] = ["beginner", "maximum"]
+const LEVEL_PATH := "res://data/opponent_%s.json"
+const EXHIBITIONS_PATH := "res://data/exhibitions.json"
+## level_name() with no level: the stand-in.
+const STANDIN_NAME := "Computer"
+## Refusals in a row (an opponent's stroke or choice, or the judging of a stroke) after which the
+## opponent is no longer asked: at pace 0 a broken engine would be asked, and logged, every frame.
 const MAX_REFUSALS := 5
 const BREAKERS := {"random": -1, "you": PERSON, "computer": OPPONENT}
 ## Offered with a pending choice too, but taken from the pause menu, never the choice strip.
@@ -102,6 +113,13 @@ var _nearest_failed := false
 ## The engine answers' keys found missing, each logged once.
 var _missing := {}
 var _last_refusal := ""
+## The opponent's level id for the match; "" is the stand-in.
+var _level := ""
+var _level_name := STANDIN_NAME
+## The exhibition's table index while Watch a 147 is on; -1 otherwise.
+var _exhibition := -1
+## The last judged stroke had a penalty: how an exhibition's break ended.
+var _last_fouled := false
 
 
 func _init() -> void:
@@ -109,6 +127,7 @@ func _init() -> void:
 	add_child(_driver)
 	_driver.shot_chosen.connect(_on_shot_chosen)
 	_driver.choice_made.connect(_on_choice_made)
+	_driver.thinking_changed.connect(opponent_thinking.emit)
 
 
 ## Creates and configures the engine from Physics and the embedded parameter files unless a test
@@ -145,23 +164,50 @@ func waiting() -> String:
 
 
 ## config: {best_of: int, first_breaker: "random" | "you" | "computer", seed: int (optional; a
-## fresh one when absent)}. Starts frame 1 and emits table_changed(&"frame"), frame_changed and
-## the first turn. False when the engine refuses. A match still on is left first.
+## fresh one when absent), level: a level id of levels() ("" or absent: the stand-in),
+## exhibition: an index into the engine's exhibitions() (Watch a 147: best of 1 from that table,
+## the opponent at it, the person only watching; the 147's level when none is given)}. Starts
+## frame 1 and emits table_changed(&"frame"), frame_changed and the first turn. False when the
+## config or the engine refuses. A match still on is left first.
 func start(config: Dictionary) -> bool:
 	var first: Variant = config.get("first_breaker", "random")
 	if not BREAKERS.has(first):
 		_error("start: first_breaker %s is not \"random\", \"you\" or \"computer\"" % JSON.stringify(first))
 		return false
-	var left := not _match_id.is_empty()
-	_leave()
-	if _start({
+	var exhibition := -1
+	if config.has("exhibition"):
+		exhibition = _exhibition_index(config["exhibition"])
+		if exhibition < 0:
+			return false
+	var known: Variant = _level_for(config.get("level", ""), exhibition >= 0)
+	if known == null:
+		return false
+	var level := str(known)
+	var engine_config := {
 		"best_of": int(config.get("best_of", 1)),
 		"first_breaker": int(BREAKERS[first]),
 		"seed": int(config["seed"]) if config.has("seed") else Physics.new_seed(),
 		"concede_any_time": [true, false],
 		"person": PERSON,
-	}):
+	}
+	if not level.is_empty():
+		engine_config["level"] = level
+	if exhibition >= 0:
+		engine_config["exhibition"] = exhibition
+		engine_config["best_of"] = 1
+		engine_config["first_breaker"] = OPPONENT
+	var left := not _match_id.is_empty()
+	if _exhibition >= 0 and left:
+		_log_exhibition_end(_exhibition_result("left"))
+	_leave()
+	_level = level
+	_level_name = _name_of(level)
+	_exhibition = exhibition
+	if _start(engine_config):
 		return true
+	_level = ""
+	_level_name = STANDIN_NAME
+	_exhibition = -1
 	# The match that was on is gone all the same.
 	if left:
 		table_changed.emit(balls, cue_ball, &"ended")
@@ -169,8 +215,12 @@ func start(config: Dictionary) -> bool:
 
 
 ## Leaves the match with no winner (Quit, spec 11.2); logs through the engine. Also clears a
-## finished match away. Emits table_changed(&"ended"); `balls` stay as they were left.
+## finished match away. Emits table_changed(&"ended"); `balls` stay as they were left. An
+## exhibition ends first, as "left".
 func abandon() -> void:
+	if _exhibition >= 0 and not _match_id.is_empty():
+		_end_exhibition("left")
+		return
 	var was_on := not _match_id.is_empty()
 	_leave()
 	if was_on:
@@ -186,6 +236,33 @@ func match_state() -> Dictionary:
 	if engine == null or _match_id.is_empty():
 		return {}
 	return _dict(engine.match_state())
+
+
+## The opponent's levels, [{id, name, tier, maximum}] as the engine lists them; empty when its
+## levels could not be configured.
+func levels() -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	if not ensure_engine():
+		return out
+	for entry: Variant in _list(engine.levels()):
+		if entry is Dictionary:
+			out.append(entry)
+	return out
+
+
+## The match's level id; "" for the stand-in.
+func level() -> String:
+	return _level
+
+
+## The opponent's name as the game shows it: the level's, STANDIN_NAME for the stand-in.
+func level_name() -> String:
+	return _level_name
+
+
+## Watch a 147 is on: the person only watches.
+func is_exhibition() -> bool:
+	return _exhibition >= 0
 
 
 ## The person may play a stroke now: a match is on, nothing is pending, no stroke is being
@@ -338,6 +415,7 @@ func shot_finished(record: OfsShotRecord) -> Dictionary:
 		_refusals = 0
 		judgement = _expect(answer, "judgement", {}, "judge")
 		event = _expect(answer, "event", "none", "judge")
+		_last_fouled = int(judgement.get("penalty", 0)) > 0
 		_take_frame(answer)
 		var calls := _list(judgement.get("calls"))
 		if not calls.is_empty():
@@ -410,11 +488,12 @@ func open_to_person(kind: String) -> bool:
 
 ## The harness's part of the state dump: {active, match_id, frame, match, nominated, placing,
 ## blocked, autoplay, waiting: "shot" | "choice" | "opponent" | "frame_summary" | "match_summary"
-## | ""}. "opponent" is also the stand-in acting for the person under autoplay.
+## | "", level, exhibition, thinking}. "opponent" is also the stand-in acting for the person under
+## autoplay.
 func harness_state() -> Dictionary:
 	return {"active": _active, "match_id": _match_id, "frame": _frame, "match": match_state(),
 			"nominated": _nominated, "placing": _placing, "blocked": strike_blocked(), "autoplay": autoplay,
-			"waiting": _waiting}
+			"waiting": _waiting, "level": _level, "exhibition": is_exhibition(), "thinking": _driver.is_thinking()}
 
 
 func _start(engine_config: Dictionary) -> bool:
@@ -432,6 +511,7 @@ func _start(engine_config: Dictionary) -> bool:
 	_active = true
 	_refusals = 0
 	_nearest_failed = false
+	_last_fouled = false
 	var state := _dict(engine.match_state())
 	_frame_number = int(_expect(state, "frame_number", 1, "match_state"))
 	_frame = _dict(engine.frame())
@@ -464,7 +544,28 @@ func _configure() -> bool:
 		return false
 	_made = made
 	engine = made
+	_configure_opponent(made)
 	return true
+
+
+## The levels and the exhibition tables. Refused, the matches are the stand-in's: levels() is empty.
+func _configure_opponent(made: Object) -> void:
+	var problems: PackedStringArray = []
+	var texts := {}
+	for id in LEVEL_IDS:
+		var path := LEVEL_PATH % id
+		texts[id] = FileAccess.get_file_as_string(path)
+		if String(texts[id]).is_empty():
+			problems.append("%s is missing or empty (%s)" % [path, error_string(FileAccess.get_open_error())])
+	var exhibitions := FileAccess.get_file_as_string(EXHIBITIONS_PATH)
+	if exhibitions.is_empty():
+		problems.append("%s is missing or empty (%s)" % [EXHIBITIONS_PATH, error_string(FileAccess.get_open_error())])
+	if problems.is_empty() and not bool(made.configure_opponent(texts, exhibitions)):
+		problems.append("configure_opponent refused %s or %s: %s" % [", ".join(texts.keys().map(
+				func(id: String) -> String: return LEVEL_PATH % id)), EXHIBITIONS_PATH, str(made.last_error())])
+	if not problems.is_empty():
+		_error("no opponent levels, the stand-in plays: %s; run scripts/sync_data.py if a file is missing"
+				% "; ".join(problems))
 
 
 ## Forgets the match without a word: the engine's is abandoned when it was still on.
@@ -482,6 +583,60 @@ func _leave() -> void:
 	_shot_id = ""
 	_placing = false
 	_nominated = ""
+	_level = ""
+	_level_name = STANDIN_NAME
+	_exhibition = -1
+
+
+## A level id that may be played: "" for the stand-in, the 147's for an exhibition given none;
+## null, with app.error logged, when it can't be.
+func _level_for(given: Variant, exhibition: bool) -> Variant:
+	if not (given is String or given is StringName):
+		_error("start: level %s is not a level id" % JSON.stringify(given))
+		return null
+	var id := str(given)
+	if id.is_empty() and not exhibition:
+		return id
+	var known := levels()
+	var ids: Array[String] = []
+	for entry in known:
+		ids.append(str(entry.get("id", "")))
+	if id.is_empty() and exhibition:
+		for entry in known:
+			if bool(entry.get("maximum", false)):
+				return str(entry.get("id", ""))
+		_error("start: an exhibition needs the 147's level and none is listed (levels %s)" % JSON.stringify(ids))
+		return null
+	if id.is_empty() or ids.has(id):
+		return id
+	if known.is_empty() and not exhibition:
+		# configure_opponent was refused and logged: the match goes on with the stand-in.
+		_error("start: level \"%s\" asked for with no levels configured; the stand-in plays" % id)
+		return ""
+	_error("start: level \"%s\" is not one of %s" % [id, JSON.stringify(ids)])
+	return null
+
+
+## An exhibition table's index in the engine's list; -1, with app.error logged, when there is none.
+func _exhibition_index(given: Variant) -> int:
+	var count := -1
+	if ensure_engine():
+		count = (engine.exhibitions() as PackedStringArray).size()
+	var index := int(given) if (given is int or (given is float and is_finite(given) and given == floorf(given))) else -1
+	if index < 0 or index >= count:
+		_error("start: exhibition %s is not an index into the %d exhibition tables" % [JSON.stringify(given),
+				maxi(count, 0)])
+		return -1
+	return index
+
+
+func _name_of(level_id: String) -> String:
+	if level_id.is_empty():
+		return STANDIN_NAME
+	for entry in levels():
+		if str(entry.get("id", "")) == level_id:
+			return str(entry.get("name", level_id))
+	return level_id
 
 
 func _concede(kind: String) -> bool:
@@ -550,6 +705,12 @@ func _settle(event: String) -> void:
 	var state := _dict(engine.match_state())
 	var history := _list(state.get("history"))
 	var match_over := event == "match_ended" or bool(state.get("over", false))
+	if _exhibition >= 0:
+		# A finished match is not abandoned in the engine.
+		if match_over:
+			_active = false
+		_end_exhibition(_exhibition_why())
+		return
 	var tells: Array[Callable] = []
 	if history.is_empty():
 		_error("frame %d ended (event \"%s\") with no summary in the match's history" % [_frame_number, event])
@@ -561,12 +722,16 @@ func _settle(event: String) -> void:
 	_announce(tells)
 
 
-## Says who is to act in the frame as it stands, and sets the stand-in going when it is its part.
+## Says who is to act in the frame as it stands, and sets the opponent going when it is its part.
+## In an exhibition the person's turn ends it.
 func _advance() -> void:
 	_driver.cancel()
 	_placing = false
 	if _pending() != "none":
 		var decider := int(_expect(_frame, "decider", 0, "frame"))
+		if _exhibition >= 0 and decider == PERSON:
+			_end_exhibition(_exhibition_why())
+			return
 		var offered := _choices(decider)
 		if offered.is_empty():
 			_error("the frame is pending \"%s\" for player %d, who is offered nothing" % [_pending(), decider])
@@ -575,69 +740,88 @@ func _advance() -> void:
 			choice_needed.emit(offered)
 		else:
 			_wait("opponent", decider, false)
-			_ask_standin()
+			_ask_opponent()
 		return
 	_nominated = ""
 	var striker := int(_expect(_frame, "striker", 0, "frame"))
+	if _exhibition >= 0 and striker == PERSON:
+		_end_exhibition(_exhibition_why())
+		return
 	var by_hand := striker == PERSON and not autoplay
 	_placing = by_hand and bool(_frame.get("cue_in_hand", false))
 	_wait("shot" if by_hand else "opponent", striker, by_hand)
 	if not by_hand:
-		_ask_standin()
+		_ask_opponent()
 	turn_started.emit(striker, by_hand)
 
 
-## The table scene could not play the stand-in's stroke `shot_id` (opponent_ready's): malformed,
-## or refused by the physics. It counts as a refusal and the stand-in is asked again, until
+## The table scene could not play the opponent's stroke `shot_id` (opponent_ready's): malformed,
+## or refused by the physics. It counts as a refusal and the opponent is asked again, until
 ## MAX_REFUSALS stalls the match.
 func opponent_failed(shot_id: String, why: String) -> void:
 	if not _stroke_awaited() or _waiting != "opponent":
-		_error("opponent_failed(\"%s\") when no stand-in stroke is awaited (waiting \"%s\"%s); ignored" % [shot_id,
+		_error("opponent_failed(\"%s\") when no opponent's stroke is awaited (waiting \"%s\"%s); ignored" % [shot_id,
 				_waiting, ", a stroke in play" if _playing else ""], false)
 		return
 	_refusals += 1
-	_last_refusal = "the stand-in's stroke %s could not be played: %s" % [shot_id, why]
-	_ask_standin()
+	_last_refusal = "%s's stroke %s could not be played: %s" % [_who(_turn_player), shot_id, why]
+	_ask_opponent()
 
 
-## Asks a stalled stand-in once more from a clean count; it stalls again if it still can't play.
+## Asks a stalled opponent once more from a clean count; it stalls again if it still can't play.
 func retry_standin() -> void:
 	if not _active or _waiting != "stalled":
 		return
 	_refusals = 0
 	_wait("opponent", _turn_player, false)
-	_ask_standin()
+	_ask_opponent()
 
 
-func _ask_standin() -> void:
+## The level that plays for `player`: the match's for the opponent; the person under autoplay is
+## the stand-in's.
+func _level_of(player: int) -> String:
+	return _level if player == OPPONENT else ""
+
+
+## "the stand-in" or "the level \"<id>\"", for the logs.
+func _who(player: int) -> String:
+	var level_id := _level_of(player)
+	return "the stand-in" if level_id.is_empty() else "the level \"%s\"" % level_id
+
+
+func _ask_opponent() -> void:
 	if _refusals >= MAX_REFUSALS:
-		_error("%d refusals in a row, the last: %s; the stand-in is not asked again and the match can't go on"
-				% [_refusals, _last_refusal])
+		_error("%d refusals in a row, the last: %s; %s is not asked again and the match can't go on"
+				% [_refusals, _last_refusal, _who(_turn_player)])
 		_wait("stalled", _turn_player, false)
 		stalled.emit(_last_refusal)
 		return
 	if _pending() != "none":
-		_driver.request_choice(engine, _turn_player, CHOICE_SECONDS * pace)
+		_driver.request_choice(engine, _turn_player, CHOICE_SECONDS * pace, _level_of(_turn_player))
 	else:
-		_driver.request_shot(engine, _turn_player, THINK_SECONDS * pace)
+		_driver.request_shot(engine, _turn_player, THINK_SECONDS * pace, _level_of(_turn_player))
 
 
 func _on_shot_chosen(player: int, shot: Dictionary) -> void:
 	if not _stroke_awaited() or _waiting != "opponent" or player != _turn_player:
-		_error("the stand-in's stroke %s for player %d came when none is asked for (waiting \"%s\" for player %d%s); dropped"
-				% [shot.get("shot_id", ""), player, _waiting, _turn_player, ", a stroke in play" if _playing else ""], false)
+		_error("%s's stroke %s for player %d came when none is asked for (waiting \"%s\" for player %d%s); dropped"
+				% [_who(player), shot.get("shot_id", ""), player, _waiting, _turn_player,
+				", a stroke in play" if _playing else ""], false)
 		return
 	if not bool(shot.get("ok", false)):
 		_refusals += 1
-		_refused("standin_shot", [_driver.last_seed, {"shot_id": shot.get("shot_id", "")}], shot)
-		_ask_standin()
+		var args: Array = [_driver.last_seed, {"shot_id": shot.get("shot_id", "")}]
+		if _driver.last_call != "standin_shot":
+			args.push_front(_level_of(player))
+		_refused(_driver.last_call, args, shot)
+		_ask_opponent()
 		return
 	var decision: Variant = shot.get("decision")
 	if decision is String and not (decision as String).is_empty():
 		# It claims or concedes in place of a stroke.
 		if not _decide(decision, player):
 			_refusals += 1
-			_ask_standin()
+			_ask_opponent()
 		return
 	shot["player"] = player
 	opponent_ready.emit(shot)
@@ -645,24 +829,72 @@ func _on_shot_chosen(player: int, shot: Dictionary) -> void:
 
 func _on_choice_made(player: int, kind: String) -> void:
 	if not _active or _playing or _waiting != "opponent" or _pending() == "none" or player != _turn_player:
-		_error("the stand-in's choice \"%s\" for player %d came when none is asked for (waiting \"%s\" for player %d, pending \"%s\"%s); dropped"
-				% [kind, player, _waiting, _turn_player, _pending(), ", a stroke in play" if _playing else ""], false)
+		_error("%s's choice \"%s\" for player %d came when none is asked for (waiting \"%s\" for player %d, pending \"%s\"%s); dropped"
+				% [_who(player), kind, player, _waiting, _turn_player, _pending(), ", a stroke in play" if _playing else ""],
+				false)
 		return
 	var offered := _options(player)
 	var chosen := kind
+	var asked := _choice_call(player)
 	if not offered.has(kind):
 		offered = _choices(player)
 		if offered.is_empty():
-			_error("engine.standin_choice(%d, %d) gave \"%s\" with nothing offered; the match waits" % [player,
-					_driver.last_seed, kind])
+			_error("engine.%s gave \"%s\" with nothing offered; the match waits" % [asked, kind])
 			return
 		# The first option offered is the plain one (play, accept, play first): the match goes on.
 		chosen = offered[0]
-		_error("engine.standin_choice(%d, %d) gave \"%s\", not one of %s; taking \"%s\"" % [player,
-				_driver.last_seed, kind, JSON.stringify(offered), chosen])
+		_error("engine.%s gave \"%s\", not one of %s; taking \"%s\"" % [asked, kind, JSON.stringify(offered), chosen])
 	if not _decide(chosen, player):
 		_refusals += 1
-		_ask_standin()
+		_ask_opponent()
+
+
+## The engine call the last choice for `player` was asked with, as the logs name it.
+func _choice_call(player: int) -> String:
+	var level_id := _level_of(player)
+	if level_id.is_empty():
+		return "standin_choice(%d, %d)" % [player, _driver.last_seed]
+	return "opponent_choice(\"%s\", %d, %d)" % [level_id, player, _driver.last_seed]
+
+
+## How the exhibition's break ended, short of being left.
+func _exhibition_why() -> String:
+	if int(_exhibition_result("").get("break_points", 0)) >= 147:
+		return "maximum"
+	return "fouled" if _last_fouled else "missed"
+
+
+## {break_points, maximum, why, strokes}: the break is the opponent's only one in the frame, which
+## its highest_break holds once over and break_points while it runs.
+func _exhibition_result(why: String) -> Dictionary:
+	var stats := _list(_frame.get("stats"))
+	var made := 0
+	if OPPONENT < stats.size():
+		made = int(_dict(stats[OPPONENT]).get("highest_break", 0))
+	if int(_frame.get("striker", -1)) == OPPONENT:
+		made = maxi(made, int(_frame.get("break_points", 0)))
+	return {"break_points": made, "maximum": made >= 147, "why": why, "strokes": int(_frame.get("strokes", 0))}
+
+
+func _log_exhibition_end(result: Dictionary) -> void:
+	Log.info("match", "exhibition.ended", {"break_points": result["break_points"], "maximum": result["maximum"],
+			"why": result["why"], "strokes": result["strokes"], "match_id": _match_id})
+
+
+## Logs exhibition.ended, emits exhibition_ended and leaves the match, unless a listener did.
+func _end_exhibition(why: String) -> void:
+	_driver.cancel()
+	var result := _exhibition_result(why)
+	if int(result["strokes"]) == 0 and why != "left":
+		_error("the exhibition ended before the opponent struck: player %d to act, pending \"%s\"" % [
+				int(_frame.get("striker", -1)), _pending()])
+	_log_exhibition_end(result)
+	_exhibition = -1
+	result.erase("strokes")
+	var mine := _moves
+	exhibition_ended.emit(result)
+	if mine == _moves:
+		abandon()
 
 
 func _declare(ball: String, how: String) -> void:
