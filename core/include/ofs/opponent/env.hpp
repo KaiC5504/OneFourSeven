@@ -11,6 +11,8 @@
 
 namespace ofs::opponent {
 
+class PocketMouths;
+
 struct Env {
     const phys::TableShape& table;
     const phys::PhysicsParams& params;
@@ -18,6 +20,9 @@ struct Env {
     const rules::RefParams& ref;
     // The stand-in's values: it still plays the safeties, escapes and break-offs (stage 1).
     const StandinParams& standin;
+    // `table`'s pocket mouths built once (pots.hpp); null builds them on every call that needs
+    // them. choose_stroke builds them for its own decision when they are not given.
+    const PocketMouths* mouths = nullptr;
 };
 
 }  // namespace ofs::opponent

@@ -36,7 +36,7 @@ struct Level {
     double judgement_sigma = 0.0;  // the error in its own reading of a pot's chance, as a fraction of it
     double safety_below = 0.0;     // it plays safe when its best pot's chance, as it reads it, is under this
     int max_sims = 200;            // simulations it may run for one stroke
-    bool maximum = false;          // it plays for a maximum break and nothing else (spec 10.1)
+    bool maximum = false;          // it plays for a maximum, then for the highest break left (spec 10.1)
 };
 
 // The keys of "values", in the struct's order ("name" is a string, "maximum" a bool, the rest

@@ -6,6 +6,8 @@
 // are still the stand-in's, with the level's error.
 
 #include <atomic>
+#include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -27,6 +29,9 @@ struct Think {
     int max_steps = 0;     // steps; 0 no limit. A logged decision is re-run with the steps it took
     double max_ms = 0.0;   // wall clock; 0 no limit. The safety stop on a slow device
     const std::atomic<bool>* cancel = nullptr;  // set from another thread to stop at the next step
+    // The seed the Rng was made from, for app.error lines: the Rng cannot tell it. Without it the
+    // scoped log context's "seed" is used when it has one.
+    std::optional<std::uint64_t> seed;
 };
 
 struct Stroke {
@@ -50,6 +55,7 @@ struct Stroke {
     int steps = 0;       // steps it took
     int depth = 0;       // strokes ahead it planned at its deepest
     std::string stopped = "done";  // "done", "sims", "steps", "time" or "cancelled"
+    int errors = 0;      // trial simulations that failed (think.errors); only the first is logged in full
     // It could not work a stroke out and played the stand-in's plainest: why, for
     // opponent.fallback. Empty otherwise.
     std::string fallback;

@@ -12,6 +12,7 @@
 #include <deque>
 #include <exception>
 #include <limits>
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
@@ -84,9 +85,11 @@ constexpr int kTipCount = int(sizeof(kTips) / sizeof(kTips[0]));
 // with room left for a speed error.
 constexpr double kTopSpeed = 0.95;
 // Where a level's speeds lie between the least that pots and the top, as shares of the way in
-// ratio. Eight or more cover it all; two are both firm, the way a beginner hits a ball.
-constexpr double kFewFrom = 0.35;
-constexpr double kFewTo = 0.6;
+// ratio. Eight or more cover it all; two are a roll and a firm hit, the way a beginner mostly
+// rolls a ball in (its speed error does the over-hitting). At 0.35 to 0.6 it struck a 12 cm
+// straight red at 2.6 m/s.
+constexpr double kFewFrom = 0.1;
+constexpr double kFewTo = 0.45;
 constexpr int kFullLadder = 8;
 constexpr double kOneSpeed = 0.45;
 
@@ -119,11 +122,15 @@ constexpr int kDeepSpins = 3;
 constexpr double kSameLeave_m = 0.05;
 // A stroke that ends a maximum still on is worth this much less than any that keeps it.
 constexpr double kLost = 1000.0;
+// The black a red potted alongside another cannot be followed by.
+constexpr double kRedCost = 7.0;
 // What a stroke costs, in points, at full pace and at the most spin the level plays, each growing
 // as the square: of two strokes that leave the table as well the quieter is played, as a
-// break-builder plays it. Small beside what a better position is worth.
-constexpr double kPaceCost = 0.8;
-constexpr double kSpinCost = 0.25;
+// break-builder plays it. At 0.8 and 0.25 a marginally better leave bought any amount of either
+// (a near-straight black from 17 cm at 5.5 m/s with full side); these keep the top of the range
+// for leaves clearly better.
+constexpr double kPaceCost = 1.6;
+constexpr double kSpinCost = 0.5;
 
 double distance(Vec2 a, Vec2 b) { return std::hypot(a.x - b.x, a.y - b.y); }
 
@@ -158,10 +165,12 @@ phys::TableState table_state(const rules::Position& p, Vec2 cue) {
 }
 
 // The cue speeds a pot is tried at: `count` of them from `from` to `to` of the way, in ratio,
-// between the least that pots it and the top.
+// between the least that pots it and the top. A pot that needs the top speed or more has that one
+// speed: every rung would be the same stroke.
 std::vector<double> ladder(const Pot& pot, int count, double from, double to, const Env& env) {
     const double top = kTopSpeed * env.params.max_cue_speed_m_s;
-    const double least = std::min(least_pot_speed(pot, env), top);
+    const double least = least_pot_speed(pot, env);
+    if (!(top > least)) return std::vector<double>(count > 0 ? 1 : 0, top);
     std::vector<double> out;
     for (int i = 0; i < count; ++i) {
         const double share = count > 1 ? from + (to - from) * i / (count - 1) : from;
@@ -198,7 +207,13 @@ void say_maximum(nlohmann::json& why, const FrameState& s, const Level& level) {
     const std::string word = maximum_word(s, level);
     why["maximum"] = word;
     if (word != "gone") return;
-    why["maximum_why"] = reds_left(s) < 15 && s.break_points == 0 ? "a red is off the table" : "the break lost it";
+    if (reds_left(s) < 15 && s.break_points == 0) {
+        why["maximum_why"] = "a red is off the table";
+    } else if (s.free_ball) {
+        why["maximum_why"] = "a free ball";
+    } else {
+        why["maximum_why"] = "the break lost it";
+    }
 }
 
 // The budget of one decision, asked before each step.
@@ -266,22 +281,37 @@ struct Bench {
 };
 
 // The stroke judged as the match will judge it. False for a foul, a pot that stayed out or went
-// elsewhere, or anything the simulator stopped.
-bool judged(const Bench& b, const FrameState& s, const Pot& pot, const phys::CueStrike& strike, Made& out) {
-    FrameState from = s;
-    if (from.cue_in_hand) {
+// elsewhere, or anything the simulator stopped. `solved`, when given, is the solver's simulation
+// of this very stroke and is judged as it is; else the stroke is simulated here.
+bool judged(const Bench& b, const FrameState& s, const Pot& pot, const phys::CueStrike& strike,
+            const SolvedPot* solved, Made& out) {
+    const FrameState* from = &s;
+    FrameState placed;
+    if (s.cue_in_hand) {
+        placed = s;
         std::string error;
-        if (!rules::place_cue_ball(from, pot.cue, b.env.oracle, error)) return false;
+        if (!rules::place_cue_ball(placed, pot.cue, b.env.oracle, error)) return false;
+        from = &placed;
     }
-    phys::ShotRecord record;
-    const Trial trial = try_strike(from, pot.cue, strike, b.env, &record);
-    ++b.budget.sims;
+    Trial simulated;
+    phys::ShotRecord own;
+    const Trial* trial_of = &simulated;
+    const phys::ShotRecord* record_of = &own;
+    if (solved != nullptr && solved->record != nullptr) {
+        trial_of = &solved->trial;
+        record_of = solved->record.get();
+    } else {
+        simulated = try_strike(*from, pot.cue, strike, b.env, &own);
+        ++b.budget.sims;
+    }
+    const Trial& trial = *trial_of;
+    const phys::ShotRecord& record = *record_of;
     if (!trial.clean || trial.cue_potted) return false;
     if (pot.target >= int(record.final_state.balls.size()) ||
         record.final_state.balls[std::size_t(pot.target)].pocket != pot.pocket) {
         return false;
     }
-    rules::Judgement j = rules::judge_shot(from, pot.input, record, b.env.table, b.env.oracle, b.env.ref);
+    rules::Judgement j = rules::judge_shot(*from, pot.input, record, b.env.table, b.env.oracle, b.env.ref);
     if (!j.fouls.empty() || j.points <= 0) return false;
     out.strike = strike;
     out.points = j.points;
@@ -289,6 +319,21 @@ bool judged(const Bench& b, const FrameState& s, const Pot& pot, const phys::Cue
     out.goes_on = !j.post.over && j.post.pending == rules::Pending::none && j.post.striker == s.striker;
     out.post = std::move(j.post);
     return true;
+}
+
+// The lowest the cue may lie for this aim and these tip offsets. The physics raises a stroke to
+// the minimum for its tip offsets (cue.hpp) and the game draws the cue there; the centre-ball
+// minimum, which a screw shot can be under and a stroke with top over, is what ofs_sim_cli
+// tournament checks a stroke against. Never under either, the stroke simulated is the stroke
+// played and logged.
+double lowest_cue(const phys::TableState& table, int cue_ball, double aim_rad, double tip_x, double tip_y,
+                  const Env& env) {
+    phys::CueStrike c;
+    c.aim_rad = aim_rad;
+    c.tip_x = tip_x;
+    c.tip_y = tip_y;
+    return std::max(phys::min_cue_elevation(table, cue_ball, c, env.table, env.params),
+                    phys::min_cue_elevation(table, cue_ball, aim_rad, env.table, env.params));
 }
 
 // One candidate: the aim that makes `pot` struck with `spec`, starting the solver at `from_aim`,
@@ -300,15 +345,16 @@ bool attempt(const Bench& b, const FrameState& s, const Pot& pot, Spec spec, dou
     Pot start = pot;
     start.aim_rad = from_aim;
     for (int round = 0; round < 2; ++round) {
-        spec.elevation_rad = phys::min_cue_elevation(table, s.cue_ball, start.aim_rad, b.env.table, b.env.params);
+        spec.elevation_rad = lowest_cue(table, s.cue_ball, start.aim_rad, spec.tip_x, spec.tip_y, b.env);
         const SolvedPot solved = solve_pot(s, start, spec, b.env, false, kSolveSims);
         b.budget.sims += solved.sims;
         if (!solved.found) return false;
         phys::CueStrike strike = solved.trial.strike;
-        strike.elevation_rad = std::max(
-            spec.elevation_rad, phys::min_cue_elevation(table, s.cue_ball, strike.aim_rad, b.env.table, b.env.params));
-        if (judged(b, s, pot, strike, out)) return true;
-        if (strike.elevation_rad == spec.elevation_rad) return false;
+        strike.elevation_rad = std::max(spec.elevation_rad,
+                                        lowest_cue(table, s.cue_ball, strike.aim_rad, strike.tip_x, strike.tip_y, b.env));
+        const bool as_solved = strike.elevation_rad == spec.elevation_rad;
+        if (judged(b, s, pot, strike, as_solved ? &solved : nullptr, out)) return true;
+        if (as_solved) return false;
         start.aim_rad = strike.aim_rad;
     }
     return false;
@@ -346,17 +392,20 @@ nlohmann::json drawn_json(const Drawn& d) {
     return {{"aim_rad", d.aim_rad}, {"speed", d.speed}, {"tip_x", d.tip_x}, {"tip_y", d.tip_y}};
 }
 
-// The level's error added to `meant`, four draws. The error turns the aim, and the cue must clear
-// what lies behind the cue ball along the aim as played: the plan's cue is raised to that, so the
-// stroke played still differs from the one meant only by what was drawn.
+// The level's error added to `meant`, four draws. The error turns the aim and moves the tip, and
+// the cue must clear what lies behind the cue ball for the stroke meant and the one played: both
+// are raised to that, so the stroke played still differs from the one meant only by what was drawn.
 void play(Stroke& out, const FrameState& s, const Level& level, const Pot* pot, const Env& env, Rng& rng,
           Drawn& drawn) {
     out.strike = with_error(out.meant, level, pot, env, rng, &drawn);
     const phys::TableState table = table_state(s, out.places_cue ? out.cue_pos : s.balls[std::size_t(s.cue_ball)].pos);
-    const double least = phys::min_cue_elevation(table, s.cue_ball, out.strike.aim_rad, env.table, env.params);
-    if (out.strike.elevation_rad < least) {
-        out.meant.elevation_rad = least;
-        out.strike.elevation_rad = least;
+    const double least =
+        std::max(lowest_cue(table, s.cue_ball, out.strike.aim_rad, out.strike.tip_x, out.strike.tip_y, env),
+                 lowest_cue(table, s.cue_ball, out.meant.aim_rad, out.meant.tip_x, out.meant.tip_y, env));
+    if (out.strike.elevation_rad < least || out.meant.elevation_rad < least) {
+        const double raised = std::max(out.meant.elevation_rad, least);
+        out.meant.elevation_rad = raised;
+        out.strike.elevation_rad = raised;
     }
 }
 
@@ -504,7 +553,10 @@ private:
             const std::pair<int, int> key{c.pot.target, c.pot.pocket};
             if (std::find(seen.begin(), seen.end(), key) != seen.end()) continue;
             seen.push_back(key);
-            out.push_back({{"target", label(s_, c.pot.target)}, {"pocket", c.pot.pocket}, {"worth", c.score}});
+            out.push_back({{"target", label(s_, c.pot.target)},
+                           {"pocket", c.pot.pocket},
+                           {"chance", c.chance},
+                           {"worth", c.score}});
             if (out.size() == 3) break;
         }
         return out;
@@ -531,6 +583,8 @@ public:
     }
 
     void run() {
+        // The level's own simulations, not the limit in force: a decision must replay from its
+        // logged steps alone, which a Think.max_sims there would not reach.
         const double grid = kGridShare * level_.max_sims;
         if (!expand(0, grid)) return;
         if (!refine()) return;
@@ -611,8 +665,12 @@ public:
             const std::pair<int, int> key{its.target, its.pocket};
             if (std::find(seen.begin(), seen.end(), key) != seen.end()) continue;
             seen.push_back(key);
-            others.push_back(
-                {{"target", label(root.s, its.target)}, {"pocket", its.pocket}, {"worth", other.value[stage_]}});
+            const Spec its_spec{other.strike.speed_m_s, other.strike.tip_x, other.strike.tip_y,
+                                other.strike.elevation_rad};
+            others.push_back({{"target", label(root.s, its.target)},
+                              {"pocket", its.pocket},
+                              {"chance", pot_chance(level_, its, its_spec, its.margin_rad)},
+                              {"worth", other.value[stage_]}});
             if (others.size() == 3) break;
         }
         out.why["others"] = std::move(others);
@@ -681,10 +739,8 @@ private:
     }
 
     void queue(Node& n, int from, int to) {
-        std::vector<int> rungs;
         const int all = level_.speeds;
         const int few = n.depth == 0 || to - from <= 2 ? all : std::min(all, kDeepSpeeds[n.depth]);
-        for (int i = 0; i < few; ++i) rungs.push_back(few > 1 ? int(std::lround(double(i) * (all - 1) / (few - 1))) : 0);
         int spins = std::min(level_.spins, kTipCount);
         if (n.depth > 0) {
             const int room = kDeepTries[n.depth] / std::max(1, (to - from) * few);
@@ -692,8 +748,14 @@ private:
         }
         for (int spin = 0; spin < spins; ++spin) {
             for (int pot = from; pot < to; ++pot) {
+                // The pot's own ladder: one rung when it needs the top speed.
                 const std::vector<double>& speeds = n.speeds[std::size_t(pot)];
-                for (const int rung : rungs) n.todo.push_back({pot, spin, rung, speeds[std::size_t(rung)]});
+                const int rungs = int(speeds.size());
+                const int take = std::min(few, rungs);
+                for (int i = 0; i < take; ++i) {
+                    const int rung = take > 1 ? int(std::lround(double(i) * (rungs - 1) / (take - 1))) : 0;
+                    n.todo.push_back({pot, spin, rung, speeds[std::size_t(rung)]});
+                }
             }
         }
         n.queued = to;
@@ -710,6 +772,7 @@ private:
                 if (n.made[std::size_t(pot)] == 0) continue;
                 const std::vector<double>& speeds = n.speeds[std::size_t(pot)];
                 for (std::size_t rung = 0; rung + 1 < speeds.size(); ++rung) {
+                    if (!(speeds[rung + 1] > speeds[rung])) continue;
                     for (const double share : shares) {
                         n.todo.push_back(
                             {pot, spin, -1, speeds[rung] * std::pow(speeds[rung + 1] / speeds[rung], share)});
@@ -778,6 +841,9 @@ private:
         const double share = pace(pot, t.speed, env_);
         c.own = made.points - (keeps(n, made) ? 0.0 : kLost) - kPaceCost * share * share -
                 kSpinCost * (tip.x * tip.x + tip.y * tip.y);
+        // For the highest break a red beyond the first in one stroke is a black that cannot follow
+        // it. While the maximum is on such a stroke already costs kLost.
+        if (!n.on) c.own -= kRedCost * std::max(0, reds_left(n.s) - reds_left(made.post) - 1);
         if (made.goes_on) c.leaf = read_table(made.post, pots(made.post, env_, level_.max_cut_rad), env_);
         c.value[0] = c.own + c.leaf.worth;
         c.post = std::move(made.post);
@@ -950,8 +1016,24 @@ private:
     int stage_ = 0;
 };
 
-// Enough to make the decision again from the one line: app.error has no fields of its own for it.
-void failure_logged(const char* what, const FrameState& s, const Level& level, const Rng& rng, const Think& think,
+// What makes the decision again ({"shot_id", "level", "seed"}, those known), for its app.error
+// lines.
+nlohmann::json decision_fields(const Level& level, const Think& think) {
+    nlohmann::json out = {{"level", level.id}};
+    const nlohmann::json& context = rules::scoped_log_context();
+    const auto shot = context.find("shot_id");
+    if (shot != context.end() && shot->is_string()) out["shot_id"] = *shot;
+    if (think.seed.has_value()) {
+        out["seed"] = std::to_string(*think.seed);
+    } else {
+        const auto seed = context.find("seed");
+        if (seed != context.end() && seed->is_string()) out["seed"] = *seed;
+    }
+    return out;
+}
+
+// Enough to make the decision again from the one line: the frame, the budget and the fields above.
+void failure_logged(const char* what, const FrameState& s, const Level& level, const Think& think,
                     const Budget* budget) {
     std::string frame;
     try {
@@ -959,9 +1041,7 @@ void failure_logged(const char* what, const FrameState& s, const Level& level, c
     } catch (const std::exception&) {
         frame = "unreadable";
     }
-    Rng copy = rng;
-    std::string message = std::string(what) + "; level " + level.id + "; rng next " + std::to_string(copy.next_u64()) +
-                          "; think max_sims " + std::to_string(think.max_sims) + " max_steps " +
+    std::string message = std::string(what) + "; think max_sims " + std::to_string(think.max_sims) + " max_steps " +
                           std::to_string(think.max_steps);
     if (budget != nullptr) {
         message += "; steps " + std::to_string(budget->steps) + " sims " + std::to_string(budget->sims);
@@ -972,6 +1052,8 @@ void failure_logged(const char* what, const FrameState& s, const Level& level, c
     for (const char* key : {"match_id", "frame"}) {
         if (context.contains(key)) data[key] = context[key];
     }
+    const nlohmann::json fields = decision_fields(level, think);
+    for (auto it = fields.begin(); it != fields.end(); ++it) data[it.key()] = it.value();
     log::error("app", "app.error", std::move(data));
 }
 
@@ -987,8 +1069,11 @@ Stroke choose(const FrameState& s, const Level& level, const Env& env, Rng& rng,
     const bool playing_for_it = level.maximum && maximum_on(s);
     if (s.striker == 0 || s.striker == 1) {
         const std::vector<DecisionKind> open = rules::options(s, s.striker);
-        // A maximum still on is played out to the last black, however far ahead it is.
-        if (!playing_for_it && std::find(open.begin(), open.end(), DecisionKind::claim_frame) != open.end()) {
+        // A level playing for a maximum, or with it gone for the highest break, pots the black
+        // while it has a pot of it; it claims only a frame it has no pot in, rather than play
+        // safeties in a frame it has won.
+        const bool offered = std::find(open.begin(), open.end(), DecisionKind::claim_frame) != open.end();
+        if (offered && (!level.maximum || (!playing_for_it && pots(s, env, level.max_cut_rad).empty()))) {
             out.decides = true;
             out.decision = DecisionKind::claim_frame;
             out.why = {{"level", level.id}, {"kind", "claim"}};
@@ -1056,32 +1141,56 @@ Stroke choose(const FrameState& s, const Level& level, const Env& env, Rng& rng,
     return out;
 }
 
+// After the search threw: the stand-in's stroke as any other is played, the level's error and
+// all. Should that throw too, a soft centre-ball stroke from where the cue ball is.
+Stroke after_exception(const FrameState& s, const Level& level, const Env& env, Rng& rng, const Think& think,
+                       Budget& budget, const std::string& what) {
+    Stroke out;
+    try {
+        // As when cancelled: the 147 plays what it planned, never a pot the stand-in hopes for.
+        const StandinShot shot = standin_stroke(s, env, !level.maximum, rng);
+        budget.sims += number_in(shot.why, "sims");
+        fill_from_standin(out, shot, s, level, env, rng);
+        count(out, budget, number_in(shot.why, "candidates"));
+    } catch (const std::exception& again) {
+        failure_logged(again.what(), s, level, think, &budget);
+        out = Stroke{};
+        out.why = {{"level", level.id}, {"kind", "safety"}, {"error", again.what()}};
+        if (s.cue_ball >= 0 && s.cue_ball < int(s.balls.size())) {
+            out.places_cue = s.cue_in_hand;
+            out.cue_pos = s.balls[std::size_t(s.cue_ball)].pos;
+        }
+        if (s.on.kind == OnKind::any_colour) out.input = {true, Ball::black};
+        out.meant.speed_m_s = 1.0;
+        out.strike = out.meant;
+        count(out, budget, 0);
+    }
+    out.fallback = "exception: " + what;
+    return out;
+}
+
 }  // namespace
 
 Stroke choose_stroke(const rules::FrameState& s, const Level& level, const Env& env, Rng& rng, const Think& think) {
     Budget budget(level, think);
+    std::unique_ptr<TrialFailures> failures;
+    Stroke out;
     try {
-        return choose(s, level, env, rng, budget);
+        failures = std::make_unique<TrialFailures>(decision_fields(level, think));
+        // The mouths are read by every pot listed and every table read: built once for the decision.
+        std::unique_ptr<PocketMouths> mouths;
+        Env local = env;
+        if (env.mouths == nullptr || &env.mouths->table() != &env.table) {
+            mouths = std::make_unique<PocketMouths>(env.table);
+            local.mouths = mouths.get();
+        }
+        out = choose(s, level, local, rng, budget);
     } catch (const std::exception& e) {
-        failure_logged(e.what(), s, level, rng, think, &budget);
-        Stroke out;
-        // choose_shot catches what it throws itself and answers with its plainest stroke.
-        const StandinShot shot = standin_stroke(s, env, !level.maximum, rng);
-        out.why = shot.why.is_object() ? shot.why : nlohmann::json::object();
-        out.why["level"] = level.id;
-        out.decides = shot.decides;
-        out.decision = shot.decision;
-        out.places_cue = shot.places_cue;
-        out.cue_pos = shot.cue_pos;
-        out.input = shot.input;
-        out.meant = shot.strike;
-        out.strike = shot.strike;
-        out.sims = budget.sims;
-        out.steps = budget.steps;
-        out.stopped = budget.stopped;
-        out.fallback = std::string("exception: ") + e.what();
-        return out;
+        failure_logged(e.what(), s, level, think, &budget);
+        out = after_exception(s, level, env, rng, think, budget, e.what());
     }
+    out.errors = failures != nullptr ? failures->count() : 0;
+    return out;
 }
 
 }  // namespace ofs::opponent

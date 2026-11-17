@@ -1,8 +1,8 @@
 // A port of the game's next-ball geometry (game/scripts/play/next_target.gd: _mouths, _pot_line,
-// _room, _reaches_pocket) to the table in hand, so the opponent and the suggestion see the same
-// pots. Only the geometry: the chance and the ranking are the error model's and the search's.
+// _room, _reaches_pocket) to the table in hand: the opponent uses the suggestion's pot geometry
+// and margin. Only the geometry: the chance and the ranking are the error model's and the search's.
 //
-// One difference: a ball beside a cushion has no straight line into the corner at the cushion's
+// One pot more: a ball beside a cushion has no straight line into the corner at the cushion's
 // end, and the suggestion offers none, but the opponent lists it along the cushion (rail_run()).
 
 #include "ofs/opponent/pots.hpp"
@@ -308,13 +308,15 @@ double room(const std::vector<BallOnTable>& balls, int skip_a, int skip_b, doubl
         if (int(j) == skip_a || int(j) == skip_b) continue;
         const double wx = balls[j].pos.x - ax;
         const double wy = balls[j].pos.y - ay;
-        const double s = length2 > 0.0 ? std::clamp((wx * dx + wy * dy) / length2, 0.0, 1.0) : 0.0;
+        // Behind the start, or level with it, the path only moves away from the ball, even from
+        // one touching the ball at a.
+        if (!(wx * dx + wy * dy > 0.0)) continue;
+        const double s = std::min((wx * dx + wy * dy) / length2, 1.0);
         const double ex = wx - s * dx;
         const double ey = wy - s * dy;
         const double gap2 = ex * ex + ey * ey;
         if (gap2 < 4.0 * kR * kR) return -1.0;
-        // A ball level with a or behind it is never turned into.
-        if (s > 0.0) out = std::min(out, (std::sqrt(gap2) - 2.0 * kR) / (s * length));
+        out = std::min(out, (std::sqrt(gap2) - 2.0 * kR) / (s * length));
     }
     return out;
 }
@@ -469,8 +471,10 @@ std::vector<Target> targets(const Position& p) {
 void add_pots(const Position& p, Vec2 cue, const Env& env, const std::vector<Mouth>& m, double max_cut_rad,
               std::vector<Pot>& out) {
     const double cos_max_cut = std::cos(max_cut_rad);
+    const double touching = 2.0 * kR + env.ref.touching_gap_m;
     for (const Target& target : targets(p)) {
         const Vec2 o = p.balls[std::size_t(target.place)].pos;
+        if ((o.x - cue.x) * (o.x - cue.x) + (o.y - cue.y) * (o.y - cue.y) < touching * touching) continue;
         for (std::size_t k = 0; k < m.size(); ++k) {
             PotLine line;
             double object_room = 0.0;
@@ -540,6 +544,29 @@ std::vector<int> open_pockets(const Position& p, int place, const Env& env, cons
     return out;
 }
 
+// The mouths the Env carries when they are its table's, else `local` built now.
+const std::vector<Mouth>& mouths_for(const Env& env, std::vector<Mouth>& local);
+
+}  // namespace
+
+struct PocketMouths::Impl {
+    std::vector<Mouth> list;
+};
+
+PocketMouths::PocketMouths(const phys::TableShape& table) : table_(&table), impl_(std::make_unique<Impl>()) {
+    impl_->list = mouths(table);
+}
+
+PocketMouths::~PocketMouths() = default;
+
+namespace {
+
+const std::vector<Mouth>& mouths_for(const Env& env, std::vector<Mouth>& local) {
+    if (env.mouths != nullptr && &env.mouths->table() == &env.table) return env.mouths->impl().list;
+    local = mouths(env.table);
+    return local;
+}
+
 }  // namespace
 
 const char* band(const Pot& pot) {
@@ -550,13 +577,15 @@ const char* band(const Pot& pot) {
 
 std::vector<Pot> pots_from(const rules::Position& p, rules::Vec2 cue, const Env& env, double max_cut_rad) {
     std::vector<Pot> out;
-    add_pots(p, cue, env, mouths(env.table), max_cut_rad, out);
+    std::vector<Mouth> local;
+    add_pots(p, cue, env, mouths_for(env, local), max_cut_rad, out);
     order(out);
     return out;
 }
 
 std::vector<Pot> pots(const rules::FrameState& s, const Env& env, double max_cut_rad) {
-    const std::vector<Mouth> m = mouths(env.table);
+    std::vector<Mouth> local;
+    const std::vector<Mouth>& m = mouths_for(env, local);
     std::vector<Pot> out;
     if (s.cue_in_hand) {
         for (const Vec2 place : cue_placements(s, env, kPlacements)) add_pots(s, place, env, m, max_cut_rad, out);
@@ -590,11 +619,23 @@ std::vector<rules::Vec2> cue_placements(const rules::Position& p, const Env& env
 }
 
 std::vector<int> pockets_open_to(const rules::Position& p, int place, const Env& env) {
-    return open_pockets(p, place, env, mouths(env.table));
+    std::vector<Mouth> local;
+    return open_pockets(p, place, env, mouths_for(env, local));
+}
+
+std::vector<std::vector<int>> pockets_open_to_each(const rules::Position& p, const Env& env) {
+    std::vector<Mouth> local;
+    const std::vector<Mouth>& m = mouths_for(env, local);
+    std::vector<std::vector<int>> out(p.balls.size());
+    for (std::size_t i = 0; i < p.balls.size(); ++i) {
+        if (int(i) != p.cue_ball) out[i] = open_pockets(p, int(i), env, m);
+    }
+    return out;
 }
 
 int open_reds(const rules::Position& p, const Env& env) {
-    const std::vector<Mouth> m = mouths(env.table);
+    std::vector<Mouth> local;
+    const std::vector<Mouth>& m = mouths_for(env, local);
     int count = 0;
     for (std::size_t i = 0; i < p.balls.size(); ++i) {
         if (int(i) == p.cue_ball || p.balls[i].ball != Ball::red) continue;

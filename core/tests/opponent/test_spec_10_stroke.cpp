@@ -239,6 +239,12 @@ TEST_CASE("README, the search: with only the black left and more than seven ahea
     for (const Level* level : both()) {
         CAPTURE(level->id);
         const Stroke st = choose(s, *level, 1);
+        if (level->maximum) {
+            // The 147 claims only with no pot of the black (README "A claim"); here it has one.
+            CHECK_FALSE(st.decides);
+            CHECK(text(st.why, "kind") == "pot");
+            continue;
+        }
         CHECK(st.decides);
         CHECK(st.decision == rules::DecisionKind::claim_frame);
         REQUIRE(st.why.is_object());

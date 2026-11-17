@@ -24,7 +24,6 @@ double aim_sigma(const Level& level, const Pot& pot, const Spec& spec);
 // anything is simulated.
 double pot_chance(const Level& level, const Pot& pot, const Spec& spec, double window_rad);
 
-// What was added to a stroke.
 struct Drawn {
     double aim_rad = 0.0;
     double speed = 0.0;  // as a fraction of the speed meant

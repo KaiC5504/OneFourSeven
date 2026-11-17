@@ -1,11 +1,11 @@
 #pragma once
 
-// The pots a position offers (spec 10.2 step 1): geometry only, nothing simulated. The margin is
-// the one the game's next-ball pick uses (game/scripts/play/next_target.gd, fitted to the owner's
-// logged shots), so the opponent and the suggestion read a pot the same way, with one difference:
-// the opponent also lists a ball run along a cushion into the corner at its end (along_cushion),
-// which the suggestion to the person leaves out.
+// The pots a position offers (spec 10.2 step 1): geometry only, nothing simulated. The opponent
+// uses the pot geometry and the margin of the game's next-ball suggestion
+// (game/scripts/play/next_target.gd, fitted to the owner's logged shots), and lists one pot the
+// suggestion does not: a ball run along a cushion into the corner at its end (along_cushion).
 
+#include <memory>
 #include <vector>
 
 #include "ofs/opponent/env.hpp"
@@ -38,6 +38,25 @@ struct Pot {
     rules::ShotInput input;  // the declaration the stroke needs; has_nomination false when none does
 };
 
+// The mouths of a table's pockets as the pots read them. Building them is most of the cost of a
+// call that reads few balls; an Env whose `mouths` holds one built from its own table reuses it.
+class PocketMouths {
+public:
+    explicit PocketMouths(const phys::TableShape& table);
+    ~PocketMouths();
+    PocketMouths(const PocketMouths&) = delete;
+    PocketMouths& operator=(const PocketMouths&) = delete;
+
+    const phys::TableShape& table() const { return *table_; }
+
+    struct Impl;
+    const Impl& impl() const { return *impl_; }
+
+private:
+    const phys::TableShape* table_;
+    std::unique_ptr<Impl> impl_;
+};
+
 // Room behind the cue ball, centre to the obstruction's face, under which cueing counts as awkward.
 inline constexpr double kAwkward_m = 0.12;
 
@@ -53,7 +72,9 @@ const char* band(const Pot& pot);
 // has a clear run to the pocket, the cue ball a clear run to the ghost, the cut is no wider than
 // max_cut_rad and margin_rad is above 0. A ball with no straight line into a corner pocket is
 // listed along a cushion that ends there when it lies close enough beside it (along_cushion), its
-// run and the cue ball's clear as for any pot. Easiest first (margin_rad, then place, then pocket).
+// run and the cue ball's clear as for any pot. A ball the cue ball touches (within
+// RefParams::touching_gap_m) is not listed: it may only be played away from (S3.8). A ball behind
+// the start of a path is never in its way. Easiest first (margin_rad, then place, then pocket).
 std::vector<Pot> pots_from(const rules::Position& p, rules::Vec2 cue, const Env& env, double max_cut_rad);
 
 // For the striker of `s` (not over, nothing pending): pots_from its cue ball; with the cue ball in
@@ -70,6 +91,8 @@ std::vector<rules::Vec2> cue_placements(const rules::Position& p, const Env& env
 // the pocket's mouth, as a pot's object ball must, whatever the cue ball's position. A run along
 // a cushion is not one. Indices into TableShape::pockets, lowest first.
 std::vector<int> pockets_open_to(const rules::Position& p, int place, const Env& env);
+// pockets_open_to for every place at once, by place; the cue ball's is empty.
+std::vector<std::vector<int>> pockets_open_to_each(const rules::Position& p, const Env& env);
 
 // Reds with at least one open pocket: the reds a break can go on with. A red in the pack counts
 // for nothing until it is opened.
