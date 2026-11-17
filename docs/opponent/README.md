@@ -51,6 +51,12 @@ For object ball O, pocket P and cue ball C, with R the ball radius:
   when both paths are clear and the margin is above 0.
 - A middle pocket is refused when the object ball comes at it too far off square
   (`next_target.gd` `MAX_MIDDLE_APPROACH_DEG`).
+- **Along a cushion** (`Pot::along_cushion`, the one pot the game's suggestion does not list): a
+  ball with no straight line into a corner, 0.12 m or more from it and within 0.15 of its run
+  off the cushion, is sent at the cushion's end and runs along it into the corner. Its margin is
+  6.5 mm of width there (4 mm when it touches the cushion), about the tenth percentile of 42,560
+  measured strokes, brought back to the cue ball as any pot's. The cut may be up to 70 degrees.
+  Nothing goes into a middle pocket this way.
 
 `band(pot)` is `short` under 1.0 m of cue travel plus object travel, `long` from 2.2 m, `medium`
 between: spec 10.1's "medium shots" and "long pots".
@@ -155,15 +161,15 @@ by `choose_option`, judged by `rules::judge_shot`, exactly as a match in the gam
 Stage 1's marks (the gate): Beginner against itself over 2,000 frames pots 30 to 40% of medium
 attempts and 5 to 15% of long ones, its mean break when in is under 10, and it plays safe on
 fewer than 10% of the strokes where it had a pot it could make (a pot attempt, or a safety or
-escape whose `why.pots` is above 0). It has no such pot on about one stroke in six, escapes
-included, mostly among the colours and balls on cushions; that share is reported, not marked. The 147 pots every attempt it plans (no error: a planned pot that stays out is a
+escape whose `why.pots` is above 0). It has no such pot on about one stroke in ten, escapes
+included (one in six before pots along a cushion were listed); that share is reported, not marked. The 147 pots every attempt it plans (no error: a planned pot that stays out is a
 bug), makes 147 on every table of `exhibitions.json`, and wins at least 95% of frames against
 Beginner. Its rate of maximums from real break-offs is reported, not marked.
 
 ## `opponent.decision`'s `why` for a level
 
 A stroke: `level`; `kind` (`pot`, `safety`, `escape`, `break`); `target` (`red 3`, `black`);
-`pocket` (index, -1 none); `band`; `cut_rad`; `chance` (as it read it); `worth` (the score it
+`pocket` (index, -1 none); `band`; `cut_rad`; `along_cushion` (true on such a pot, absent otherwise); `chance` (as it read it); `worth` (the score it
 chose by); `spec` (`speed_m_s`, `tip_x`, `tip_y`, `elevation_rad` as meant); `leave` (`cue`:
 `[x, y]` where the cue ball stops as simulated, `next`: the ball it leaves itself on, `chance`:
 that pot's); `plan` (the strokes planned after this one: `target`, `pocket`); `others` (up to
