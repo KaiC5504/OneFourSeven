@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "id": "maximum",
-  "_note": "The 147 (spec 10.1, the owner's sixth tier): no error at all and the best position the search finds, playing for a maximum break and nothing else. Not on the ladder of levels 1 to 5.",
+  "_note": "The 147 (spec 10.1, the owner's sixth tier): no error at all and the best position the search finds, playing for a maximum break and, once that is gone, for the highest break still possible (the owner, 2026-11-17). Not on the ladder of levels 1 to 5.",
   "values": {
     "name": "The 147",
     "tier": 0,
@@ -35,17 +35,17 @@
     },
     "aim_sigma_rad": {
       "unit": "rad",
-      "source": "ours, tuned to spec 10.1 by ofs_sim_cli tournament",
+      "source": "the owner, 2026-11-16: the 147 has no error and is not calibrated",
       "note": "Standard deviation of the aim on a short straight pot with nothing in the way."
     },
     "aim_sigma_per_cut": {
       "unit": "1/rad",
-      "source": "ours, tuned",
+      "source": "the owner, 2026-11-16: the 147 has no error and is not calibrated",
       "note": "The aim's sigma grows by this fraction per radian of cut."
     },
     "aim_sigma_per_m": {
       "unit": "1/m",
-      "source": "ours, tuned",
+      "source": "the owner, 2026-11-16: the 147 has no error and is not calibrated",
       "note": "The aim's sigma grows by this fraction per metre the cue ball travels to its ball."
     },
     "awkward_factor": {
@@ -55,12 +55,12 @@
     },
     "speed_sigma": {
       "unit": "fraction",
-      "source": "ours, tuned",
+      "source": "the owner, 2026-11-16: the 147 has no error and is not calibrated",
       "note": "Standard deviation of the cue speed, as a fraction of the speed meant."
     },
     "tip_sigma": {
       "unit": "fraction of R",
-      "source": "ours, tuned",
+      "source": "the owner, 2026-11-16: the 147 has no error and is not calibrated",
       "note": "Standard deviation of each tip offset."
     },
     "max_cut_rad": {
@@ -95,12 +95,12 @@
     },
     "judgement_sigma": {
       "unit": "fraction",
-      "source": "ours, tuned",
+      "source": "the owner, 2026-11-16: the 147 has no error and is not calibrated",
       "note": "The error in its own reading of a pot's chance (spec 10.3: lower levels choose worse)."
     },
     "safety_below": {
       "unit": "chance",
-      "source": "ours, tuned",
+      "source": "the owner, 2026-11-16: the 147 has no error and is not calibrated",
       "note": "It plays safe when its best pot's chance, as it reads it, is under this."
     },
     "max_sims": {
@@ -111,7 +111,7 @@
     "maximum": {
       "unit": "true or false",
       "source": "the owner, 2026-11-16",
-      "note": "It plays for a maximum break and nothing else (spec 10.1)."
+      "note": "It plays for a maximum break, then for the highest break still possible (spec 10.1)."
     }
   }
 }

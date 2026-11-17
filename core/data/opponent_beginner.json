@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "id": "beginner",
-  "_note": "Level 1 of the computer opponent (spec 10.1): pots about 35% of medium shots and 10% of long ones, breaks under 10, rarely plays safe, mostly centre ball. 'values' is what is loaded; 'docs' gives each value's unit, source and note. aim_sigma_rad and aim_sigma_per_m were tuned to stage 1's marks by ofs_sim_cli tournament (2026-11-18); the rest are starting values.",
+  "_note": "Level 1 of the computer opponent (spec 10.1): pots about 35% of medium shots and 10% of long ones, breaks under 10, rarely plays safe, mostly centre ball. 'values' is what is loaded; 'docs' gives each value's unit, source and note. aim_sigma_rad and aim_sigma_per_m were tuned to stage 1's marks by ofs_sim_cli tournament (2026-11-18); the other values marked 'tuned' are still their starting values, to be tuned with the ladder.",
   "values": {
     "name": "Beginner",
     "tier": 1,
@@ -111,7 +111,7 @@
     "maximum": {
       "unit": "true or false",
       "source": "the owner, 2026-11-16",
-      "note": "It plays for a maximum break and nothing else (spec 10.1)."
+      "note": "It plays for a maximum break, then for the highest break still possible (spec 10.1)."
     }
   }
 }

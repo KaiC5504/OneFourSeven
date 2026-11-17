@@ -380,7 +380,7 @@ ofs_sim_cli tournament --a maximum --frames 0 --exhibitions
   visits to the table that began
   with `opponent::maximum_on`, `completed`: those that made 147); `think` per decision
   (`sims_mean`, `sims_max`, `steps_mean`, `us_mean`, `us_p99`, `us_max`, and `stopped`: how many
-  ended `done`, `sims`, `steps`, `time`); `fallbacks`. Everything but `think`'s times and `timing`
+  ended `done`, `sims`, `steps`, `time`, `cancelled`); `fallbacks`. Everything but `think`'s times and `timing`
   is the same for the same options.
 - `--log FILE` writes the run's log as JSONL, the lines a game session logs: `params.loaded` (the
   physics file, then each level file), then each frame in order with its `match.started` (with

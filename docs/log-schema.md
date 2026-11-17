@@ -164,7 +164,7 @@ New subsystems: `input`, `ui`, `audio`, `settings`, `freetable`. A played shot l
 | --- | --- | --- | --- |
 | `opponent.think` | info | a level was asked for a stroke and started thinking, off the main thread | `level`, `player`, `seed` (a decimal string), `shot_id`, `budget` (`max_sims`, `max_steps`, `max_ms`) |
 | `opponent.decision` | info/warn | as in M3, now for a level too | also `level` (absent for the stand-in), `meant` (the strike as planned; `strike` is the one played, error included), `think` (`candidates`, `sims`, `steps`, `depth`, `stopped`: `done`, `sims`, `steps`, `time` or `cancelled`; `ms`) |
-| `opponent.maximum` | info | the 147's maximum came on at the start of its visit, or went | `state` (`on`, `gone`), `why` (when gone: `a red was potted by the other player`, `a colour other than the black`, `the break ended`, `two reds in one stroke`, `a free ball`), `player`, `break_points`, `reds` (left on the table), `shot_id` |
+| `opponent.maximum` | info | the 147's maximum came on at the start of its visit, or went | `state` (`on`, `gone`), `why` (when gone: `a red is off the table`, with fewer than fifteen reds and no break under way, or `the break lost it`), `level`, `player`, `break_points`, `reds` (left on the table), `shot_id` |
 | `opponent.fallback` | warn | a level could not work a stroke out and played the stand-in's plainest | `level`, `why`, `player`, `seed`, `shot_id` |
 | `opponent.cancelled` | info | thinking was stopped before it answered (the match was left, the pause menu quit) | `level`, `why`, `ms` |
 | `exhibition.started` | info | Watch a 147 began | `layout` (its name in `exhibitions.json`), `level`, `match_id` |

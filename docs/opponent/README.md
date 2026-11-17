@@ -52,9 +52,10 @@ For object ball O, pocket P and cue ball C, with R the ball radius:
 - A middle pocket is refused when the object ball comes at it too far off square
   (`next_target.gd` `MAX_MIDDLE_APPROACH_DEG`).
 - **Along a cushion** (`Pot::along_cushion`, the one pot the game's suggestion does not list): a
-  ball with no straight line into a corner, 0.12 m or more from it and within 0.15 of its run
-  off the cushion, is sent at the cushion's end and runs along it into the corner. Its margin is
-  6.5 mm of width there (4 mm when it touches the cushion), about the tenth percentile of 42,560
+  ball with no straight line into a corner, 0.12 m or more from it and no further off
+  the cushion than 0.15 of its run to the cushion's end, is sent at the cushion's end and runs along it into the corner. Its margin is
+  a half-width of 6.5 mm there (4 mm when it touches the cushion, rising to the full 6.5 over the
+  first 4 mm off it), about the tenth percentile of 42,560
   measured strokes, brought back to the cue ball as any pot's. The cut may be up to 70 degrees.
   Nothing goes into a middle pocket this way.
 
@@ -67,8 +68,8 @@ between: spec 10.1's "medium shots" and "long pots".
                 * awkward_factor (when cueing is hampered or the cue is raised past 0.17 rad)
     chance    = erf(window / (sigma * sqrt 2))
 
-`window` is the measured one (`solve_pot` with `measure_window`) where the search has it, the
-geometric margin before that. Speed error is a fraction of the speed; tip error is in each axis.
+`window` is the pot's geometric margin (`Pot::margin_rad`); `solve_pot` can measure the real one
+(`measure_window`) but the search does not spend simulations on it. Speed error is a fraction of the speed; tip error is in each axis.
 Four normals are always drawn, in the order aim, speed, tip x, tip y.
 
 ## The 147 (`maximum`, spec 10.1)
@@ -95,7 +96,8 @@ Four normals are always drawn, in the order aim, speed, tip x, tip y.
 What can be seen from outside, and so tested:
 
 - **Candidates**: each listed pot (`pots`) struck each way the level can: `level.speeds` cue speeds
-  from just over `least_pot_speed` upwards (more of them reach further up the range), and
+  on a ladder between `least_pot_speed` and the cue's most (few speeds sit in the firm middle,
+  35% to 60% of the way for two; eight or more start at the least and reach the top), and
   `level.spins` tip offsets within `level.max_tip`, centre ball first. One candidate is one
   **step**. A candidate counts when `solve_pot` finds its aim and the referee
   (`rules::judge_shot` on the simulated stroke) calls no foul.

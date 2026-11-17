@@ -20,9 +20,9 @@ through `python scripts/mac.py phone` with the play checklist below.
 ## Contracts
 
 - `core/include/ofs/opponent/`: `level.hpp` (built), `env.hpp`, `pots.hpp`, `solve.hpp`,
-  `error_model.hpp`, `evaluate.hpp`, `opponent.hpp`, `exhibition.hpp` (built). The sources are
-  stubs that compile; until the search lands `choose_stroke` is the stand-in with the level's
-  error, so a match already plays end to end.
+  `error_model.hpp`, `evaluate.hpp`, `opponent.hpp`, `exhibition.hpp` (built). They were
+  committed as stubs that compiled and played the stand-in, so a match ran end to end from the
+  first day; waves 1 and 2 made them real.
 - `core/data/opponent_beginner.json`, `opponent_maximum.json` (starting values), `exhibitions.json`
   (one hand-laid table).
 - `docs/opponent/README.md`: how spec 10 is built, the pot's geometry, the 147's rule, what the
@@ -107,3 +107,12 @@ finger, the picker and the view button against the screen's edges, heat over a l
   of the person's?).
 - 2026-11-18: wave 3 started: Beginner's tuning with the gate's opponent lane, eight exhibition
   tables with `tools/make_exhibitions.py`, pots along a cushion.
+- 2026-11-18: wave 3 merged. Beginner tuned (aim sigma 0.0026, 0.8 per metre): medium 35.0%, long
+  10.7%, mean break 3.2, a foul about every eighth stroke. Eight exhibition tables, each a 147 in
+  36 strokes. Pots along a cushion: Beginner's strokes with no pot fell from 17.9% to 10.8%; the
+  147 made all 558 it played. Every maximum the 147 has lost against Beginner was Beginner
+  potting a red first.
+- For stage 2, from the spec check: the evaluation handed to the game (the next-ball pick and the
+  camera's "excellent position", spec 8.5); a pot's chance from noisy simulations rather than
+  the geometric margin, and the cost of a miss in a level's score (spec 10.2 steps 3 and 4, for
+  the levels that plan); the break-off and first safety chosen by what they leave.

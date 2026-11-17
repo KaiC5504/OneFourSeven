@@ -666,13 +666,13 @@ These targets are measured automatically (section 16.4). Each level must beat th
 below it clearly over a long series. **Claude's call:** at least 70% of frames.
 
 **A sixth, the 147 (Owner, 2026-11-16).** A fun tier outside the ladder: it plays for a
-maximum break and nothing else. No error model (perfect aim) and the best position play
+maximum break. No error model (perfect aim) and the best position play
 the search can find, always a black after a red while a 147 is still on, the cue ball
 left for the next red and black. It is not calibrated against section 10.1 and not part
-of the "beats the level below" series. Open for the M4 plan: what it does once the
-maximum is gone (recommended: plays on for the highest break still possible), and
-whether it is also offered as an exhibition from Home that starts from a table already
-open, since a maximum cannot begin from the break-off.
+of the "beats the level below" series. Decided with the M4 plan (Owner, 2026-11-17): once the
+maximum is gone it plays on for the highest break still possible; Home offers "Watch a
+147", an exhibition that starts from a table already open, since a maximum cannot begin
+from the break-off; its spin and power show on the controls as it plays.
 
 ### 10.2 How it plays a shot
 1. **Generate candidates:**
@@ -724,7 +724,8 @@ open, since a maximum cannot begin from the break-off.
 
 ### 10.6 Thinking-time budget
 - Decisions arrive within **≤ 1.5 s** on the iPhone at level 5, and faster at lower
-  levels.
+  levels. The 147 has the same bound (as built: 6,000 simulations a stroke and a 1.5 s
+  clock).
 - If the search would run longer, it is cut down by the time budget, so it is anytime
   and never freezes.
 - The opponent runs off the main thread.
@@ -733,9 +734,10 @@ open, since a maximum cannot begin from the break-off.
 
 ### 11.1 Screens
 - **Home:** Play vs Computer · Training · Stats · Settings. As built in M3: Play · Free
-  table · Settings over the table; Stats and the routines join with M5.
+  table · Settings over the table; M4 adds Watch a 147; Stats and the routines join with
+  M5.
 - **Match setup:**
-  - opponent level (1–5), from M4; M3 has the one stand-in opponent;
+  - opponent level (1–5) and the 147, from M4 (stage 1: Beginner and the 147);
   - match length: best of 1, 3, 5, 7, 9 or 11 frames (default 3);
   - who breaks first: random, you, or the computer (default random); alternates
     afterwards.
@@ -1280,6 +1282,9 @@ The goal is full official rules and complete match flow.
 
 ### M4 — The computer opponent
 The goal is five levels that play like real players, and the 147 tier (section 10).
+Built in two stages (Owner, 2026-11-17): stage 1 is the engine with Beginner and the 147,
+played on the phone first; stage 2 is levels 2 to 5, the tactics, the ladder and the
+evaluation handed to the game. Stage 1's marks are in docs/opponent/README.md.
 - **Workstreams:**
   - candidate shot generation and parameter search;
   - evaluation: position play, safety and score-aware tactics;
