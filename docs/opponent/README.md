@@ -119,8 +119,9 @@ What can be seen from outside, and so tested:
   it was asked about, `gone` when the level plays for one and it does not, `off` for any other
   level. With `gone`, `why.maximum_why` says which: `a red is off the table` (fewer than fifteen
   reds and no break under way) or `the break lost it`.
-- **A claim** (`claim_frame` open to the striker) is taken in place of a stroke. No level
-  concedes in stage 1.
+- **A claim** (`claim_frame` open to the striker) is taken in place of a stroke, except by the
+  147 while its maximum is on: it plays the frame out to the last black. No level concedes in
+  stage 1.
 
 ## Choices (`decide.cpp`, spec 10.4)
 
