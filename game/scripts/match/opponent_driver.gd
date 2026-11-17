@@ -15,6 +15,12 @@ signal choice_made(player: int, kind: String)
 ## A level started thinking about a stroke (true), or the stroke was handed over or dropped.
 signal thinking_changed(on: bool)
 
+## A level's stroke stops on the clock here: spec 10.6 allows 1.5 s from asking to striking, and
+## the cue's stand and feather on the line (OpponentShow) take the rest.
+const LEVEL_MAX_MS := 800.0
+## Why thinking was dropped, as opponent.cancelled's "why" names it.
+const CANCEL_WHYS: Array[String] = ["left", "conceded", "claimed", "replaced", "paused"]
+
 ## The seed of the last request sent to the engine: a refusal is logged with it.
 var last_seed := 0
 ## The engine method the last request went to ("standin_shot", "opponent_think", "opponent_take",
@@ -49,7 +55,7 @@ func request_shot(engine: Object, player: int, seconds: float, level := "") -> v
 	last_seed = Physics.new_seed()
 	_shot_id = Physics.new_shot_id()
 	last_call = "opponent_think"
-	if bool(engine.opponent_think(level, last_seed, {"shot_id": _shot_id}, {})):
+	if bool(engine.opponent_think(level, last_seed, {"shot_id": _shot_id}, {"max_ms": LEVEL_MAX_MS})):
 		_thinking = true
 		thinking_changed.emit(true)
 	else:
@@ -63,15 +69,20 @@ func request_choice(engine: Object, player: int, seconds: float, level := "") ->
 	_request(engine, player, seconds, true, level)
 
 
-## Drops whatever is waiting (the match was left, a frame ended), the thinking included.
-func cancel() -> void:
+## Drops whatever is waiting, the thinking included; `why` (one of CANCEL_WHYS) is what the
+## engine logs for the thinking dropped.
+func cancel(why := "left") -> void:
 	var engine := _engine
 	_engine = null
 	set_process(false)
 	if _thinking:
 		_thinking = false
 		if engine != null:
-			engine.opponent_cancel("left")
+			if not CANCEL_WHYS.has(why):
+				Log.warn("app", "app.error", {"kind": "message", "message":
+						"OpponentDriver: cancel(\"%s\") is not one of %s; the engine is told \"left\"" % [why, CANCEL_WHYS]})
+				why = "left"
+			engine.opponent_cancel(why)
 		thinking_changed.emit(false)
 
 
@@ -85,7 +96,7 @@ func is_thinking() -> bool:
 
 
 func _request(engine: Object, player: int, seconds: float, for_choice: bool, level: String) -> void:
-	cancel()
+	cancel("replaced")
 	_engine = engine
 	_player = player
 	_level = level

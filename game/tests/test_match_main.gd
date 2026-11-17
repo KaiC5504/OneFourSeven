@@ -395,7 +395,7 @@ func test_the_opponents_stroke_is_lined_up_then_struck_exactly_as_given_under_it
 	await _person_stroke(main, _frame(1))
 	var mine := [setup.speed_m_s, setup.power, setup.last_stroke_speed_m_s]
 	check_eq(m.strike_blocked(), "opponent", "the opponent's turn")
-	_check_controls(main, true, false, "through the opponent's turn")
+	_check_controls(main, false, false, "while the opponent thinks, no stroke to show")
 	check(not cue.visible, "no cue while it thinks")
 	_mark_log()
 	await _until(func() -> bool: return setup.aim_rad == 0.35 or main.is_playing(), "the opponent's stroke")
@@ -474,7 +474,7 @@ func test_the_stand_in_plays_for_the_person_under_autoplay() -> void:
 	_mark_log()
 	var started: Dictionary = main.harness_start_match({"best_of": 1, "first_breaker": "you", "seed": 7}, true, true)
 	check_eq(started.get("match_id"), (main.get_node("Match") as MatchController).match_id(), "started")
-	_check_controls(main, true, false, "the person's controls while the stand-in plays for them")
+	_check_controls(main, false, false, "the person's controls while the stand-in thinks for them")
 	await _until(func() -> bool: return _engine.called().has("judge"), "the stand-in's stroke")
 	var inputs := _logged("shot.input")
 	check(inputs.size() == 1 and inputs[0]["strike_mode"] == "autoplay", "struck as autoplay: %s" % [inputs])

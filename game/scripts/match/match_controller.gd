@@ -123,6 +123,7 @@ var _level_name := STANDIN_NAME
 var _exhibition := -1
 ## The last judged stroke had a penalty: how an exhibition's break ended.
 var _last_fouled := false
+var _judged_break := 0
 
 
 func _init() -> void:
@@ -253,7 +254,6 @@ func levels() -> Array[Dictionary]:
 	return out
 
 
-## The match's level id; "" for the stand-in.
 func level() -> String:
 	return _level
 
@@ -382,7 +382,7 @@ func shot_started(shot_id: String) -> void:
 		_error("shot_started(\"%s\") when no stroke is awaited (%s); it will not be judged" % [shot_id,
 				"a stroke is in play" if _playing else "waiting \"%s\"" % _waiting], false)
 		return
-	_driver.cancel()
+	_driver.cancel("replaced")
 	_moves += 1
 	_playing = true
 	_shot_id = shot_id
@@ -401,7 +401,7 @@ func shot_finished(record: OfsShotRecord) -> Dictionary:
 					false)
 			return {}
 		_error("shot_finished without shot_started; the stroke is judged with no shot id", false)
-		_driver.cancel()
+		_driver.cancel("replaced")
 	var shot_id := _shot_id
 	_playing = false
 	_shot_id = ""
@@ -409,6 +409,7 @@ func shot_finished(record: OfsShotRecord) -> Dictionary:
 	var input := {"nominated": _nominated}
 	var context := {"shot_id": shot_id}
 	_nominated = ""
+	_judged_break = int(_frame.get("break_points", 0))
 	var answer := _dict(engine.judge(record, input, context))
 	var judged := bool(answer.get("ok", false))
 	var judgement := {}
@@ -420,6 +421,7 @@ func shot_finished(record: OfsShotRecord) -> Dictionary:
 		event = _expect(answer, "event", "none", "judge")
 		_last_fouled = int(judgement.get("penalty", 0)) > 0
 		_take_frame(answer)
+		_judged_break = int(_frame.get("break_points", 0))
 		var calls := _list(judgement.get("calls"))
 		if not calls.is_empty():
 			tells.append(calls_made.emit.bind(calls, shot_id))
@@ -465,6 +467,12 @@ func next_frame() -> bool:
 	if _announce([table_changed.emit.bind(balls, cue_ball, &"frame"), frame_changed.emit.bind(_frame)]):
 		_advance()
 	return true
+
+
+## The frame's break as the last shot_finished left it, before anything it set going (the end of an
+## exhibition) cleared the frame away.
+func judged_break() -> int:
+	return _judged_break
 
 
 ## Pause menu (spec 11.1). False, with match.refused logged and the engine not asked, when it is
@@ -515,6 +523,7 @@ func _start(engine_config: Dictionary) -> bool:
 	_refusals = 0
 	_nearest_failed = false
 	_last_fouled = false
+	_judged_break = 0
 	var state := _dict(engine.match_state())
 	_frame_number = int(_expect(state, "frame_number", 1, "match_state"))
 	_frame = _dict(engine.frame())
@@ -573,7 +582,7 @@ func _configure_opponent(made: Object) -> void:
 
 ## Forgets the match without a word: the engine's is abandoned when it was still on.
 func _leave() -> void:
-	_driver.cancel()
+	_driver.cancel("left")
 	if _active and engine != null:
 		engine.abandon()
 	_moves += 1
@@ -659,6 +668,8 @@ func _closed(kind: String) -> String:
 	if _waiting == "frame_summary":
 		# Between frames a match is left by Quit.
 		return "no frame is in play (a frame's summary is showing)"
+	if _exhibition >= 0:
+		return "the person only watches an exhibition: there is nothing to concede or claim"
 	var offered := _options(PERSON)
 	if not offered.has(kind):
 		return "not offered now (pending \"%s\", offered %s)" % [_pending(), JSON.stringify(offered)]
@@ -668,9 +679,15 @@ func _closed(kind: String) -> String:
 ## Applies `kind` for `player` and announces what it brought. `severe`: a refusal is an engine
 ## fault rather than an answer the caller asked for.
 func _decide(kind: String, player: int, severe: bool = true) -> bool:
+	# The person may concede while the opponent is still thinking about its stroke.
+	var dropped := player == PERSON and PAUSE_DECISIONS.has(kind) and _driver.is_thinking()
+	if dropped:
+		_driver.cancel("claimed" if kind == "claim_frame" else "conceded")
 	var answer := _dict(engine.decide(kind, player))
 	if not bool(answer.get("ok", false)):
 		_refused("decide", [kind, player], answer, severe)
+		if dropped:
+			_ask_opponent()
 		return false
 	_moves += 1
 	_refusals = 0
@@ -702,7 +719,7 @@ func _settle(event: String) -> void:
 	if event != "match_ended" and not frame_over:
 		_advance()
 		return
-	_driver.cancel()
+	_driver.cancel("replaced")
 	_placing = false
 	_nominated = ""
 	var state := _dict(engine.match_state())
@@ -728,7 +745,7 @@ func _settle(event: String) -> void:
 ## Says who is to act in the frame as it stands, and sets the opponent going when it is its part.
 ## In an exhibition the person's turn ends it.
 func _advance() -> void:
-	_driver.cancel()
+	_driver.cancel("replaced")
 	_placing = false
 	if _pending() != "none":
 		var decider := int(_expect(_frame, "decider", 0, "frame"))
@@ -888,7 +905,7 @@ func _log_exhibition_end(result: Dictionary) -> void:
 
 ## Logs exhibition.ended, emits exhibition_ended and leaves the match, unless a listener did.
 func _end_exhibition(why: String) -> void:
-	_driver.cancel()
+	_driver.cancel("left")
 	var result := _exhibition_result(why)
 	if int(result["strokes"]) == 0 and why != "left":
 		_error("the exhibition ended before the opponent struck: player %d to act, pending \"%s\"" % [

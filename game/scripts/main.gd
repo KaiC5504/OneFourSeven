@@ -31,8 +31,8 @@ const AUTOPLAY_STRIKE := "autoplay"
 const PERSON := MatchController.PERSON
 ## MatchController.strike_blocked() while the stroke is the person's to set up.
 const SETTING_UP: Array[String] = ["", "nominate"]
-## And while the shot controls show at all: also through the opponent's turn, dimmed.
-const STROKE_ON: Array[String] = ["", "nominate", "opponent", "playing"]
+## And while the shot controls show at all; on the opponent's turn only its stroke shows, dimmed.
+const STROKE_ON: Array[String] = ["", "nominate", "playing"]
 ## Watch a 147's level (docs/opponent/README.md).
 const EXHIBITION_LEVEL := "maximum"
 ## Ball in hand: how far back from the baulk line the camera's place is looked for, and in what steps.
@@ -661,7 +661,8 @@ func _settle_match() -> void:
 		return
 	var judgement := _match.shot_finished(record)
 	result["points"] = int(judgement.get("points", 0))
-	result["break"] = int(_match.frame().get("break_points", 0))
+	# Not the frame now: an exhibition whose break just ended has already cleared it away.
+	result["break"] = _match.judged_break()
 	result.merge(_turn_to_next())
 	Log.info("shot", "shot.result", result)
 	_set_playing(false)
@@ -972,21 +973,27 @@ func _on_edit_mode_changed(on: bool) -> void:
 
 ## The shot controls for the strike mode, or the edit palette in edit mode. In a match they show
 ## while a stroke is to be played or is playing, and are the person's only while the stroke is:
-## through the opponent's turn they stay dimmed and take no touch, as while any shot plays.
+## the opponent's stroke shows on them dimmed, taking no touch, as while any shot plays. While the
+## opponent thinks or chooses there is no stroke of its to show, and the person's would be stale.
+## Watch a 147 shows only the spin ball and the power bar, its stroke's.
 func _show_controls() -> void:
 	var editing := _mode == FREE_TABLE and _free.edit_mode
+	var watching := _mode == MATCH and _match.is_exhibition()
 	var shown := false
 	match _mode:
 		FREE_TABLE:
 			shown = not editing
 		MATCH:
-			# Watch a 147 has no stroke of the person's to show.
-			shown = not _match.is_exhibition() and (_playing or STROKE_ON.has(_match.strike_blocked()))
+			var blocked := _match.strike_blocked()
+			if watching or blocked == "opponent":
+				shown = _playing or _lining_up
+			else:
+				shown = _playing or STROKE_ON.has(blocked)
 	# The opponent's power is shown on the power bar whatever the person strikes with.
-	var pull := setup.strike_mode == ShotSetup.PULL or _pull.shown_power() >= 0.0
+	var pull := watching or setup.strike_mode == ShotSetup.PULL or _pull.shown_power() >= 0.0
 	_spin.visible = shown
-	_elevation.visible = shown
-	_wheel.visible = shown and bool(Settings.get_value("fine_tune_wheel"))
+	_elevation.visible = shown and not watching
+	_wheel.visible = shown and not watching and bool(Settings.get_value("fine_tune_wheel"))
 	_stroke.visible = shown and not pull
 	_pull.visible = shown and pull
 	_palette.visible = editing
@@ -1335,6 +1342,7 @@ func _layout() -> void:
 		_strip.place_in(Rect2(left, bar.position.y, (rects["cue"] as Rect2).position.x - HudScript.GAP - left, bar.size.y))
 		controls.append(Rect2(_strip.position, _strip.size))
 		notice_y = _strip.position.y + _strip.size.y + HudScript.GAP
+	_rig.set_safe_area(safe)
 	_rig.keep_clear(controls)
 	# The aiming view of a match centres below the scoreboard and the referee's line, so the far end
 	# of the table is not under them.
@@ -1488,6 +1496,7 @@ func _start_match(config: Dictionary, autoplay: bool = false, fast: bool = false
 	_set_watch("cue", "turn")
 	_referee.clear()
 	_choices.dismiss()
+	_scoreboard.set_exhibition(false)
 	if _free_setup.is_empty():
 		_free_setup = setup.snapshot()
 		_free_setup.erase("strike_mode")
@@ -1703,6 +1712,7 @@ func _on_match_table_changed(balls: Array[Dictionary], _cue_ball: int, reason: S
 func _on_frame_changed(frame: Dictionary) -> void:
 	# The first thing a match's start says, so every surface has the name before it speaks.
 	_name_opponent(_match.level_name())
+	_scoreboard.set_exhibition(_match.is_exhibition())
 	_scoreboard.show_frame(frame, _match.match_state(), PERSON)
 	# The scoreboard widens while someone needs snookers: placed again, and the camera keeps clear
 	# of what it covers now. Nothing is written or refitted when nothing moved.
@@ -1775,8 +1785,8 @@ func _on_opponent_ready(shot: Dictionary) -> void:
 				break
 	if not problem.is_empty():
 		Log.error("app", "app.error", _match_fields({"kind": "message",
-				"message": "main: the stand-in's stroke can't be played: %s; the stand-in is asked again: %s" % [problem,
-				JSON.stringify(shot)]}))
+				"message": "main: %s's stroke can't be played: %s; it is asked again: %s" % [_opponent_words(shot),
+				problem, JSON.stringify(shot)]}))
 		if _mode == MATCH and not _playing:
 			_match.opponent_failed(str(shot.get("shot_id", "")), problem)
 		return
@@ -1787,13 +1797,13 @@ func _on_opponent_ready(shot: Dictionary) -> void:
 			_match.place_cue(Vector2(float(cue[0]), float(cue[1])))
 		else:
 			Log.warn("app", "app.error", _match_fields({"kind": "message",
-					"message": "main: the stand-in places the cue ball at %s, not [x, y]; played from where it is (shot %s)"
-					% [JSON.stringify(cue), shot.get("shot_id", "")]}))
+					"message": "main: %s places the cue ball at %s, not [x, y]; played from where it is (shot %s)"
+					% [_opponent_words(shot), JSON.stringify(cue), shot.get("shot_id", "")]}))
 	var nominated := str(shot.get("nominated", ""))
 	if not nominated.is_empty() and not _match.nominate(nominated, OPPONENT_STRIKE):
 		Log.warn("app", "app.error", _match_fields({"kind": "message",
-				"message": "main: the stand-in nominated \"%s\", not one of %s; played with nothing declared (shot %s)"
-				% [nominated, _match.nominations(), shot.get("shot_id", "")]}))
+				"message": "main: %s nominated \"%s\", not one of %s; played with nothing declared (shot %s)"
+				% [_opponent_words(shot), nominated, _match.nominations(), shot.get("shot_id", "")]}))
 	if _person_setup.is_empty():
 		_person_setup = setup.snapshot()
 		_person_setup.erase("strike_mode")
@@ -1814,6 +1824,13 @@ func _on_opponent_ready(shot: Dictionary) -> void:
 	set_process(true)
 
 
+## Who chose `shot`, for the logs, as MatchController names it: the level, or the stand-in (which
+## also plays for the person under autoplay).
+static func _opponent_words(shot: Dictionary) -> String:
+	var level_id := str(shot.get("level", ""))
+	return "the stand-in" if level_id.is_empty() else "the level \"%s\"" % level_id
+
+
 func _play_opponent() -> void:
 	var shot := _opponent
 	_cancel_lineup()
@@ -1824,8 +1841,8 @@ func _play_opponent() -> void:
 	if shot_id.is_empty():
 		var blocked := _match.strike_blocked()
 		Log.error("app", "app.error", _match_fields({"kind": "message",
-				"message": "main: the stand-in's stroke was not struck (strike_blocked \"%s\"; shot.rejected says if the physics refused it); the stand-in is asked again: %s"
-				% [blocked, JSON.stringify(shot)]}))
+				"message": "main: %s's stroke was not struck (strike_blocked \"%s\"; shot.rejected says if the physics refused it); it is asked again: %s"
+				% [_opponent_words(shot), blocked, JSON.stringify(shot)]}))
 		_sync_match_ui()
 		_match.opponent_failed(str(shot.get("shot_id", "")), "not struck (strike_blocked \"%s\")" % blocked)
 	elif _fast:

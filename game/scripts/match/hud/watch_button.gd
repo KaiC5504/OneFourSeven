@@ -44,7 +44,6 @@ func set_view(view: String) -> void:
 	text = TEXT[_next()]
 
 
-## The view now on.
 func view() -> String:
 	return _view
 

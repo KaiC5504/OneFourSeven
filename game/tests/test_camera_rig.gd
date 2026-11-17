@@ -991,6 +991,31 @@ func test_the_view_from_above_shows_the_whole_table_clear_of_the_controls() -> v
 	rig.free()
 
 
+func test_the_view_from_above_keeps_the_near_rail_above_the_home_indicator() -> void:
+	var rig := _loose_rig()
+	rig.set_table_bounds(_table_bounds())
+	var band: Array[Rect2] = [Rect2(0.0, 0.0, CANVAS.x, 130.0)]
+	rig.keep_clear(band)
+	var unsafe := _around(_above_drawn(rig, rig.above_pose())[0])
+	for safe_px in PHONE_SAFE_AREAS:
+		var safe := HudScript.safe_rect(safe_px, PHONE_SCREEN, CANVAS)
+		check(unsafe.end.y > safe.end.y - CameraRig.ABOVE_MARGIN + 1.0,
+				"without the safe area the near rail reaches into the home indicator: %s, safe %s" % [unsafe, safe])
+		rig.set_safe_area(safe)
+		var top := _around(_above_drawn(rig, rig.above_pose())[0])
+		check(top.end.y <= safe.end.y - CameraRig.ABOVE_MARGIN + 1.0, "the near rail above the safe area's bottom: %s, safe %s"
+				% [top, safe])
+		check(top.position.x >= safe.position.x + CameraRig.ABOVE_MARGIN - 1.0
+				and top.end.x <= safe.end.x - CameraRig.ABOVE_MARGIN + 1.0, "and inside its sides: %s, safe %s" % [top, safe])
+		check(top.position.y >= 130.0 + CameraRig.CLEAR_MARGIN + CameraRig.ABOVE_MARGIN - 1.0, "still under the band: %s" % top)
+	rig.keep_clear([] as Array[Rect2])
+	var safe := HudScript.safe_rect(PHONE_SAFE_AREAS[0], PHONE_SCREEN, CANVAS)
+	rig.set_safe_area(safe)
+	var bare := _around(_above_drawn(rig, rig.above_pose())[0])
+	check(bare.end.y <= safe.end.y - CameraRig.ABOVE_MARGIN + 1.0, "with nothing to keep clear too: %s" % bare)
+	rig.free()
+
+
 func test_the_view_from_above_zooms_in_and_pans_no_further_than_the_table() -> void:
 	var rig := _loose_rig()
 	rig.set_table_bounds(_table_bounds())
