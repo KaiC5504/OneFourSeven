@@ -18,7 +18,8 @@ const Kit := preload("res://scripts/match/hud/hud_kit.gd")
 const YOU := "You"
 const OPPONENT := "Computer"
 const YOU_NEED_SNOOKERS := "You need snookers"
-const OPPONENT_NEEDS_SNOOKERS := OPPONENT + " needs snookers"
+const NEEDS_SNOOKERS := " needs snookers"
+const OPPONENT_NEEDS_SNOOKERS := OPPONENT + NEEDS_SNOOKERS
 const FREE_BALL := "Free ball"
 const HEIGHT := 88.0
 const EDGE_MARGIN := 16.0
@@ -74,6 +75,7 @@ class Strip extends Control:
 	const COLOURS: Array[String] = ["yellow", "green", "brown", "blue", "pink", "black"]
 
 	var said := {}
+	var opponent := OPPONENT
 	## "red", a colour's name, "any" (a colour of choice), "free" (a free ball) or "".
 	var on_ball := ""
 
@@ -91,7 +93,7 @@ class Strip extends Control:
 
 	func design_width() -> float:
 		var font := get_theme_default_font()
-		return ceilf(_side(font, YOU) + _side(font, OPPONENT) + _spare(font))
+		return ceilf(_side(font, YOU) + _side(font, opponent) + _spare(font))
 
 	# From the strip's edge to the middle of the frames block, on the side of `player`.
 	func _side(font: Font, player: String) -> float:
@@ -111,7 +113,7 @@ class Strip extends Control:
 		var required := String(said.get("required", ""))
 		if not required.is_empty():
 			detail += DETAIL_GAP + _width(font, required, DETAIL_SIZE)
-		return maxf(detail - _side(font, YOU) - _side(font, OPPONENT), 0.0)
+		return maxf(detail - _side(font, YOU) - _side(font, opponent), 0.0)
 
 	func _draw() -> void:
 		draw_style_box(_panel, Rect2(Vector2.ZERO, size))
@@ -126,7 +128,7 @@ class Strip extends Control:
 		var right := size.x - PAD - MARKER_SLOT
 		var marker_y := TOP_BASELINE - NAME_SIZE * 0.36
 		_write(font, YOU, left, TOP_BASELINE, NAME_SIZE, text_colour if turn == "you" else muted)
-		_write(font, OPPONENT, right - _width(font, OPPONENT, NAME_SIZE), TOP_BASELINE, NAME_SIZE,
+		_write(font, opponent, right - _width(font, opponent, NAME_SIZE), TOP_BASELINE, NAME_SIZE,
 				text_colour if turn == "opponent" else muted)
 		if turn == "you":
 			draw_circle(Vector2(PAD + MARKER_RADIUS, marker_y), MARKER_RADIUS, SettingsPanel.ACCENT, true, -1.0, true)
@@ -292,7 +294,7 @@ func show_frame(frame: Dictionary, match_state: Dictionary, person: int = 0) -> 
 		if Kit.integer_at(view, "required", person, FRAME, 0) > 0:
 			required = YOU_NEED_SNOOKERS
 		elif Kit.integer_at(view, "required", other, FRAME, 0) > 0:
-			required = OPPONENT_NEEDS_SNOOKERS
+			required = _strip.opponent + NEEDS_SNOOKERS
 	var config := Kit.dictionary(match_state, "config", MATCH)
 	var striker := Kit.integer(frame, "striker", FRAME)
 	var said := {
@@ -318,10 +320,19 @@ func show_frame(frame: Dictionary, match_state: Dictionary, person: int = 0) -> 
 	_strip.on_ball = on_ball
 	_strip.queue_redraw()
 	if widened:
-		if _area.has_area():
-			place_in(_area)
-		else:
-			Kit.put(_strip, _strip.position, Vector2(_strip.design_width(), HEIGHT))
+		_fit()
+
+
+## The name at the strip's right end: the opponent's level's ("Beginner"), "Computer" until given
+## one. The strip widens or narrows to it.
+func set_opponent_name(opponent: String) -> void:
+	if opponent == _strip.opponent:
+		return
+	if _strip.said.get("required") == _strip.opponent + NEEDS_SNOOKERS:
+		_strip.said["required"] = opponent + NEEDS_SNOOKERS
+	_strip.opponent = opponent
+	_strip.queue_redraw()
+	_fit()
 
 
 ## Puts the scoreboard along the top of `area` (canvas units), the frames in the strip's middle
@@ -345,8 +356,8 @@ func pause_button() -> Button:
 
 
 ## What the scoreboard says, for tests: {you, opponent, frames_you, frames_opponent, best_of,
-## break, remaining, required ("You need snookers", "Computer needs snookers" or "" when nobody
-## requires penalty points), on (the ball on in words: "Red", "Colour", "Blue", "Free ball"), turn
+## break, remaining, required ("You need snookers", "<opponent's name> needs snookers" or "" when
+## nobody requires penalty points), on (the ball on in words: "Red", "Colour", "Blue", "Free ball"), turn
 ## ("you" | "opponent")}. The numbers are ints: break is 0 when none shows, and a number the frame
 ## or the match did not give is -1 and is left blank; turn is "" when the frame names no striker.
 ## Once the frame is over, break is 0, remaining -1, and required, on and turn are "". {} before
@@ -385,6 +396,13 @@ static func _on_ball(frame: Dictionary) -> String:
 			return ""
 	Kit.problem("Scoreboard: no words for a ball on of kind \"%s\"" % kind)
 	return ""
+
+
+func _fit() -> void:
+	if _area.has_area():
+		place_in(_area)
+	else:
+		Kit.put(_strip, _strip.position, Vector2(_strip.design_width(), HEIGHT))
 
 
 func _auto_place() -> void:

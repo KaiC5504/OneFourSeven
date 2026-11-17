@@ -31,6 +31,7 @@ var auto_place := true
 var _texts := {}
 var _title: Label
 var _reason: Label
+var _names: Array[Label]
 var _score: Array[Label]
 var _break: Array[Label]
 var _pots: Array[Label]
@@ -100,6 +101,12 @@ func close() -> void:
 	visible = false
 
 
+## The name over the opponent's column: its level's ("Beginner"), "Computer" until given one.
+func set_opponent_name(opponent: String) -> void:
+	_names[1].text = opponent
+	_auto_place()
+
+
 ## "continue".
 func button(id: String) -> Button:
 	return _continue if id == "continue" else null
@@ -137,7 +144,7 @@ func _build() -> void:
 
 	var frame := Kit.table()
 	body.add_child(frame)
-	Kit.heading(frame)
+	_names = Kit.heading(frame)
 	_score = Kit.row(frame, "Score", SCORE_FONT_SIZE)
 	_break = Kit.row(frame, "Highest break", VALUE_FONT_SIZE)
 	_pots = Kit.row(frame, "Pot success", VALUE_FONT_SIZE)
