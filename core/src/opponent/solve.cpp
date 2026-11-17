@@ -56,19 +56,29 @@ nlohmann::json balls_json(const rules::Position& p, Vec2 cue) {
     return out;
 }
 
+thread_local TrialFailures* g_failures = nullptr;
+
 // app.error takes no fields of its own for the stroke, so it travels in the message: enough to
 // simulate the stroke again from the log line alone.
 void failure_logged(const char* function, const char* kind, const std::string& what, const rules::Position& p,
                     Vec2 cue, const phys::CueStrike& strike) {
-    nlohmann::json data = {{"kind", kind},
-                           {"function", function},
-                           {"message", what + "; cue_ball " + std::to_string(p.cue_ball) + "; strike " +
-                                           strike_json(strike).dump() + "; balls " + balls_json(p, cue).dump()}};
+    nlohmann::json data = {{"kind", kind}, {"function", function}};
+    if (g_failures != nullptr && g_failures->count() > 0) {
+        // Counted only: the message is not worth building.
+        g_failures->note(std::move(data));
+        return;
+    }
+    data["message"] = what + "; cue_ball " + std::to_string(p.cue_ball) + "; strike " + strike_json(strike).dump() +
+                      "; balls " + balls_json(p, cue).dump();
     const nlohmann::json& context = rules::scoped_log_context();
     for (const char* key : {"match_id", "frame"}) {
         if (context.contains(key)) data[key] = context[key];
     }
-    log::error("app", "app.error", std::move(data));
+    if (g_failures != nullptr) {
+        g_failures->note(std::move(data));
+    } else {
+        log::error("app", "app.error", std::move(data));
+    }
 }
 
 void read_record(const phys::ShotRecord& r, int cue_ball, Trial& out) {
@@ -111,6 +121,7 @@ struct Tried {
     bool pots = false;
     bool readable = false;  // the cue ball met the target first and its departure was read
     double error = 0.0;     // departure minus wanted, when readable
+    std::shared_ptr<const phys::ShotRecord> record;  // kept when it pots
 };
 
 class Solver {
@@ -152,6 +163,7 @@ private:
                              record.final_state.balls[std::size_t(pot_.target)].pocket == pot_.pocket;
         t.pots = r.clean && r.first_hit == pot_.target && dropped && !r.cue_potted;
         if (r.first_hit == pot_.target) read_departure(record, t);
+        if (t.pots) t.record = std::make_shared<const phys::ShotRecord>(std::move(record));
         if (t.pots && (!have_success_ || better(t, success_))) {
             success_ = t;
             have_success_ = true;
@@ -321,9 +333,11 @@ private:
         if (reached.pots) {
             out.found = true;
             out.trial = reached.trial;
+            out.record = reached.record;
         } else if (have_success_) {
             out.found = true;
             out.trial = success_.trial;
+            out.record = success_.record;
             out.window_rad = 0.0;
         } else {
             out.trial = reached.trial;
@@ -345,6 +359,36 @@ private:
 };
 
 }  // namespace
+
+TrialFailures::TrialFailures(nlohmann::json fields) : fields_(std::move(fields)), outer_(g_failures) {
+    g_failures = this;
+}
+
+TrialFailures::~TrialFailures() {
+    g_failures = outer_;
+    if (count_ <= 1) return;
+    try {
+        nlohmann::json data = {{"kind", "repeated"},
+                               {"function", "opponent::choose_stroke"},
+                               {"message", "trial simulations that failed in one decision after the first logged"},
+                               {"more", count_ - 1}};
+        const nlohmann::json& context = rules::scoped_log_context();
+        for (const char* key : {"match_id", "frame"}) {
+            if (context.contains(key)) data[key] = context[key];
+        }
+        for (auto it = fields_.begin(); it != fields_.end(); ++it) data[it.key()] = it.value();
+        log::error("app", "app.error", std::move(data));
+    } catch (const std::exception&) {
+        // A destructor must not throw; the first failure is in the log already.
+    }
+}
+
+void TrialFailures::note(nlohmann::json data) {
+    ++count_;
+    if (count_ > 1) return;
+    for (auto it = fields_.begin(); it != fields_.end(); ++it) data[it.key()] = it.value();
+    log::error("app", "app.error", std::move(data));
+}
 
 Trial try_strike(const rules::Position& p, rules::Vec2 cue, const phys::CueStrike& strike, const Env& env,
                  phys::ShotRecord* record) {

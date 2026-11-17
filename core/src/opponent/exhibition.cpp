@@ -30,6 +30,17 @@ std::string unsound(const Exhibition& e) {
         if (seen[std::size_t(b)] != 1) return "the " + std::string(table::ball_name(b)) + " is not listed once";
     }
     if (e.balls.at(std::size_t(e.cue_ball)).ball != rules::Ball::cue) return "cue_ball is not the cue ball's place";
+    // A ball touching a cushion sits at exactly this bound, which rounding can push a hair past.
+    constexpr double kSlack_m = 1.0e-9;
+    const double hx = table::kPlayingLength / 2.0 - table::kBallRadius + kSlack_m;
+    const double hy = table::kPlayingWidth / 2.0 - table::kBallRadius + kSlack_m;
+    for (const rules::BallOnTable& b : e.balls) {
+        if (std::abs(b.pos.x) <= hx && std::abs(b.pos.y) <= hy) continue;
+        const std::string name = b.ball == rules::Ball::red ? "red " + std::to_string(b.index)
+                                                            : "the " + std::string(table::ball_name(b.ball));
+        return name + " is off the cloth or in a pocket (" + std::to_string(b.pos.x) + ", " +
+               std::to_string(b.pos.y) + ")";
+    }
     for (std::size_t i = 0; i < e.balls.size(); ++i) {
         for (std::size_t j = i + 1; j < e.balls.size(); ++j) {
             const double dx = e.balls[i].pos.x - e.balls[j].pos.x;

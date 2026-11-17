@@ -78,8 +78,7 @@ int place_of(const FrameState& s, Ball ball) {
 
 double distance(Vec2 a, Vec2 b) { return std::hypot(a.x - b.x, a.y - b.y); }
 
-double ball_quality(const FrameState& s, int place, const Env& env) {
-    const int pockets = int(pockets_open_to(s, place, env).size());
+double ball_quality(const FrameState& s, int place, int pockets) {
     if (pockets == 0) return 0.0;
     const BallOnTable& ball = s.balls[std::size_t(place)];
     const double gap = std::min(table::kPlayingLength / 2.0 - std::abs(ball.pos.x),
@@ -91,10 +90,10 @@ double ball_quality(const FrameState& s, int place, const Env& env) {
     return quality;
 }
 
-double black_open(const FrameState& s, int black, const Env& env) {
+double black_open(int black, const std::vector<std::vector<int>>& open, const Env& env) {
     if (black < 0) return 0.0;
     int corners = 0;
-    for (const int k : pockets_open_to(s, black, env)) {
+    for (const int k : open[std::size_t(black)]) {
         const phys::Pocket& pocket = env.table.pockets[std::size_t(k)];
         if (pocket.corner && pocket.drop_centre.x > 0.0) ++corners;
     }
@@ -112,6 +111,7 @@ Outlook read_table(const rules::FrameState& s, const std::vector<Pot>& listed, c
 
     int reds = 0;
     for (const BallOnTable& b : s.balls) reds += b.ball == Ball::red ? 1 : 0;
+    const std::vector<std::vector<int>> pockets = pockets_open_to_each(s, env);
     int open = 0;
     double awkward = 0.0;
     std::vector<double> quality(s.balls.size(), 1.0);
@@ -121,7 +121,7 @@ Outlook read_table(const rules::FrameState& s, const std::vector<Pot>& listed, c
         // A colour knocked off its spot is potted from where it lies once the reds are gone; the
         // black goes back to its spot until then.
         if (ball == Ball::black && reds > 0) continue;
-        quality[i] = ball_quality(s, int(i), env);
+        quality[i] = ball_quality(s, int(i), int(pockets[i].size()));
         awkward += 1.0 - quality[i];
         if (ball == Ball::red) open += quality[i] > 0.0 ? 1 : 0;
     }
@@ -129,7 +129,7 @@ Outlook read_table(const rules::FrameState& s, const std::vector<Pot>& listed, c
 
     double colour_follows = 0.0;
     if (s.on.kind == OnKind::red) {
-        colour_follows = black_open(s, black, env);
+        colour_follows = black_open(black, pockets, env);
         if (!on) colour_follows = std::max(colour_follows, kAnotherColour);
     }
     double red_follows = kYellowAfterBlack;
@@ -159,7 +159,7 @@ Outlook read_table(const rules::FrameState& s, const std::vector<Pot>& listed, c
             case OnKind::colour: {
                 if (ball.ball == Ball::black || s.free_ball) break;
                 const int next = place_of(s, Ball(int(s.on.colour) + 1));
-                if (next >= 0 && pockets_open_to(s, next, env).empty()) after = kNextColourShut;
+                if (next >= 0 && pockets[std::size_t(next)].empty()) after = kNextColourShut;
                 break;
             }
         }

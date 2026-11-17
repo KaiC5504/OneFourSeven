@@ -340,12 +340,12 @@ TEST_CASE("a maximum still on is played out: the 147 does not claim the frame at
     CHECK(p.judgement.post.over);
     CHECK(p.judgement.post.scores[0] == 147);
 
+    // With it gone the highest break still pots the black it has a pot of (README "A claim").
     s.break_points = 0;
     REQUIRE_FALSE(maximum_on(s));
     const Stroke claim = choose(s);
-    CHECK(claim.decides);
-    CHECK(claim.decision == rules::DecisionKind::claim_frame);
-    CHECK(word(claim, "kind") == "claim");
+    CHECK_FALSE(claim.decides);
+    CHECK(word(claim, "kind") == "pot");
     CHECK(word(claim, "level") == "maximum");
 }
 
