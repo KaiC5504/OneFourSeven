@@ -128,7 +128,7 @@ New subsystems: `input`, `ui`, `audio`, `settings`, `freetable`. A played shot l
 | Event | Level | When | Fields |
 | --- | --- | --- | --- |
 | `app.error` + | | | `match_id`, `frame` when it happened in a match (`kind` `exception` from `OfsMatch` or the stand-in); from the opponent's search also `shot_id`, `level`, `seed`, and `more` (how many more errors like it the same decision met: only the first is logged in full) |
-| `rules.configured` | info/error | the match engine was given its referee and stand-in values (error when refused) | `ok`, `values` (the referee's), `standin`, `params_hash` (the physics values' hash, as `params.loaded` has it; `""` without physics), `problems` |
+| `rules.configured` | info/error | the match engine was given its referee and stand-in values (error when refused) | `ok`, `values` (the referee's), `standin`, `params_hash` (the physics values' hash, as `params.loaded` has it; `""` without physics), `problems`; from M4 `levels` (each level's `id`, values and `hash`, the level file's content hash) and `exhibitions` (the tables' names) |
 | `rules.decision` | info | the referee judged a stroke | `pre` (the frame before it), `input` (the nomination), `facts` (what was seen in the shot record), `judgement` (fouls with clauses and values, penalty, miss and why, points, calls; no `post`), `after` (`striker`, `scores`, `on`, `free_ball`, `cue_in_hand`, `pending`, `decider`, `over`, `winner`, `end_reason`), `post_hash` (the hash of the frame after it), `ref` (the referee's values) |
 | `rules.choice` | info/warn | a player chose after a foul, answered a re-rack or the toss, claimed or conceded (warn when refused) | `before` (the frame), `player`, `kind`, `ok`, `error`, `options` (what was offered), `calls`, `after`, `post_hash`; no `shot_id` |
 | `rules.cue_placed` | info/warn | the in-hand cue ball was placed (warn when refused) | `player`, `x`, `y`, `ok`, `error` |
@@ -168,7 +168,7 @@ New subsystems: `input`, `ui`, `audio`, `settings`, `freetable`. A played shot l
 | `opponent.fallback` | warn | a level could not work a stroke out and played the stand-in's plainest | `level`, `why`, `player`, `seed`, `shot_id` |
 | `opponent.cancelled` | info | thinking was stopped before it answered (the match was left, the pause menu quit) | `level`, `why` (`left`, `conceded`, `claimed`, `replaced` by a new request, `paused`), `ms`, `player`, `seed`, `shot_id` |
 | `exhibition.started` | info | Watch a 147 began | `layout` (its name in `exhibitions.json`), `level`, `match_id` |
-| `exhibition.ended` | info | the exhibition's break ended | `break_points`, `maximum` (147 made), `why` (`maximum`, `missed`, `fouled`, `left`: the person left; from the tournament also `claimed` and `failed`), `strokes`, `match_id` |
+| `exhibition.ended` | info | the exhibition's break ended | `break_points`, `maximum` (147 made), `why` (`maximum`, `missed`, `fouled`, `left`: the person left; from the tournament also `claimed`, `conceded` and `failed`), `strokes`, `match_id` |
 | `camera.watch` | info | the view of the opponent's turn changed | `view` (`cue`, `above`, `round`), `how` (`button`, `harness`, `turn`: back to the cue view at the person's turn), `match_id` |
 
 `match.started` also carries `level` (the opponent's level id) and, for Watch a 147, `exhibition`
