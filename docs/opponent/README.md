@@ -75,7 +75,8 @@ Four normals are always drawn, in the order aim, speed, tip x, tip y.
   the table by rules of thumb (an easy pot of the next ball needed, the black open to both top
   corners, reds opened from the pack, the cue ball not on a cushion or behind a colour).
 - With no pot of the ball it needs, it does not take another ball: it plays the stand-in's safety
-  or escape, with no error, and waits.
+  or escape, with no error, and waits. The same when no break is under way and no red it could
+  pot leaves the black to follow: potting one would only end the maximum.
 - Once the maximum is gone (the owner, 2026-11-17) it plays on for the highest break still
   possible: the same search, taking the black after a red whenever it can and the best colour
   when it cannot.
@@ -107,14 +108,19 @@ What can be seen from outside, and so tested:
   then the best of those again; when the budget stops it, the answer is the best of the deepest
   stage that finished at least one candidate. A candidate that would end the maximum (two reds
   in a stroke, a colour other than the black after a red) is not taken while another keeps it.
-- **Budget**: checked before each step. `stopped` is `done` when the search ran out of
+  With simulations to spare in its first stage it also tries the speeds between the ladder's
+  rungs, and of two strokes worth the same it plays the quieter (a small charge for pace and
+  spin).
+- **Budget**: checked before each step but the first, which is always taken (a decision logged
+  with no steps would replay with no limit). `stopped` is `done` when the search ran out of
   candidates by itself, else `sims`, `steps`, `time` or `cancelled`. The simulations may pass
   `max_sims` by the step in hand. The answer is a pure function of the frame, the level, the
   seed and the steps taken, so `max_steps` set to a logged `think.steps` gives that stroke again.
   Stopped before the first step finished, it plays the stand-in's stroke with the level's error
   and says so (`fallback`).
 - **Played**: `with_error(meant, level, &pot, ...)`, four draws. For the 147 `strike == meant`,
-  and since nothing in it is random its stroke is the same whatever the seed.
+  and since nothing in it is random its stroke is the same whatever the seed. When the error
+  turns the aim over a cushion the cue is raised to clear it, in `meant` as in `strike`.
 - **`why.maximum`**: `on` when the level plays for a maximum and `maximum_on` holds for the frame
   it was asked about, `gone` when the level plays for one and it does not, `off` for any other
   level. With `gone`, `why.maximum_why` says which: `a red is off the table` (fewer than fifteen
@@ -147,8 +153,9 @@ by `choose_option`, judged by `rules::judge_shot`, exactly as a match in the gam
   ends; the break made on each.
 
 Stage 1's marks (the gate): Beginner against itself over 2,000 frames pots 30 to 40% of medium
-attempts and 5 to 15% of long ones, its mean break when in is under 10 and safeties are under 10%
-of its strokes. The 147 pots every attempt it plans (no error: a planned pot that stays out is a
+attempts and 5 to 15% of long ones, its mean break when in is under 10, and it plays safe on
+fewer than 10% of the strokes where a pot was listed (it has no pot at all in about one position
+in seven, mostly among the colours and balls on cushions; that share is reported, not marked). The 147 pots every attempt it plans (no error: a planned pot that stays out is a
 bug), makes 147 on every table of `exhibitions.json`, and wins at least 95% of frames against
 Beginner. Its rate of maximums from real break-offs is reported, not marked.
 
@@ -161,7 +168,8 @@ chose by); `spec` (`speed_m_s`, `tip_x`, `tip_y`, `elevation_rad` as meant); `le
 that pot's); `plan` (the strokes planned after this one: `target`, `pocket`); `others` (up to
 three next best: `target`, `pocket`, `worth`); `drawn` (`aim_rad`, `speed`, `tip_x`, `tip_y`);
 `maximum` (`on`, `off`, `gone`). For a safety, escape or break-off the stand-in's `why`
-(`standin.hpp`) with `level` added. A claim or concession: `level`, `kind`.
+(`standin.hpp`) with `level`, `drawn` and `maximum` added, and for a level with error `listed`
+(the pots it had), `pots` and `declined`. A claim or concession: `level`, `kind`.
 
 ## The game
 
