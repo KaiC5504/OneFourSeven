@@ -112,6 +112,8 @@ struct Tally {
     std::vector<int> breaks;
     long long safeties = 0;
     long long escapes = 0;
+    long long safeties_with_pot = 0;
+    long long no_pot = 0;
     long long fouls = 0;
     long long points = 0;
     long long visits_on = 0;
@@ -137,6 +139,8 @@ struct Tally {
         breaks.insert(breaks.end(), o.breaks.begin(), o.breaks.end());
         safeties += o.safeties;
         escapes += o.escapes;
+        safeties_with_pot += o.safeties_with_pot;
+        no_pot += o.no_pot;
         fouls += o.fouls;
         points += o.points;
         visits_on += o.visits_on;
@@ -902,10 +906,12 @@ private:
             mine.made += scored ? 1 : 0;
             mine.band_made[static_cast<std::size_t>(band)] += scored ? 1 : 0;
             if (me.exact) check_planned_pot(step);
-        } else if (kind == "safety") {
-            ++mine.safeties;
-        } else if (kind == "escape") {
-            ++mine.escapes;
+        } else if (kind == "safety" || kind == "escape") {
+            ++(kind == "safety" ? mine.safeties : mine.escapes);
+            // `pots` is the strokes its search found that make a pot; the stand-in's own lines have none.
+            const auto pots = st.why.find("pots");
+            const bool had_pot = pots != st.why.end() && pots->is_number() && pots->get<double>() > 0.0;
+            ++(had_pot ? mine.safeties_with_pot : mine.no_pot);
         }
 
         const FrameState& post = j.post;
@@ -1008,6 +1014,8 @@ json stats_json(const Tally& s) {
               {"maximums", maximums}}},
             {"safeties", s.safeties},
             {"escapes", s.escapes},
+            {"safeties_with_pot", s.safeties_with_pot},
+            {"no_pot", s.no_pot},
             {"fouls", s.fouls},
             {"points", s.points},
             {"maximum", {{"visits_on", s.visits_on}, {"completed", s.completed}}},
@@ -1061,6 +1069,13 @@ void print_table(const Run& run, const json& a, const json* b) {
         return percent(s["safeties"].get<long long>(), s["strokes"].get<long long>());
     });
     row("escapes", [](const json& s) { return std::to_string(s["escapes"].get<long long>()); });
+    row("safe with a pot", [](const json& s) {
+        const long long safe = s["safeties_with_pot"].get<long long>();
+        return percent(safe, safe + s["pots"]["attempts"].get<long long>());
+    });
+    row("no pot at all", [](const json& s) {
+        return percent(s["no_pot"].get<long long>(), s["strokes"].get<long long>());
+    });
     row("fouls", [](const json& s) { return percent(s["fouls"].get<long long>(), s["strokes"].get<long long>()); });
     row("points", [](const json& s) { return std::to_string(s["points"].get<long long>()); });
     row("maximum on / made", [](const json& s) {

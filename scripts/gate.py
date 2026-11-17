@@ -10,7 +10,10 @@ the one its dimensions give, tools/make_table_shape.py --check; then the calibra
 of random shots: 2,000 with --quick, otherwise the full 100,000 of spec C14 on each of two seeds,
 the stand-in playing itself with every stroke and choice checked against the rules engine's
 invariants: 20 frames with --quick, otherwise 300 on each seed, and the simulation benchmarks
-against the 2 ms budget and the baseline, only reported on CI), the
+against the 2 ms budget and the baseline, only reported on CI), with that build the computer
+opponent's tournaments (Beginner against itself and the 147 against Beginner with the exhibition
+tables, 30 and 3 frames with --quick, each to play clean; otherwise 2,000 and 100, and
+tools/opponent_report.py --check stage1 on their reports, written to build/opponent/), the
 Godot tests (sync_data, --import, res://tests/run_tests.gd), a short headless run of the game
 whose session log must pass tools/check_logs.py with no app.error, the PC tools' tests
 and the workflow tests. The full gate adds a Windows export (build_windows.py --check). Lanes run
@@ -49,6 +52,14 @@ FUZZ_SHOTS_FULL = 100_000
 FUZZ_SEEDS_FULL = (1, 4242)
 MATCH_FRAMES_QUICK = 20
 MATCH_FRAMES_FULL = 300
+# The computer opponent's lane: stage 1's marks are measured over the full counts.
+BEGINNER_FRAMES_QUICK = 30
+MAXIMUM_FRAMES_QUICK = 3
+BEGINNER_FRAMES_FULL = 2000
+MAXIMUM_FRAMES_FULL = 100
+OPPONENT_THREADS = 4
+OPPONENT_TIMEOUT_FULL = 1800
+OPPONENT_REPORTS = ROOT / "build" / "opponent"
 LOGS = ROOT / "build" / "gate"
 GAME = ROOT / "game"
 # The logs lane's own user:// (Godot has no flag for it), so no other run's session can mix in.
@@ -180,6 +191,58 @@ def physics_steps(quick: bool) -> list[Step]:
     ]
 
 
+def tournament_step(a: str, b: str, frames: int, exhibitions: bool, timeout: float,
+                    report: Path | None = None) -> Step:
+    """One tournament. Without a report it must exit 0. With one, a run that failed (exit 1) but
+    wrote its report passes here, so the marks are still read and written down;
+    tournament_failures() fails the lane after them."""
+    # Each its own failure folder: a tournament clears its folder's old repros before it plays.
+    out = ROOT / "build" / "tournament-failures" / f"{a}-{b}"
+
+    def lane_step() -> Result:
+        command = [sim_cli(), "tournament", "--a", a, "--b", b, "--frames", str(frames),
+                   "--threads", str(OPPONENT_THREADS), "--out", out]
+        if exhibitions:
+            command.append("--exhibitions")
+        if report is None:
+            return run(command, timeout=timeout)
+        report.unlink(missing_ok=True)
+        ok, output = run(command + ["--report", report], timeout=timeout)
+        if not ok and output.endswith("\nexit code 1") and report.exists():
+            return True, output + " (its failures fail the lane once the marks are read)"
+        return ok, output
+    return lane_step
+
+
+def tournament_failures(reports: list[Path]) -> Step:
+    def lane_step() -> Result:
+        lines = []
+        for path in reports:
+            failures = json.loads(path.read_text(encoding="utf-8"))["failures"]
+            lines.append(f"{path.name}: {len(failures)} failures")
+            lines += [f"  {f['where']}, stroke {f['stroke']} ({f['level']}), {f['kind']}: {f['detail']}"
+                      for f in failures[:20]]
+        return all(line.endswith(": 0 failures") for line in lines), "\n".join(lines)
+    return lane_step
+
+
+def opponent_steps(quick: bool) -> list[Step]:
+    """The computer opponent's tournaments: with --quick only that they play clean, otherwise also
+    stage 1's marks (docs/opponent/README.md) through tools/opponent_report.py."""
+    if quick:
+        return [tournament_step("beginner", "beginner", BEGINNER_FRAMES_QUICK, False, timeout=300),
+                tournament_step("maximum", "beginner", MAXIMUM_FRAMES_QUICK, True, timeout=300)]
+    beginner = OPPONENT_REPORTS / "beginner.json"
+    maximum = OPPONENT_REPORTS / "maximum.json"
+    return [
+        tournament_step("beginner", "beginner", BEGINNER_FRAMES_FULL, False, OPPONENT_TIMEOUT_FULL, beginner),
+        tournament_step("maximum", "beginner", MAXIMUM_FRAMES_FULL, True, OPPONENT_TIMEOUT_FULL, maximum),
+        step([sys.executable, ROOT / "tools" / "opponent_report.py", beginner, maximum,
+              "--out", OPPONENT_REPORTS / "report.md", "--check", "stage1"]),
+        tournament_failures([beginner, maximum]),
+    ]
+
+
 def godot() -> str:
     return str(godot_tools.find_godot())
 
@@ -304,6 +367,8 @@ def lanes(quick: bool) -> list[Lane]:
         Lane("core", [step(["ctest", "--test-dir", BUILD, "-C", "Debug", "-LE", "calibration",
                             "--output-on-failure"])], after=["build"]),
         Lane("physics", physics_steps(quick)),
+        # The physics lane's Release build is the CLI it plays with.
+        Lane("opponent", opponent_steps(quick), after=["physics"]),
         Lane("godot", [step([sys.executable, ROOT / "scripts" / "sync_data.py"]), godot_import, godot_tests],
              after=["build"]),
         # Needs the Godot lane's import.

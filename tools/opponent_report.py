@@ -5,8 +5,8 @@
 
 One section per report file: who played whom, the frames, a table of each level's counts and the
 exhibition breaks. With --check stage1 each mark is printed with its value and PASS or FAIL, a
-mark no report holds is MISSING, and the exit is 1 on any FAIL or MISSING; the marks also go into
-the written report.
+mark no report holds is MISSING, and the exit is 1 on any FAIL or MISSING; a count the stage only
+reports is REPORTED and never fails. The marks also go into the written report.
 """
 import argparse
 import json
@@ -17,7 +17,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 EXHIBITIONS = ROOT / "core" / "data" / "exhibitions.json"
 BANDS = ("short", "medium", "long", "unknown")
 STAGE1_FRAMES = 2000
-PASS, FAIL, MISSING = "PASS", "FAIL", "MISSING"
+PASS, FAIL, MISSING, REPORTED = "PASS", "FAIL", "MISSING", "REPORTED"
 
 
 class ReportError(Exception):
@@ -70,6 +70,9 @@ def rows(stats):
             ("- 50+ / 100+ / 147", f"{breaks['fifty_plus']} / {breaks['hundred_plus']} / {breaks['maximums']}"),
             ("safeties", percent(stats["safeties"], stats["strokes"])),
             ("escapes", str(stats["escapes"])),
+            ("safe with a pot to play", percent(stats["safeties_with_pot"],
+                                                stats["safeties_with_pot"] + pots["attempts"])),
+            ("no pot at all", percent(stats["no_pot"], stats["strokes"])),
             ("fouls", percent(stats["fouls"], stats["strokes"])),
             ("points scored", str(stats["points"])),
             ("visits with the maximum on / 147s", f"{stats['maximum']['visits_on']} / {stats['maximum']['completed']}"),
@@ -115,9 +118,10 @@ def section(name, report):
 
 
 def combined(report, wanted):
-    """The sides of `report` played by level `wanted`, their counts added: (pots by band, breaks, strokes, safeties)."""
+    """The sides of `report` played by level `wanted`, their counts added: (pots by band, mean break,
+    strokes, attempts, safeties with a pot, strokes with no pot)."""
     bands = {band: [0, 0] for band in BANDS}
-    breaks_count, breaks_total, strokes, safeties = 0, 0.0, 0, 0
+    breaks_count, breaks_total, strokes, attempts, safe_with_pot, no_pot = 0, 0.0, 0, 0, 0, 0
     for side in ("a", "b"):
         if level_id(report, side) != wanted or not report.get(side):
             continue
@@ -128,8 +132,11 @@ def combined(report, wanted):
         breaks_count += stats["breaks"]["count"]
         breaks_total += stats["breaks"]["mean"] * stats["breaks"]["count"]
         strokes += stats["strokes"]
-        safeties += stats["safeties"]
-    return bands, (breaks_total / breaks_count if breaks_count else None), strokes, safeties
+        attempts += stats["pots"]["attempts"]
+        safe_with_pot += stats["safeties_with_pot"]
+        no_pot += stats["no_pot"]
+    mean_break = breaks_total / breaks_count if breaks_count else None
+    return bands, mean_break, strokes, attempts, safe_with_pot, no_pot
 
 
 def best(reports, test):
@@ -140,6 +147,10 @@ def best(reports, test):
 
 def mark(name, value, wanted, ok):
     return {"name": name, "value": value, "wanted": wanted, "status": PASS if ok else FAIL}
+
+
+def reported(name, value, wanted):
+    return {"name": name, "value": value, "wanted": wanted, "status": REPORTED}
 
 
 def missing(name, why):
@@ -158,15 +169,16 @@ def stage1(reports, exhibitions_file=EXHIBITIONS):
 
     found = best(reports, against_itself)
     names = ["Beginner's frames against itself", "Beginner's medium pots", "Beginner's long pots",
-             "Beginner's mean break", "Beginner's safeties"]
+             "Beginner's mean break", "Beginner's safeties with a pot to play"]
     if found is None:
         marks += [missing(name, "a report of beginner against beginner") for name in names]
     else:
         name, report = found
-        bands, mean_break, strokes, safeties = combined(report, "beginner")
+        bands, mean_break, strokes, attempts, safe_with_pot, no_pot = combined(report, "beginner")
         medium = share(*bands["medium"])
         long_ = share(*bands["long"])
-        safety = share(safeties, strokes)
+        with_pot = attempts + safe_with_pot
+        safety = share(safe_with_pot, with_pot)
         marks += [
             mark(names[0], f"{report['frames']} ({name})", f"at least {STAGE1_FRAMES}",
                  report["frames"] >= STAGE1_FRAMES),
@@ -174,7 +186,9 @@ def stage1(reports, exhibitions_file=EXHIBITIONS):
             mark(names[2], percent(*bands["long"]), "5 to 15%", in_range(long_, 0.05, 0.15)),
             mark(names[3], "none" if mean_break is None else f"{mean_break:.2f}", "under 10",
                  mean_break is not None and mean_break < 10),
-            mark(names[4], percent(safeties, strokes), "under 10% of strokes", safety is not None and safety < 0.10),
+            mark(names[4], percent(safe_with_pot, with_pot), "under 10% of strokes with a pot to play",
+                 safety is not None and safety < 0.10),
+            reported("Beginner's strokes with no pot at all", percent(no_pot, strokes), "reported, not marked"),
         ]
 
     def maximum_against_beginner(report):
@@ -250,9 +264,11 @@ def main(argv=None):
     if marks is None:
         return 0
     for m in marks:
-        print(f"{m['status']:<7} {m['name']}: {m['value']} (wanted {m['wanted']})")
-    bad = [m for m in marks if m["status"] != PASS]
-    print(f"{len(marks) - len(bad)} of {len(marks)} marks met" + (f"; not met: {len(bad)}" if bad else ""))
+        wanted = "" if m["status"] == REPORTED else f" (wanted {m['wanted']})"
+        print(f"{m['status']:<8} {m['name']}: {m['value']}{wanted}")
+    marked = [m for m in marks if m["status"] != REPORTED]
+    bad = [m for m in marked if m["status"] != PASS]
+    print(f"{len(marked) - len(bad)} of {len(marked)} marks met" + (f"; not met: {len(bad)}" if bad else ""))
     return 1 if bad else 0
 
 

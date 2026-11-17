@@ -167,6 +167,89 @@ class Lanes(unittest.TestCase):
         self.assertEqual(["bench", "--check"], bench(self.physics_commands(quick=True, ci=False)))
         self.assertEqual(["bench"], bench(self.physics_commands(quick=True, ci=True)))
 
+    def opponent_commands(self, quick: bool, results=None) -> tuple[list[list[str]], list[tuple[bool, str]]]:
+        results = list(results or [])
+        calls = []
+
+        def fake_run(command, cwd=gate.ROOT, timeout=900, env=None):
+            calls.append([str(part) for part in command])
+            return results.pop(0) if results else (True, "")
+
+        outcomes = []
+        with mock.patch.object(gate, "sim_cli", return_value=Path("sim")), \
+                mock.patch.object(gate, "run", side_effect=fake_run):
+            for opponent_step in gate.opponent_steps(quick):
+                outcome = opponent_step()
+                outcomes.append(outcome)
+                if not outcome[0]:
+                    break
+        return calls, outcomes
+
+    def test_the_opponent_lane_plays_after_the_physics_build(self):
+        for quick in (True, False):
+            lanes = {lane.name: lane for lane in gate.lanes(quick=quick)}
+            self.assertEqual(["physics"], lanes["opponent"].after)
+
+    def test_quick_plays_both_tournaments_with_no_marks(self):
+        calls, _ = self.opponent_commands(quick=True)
+        self.assertEqual(2, len(calls))
+        beginner, maximum = calls
+        self.assertEqual(["sim", "tournament", "--a", "beginner", "--b", "beginner", "--frames", "30"], beginner[:8])
+        self.assertEqual(["sim", "tournament", "--a", "maximum", "--b", "beginner", "--frames", "3"], maximum[:8])
+        self.assertIn("--exhibitions", maximum)
+        for command in calls:
+            self.assertEqual("4", command[command.index("--threads") + 1])
+            self.assertNotIn("--report", command)
+
+    def test_full_checks_stage1_on_the_two_reports(self):
+        with tempfile.TemporaryDirectory() as temp, mock.patch.object(gate, "OPPONENT_REPORTS", Path(temp)):
+            for name in ("beginner.json", "maximum.json"):
+                (Path(temp) / name).write_text(json.dumps({"failures": []}), encoding="utf-8")
+            with mock.patch.object(Path, "unlink"):
+                calls, outcomes = self.opponent_commands(quick=False)
+        self.assertEqual(["2000", "100"], [c[c.index("--frames") + 1] for c in calls[:2]])
+        self.assertEqual([str(Path(temp) / "beginner.json"), str(Path(temp) / "maximum.json")],
+                         [c[c.index("--report") + 1] for c in calls[:2]])
+        report = calls[2]
+        self.assertTrue(report[1].endswith("opponent_report.py"))
+        self.assertEqual(["--check", "stage1"], report[-2:])
+        self.assertEqual(4, len(outcomes))
+        self.assertTrue(all(ok for ok, _ in outcomes))
+
+    def test_a_failed_full_tournament_still_reads_the_marks_then_fails(self):
+        with tempfile.TemporaryDirectory() as temp, mock.patch.object(gate, "OPPONENT_REPORTS", Path(temp)):
+            failure = {"where": "frame 3", "stroke": 7, "level": "maximum", "kind": "planned_pot",
+                       "detail": "a planned pot stayed out"}
+
+            def tournament(failures):
+                def write(command, **_):
+                    report = Path(command[command.index("--report") + 1])
+                    report.write_text(json.dumps({"failures": failures}), encoding="utf-8")
+                    return (not failures, "$ sim tournament" + ("\nexit code 1" if failures else ""))
+                return write
+
+            calls = []
+            fakes = [tournament([]), tournament([failure]), lambda command, **_: (True, "marks met")]
+
+            def fake_run(command, cwd=gate.ROOT, timeout=900, env=None):
+                command = [str(part) for part in command]
+                calls.append(command)
+                return fakes[len(calls) - 1](command)
+
+            outcomes = []
+            with mock.patch.object(gate, "sim_cli", return_value=Path("sim")), \
+                    mock.patch.object(gate, "run", side_effect=fake_run):
+                for opponent_step in gate.opponent_steps(quick=False):
+                    outcomes.append(opponent_step())
+        self.assertEqual([True, True, True, False], [ok for ok, _ in outcomes])
+        self.assertIn("maximum.json: 1 failures", outcomes[3][1])
+        self.assertIn("frame 3, stroke 7 (maximum), planned_pot", outcomes[3][1])
+
+    def test_a_tournament_that_crashed_fails_at_once(self):
+        with tempfile.TemporaryDirectory() as temp, mock.patch.object(gate, "OPPONENT_REPORTS", Path(temp)):
+            _, outcomes = self.opponent_commands(quick=False, results=[(False, "$ sim\nexit code 3")])
+        self.assertEqual([False], [ok for ok, _ in outcomes])
+
     def test_quick_leaves_out_only_the_export(self):
         full = [lane.name for lane in gate.lanes(quick=False)]
         quick = [lane.name for lane in gate.lanes(quick=True)]
