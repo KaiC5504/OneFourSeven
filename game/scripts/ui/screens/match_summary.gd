@@ -27,6 +27,9 @@ const NARROW_SEPARATION := 16
 var auto_place := true
 
 var _texts := {}
+var _opponent := Kit.OPPONENT
+# Every label naming the opponent: the totals' and each narrow column's.
+var _names: Array[Label] = []
 var _title: Label
 var _reason: Label
 var _frames: Array[Label]
@@ -112,6 +115,14 @@ func close() -> void:
 	visible = false
 
 
+## The name over the opponent's columns: its level's ("Beginner"), "Computer" until given one.
+func set_opponent_name(opponent: String) -> void:
+	_opponent = opponent
+	for words in _names:
+		words.text = opponent
+	_auto_place()
+
+
 ## "home".
 func button(id: String) -> Button:
 	return _home if id == "home" else null
@@ -146,7 +157,7 @@ func _build() -> void:
 	heading.add_child(_reason)
 	var totals := Kit.table()
 	body.add_child(totals)
-	Kit.heading(totals)
+	_names.append(Kit.heading(totals)[1])
 	_frames = Kit.row(totals, "Frames", FRAMES_FONT_SIZE)
 	_break = Kit.row(totals, "Highest break", VALUE_FONT_SIZE)
 	_divider = Kit.divider()
@@ -165,6 +176,7 @@ func _list_frames(frames: Array[Array]) -> void:
 	for child in _list.get_children():
 		_list.remove_child(child)
 		child.queue_free()
+	_names.resize(1)
 	var narrow := frames.size() > LIST_ROWS
 	var rows := ceili(frames.size() / 2.0) if narrow else frames.size()
 	# The two columns' names take a row: the card closes up to keep inside the canvas's height.
@@ -177,7 +189,7 @@ func _list_frames(frames: Array[Array]) -> void:
 			_list.add_child(column)
 			# Side by side, neither column lines up with the totals' names above.
 			if narrow:
-				Kit.heading(column, NARROW_VALUE_WIDTH, NARROW_CAPTION_WIDTH)
+				_names.append(Kit.heading(column, NARROW_VALUE_WIDTH, NARROW_CAPTION_WIDTH, _opponent)[1])
 		var cells := Kit.row(column, "Frame %d" % (i + 1), VALUE_FONT_SIZE, SettingsPanel.TEXT,
 				NARROW_VALUE_WIDTH if narrow else Kit.VALUE_WIDTH,
 				NARROW_CAPTION_WIDTH if narrow else Kit.CAPTION_WIDTH)

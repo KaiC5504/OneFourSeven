@@ -193,6 +193,61 @@ func test_whose_snookers_widens_the_strip_about_the_middle_while_it_shows() -> v
 	await tree.process_frame
 
 
+func test_the_scoreboard_names_the_opponent() -> void:
+	var board := Scoreboard.new()
+	var strip := board.get_node("Strip") as Scoreboard.Strip
+	check_eq(strip.opponent, "Computer", "the default")
+	var frame := _frame()
+	(frame["view"] as Dictionary)["required"] = [0, 20]
+	board.show_frame(frame, _match(), 0)
+	check_eq(board.texts()["required"], "Computer needs snookers", "the default's snookers")
+	board.set_opponent_name("Beginner")
+	check_eq(strip.opponent, "Beginner", "its level's name")
+	check_eq(board.texts()["required"], "Beginner needs snookers", "the words already showing follow the name")
+	(frame["view"] as Dictionary)["required"] = [20, 0]
+	board.show_frame(frame, _match(), 0)
+	check_eq(board.texts()["required"], "You need snookers", "the person's are the person's")
+	(frame["view"] as Dictionary)["required"] = [0, 20]
+	board.show_frame(frame, _match(), 0)
+	check_eq(board.texts()["required"], "Beginner needs snookers", "and the next frame view says the name")
+	board.free()
+
+
+func test_a_longer_name_widens_the_strip_and_keeps_clear_of_a_147() -> void:
+	var board := Scoreboard.new()
+	board.auto_place = false
+	tree.root.add_child(board)
+	var frame := _frame()
+	frame["scores"] = [147, 147]
+	frame["break_points"] = 147
+	frame["striker"] = 1
+	board.show_frame(frame, _match(), 0)
+	var strip := board.get_node("Strip") as Scoreboard.Strip
+	for area: Rect2 in [SAFE, Rect2(0.0, 0.0, 1912.0, 880.0)]:
+		board.set_opponent_name(Scoreboard.OPPONENT)
+		board.place_in(area)
+		var middle := strip.position.x + strip.centre_x()
+		var plain := strip.size.x
+		for opponent: String in ["The 147", "World class"]:
+			board.set_opponent_name(opponent)
+			var where := "%s in %s" % [opponent, area]
+			check(area.encloses(board.covered_rect()), "%s: inside the area: %s" % [where, board.covered_rect()])
+			check_near(strip.position.x + strip.centre_x(), middle, 1.0, "%s: the frames stay at the middle" % where)
+			var font := strip.get_theme_default_font()
+			var name_width := font.get_string_size(opponent, HORIZONTAL_ALIGNMENT_LEFT, -1.0, Scoreboard.Strip.NAME_SIZE).x
+			var name_left := strip.size.x - Scoreboard.Strip.PAD - Scoreboard.Strip.MARKER_SLOT - name_width
+			var score_right := strip.centre_x() + strip._middle_half(font) + Scoreboard.Strip.SCORE_GAP \
+					+ strip._scores().get_string_size("147", HORIZONTAL_ALIGNMENT_LEFT, -1.0, Scoreboard.Strip.SCORE_SIZE).x
+			check(name_left >= score_right + Scoreboard.Strip.NAME_GAP - 0.5,
+					"%s: the name keeps clear of 147: %f after %f" % [where, name_left, score_right])
+			if opponent == "World class":
+				check(strip.size.x > plain, "%s: wider than for Computer" % where)
+		board.set_opponent_name(Scoreboard.OPPONENT)
+		check_eq(strip.size.x, plain, "%s: back to Computer's width" % area)
+	board.queue_free()
+	await tree.process_frame
+
+
 func test_hud_text_is_big_enough_to_read() -> void:
 	# 28 units is 30 px in its capitals on the phone (1.5 px a unit).
 	for font_size: int in [Scoreboard.Strip.NAME_SIZE, Scoreboard.Strip.SCORE_SIZE, Scoreboard.Strip.FRAMES_SIZE,

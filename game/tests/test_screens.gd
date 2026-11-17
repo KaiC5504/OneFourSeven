@@ -1,8 +1,9 @@
 extends TestCase
-## The match screens (spec 11.1): Home, match setup, the pause menu and the two summaries. Every
-## button emits its signal, setup sends what was chosen, pause asks before conceding or quitting,
-## the summaries say what the example match holds from either chair, each screen sits inside the
-## safe area it is given, and a malformed Dictionary shows what is there and is logged once.
+## The match screens (spec 11.1): Home, match setup, the pause menu, the two summaries and the
+## exhibition's. Every button emits its signal, setup offers the levels and sends what was chosen,
+## pause asks before conceding or quitting, the summaries say what the example match holds from
+## either chair and name the opponent, each screen sits inside the safe area it is given, and a
+## malformed Dictionary shows what is there and is logged once.
 
 const HudKit := preload("res://scripts/match/hud/hud_kit.gd")
 const MATCH_PATH := "res://data/rules/example_match.json"
@@ -19,13 +20,28 @@ const END_REASONS := {
 const SAFE_RECTS: Array[Rect2] = [Rect2(120.0, 0.0, 1672.0, 880.0), Rect2(0.0, 0.0, 1200.0, 880.0)]
 ## 28 units is 30 px in its capitals on the phone (1.5 px a unit).
 const MIN_FONT_SIZE := 28
+## The whole canvas, and the phone's safe area as the HUD's tests take it.
+const HOME_RECTS: Array[Rect2] = [Rect2(0.0, 0.0, 1912.0, 880.0), Rect2(124.0, 0.0, 1664.0, 838.0)]
+const TWO_LEVELS := [
+	{"id": "beginner", "name": "Beginner", "tier": 1, "maximum": false},
+	{"id": "maximum", "name": "The 147", "tier": 6, "maximum": true},
+]
+## Stage 2's ladder (spec 10.1) and the 147: the longest names the row must hold.
+const SIX_LEVELS := [
+	{"id": "beginner", "name": "Beginner", "tier": 1, "maximum": false},
+	{"id": "club", "name": "Club", "tier": 2, "maximum": false},
+	{"id": "amateur", "name": "Amateur", "tier": 3, "maximum": false},
+	{"id": "pro", "name": "Pro", "tier": 4, "maximum": false},
+	{"id": "world_class", "name": "World class", "tier": 5, "maximum": false},
+	{"id": "maximum", "name": "The 147", "tier": 6, "maximum": true},
+]
 
 var _log_start := 0
 
 
 func test_every_screen_starts_hidden_and_covers_the_canvas() -> void:
 	var screens: Array[Control] = [HomeScreen.new(), MatchSetupScreen.new(), PauseMenu.new(), FrameSummary.new(),
-			MatchSummary.new()]
+			MatchSummary.new(), ExhibitionSummary.new()]
 	for screen in screens:
 		var screen_name: String = screen.get_script().get_global_name()
 		check(not screen.visible, "%s is hidden until opened" % screen_name)
@@ -42,12 +58,15 @@ func test_home_buttons_emit_their_signals() -> void:
 	var got: Array = []
 	home.play_pressed.connect(func() -> void: got.append("play"))
 	home.free_table_pressed.connect(func() -> void: got.append("free_table"))
+	home.watch_pressed.connect(func() -> void: got.append("watch"))
 	home.settings_pressed.connect(func() -> void: got.append("settings"))
-	for id: String in ["play", "free_table", "settings"]:
+	for id: String in ["play", "free_table", "watch", "settings"]:
 		home.button(id).pressed.emit()
-	check_eq(got, ["play", "free_table", "settings"], "signals")
-	check_eq([home.button("play").text, home.button("free_table").text, home.button("settings").text],
-			["Play", "Free table", "Settings"], "the buttons' words")
+	check_eq(got, ["play", "free_table", "watch", "settings"], "signals")
+	check_eq([home.button("play").text, home.button("free_table").text, home.button("watch").text,
+			home.button("settings").text], ["Play", "Free table", "Watch a 147", "Settings"], "the buttons' words")
+	check_eq((home.button("watch").get_theme_stylebox("normal") as StyleBoxFlat).bg_color, HomeScreen.BUTTON_FILL,
+			"Watch a 147 is not the primary button")
 	check(_says(home, "One Four Seven"), "the game's name")
 	check(home.button("stats") == null, "no Stats button before M5")
 	home.open()
@@ -62,7 +81,7 @@ func test_setup_starts_at_best_of_three_and_a_random_break() -> void:
 	check_eq(setup.config(), {"best_of": 3, "first_breaker": "random"}, "defaults")
 	check((setup.control("best_of:3") as Button).button_pressed, "best of 3 shows chosen")
 	check((setup.control("first_breaker:random") as Button).button_pressed, "random shows chosen")
-	check(setup.control("level") == null and setup.control("level:1") == null, "no opponent level before M4")
+	check(setup.control("level_beginner") == null, "no level until the engine's list comes")
 	setup.free()
 
 
@@ -105,6 +124,175 @@ func test_setup_remembers_the_last_choice() -> void:
 	check_eq(setup.config(), {"best_of": 7, "first_breaker": "computer"}, "the choices are still there")
 	check((setup.control("best_of:7") as Button).button_pressed, "and still show")
 	setup.free()
+
+
+func test_setup_offers_the_levels_with_the_first_chosen() -> void:
+	for levels: Array in [TWO_LEVELS, SIX_LEVELS]:
+		var setup := MatchSetupScreen.new()
+		setup.set_levels(levels)
+		var where := "%d levels" % levels.size()
+		check(_shows(setup, setup.find_child("Levels", true, false) as Control), "%s: the row shows" % where)
+		check(_says(setup, "Opponent"), "%s: it is titled" % where)
+		for level: Dictionary in levels:
+			var b := setup.control("level_" + String(level["id"])) as Button
+			check(b != null and b.text == level["name"], "%s: %s has its button" % [where, level["id"]])
+			if b != null:
+				check_eq(b.button_pressed, level == levels[0], "%s: only the first shows chosen (%s)" % [where, level["id"]])
+		check_eq(setup.config(), {"level": levels[0]["id"], "best_of": 3, "first_breaker": "random"}, "%s: config" % where)
+		var last: String = levels.back()["id"]
+		(setup.control("level_" + last) as Button).button_pressed = true
+		check_eq(setup.config()["level"], last, "%s: choosing one" % where)
+		check(not (setup.control("level_" + String(levels[0]["id"])) as Button).button_pressed, "%s: the first lets go" % where)
+		var sent: Array[Dictionary] = []
+		setup.start_pressed.connect(func(config: Dictionary) -> void: sent.append(config))
+		(setup.control("start") as Button).pressed.emit()
+		check_eq(sent, [{"level": last, "best_of": 3, "first_breaker": "random"}], "%s: Start sends the level" % where)
+		setup.free()
+
+
+func test_setup_keeps_the_level_chosen() -> void:
+	var setup := MatchSetupScreen.new()
+	setup.set_levels(TWO_LEVELS)
+	setup.open()
+	(setup.control("level_maximum") as Button).button_pressed = true
+	setup.close()
+	setup.open()
+	check_eq(setup.config()["level"], "maximum", "kept over close and open")
+	check((setup.control("level_maximum") as Button).button_pressed, "and still shows")
+	setup.set_levels(SIX_LEVELS)
+	check_eq(setup.config()["level"], "maximum", "kept when the list comes again")
+	check((setup.control("level_maximum") as Button).button_pressed, "and shows chosen in the new row")
+	check(not (setup.control("level_beginner") as Button).button_pressed, "the first not")
+	setup.set_levels([TWO_LEVELS[0]])
+	check_eq(setup.config()["level"], "beginner", "a level no longer listed gives way to the first")
+	check(setup.control("level_maximum") == null, "its button goes")
+	setup.free()
+
+
+func test_setup_with_no_levels_hides_the_row() -> void:
+	var setup := MatchSetupScreen.new()
+	setup.set_levels(TWO_LEVELS)
+	setup.set_levels([])
+	check(not _shows(setup, setup.find_child("Levels", true, false) as Control), "the row is hidden")
+	check(not _says(setup, "Opponent"), "nothing says Opponent")
+	check_eq(setup.config(), {"best_of": 3, "first_breaker": "random"}, "config carries no level")
+	check(setup.control("level_beginner") == null and setup.control("level_maximum") == null, "no level buttons")
+	setup.free()
+
+
+func test_setup_with_six_levels_keeps_every_name_on_the_card() -> void:
+	var setup := MatchSetupScreen.new()
+	setup.auto_place = false
+	tree.root.add_child(setup)
+	setup.set_levels(SIX_LEVELS)
+	setup.open()
+	await tree.process_frame
+	for safe in SAFE_RECTS + HOME_RECTS:
+		setup.place_in(safe)
+		await tree.process_frame
+		var card := (setup.get_node("Card") as Control).get_global_rect()
+		check(safe.encloses(card), "%s: the card is inside: %s" % [safe, card])
+		var font := (setup.control("level_world_class") as Button).get_theme_font("font")
+		for level: Dictionary in SIX_LEVELS:
+			var b := setup.control("level_" + String(level["id"])) as Button
+			var rect := b.get_global_rect()
+			check(card.encloses(rect), "%s: %s is on the card: %s" % [safe, level["name"], rect])
+			var words := font.get_string_size(b.text, HORIZONTAL_ALIGNMENT_LEFT, -1.0, b.get_theme_font_size("font_size")).x
+			check(rect.size.x >= words, "%s: %s fits its button: %f for %f" % [safe, level["name"], rect.size.x, words])
+			check(rect.size.x >= 88.0 and rect.size.y >= 88.0, "%s: %s is a whole touch: %s" % [safe, level["name"], rect.size])
+	setup.queue_free()
+	await tree.process_frame
+
+
+func test_home_has_four_buttons_along_the_bottom() -> void:
+	var home := HomeScreen.new()
+	home.auto_place = false
+	tree.root.add_child(home)
+	home.open()
+	await tree.process_frame
+	for safe in HOME_RECTS + SAFE_RECTS:
+		home.place_in(safe)
+		await tree.process_frame
+		var row := (home.get_node("Buttons") as Control).get_global_rect()
+		check(safe.encloses(row), "%s: the row is inside: %s" % [safe, row])
+		var ids: Array[String] = ["play", "free_table", "watch", "settings"]
+		for id in ids:
+			var rect := home.button(id).get_global_rect()
+			check(row.encloses(rect) and safe.encloses(rect), "%s: %s is inside the row: %s" % [safe, id, rect])
+			check(rect.size.y >= 88.0, "%s: %s is a whole touch tall" % [safe, id])
+			var font := home.button(id).get_theme_font("font")
+			var words := font.get_string_size(home.button(id).text, HORIZONTAL_ALIGNMENT_LEFT, -1.0,
+					home.button(id).get_theme_font_size("font_size")).x
+			check(rect.size.x >= words + 32.0, "%s: %s's words fit" % [safe, id])
+		for i in ids.size() - 1:
+			check(home.button(ids[i]).get_global_rect().end.x <= home.button(ids[i + 1]).get_global_rect().position.x,
+					"%s: %s left of %s" % [safe, ids[i], ids[i + 1]])
+	home.queue_free()
+	await tree.process_frame
+
+
+func test_exhibition_summary_says_the_break() -> void:
+	var card := ExhibitionSummary.new()
+	_mark_log()
+	card.open({"break_points": 147, "maximum": true, "why": "maximum"})
+	check(card.visible, "open shows it")
+	check_eq(card.texts(), PackedStringArray(["147", "Maximum break"]), "a maximum")
+	check(_says(card, "147") and _says(card, "Maximum break"), "the card says so: %s" % [_shown(card)])
+	card.open({"break_points": 64, "maximum": false, "why": "missed"})
+	check_eq(card.texts(), PackedStringArray(["Break 64"]), "a break that ended at 64")
+	check(_says(card, "Break 64") and not _says(card, "Maximum break"), "and only that: %s" % [_shown(card)])
+	check_eq(_logged("app.error"), [], "nothing missing")
+	card.open({})
+	check_eq(card.texts(), PackedStringArray(["Break –"]), "a result with nothing in it")
+	var logged := _logged("app.error")
+	check(logged.size() == 1 and String(logged[0].get("message", "")).contains("result.break_points"),
+			"named in the log: %s" % [logged])
+	card.close()
+	check(not card.visible, "close hides it")
+	card.free()
+
+
+func test_exhibition_summary_buttons_emit_their_signals() -> void:
+	var card := ExhibitionSummary.new()
+	var got: Array = []
+	card.again_pressed.connect(func() -> void: got.append("again"))
+	card.home_pressed.connect(func() -> void: got.append("home"))
+	(card.control("again") as Button).pressed.emit()
+	(card.control("home") as Button).pressed.emit()
+	check_eq(got, ["again", "home"], "signals")
+	check_eq([(card.control("again") as Button).text, (card.control("home") as Button).text], ["Again", "Home"], "words")
+	check_eq(((card.control("again") as Button).get_theme_stylebox("normal") as StyleBoxFlat).bg_color, SettingsPanel.TEXT,
+			"Again is the primary button")
+	check(card.control("continue") == null, "no other buttons")
+	card.free()
+
+
+func test_the_summaries_name_the_opponent() -> void:
+	var match_state := _example_match()
+	var frame := FrameSummary.new()
+	frame.show_summary(match_state["history"][0], match_state)
+	check(_says(frame, "Computer"), "the frame summary's default: %s" % [_shown(frame)])
+	frame.set_opponent_name("Beginner")
+	check(_says(frame, "Beginner") and not _says(frame, "Computer"), "the frame summary: %s" % [_shown(frame)])
+	frame.show_summary(match_state["history"][0], match_state, 1)
+	check(_says(frame, "Beginner"), "kept over the next frame: %s" % [_shown(frame)])
+	var short_match := MatchSummary.new()
+	short_match.show_summary(_finished_match())
+	check_eq(_count_shown(short_match, "Computer"), 1, "the match summary's default: %s" % [_shown(short_match)])
+	short_match.set_opponent_name("The 147")
+	check_eq(_count_shown(short_match, "The 147"), 1, "the match summary: %s" % [_shown(short_match)])
+	check_eq(_count_shown(short_match, "Computer"), 0, "Computer is gone")
+	var long_match := MatchSummary.new()
+	long_match.set_opponent_name("World class")
+	long_match.show_summary(_finished_match(11))
+	check_eq(_count_shown(long_match, "World class"), 3, "named before the match: the totals and both columns: %s"
+			% [_shown(long_match)])
+	long_match.set_opponent_name("The 147")
+	check_eq(_count_shown(long_match, "The 147"), 3, "named after it: all three")
+	check_eq(_count_shown(long_match, "World class"), 0, "the old name is gone")
+	frame.free()
+	short_match.free()
+	long_match.free()
 
 
 func test_pause_resume_and_settings_emit_at_once() -> void:
@@ -412,8 +600,14 @@ func test_each_screen_sits_inside_the_safe_area() -> void:
 	var frame := FrameSummary.new()
 	var short_match := MatchSummary.new()
 	var long_match := MatchSummary.new()
+	var six := MatchSetupScreen.new()
+	six.set_levels(SIX_LEVELS)
+	var named := MatchSummary.new()
+	named.set_opponent_name("World class")
+	var exhibition := ExhibitionSummary.new()
 	var screens := {"home": home, "setup": setup, "pause": pause, "pause question": question, "frame summary": frame,
-			"match summary": short_match, "an eleven-frame match summary": long_match}
+			"match summary": short_match, "an eleven-frame match summary": long_match, "setup with six levels": six,
+			"an eleven-frame match summary against World class": named, "exhibition summary": exhibition}
 	for screen_name: String in screens:
 		(screens[screen_name] as Control).set("auto_place", false)
 		tree.root.add_child(screens[screen_name])
@@ -425,6 +619,9 @@ func test_each_screen_sits_inside_the_safe_area() -> void:
 	frame.show_summary(match_state["history"][0], match_state)
 	short_match.show_summary(_finished_match())
 	long_match.show_summary(_finished_match(11))
+	six.open()
+	named.show_summary(_finished_match(11))
+	exhibition.open({"break_points": 147, "maximum": true, "why": "maximum"})
 	await tree.process_frame
 	var menu_card_size := Vector2.ZERO
 	for safe in SAFE_RECTS:

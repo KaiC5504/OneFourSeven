@@ -1,7 +1,7 @@
 extends Object
 ## What the match screens share: the settings panel's look (its theme, colours and card), a
 ## backdrop that takes every touch, a card centred in the safe area, the summaries' table of You
-## against Computer, and reading a summary or match Dictionary that may be malformed.
+## against the opponent, and reading a summary or match Dictionary that may be malformed.
 
 const TOUCH := SettingsPanel.TOUCH
 const TITLE_FONT_SIZE := 40
@@ -11,6 +11,7 @@ const DARK_TEXT := Color(0.04, 0.06, 0.05)
 const BACKDROP := Color(0.0, 0.0, 0.0, 0.5)
 const DIVIDER := Color(1.0, 1.0, 1.0, 0.1)
 const YOU := "You"
+## The opponent's name until a screen is given its level's.
 const OPPONENT := "Computer"
 ## Shown where a summary has no number to show.
 const NO_VALUE := "–"
@@ -100,12 +101,13 @@ static func row(grid: GridContainer, caption: String, font_size: int, colour: Co
 	return [mine, theirs]
 
 
-## The table's first row: whose column is whose.
+## The table's first row: whose column is whose. Returns the two name labels, the person's first.
 static func heading(grid: GridContainer, value_width: float = VALUE_WIDTH,
-		caption_width: float = CAPTION_WIDTH) -> void:
+		caption_width: float = CAPTION_WIDTH, opponent: String = OPPONENT) -> Array[Label]:
 	var names := row(grid, "", SMALL_FONT_SIZE, SettingsPanel.MUTED, value_width, caption_width)
 	names[0].text = YOU
-	names[1].text = OPPONENT
+	names[1].text = opponent
+	return names
 
 
 static func divider() -> ColorRect:

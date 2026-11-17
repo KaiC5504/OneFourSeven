@@ -1,13 +1,14 @@
 class_name HomeScreen
 extends Control
-## Home (spec 11.1), where the app opens: Play, Free table and Settings, over the table seen from
-## above. Covers the canvas and takes every touch while it shows.
+## Home (spec 11.1), where the app opens: Play, Free table, Watch a 147 and Settings, over the table
+## seen from above. Covers the canvas and takes every touch while it shows.
 ##
 ## The name sits at the top of the safe area and the buttons along its bottom, with the canvas
 ## darkened most at those two edges, so the bed of the table stays clear between them (spec 8.9).
 
 signal play_pressed
 signal free_table_pressed
+signal watch_pressed
 signal settings_pressed
 
 const Kit := preload("res://scripts/ui/screens/screen_kit.gd")
@@ -49,7 +50,7 @@ func close() -> void:
 	visible = false
 
 
-## "play", "free_table" or "settings".
+## "play", "free_table", "watch" or "settings".
 func button(id: String) -> Button:
 	return _buttons.get(id)
 
@@ -74,6 +75,7 @@ func _build() -> void:
 	add_child(_row)
 	_add("play", "Play", true).pressed.connect(play_pressed.emit)
 	_add("free_table", "Free table", false).pressed.connect(free_table_pressed.emit)
+	_add("watch", "Watch a 147", false).pressed.connect(watch_pressed.emit)
 	_add("settings", "Settings", false).pressed.connect(settings_pressed.emit)
 
 
