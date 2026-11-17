@@ -26,8 +26,9 @@ const char* const kUsage =
     "  match [--frames N] [--best-of N] [--seed S] [--threads T] [--out DIR] [--log out.jsonl]\n"
     "        [--params P] [--table T]\n"
     "  referee <log.jsonl> [--line N] [--table T]\n"
-    "  tournament --a LEVEL --b LEVEL [--frames N] [--seed S] [--threads T] [--report out.json]\n"
-    "             [--exhibitions] [--out DIR] [--log out.jsonl] [--params P] [--table T]\n"
+    "  tournament --a LEVEL [--b LEVEL] [--a-file F] [--b-file F] [--frames N] [--seed S] [--threads T]\n"
+    "             [--max-ms X] [--max-strokes N] [--report out.json] [--exhibitions]\n"
+    "             [--exhibitions-file F] [--out DIR] [--log out.jsonl] [--params P] [--table T]\n"
     "  opponent <log.jsonl> [--line N] [--table T]\n"
     "\n"
     "Exit codes: 0 ok, 1 a check failed, 2 bad arguments or input.\n";

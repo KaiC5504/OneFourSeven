@@ -17,9 +17,6 @@ const THINK_KEYS: Array[String] = ["candidates", "depth", "ms", "sims", "steps",
 const IN_THE_D := Vector2(-1.2, 0.1)
 ## Far past any budget a test gives a level.
 const ANSWER_WAIT_MS := 15000
-## Fields the engine logs that log_schema.json does not declare yet: rules.configured from
-## configure_opponent carries the levels and the exhibition tables it took.
-const NOT_IN_SCHEMA_YET := {"rules.configured": ["levels", "exhibitions"]}
 
 var _log_start := 0
 var _matches := 0
@@ -630,7 +627,7 @@ func _check_schema() -> void:
 		var data: Dictionary = line.get("data", {})
 		var fields: Dictionary = spec["fields"]
 		for key: String in data:
-			check(fields.has(key) or key in NOT_IN_SCHEMA_YET.get(event, []), "undeclared field %s on %s" % [key, event])
+			check(fields.has(key), "undeclared field %s on %s" % [key, event])
 		for field: String in fields:
 			if not data.has(field):
 				check(not bool(fields[field].get("required", false)), "%s: missing %s" % [event, field])

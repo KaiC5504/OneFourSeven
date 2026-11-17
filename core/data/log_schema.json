@@ -1304,6 +1304,14 @@
         "problems": {
           "type": "array",
           "required": true
+        },
+        "levels": {
+          "type": "array",
+          "required": false
+        },
+        "exhibitions": {
+          "type": "array",
+          "required": false
         }
       }
     },
@@ -1867,6 +1875,10 @@
         },
         "frame": {
           "type": "integer",
+          "required": false
+        },
+        "level": {
+          "type": "string",
           "required": false
         }
       }

@@ -83,6 +83,52 @@ Four normals are always drawn, in the order aim, speed, tip x, tip y.
 - **Watch a 147** starts it on a table from `core/data/exhibitions.json`, the reds already open.
   The exhibition ends when its break does.
 
+## The search (`search.cpp`, `maximum.cpp`)
+
+What can be seen from outside, and so tested:
+
+- **Candidates**: each listed pot (`pots`) struck each way the level can: `level.speeds` cue speeds
+  from just over `least_pot_speed` upwards (more of them reach further up the range), and
+  `level.spins` tip offsets within `level.max_tip`, centre ball first. One candidate is one
+  **step**. A candidate counts when `solve_pot` finds its aim and the referee
+  (`rules::judge_shot` on the simulated stroke) calls no foul.
+- **A level with error** (Beginner) scores a candidate
+  `chance * (value + kBreakOn * (1 - w) + w * leave)`: `chance` is `pot_chance` on the pot's
+  margin, `leave` is `read_position(...).worth` of the position the stroke leaves it in (0 when
+  the turn passes), `w` is `level.position_weight`. It then misreads each score by
+  `level.judgement_sigma` (a normal draw per candidate, from a stream of its own so the stroke's
+  error draws stay four) and takes the best. When the best pot's chance as it reads it is under
+  `level.safety_below`, or there is no pot, it plays the stand-in's safety, escape or break-off.
+- **The 147** takes, among the candidates for the ball it needs, the one whose plan is worth
+  most: the points potted along the plan plus what the last position is worth
+  (`maximum.cpp`: an easy pot of the next ball needed, the black open to its corners while reds
+  remain, reds open, the cue ball free). It looks `level.depth` strokes beyond this one, in
+  stages: every candidate is read first, then the best few are looked into one stroke further,
+  then the best of those again; when the budget stops it, the answer is the best of the deepest
+  stage that finished at least one candidate. A candidate that would end the maximum (two reds
+  in a stroke, a colour other than the black after a red) is not taken while another keeps it.
+- **Budget**: checked before each step. `stopped` is `done` when the search ran out of
+  candidates by itself, else `sims`, `steps`, `time` or `cancelled`. The simulations may pass
+  `max_sims` by the step in hand. The answer is a pure function of the frame, the level, the
+  seed and the steps taken, so `max_steps` set to a logged `think.steps` gives that stroke again.
+  Stopped before the first step finished, it plays the stand-in's stroke with the level's error
+  and says so (`fallback`).
+- **Played**: `with_error(meant, level, &pot, ...)`, four draws. For the 147 `strike == meant`,
+  and since nothing in it is random its stroke is the same whatever the seed.
+- **`why.maximum`**: `on` when the level plays for a maximum and `maximum_on` holds for the frame
+  it was asked about, `gone` when the level plays for one and it does not, `off` for any other
+  level. With `gone`, `why.maximum_why` says which: `a red is off the table` (fewer than fifteen
+  reds and no break under way) or `the break lost it`.
+- **A claim** (`claim_frame` open to the striker) is taken in place of a stroke. No level
+  concedes in stage 1.
+
+## Choices (`decide.cpp`, spec 10.4)
+
+After a foul, a re-rack offer and the toss a level chooses as the stand-in does
+(`choose_decision`), with one exception: after the other player's foul the 147 plays itself
+(`play`) whenever the position left has a pot of the ball its maximum needs, or, with the maximum
+gone, any pot.
+
 ## What the tournament counts (`ofs_sim_cli tournament`, spec 16.4)
 
 Two levels play whole frames under the rules, each stroke chosen by `choose_stroke`, each choice
