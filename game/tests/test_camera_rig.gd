@@ -822,6 +822,16 @@ func test_a_drag_walks_round_the_table_in_the_overview() -> void:
 	rig.set_overview(true)
 	rig._process(CameraRig.BLEND_S)
 	check(rig.transform.is_equal_approx(rig.broadcast_pose(0.0)), "the broadcast view from baulk")
+	_walk_a_quarter_and_zoom(rig, controls)
+	check(rig.is_overview(), "a pinch zooms the overview")
+	rig.set_overview(false)
+	rig._process(CameraRig.BLEND_S)
+	check(rig.transform.is_equal_approx(rig.pose_for(cue, 0.2)), "the eye again: behind the cue ball at the aim it had")
+	rig.free()
+
+
+## From the broadcast view at baulk: a drag a quarter of the way round, then a pinch in and out.
+func _walk_a_quarter_and_zoom(rig: CameraRig, controls: Array[Rect2]) -> void:
 	var quarter := (PI / 2.0) / CameraRig.ORBIT_RAD_PER_PX
 	var start_eye := _eye_xy(rig)
 	for i in 30:
@@ -840,15 +850,10 @@ func test_a_drag_walks_round_the_table_in_the_overview() -> void:
 	check(centre.distance_to(CANVAS / 2.0) < 120.0, "round the table's centre: %s" % centre)
 	var distance := rig.transform.origin.length()
 	rig.pinch(1.5)
-	check(rig.is_overview(), "a pinch zooms the overview")
 	check(rig.transform.origin.length() < distance * 0.85, "in: %.2f m from %.2f" % [rig.transform.origin.length(), distance])
 	rig.pinch(0.01)
 	check(rig.transform.origin.length() > distance * 1.1, "and out, to its limit")
 	check_eq(rig.zoom_scale(), 1.0, "the aiming zoom left alone")
-	rig.set_overview(false)
-	rig._process(CameraRig.BLEND_S)
-	check(rig.transform.is_equal_approx(rig.pose_for(cue, 0.2)), "the eye again: behind the cue ball at the aim it had")
-	rig.free()
 
 
 func test_overview_shows_the_broadcast_view_and_back() -> void:
@@ -928,4 +933,259 @@ func test_the_aiming_view_can_centre_below_a_band_at_the_top() -> void:
 			"over a raised cue too: %s to %s" % [was_raised, now_raised])
 	rig.set_aim_top(0.0)
 	check(rig.pose_for(cue, 0.0).is_equal_approx(level), "0 frames the whole canvas again")
+	rig.free()
+
+
+## The rig's table outline as the camera at `pose` draws it on the view from above's lens: [the
+## top's corners, all eight].
+func _above_drawn(rig: CameraRig, pose: Transform3D) -> Array:
+	var top: Array[Vector2] = []
+	var all: Array[Vector2] = []
+	for i in 8:
+		var corner := rig._outline.get_endpoint(i)
+		var at := rig.project(pose, corner, CameraRig.ABOVE_FOV_DEG)
+		all.append(at)
+		if is_equal_approx(corner.y, rig._outline.end.y):
+			top.append(at)
+	return [top, all]
+
+
+func _around(points: Array[Vector2]) -> Rect2:
+	var rect := Rect2(points[0], Vector2.ZERO)
+	for p in points:
+		rect = rect.expand(p)
+	return rect
+
+
+func test_the_view_from_above_shows_the_whole_table_clear_of_the_controls() -> void:
+	var rig := _loose_rig()
+	rig.set_table_bounds(_table_bounds())
+	var band: Array[Rect2] = [Rect2(0.0, 0.0, CANVAS.x, 130.0)]
+	var layouts: Array = [[] as Array[Rect2], band]
+	layouts.append_array(_control_layouts())
+	for controls: Array[Rect2] in layouts:
+		rig.keep_clear(controls)
+		var pose := rig.above_pose()
+		check((-pose.basis.z).is_equal_approx(Vector3.DOWN), "straight down (%s)" % [controls])
+		var drawn := _above_drawn(rig, pose)
+		var all: Array[Vector2] = drawn[1]
+		for at in all:
+			var under := _under(at, controls)
+			check(_on_canvas(at) and under.is_empty(), "corner on the canvas at %s, not under %s (%s)" % [at, under, controls])
+		var top := _around(drawn[0])
+		check(top.size.x > top.size.y * 1.5, "the length across the screen: %s" % top)
+		var clear_top := 130.0 + CameraRig.CLEAR_MARGIN if controls == band else 0.0
+		check(top.position.y >= clear_top + CameraRig.ABOVE_MARGIN - 1.0 and top.end.y <= CANVAS.y - CameraRig.ABOVE_MARGIN + 1.0
+				and top.position.x >= CameraRig.ABOVE_MARGIN - 1.0 and top.end.x <= CANVAS.x - CameraRig.ABOVE_MARGIN + 1.0,
+				"a margin all round: %s (%s)" % [top, controls])
+		if controls.size() <= 1:
+			check(top.size.y > CANVAS.y - clear_top - 2.0 * CameraRig.ABOVE_MARGIN - 1.0, "as large as fits: %s (%s)" % [top, controls])
+			check_near(top.get_center().y, (clear_top + CANVAS.y) / 2.0, 1.0, "centred in what is left (%s)" % [controls])
+			check_near(top.get_center().x, CANVAS.x / 2.0, 1.0, "centred across (%s)" % [controls])
+		var black := rig.project(pose, TableSpace.core_to_godot(1.7, 0.0), CameraRig.ABOVE_FOV_DEG)
+		var baulk := rig.project(pose, TableSpace.core_to_godot(-1.7, 0.0), CameraRig.ABOVE_FOV_DEG)
+		check(black.x > baulk.x + 1000.0 and absf(black.y - baulk.y) < 1.0, "the black end on the right: %s, %s" % [black, baulk])
+		var left := rig.project(pose, TableSpace.core_to_godot(0.0, 0.8), CameraRig.ABOVE_FOV_DEG)
+		check(left.y < black.y, "turned, not mirrored: the left of the table from baulk at the top")
+		check(pose.origin.y > 2.0 and pose.origin.y < 6.0, "%.2f m above the cloth (%s)" % [pose.origin.y, controls])
+	rig.free()
+
+
+func test_the_view_from_above_zooms_in_and_pans_no_further_than_the_table() -> void:
+	var rig := _loose_rig()
+	rig.set_table_bounds(_table_bounds())
+	rig.follow(Vector2(-1.0, 0.1), 0.2)
+	rig.set_watch("above")
+	check(rig.is_easing(), "eased into, not cut")
+	for i in 3:
+		rig._process(CameraRig.EASE_S / 3.0)
+	rig._process(0.001)
+	var fit := rig.transform
+	check(not rig.is_easing() and fit.is_equal_approx(rig.above_pose()), "there in about EASE_S")
+	check_eq(rig.camera().fov, CameraRig.ABOVE_FOV_DEG, "on its lens")
+	rig.pan(Vector2(300.0, 200.0))
+	rig.pinch(0.5)
+	check(rig.transform.is_equal_approx(fit), "at the fit a drag does nothing, and it zooms out no further")
+	var middle := Vector3(rig._outline.get_center().x, rig._outline.end.y, rig._outline.get_center().z)
+	rig.pinch(10.0)
+	check(rig.transform.is_equal_approx(rig.above_pose(CameraRig.ABOVE_ZOOM_MAX)), "in to ABOVE_ZOOM_MAX at most")
+	var fit_length := _around(_above_drawn(rig, fit)[0]).size.x
+	var length := _around(_above_drawn(rig, rig.transform)[0]).size.x
+	check_near(length / fit_length, CameraRig.ABOVE_ZOOM_MAX, 1e-3, "the table that much larger")
+	var was := rig.project(rig.transform, middle, CameraRig.ABOVE_FOV_DEG)
+	rig.pan(Vector2(100.0, -60.0))
+	var now := rig.project(rig.transform, middle, CameraRig.ABOVE_FOV_DEG)
+	check(now.distance_to(was + Vector2(100.0, -60.0)) < 0.5, "the table follows the finger: %s to %s" % [was, now])
+	check(not rig.is_easing() and not _camera_active(), "at once")
+	for drag: Vector2 in [Vector2(5000.0, 0.0), Vector2(-9000.0, 0.0), Vector2(0.0, 5000.0), Vector2(0.0, -9000.0), Vector2(6000.0, 6000.0)]:
+		rig.pan(drag)
+		var top := _around(_above_drawn(rig, rig.transform)[0])
+		check(top.has_point(CANVAS / 2.0), "after a drag of %s the table still across the screen's centre: %s" % [drag, top])
+		check(top.position.x <= CameraRig.ABOVE_MARGIN + 1.0 and top.end.x >= CANVAS.x - CameraRig.ABOVE_MARGIN - 1.0,
+				"zoomed in, no gap past an end beyond the margin: %s" % top)
+	rig.pinch(0.7)
+	var part := rig.transform
+	rig.pinch(1.0 / 0.7)
+	rig.pinch(0.01)
+	check(not part.is_equal_approx(fit) and rig.transform.is_equal_approx(fit), "pinched back out, centred again")
+	rig.free()
+
+
+## Two rigs behind the same cue ball, the first watching from `view`.
+func _watching_pair(view: String, cue: Vector2, aim: float) -> Array[CameraRig]:
+	var pair: Array[CameraRig] = [_loose_rig(), _loose_rig()]
+	for rig in pair:
+		rig.follow(cue, aim)
+		rig._process(CameraRig.BLEND_S)
+	pair[0].set_watch(view)
+	pair[0]._process(CameraRig.BLEND_S)
+	return pair
+
+
+func test_watching_keeps_its_view_through_the_opponents_visit() -> void:
+	var corner := Vector2(1.8156, 0.9201)
+	for view: String in ["above", "round"]:
+		var pair := _watching_pair(view, Vector2(-1.0, 0.1), 0.3)
+		var watched := pair[0]
+		var plain := pair[1]
+		var at := watched.transform
+		var fov := watched.camera().fov
+		var moves := [0]
+		watched.moved.connect(func() -> void: moves[0] += 1)
+		var steps: Array[Callable] = [
+			func(rig: CameraRig) -> void: rig.hold(true),
+			func(rig: CameraRig) -> void: rig.show_pocket(rig.pocket_pose(corner, Vector2(1.3, 0.5), false)),
+			func(rig: CameraRig) -> void: rig.show_broadcast(),
+			func(rig: CameraRig) -> void: rig.follow(Vector2(0.6, -0.2), 2.4),
+			func(rig: CameraRig) -> void: rig.set_cue_elevation(0.5),
+			func(rig: CameraRig) -> void: rig.reset_view(),
+			func(rig: CameraRig) -> void: rig.hold(false),
+			func(rig: CameraRig) -> void: rig.follow(Vector2(0.2, 0.4), -1.0),
+			func(rig: CameraRig) -> void: rig.set_overview(true),
+			func(rig: CameraRig) -> void: rig.set_overview(false),
+		]
+		for k in steps.size():
+			for rig: CameraRig in pair:
+				steps[k].call(rig)
+				rig._process(CameraRig.RETURN_S / 4.0)
+			check(watched.transform.is_equal_approx(at) and watched.camera().fov == fov and not watched.is_easing(),
+					"%s: step %d leaves the watcher's view where it was" % [view, k])
+			check_eq(watched.watch(), view, "%s: still watching after step %d" % [view, k])
+		watched.tilt(80.0)
+		check(watched.transform.is_equal_approx(at) and watched.pitch_deg() == CameraRig.DEFAULT_PITCH_DEG, "%s: a tilt does nothing" % view)
+		check_eq(moves[0], 0, "%s: not a frame moved" % view)
+		plain._process(CameraRig.BLEND_S)
+		watched.set_watch("cue")
+		check(watched.is_easing(), "%s: back to the cue view with a blend" % view)
+		watched._process(CameraRig.BLEND_S)
+		check(not watched.is_easing() and watched.transform.is_equal_approx(plain.transform),
+				"%s: back where the same calls left the unwatched camera" % view)
+		check_eq(watched.camera().fov, plain.camera().fov, "%s: on the same lens" % view)
+		check(watched.transform.is_equal_approx(watched.pose_for(Vector2(0.2, 0.4), -1.0, 0.5)), "%s: behind the cue ball" % view)
+		watched.follow(Vector2(0.25, 0.4), -1.02)
+		plain.follow(Vector2(0.25, 0.4), -1.02)
+		check(watched.transform.is_equal_approx(plain.transform), "%s: and follows the aim as before" % view)
+		for rig in pair:
+			rig.free()
+
+
+func test_back_to_the_cue_view_mid_shot_cuts_to_the_shots_own_view() -> void:
+	var corner := Vector2(1.8156, 0.9201)
+	for view: String in ["above", "round"]:
+		var pair := _watching_pair(view, Vector2(0.9, 0.3), 0.6)
+		var watched := pair[0]
+		var plain := pair[1]
+		var steps: Array[Callable] = [
+			func(rig: CameraRig) -> void: rig.hold(true),
+			func(rig: CameraRig) -> void: rig.show_pocket(rig.pocket_pose(corner, Vector2(1.3, 0.5), false)),
+			func(rig: CameraRig) -> void: rig.show_broadcast(),
+		]
+		for k in steps.size():
+			for rig: CameraRig in pair:
+				steps[k].call(rig)
+			watched.set_watch("cue")
+			check(not watched.is_easing() and watched.transform.is_equal_approx(plain.transform)
+					and watched.camera().fov == plain.camera().fov, "%s: step %d cuts to the shot's view" % [view, k])
+			check_eq(watched.view_name(), plain.view_name(), "%s: step %d, the same view" % [view, k])
+			watched.set_watch(view)
+			watched._process(CameraRig.BLEND_S)
+		for rig: CameraRig in pair:
+			rig.hold(false)
+			rig._process(CameraRig.RETURN_S)
+		watched.set_watch("cue")
+		watched._process(CameraRig.BLEND_S)
+		check(watched.transform.is_equal_approx(plain.transform), "%s: and after the shot, behind the cue ball" % view)
+		for rig in pair:
+			rig.free()
+
+
+func test_watching_round_walks_as_the_overview_does() -> void:
+	var rig := _loose_rig()
+	var controls: Array[Rect2] = _control_layouts()[0]
+	rig.keep_clear(controls)
+	var cue := Vector2(-1.0, 0.1)
+	rig.follow(cue, 0.2)
+	rig.set_watch("round")
+	check(rig.is_easing() and _camera_active(), "blended into")
+	rig._process(CameraRig.BLEND_S)
+	check(rig.transform.is_equal_approx(rig.broadcast_pose(0.0)), "the broadcast view from the end behind the aim")
+	check_eq(rig.camera().fov, CameraRig.BROADCAST_FOV_DEG, "on its long lens")
+	_walk_a_quarter_and_zoom(rig, controls)
+	check(not rig.is_overview(), "the free table's overview left alone")
+	rig.hold(true)
+	var held := rig.transform
+	rig.pan(Vector2(-200.0, 0.0))
+	check(not rig.transform.is_equal_approx(held), "it walks while a shot plays")
+	rig.hold(false)
+	rig.set_watch("cue")
+	rig._process(CameraRig.BLEND_S)
+	check(rig.transform.is_equal_approx(rig.pose_for(cue, 0.2)), "the cue view again: behind the cue ball")
+	rig.set_watch("above")
+	rig._process(CameraRig.BLEND_S)
+	rig.set_watch("round")
+	rig._process(CameraRig.BLEND_S)
+	check(rig.transform.is_equal_approx(rig.broadcast_pose(PI / 2.0)), "from above the walk starts side-on, turned the same way")
+	rig.pan(Vector2(200.0, 0.0))
+	check(rig.transform.is_equal_approx(rig.broadcast_pose(PI / 2.0 - 200.0 * CameraRig.ORBIT_RAD_PER_PX)), "a drag walks it")
+	rig.free()
+
+
+func test_watch_changed_fires_once_per_change_and_an_unknown_view_changes_nothing() -> void:
+	var rig := _loose_rig()
+	rig.follow(Vector2(-1.0, 0.1), 0.2)
+	var said: Array[String] = []
+	rig.watch_changed.connect(func(view: String) -> void: said.append(view))
+	check_eq(rig.watch(), "cue", "starts behind the cue")
+	rig.set_watch("cue")
+	check(not rig.is_easing(), "no change, no move")
+	rig.set_watch("above")
+	rig.set_watch("above")
+	rig._process(CameraRig.BLEND_S)
+	var at := rig.transform
+	rig.set_watch("sideways")
+	check(rig.watch() == "above" and rig.transform.is_equal_approx(at) and not rig.is_easing(), "an unknown view is ignored")
+	rig.set_watch("round")
+	rig.set_watch("cue")
+	check_eq(said, ["above", "round", "cue"] as Array[String], "once per change")
+	rig.free()
+
+
+func test_nothing_moves_at_rest_in_any_view() -> void:
+	var rig := _loose_rig()
+	var moves := [0]
+	rig.moved.connect(func() -> void: moves[0] += 1)
+	rig.follow(Vector2(-1.0, 0.1), 0.2)
+	for view: String in ["above", "round", "cue", "above", "cue", "round"]:
+		rig.set_watch(view)
+		check(rig.is_easing() and _camera_active(), "%s: moves there" % view)
+		rig._process(CameraRig.BLEND_S)
+		check(not rig.is_easing() and not _camera_active() and not rig.is_processing(), "%s: settled, the game can idle" % view)
+		var before: int = moves[0]
+		rig._process(0.5)
+		rig.set_watch(view)
+		rig.pinch(1.0)
+		rig.pan(Vector2.ZERO)
+		rig.follow(Vector2(-1.0, 0.1), 0.2)
+		check_eq(moves[0], before, "%s: nothing drawn at rest" % view)
+		check(not _camera_active(), "%s: still idle" % view)
 	rig.free()

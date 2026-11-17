@@ -34,9 +34,18 @@ extends Node3D
 ## is for the stroke, show_pocket cuts to the pocket camera and show_broadcast to the full-table
 ## view. Releasing is the one move: a swoop back behind the cue ball over RETURN_S, closing in on
 ## the cue ball as it swings round it rather than cutting across the table.
+##
+## While the opponent is at the table the person may watch (spec 10.5, set_watch): "above" is the
+## whole table from straight overhead, its length across the screen and the black on the right,
+## which a pinch zooms and a drag then pans (pan); "round" is the overview's walk round the table
+## with its own direction and zoom. Watching, everything else asked of the rig (follow, hold, the
+## cuts, the swoop, reset_view, the overview) is taken in as usual but moves nothing; "cue" goes
+## back to wherever those calls have left the rig's own view, cutting to it while a shot holds the
+## camera and blending otherwise.
 
 signal moved
 signal overview_changed(on: bool)
+signal watch_changed(view: String)
 
 const PITCH_MIN_DEG := 4.0
 const PITCH_MAX_DEG := 82.0
@@ -131,6 +140,12 @@ const FALLBACK_HALF_SIZE := Vector2(1.7845, 0.889)
 const FALLBACK_BALL_RADIUS := 0.02625
 ## A corner and a middle pocket's drop centre and radius (x, y, radius), mirrored to the others.
 const FALLBACK_POCKETS: Array[Vector3] = [Vector3(1.8157, 0.9202, 0.042), Vector3(0.0, 0.9985, 0.044)]
+const WATCH_VIEWS: Array[String] = ["cue", "above", "round"]
+## The view from above: a longish lens, so the rails' sides barely show, with ABOVE_MARGIN canvas
+## units round the table inside what the controls leave (keep_clear).
+const ABOVE_FOV_DEG := 30.0
+const ABOVE_MARGIN := 24.0
+const ABOVE_ZOOM_MAX := 2.5
 
 enum ShotView { BROADCAST, STILL, POCKET }
 
@@ -192,6 +207,15 @@ var _half_size := FALLBACK_HALF_SIZE
 var _ball_radius := FALLBACK_BALL_RADIUS
 ## Canvas units at the top the aiming view centres below (set_aim_top).
 var _aim_top := 0.0
+var _watch := "cue"
+## What the controls leave of the canvas (keep_clear), for the view from above.
+var _clear_rect := Rect2()
+var _above_warned := false
+var _above_zoom := 1.0
+## Core metres the view from above has slid off the table's centre.
+var _above_pan := Vector2.ZERO
+var _round_yaw := 0.0
+var _round_zoom := 1.0
 
 
 func _init() -> void:
@@ -237,7 +261,7 @@ func follow(cue_xy: Vector2, aim_rad: float) -> void:
 	if not _has_pose:
 		_has_pose = true
 		_show(cue_xy, aim_rad, _target_elevation)
-	elif _held or _overview or _ease >= 0.0:
+	elif _held or _overview or _ease >= 0.0 or _watch != "cue":
 		pass
 	elif cue_xy.distance_to(_shown_cue) > JUMP_M or absf(angle_difference(_shown_aim, aim_rad)) > JUMP_RAD:
 		_start_ease()
@@ -262,6 +286,8 @@ func keep_clear(rects: Array[Rect2]) -> void:
 	_control_boxes.clear()
 	var canvas := _canvas()
 	var beyond := Rect2(-canvas, canvas * 3.0)
+	var clear_lo := Vector2.ZERO
+	var clear_hi := canvas
 	# Each control keeps the pockets out of its column of the screen, from its inner edge out, or out
 	# of the band from the top down to its bottom when that gives up less of the screen. That leaves
 	# them one clear rectangle: against the controls' own shapes a pocket slipping round a corner,
@@ -276,7 +302,15 @@ func keep_clear(rects: Array[Rect2]) -> void:
 			column = Rect2(Vector2(grown.position.x, beyond.position.y), Vector2(beyond.end.x - grown.position.x, beyond.size.y))
 			column_cut = 1.0 - grown.position.x / canvas.x
 		var band := Rect2(beyond.position, Vector2(beyond.size.x, grown.end.y - beyond.position.y))
-		_clear_boxes.append(_corners(band if grown.end.y / canvas.y < column_cut else column))
+		var banded := grown.end.y / canvas.y < column_cut
+		_clear_boxes.append(_corners(band if banded else column))
+		if banded:
+			clear_lo.y = maxf(clear_lo.y, grown.end.y)
+		elif grown.get_center().x > canvas.x / 2.0:
+			clear_hi.x = minf(clear_hi.x, grown.position.x)
+		else:
+			clear_lo.x = maxf(clear_lo.x, grown.end.x)
+	_clear_rect = Rect2(clear_lo, clear_hi - clear_lo)
 	_apply()
 
 
@@ -308,7 +342,7 @@ func set_cue_elevation(elevation_rad: float) -> void:
 	if not is_finite(elevation_rad):
 		return
 	_target_elevation = maxf(elevation_rad, 0.0)
-	if _held or _overview or not _has_pose or _ease >= 0.0:
+	if _held or _overview or not _has_pose or _ease >= 0.0 or _watch != "cue":
 		if not _has_pose:
 			_shown_elevation = _target_elevation
 		return
@@ -322,9 +356,24 @@ func cue_elevation() -> float:
 	return _target_elevation
 
 
-## Zooms the aiming camera, or the overview. Ignored while a shot plays.
+## Zooms the aiming camera, the overview or the watching view. Ignored while a shot plays, unless
+## watching.
 func pinch(factor: float) -> void:
-	if _held or not (factor > 0.0):
+	if not (factor > 0.0):
+		return
+	if _watch == "above":
+		var zoom := clampf(_above_zoom * factor, 1.0, ABOVE_ZOOM_MAX)
+		if zoom == _above_zoom:
+			return
+		_above_zoom = zoom
+		_above_pan = _above_pan.clamp(-_above_pan_limit(zoom), _above_pan_limit(zoom))
+		_apply()
+		return
+	if _watch == "round":
+		_round_zoom = clampf(_round_zoom / factor, OVERVIEW_ZOOM_MIN, OVERVIEW_ZOOM_MAX)
+		_apply()
+		return
+	if _held:
 		return
 	if _overview:
 		_view_zoom = clampf(_view_zoom / factor, OVERVIEW_ZOOM_MIN, OVERVIEW_ZOOM_MAX)
@@ -334,9 +383,9 @@ func pinch(factor: float) -> void:
 
 
 ## relative_px: the two-finger drag's vertical movement in canvas units, down positive. In the
-## overview it goes back behind the cue ball, tilted.
+## overview it goes back behind the cue ball, tilted. Nothing while watching.
 func tilt(relative_px: float) -> void:
-	if _held:
+	if _held or _watch != "cue":
 		return
 	_leave_overview()
 	var change := relative_px * TILT_DEG_PER_PX
@@ -354,12 +403,67 @@ func tilt(relative_px: float) -> void:
 
 
 ## relative_px: a one-finger drag's horizontal movement in canvas units. Walks the broadcast view
-## round the table, the same way an aim drag swings the cue; nothing while aiming.
+## round the table, the same way an aim drag swings the cue; nothing while aiming or watching from
+## above.
 func orbit(relative_px: float) -> void:
-	if not is_broadcast():
+	if _watch == "round":
+		_round_yaw = wrapf(_round_yaw - relative_px * ORBIT_RAD_PER_PX, -PI, PI)
+		_apply()
+		return
+	if not is_broadcast() or _watch == "above":
 		return
 	_yaw = wrapf(_yaw - relative_px * ORBIT_RAD_PER_PX, -PI, PI)
 	_apply()
+
+
+## relative: a one-finger drag in canvas units. From above, zoomed in, it slides the table under
+## the finger, no further than brings an edge of the table to the edge of the view; otherwise it
+## is orbit's.
+func pan(relative: Vector2) -> void:
+	if _watch != "above":
+		orbit(relative.x)
+		return
+	var limit := _above_pan_limit(_above_zoom)
+	# The screen's right is core +x and its top core +y.
+	var slid := (_above_pan + Vector2(-relative.x, relative.y) * _above_metres_per_unit(_above_area(), _above_zoom)).clamp(-limit, limit)
+	if slid == _above_pan:
+		return
+	_above_pan = slid
+	_apply()
+
+
+## The view of the opponent's turn: "cue" (the rig's own views), "above" (the whole table from
+## overhead) or "round" (the overview's walk round it). An unknown view is ignored.
+func set_watch(view: String) -> void:
+	if not WATCH_VIEWS.has(view):
+		push_warning("camera_rig: no watching view \"%s\" (the views are %s); staying with \"%s\"" % [view, WATCH_VIEWS, _watch])
+		return
+	if view == _watch:
+		return
+	var was := _watch
+	_watch = view
+	match view:
+		"above":
+			_above_zoom = 1.0
+			_above_pan = Vector2.ZERO
+			_begin_blend(EASE_S)
+		"round":
+			# From above the walk starts side-on, the table turned the same way on the screen.
+			_round_yaw = PI / 2.0 if was == "above" else end_behind(_target_aim)
+			_round_zoom = 1.0
+			_begin_blend()
+		_:
+			if _held:
+				# A shot only ever cuts.
+				_stop_ease()
+				_apply()
+			else:
+				_begin_blend()
+	watch_changed.emit(view)
+
+
+func watch() -> String:
+	return _watch
 
 
 ## The broadcast view from the end behind the aim, or back behind the cue ball, blended. Ignored
@@ -453,8 +557,10 @@ func hold(on: bool) -> void:
 		_held = false
 		_start_blend(RETURN_S, _target_cue)
 		return
-	_still_pose = _goal() if _blending else transform
-	_still_fov = _view_fov() if _blending else camera().fov
+	# Watching, the camera is elsewhere: the rig's own view is where it would have been.
+	var elsewhere := _blending or _watch != "cue"
+	_still_pose = _goal() if elsewhere else transform
+	_still_fov = _view_fov() if elsewhere else camera().fov
 	if not _blending:
 		_stop_ease()
 	_held = true
@@ -476,6 +582,8 @@ func show_pocket(pose: Transform3D) -> void:
 		return
 	_shot_view = ShotView.POCKET
 	_pocket_pose = pose
+	if _watch != "cue":
+		return
 	_stop_ease()
 	camera().fov = POCKET_FOV_DEG
 	_place(pose)
@@ -486,6 +594,8 @@ func show_broadcast() -> void:
 	if not _held or _shot_view == ShotView.BROADCAST:
 		return
 	_shot_view = ShotView.BROADCAST
+	if _watch != "cue":
+		return
 	_stop_ease()
 	_apply()
 
@@ -618,6 +728,55 @@ func _broadcast_bounds(basis: Basis, yaw_rad: float) -> PackedFloat64Array:
 	var width := canvas.x * lerpf(END_ON_WIDTH, SIDE_ON_WIDTH, sin(yaw_rad) * sin(yaw_rad))
 	var height := canvas.y * FULL_TABLE_HEIGHT
 	return _frame_bounds(basis, Rect2((canvas.x - width) / 2.0, (canvas.y - height) / 2.0, width, height))
+
+
+## The rig's transform for the view from above: straight down on ABOVE_FOV_DEG, the screen's right
+## towards the black, the table's outline as large as fits ABOVE_MARGIN inside what the controls
+## leave and centred there; times zoom (1 to ABOVE_ZOOM_MAX), slid by pan_m (core metres, held to
+## pan's limits).
+func above_pose(zoom: float = 1.0, pan_m := Vector2.ZERO) -> Transform3D:
+	var area := _above_area()
+	var canvas := _canvas()
+	var per_unit := _above_metres_per_unit(area, zoom)
+	var depth := per_unit * canvas.y / 2.0 / tan(deg_to_rad(ABOVE_FOV_DEG) / 2.0)
+	var limit := _above_pan_limit(zoom)
+	var slid := pan_m.clamp(-limit, limit)
+	var basis := _basis_for(Vector3(PI / 2.0, PI / 2.0, 0.0))
+	var middle := Vector3(_outline.get_center().x, _outline.end.y, _outline.get_center().z) + TableSpace.core_to_godot(slid.x, slid.y)
+	# Off the canvas's centre by as much as the clear area's middle is.
+	var off := (area.get_center() - canvas / 2.0) * per_unit
+	return Transform3D(basis, middle - basis.x * off.x + basis.y * off.y + basis.z * depth)
+
+
+## What the controls leave of the canvas, less ABOVE_MARGIN; the whole canvas when that is too
+## small to show the table.
+func _above_area() -> Rect2:
+	var canvas := _canvas()
+	var whole := Rect2(Vector2.ZERO, canvas).grow(-ABOVE_MARGIN)
+	if _keep_clear.is_empty():
+		return whole
+	var area := _clear_rect.grow(-ABOVE_MARGIN)
+	if area.size.x < canvas.x * MIN_FIT_SCALE or area.size.y < canvas.y * MIN_FIT_SCALE:
+		if not _above_warned:
+			_above_warned = true
+			Log.warn("app", "app.error", {"kind": "message", "message": "camera_rig: the controls %s leave the view from above only %s of the canvas %s; it uses the whole canvas"
+					% [_keep_clear, area, canvas]})
+		return whole
+	return area
+
+
+## Metres of the rail top a canvas unit covers in the view from above. The table's length runs
+## across the screen and its width up it.
+func _above_metres_per_unit(area: Rect2, zoom: float) -> float:
+	return maxf(_outline.size.z / area.size.x, _outline.size.x / area.size.y) / clampf(zoom, 1.0, ABOVE_ZOOM_MAX)
+
+
+## How far (core metres, along and across the table) the view from above at `zoom` may slide: until
+## an edge of the table reaches the edge of the clear area, none while the table fits inside it.
+func _above_pan_limit(zoom: float) -> Vector2:
+	var area := _above_area()
+	var seen := area.size / 2.0 * _above_metres_per_unit(area, zoom)
+	return (Vector2(_outline.size.z, _outline.size.x) / 2.0 - seen).max(Vector2.ZERO)
 
 
 ## The camera's pitch in degrees with the cue raised to elevation_rad: the tilt, or higher over a
@@ -784,13 +943,20 @@ func _canvas() -> Vector2:
 static func _turn(pose: Transform3D) -> Vector3:
 	var forward := -pose.basis.z
 	var level := TableSpace.godot_to_core(forward)
+	if level.length() < 1e-6:
+		# Straight down: the top of the screen says which way it faces.
+		level = TableSpace.godot_to_core(pose.basis.y)
 	return Vector3(atan2(level.y, level.x), asin(clampf(-forward.y, -1.0, 1.0)), 0.0)
 
 
 static func _basis_for(turn: Vector3) -> Basis:
-	var pitch := clampf(turn.y, deg_to_rad(-80.0), deg_to_rad(85.0))
+	var pitch := clampf(turn.y, deg_to_rad(-80.0), PI / 2.0)
 	var level := TableSpace.core_to_godot(cos(turn.x), sin(turn.x))
-	return Basis.looking_at(level * cos(pitch) + Vector3.DOWN * sin(pitch), Vector3.UP)
+	var forward := level * cos(pitch) + Vector3.DOWN * sin(pitch)
+	if pitch > deg_to_rad(85.0):
+		# Nearly straight down UP no longer fixes the screen's top; the view's own up does.
+		return Basis.looking_at(forward, level * sin(pitch) + Vector3.UP * cos(pitch))
+	return Basis.looking_at(forward, Vector3.UP)
 
 
 func _view_fov() -> float:
@@ -809,6 +975,25 @@ func _goal() -> Transform3D:
 	if is_broadcast():
 		return broadcast_pose(_yaw, _view_zoom)
 	return pose_for(_target_cue, _target_aim, _target_elevation)
+
+
+## Where the camera goes: the watching view's pose, or the rig's own (_goal).
+func _camera_goal() -> Transform3D:
+	match _watch:
+		"above":
+			return above_pose(_above_zoom, _above_pan)
+		"round":
+			return broadcast_pose(_round_yaw, _round_zoom)
+	return _goal()
+
+
+func _camera_fov() -> float:
+	match _watch:
+		"above":
+			return ABOVE_FOV_DEG
+		"round":
+			return BROADCAST_FOV_DEG
+	return _view_fov()
 
 
 func _process(delta: float) -> void:
@@ -842,21 +1027,21 @@ func _process(delta: float) -> void:
 # ball into the dark while it came down.
 func _step_blend() -> void:
 	var s := _ease
-	var goal := _goal()
+	var goal := _camera_goal()
 	_goal_eye = goal.origin
 	_goal_turn = _turn(goal)
 	_goal_turn.x = _from_turn.x + angle_difference(_from_turn.x, _goal_turn.x)
 	_goal_focus = _focus_of(goal)
 	var swing := _swing()
 	if s >= 1.0:
-		if not is_broadcast():
+		if not is_broadcast() and _watch == "cue":
 			_shown_cue = _target_cue
 			_shown_aim = _target_aim
 			_shown_elevation = _target_elevation
-		camera().fov = _view_fov()
+		camera().fov = _camera_fov()
 		_place(goal)
 		return
-	camera().fov = lerpf(_from_fov, _view_fov(), smoothstep(0.0, 1.0, s))
+	camera().fov = lerpf(_from_fov, _camera_fov(), smoothstep(0.0, 1.0, s))
 	var pose := _blend_at(s, swing)
 	var eye: Vector3 = pose[0]
 	eye.y = maxf(eye.y, clearance_at(TableSpace.godot_to_core(eye)))
@@ -929,8 +1114,14 @@ func _blend_velocity() -> Array[Vector3]:
 	return [(b[0] - a[0]) / dt, turned / dt]
 
 
-## swing_about: the core point a swoop swings round (see _step_blend), NAN to run straight.
+## swing_about: the core point a swoop swings round (see _step_blend), NAN to run straight. While
+## watching the rig's own view moves nothing.
 func _start_blend(duration_s: float = BLEND_S, swing_about := Vector2(NAN, NAN)) -> void:
+	if _watch == "cue":
+		_begin_blend(duration_s, swing_about)
+
+
+func _begin_blend(duration_s: float = BLEND_S, swing_about := Vector2(NAN, NAN)) -> void:
 	if not _has_pose:
 		return
 	var velocity := _blend_velocity()
@@ -984,8 +1175,10 @@ func _show(cue_xy: Vector2, aim_rad: float, elevation_rad: float) -> void:
 func _apply() -> void:
 	if not _has_pose or _blending:
 		return
-	camera().fov = _view_fov()
-	if _held and _shot_view == ShotView.POCKET:
+	camera().fov = _camera_fov()
+	if _watch != "cue":
+		_place(_camera_goal())
+	elif _held and _shot_view == ShotView.POCKET:
 		_place(_pocket_pose)
 	elif _held and _shot_view == ShotView.STILL:
 		_place(_still_pose)
