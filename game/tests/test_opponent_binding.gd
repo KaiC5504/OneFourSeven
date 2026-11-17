@@ -492,17 +492,25 @@ func test_the_147_says_its_break_ended_when_the_stroke_is_judged() -> void:
 
 
 func test_the_147_says_a_colour_other_than_the_black_lost_it() -> void:
-	var m := _exhibition("maximum", 53)
-	_mark_log()
-	check(m.opponent_think("maximum", 80, {"shot_id": "red"}, {}), "thinks: " + m.last_error())
-	var red := await _answer(m)
-	check_eq(_play(m, red, "red").get("ok"), true, "its red is played")
-	check_eq(int(m.frame()["break_points"]), 1, "and potted")
-	check(m.opponent_think("maximum", 81, {"shot_id": "colour"}, {}), "thinks: " + m.last_error())
-	check_eq((await _answer(m)).get("ok"), true, "answers")
-	# Its black is not played: a pot of another colour is.
-	var pot := _colour_pot(m)
-	check(not pot.is_empty(), "a colour other than the black can be potted from here")
+	# Where its red leaves the cue ball is the search's business, so the first table whose leave
+	# has a plain pot of another colour is used. No clock: the same stroke on a loaded machine.
+	var budget := {"max_sims": 1500, "max_ms": 0}
+	var m: OfsMatch = null
+	var pot := {}
+	for table in ((_fixture(EXHIBITIONS_PATH) as Dictionary)["layouts"] as Array).size():
+		m = _exhibition("maximum", 53, table)
+		_mark_log()
+		check(m.opponent_think("maximum", 80, {"shot_id": "red"}, budget), "thinks: " + m.last_error())
+		var red := await _answer(m)
+		check_eq(_play(m, red, "red").get("ok"), true, "its red is played")
+		check_eq(int(m.frame()["break_points"]), 1, "and potted")
+		check(m.opponent_think("maximum", 81, {"shot_id": "colour"}, budget), "thinks: " + m.last_error())
+		check_eq((await _answer(m)).get("ok"), true, "answers")
+		# Its black is not played: a pot of another colour is.
+		pot = _colour_pot(m)
+		if not pot.is_empty():
+			break
+	check(not pot.is_empty(), "on some table a colour other than the black can be potted after its red")
 	if pot.is_empty():
 		return
 	var record := Physics.sim.simulate(m.balls(), m.cue_ball(), pot["strike"], 9, _context("colour"))
@@ -732,11 +740,11 @@ func _started_with(level: String, breaker: int = 1) -> OfsMatch:
 
 
 ## The first exhibition table with `level` at it as player 1 and the person, player 0, watching.
-func _exhibition(level: String, seed: int) -> OfsMatch:
+func _exhibition(level: String, seed: int, table := 0) -> OfsMatch:
 	var m := _opponent()
 	var config := _config(1, 0, seed)
 	config["level"] = level
-	config["exhibition"] = 0
+	config["exhibition"] = table
 	config["person"] = 0
 	check_eq(m.start(config, _match_id()).get("ok"), true, "an exhibition starts: " + m.last_error())
 	return m
