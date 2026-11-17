@@ -159,6 +159,10 @@ func _end_strike() -> void:
 	Perf.set_active(&"cue_strike", false)
 
 
+func _exit_tree() -> void:
+	_stop_strike()
+
+
 func _stop_strike() -> void:
 	if _strike != null:
 		_strike.kill()
