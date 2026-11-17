@@ -91,9 +91,10 @@ class Files(unittest.TestCase):
             self.assertEqual(make_exhibitions.load(path), layouts)
         self.assertEqual([lay["name"] for lay in layouts], ["Open table 1", "Open table 2", "Open table 3"])
 
-    def test_the_committed_file_has_eight_tables_laid_by_the_rules(self):
+    def test_the_committed_file_has_its_tables_in_order_laid_by_the_rules(self):
         layouts = make_exhibitions.load(make_exhibitions.EXHIBITIONS)
-        self.assertEqual([lay["name"] for lay in layouts], [f"Open table {i}" for i in range(1, 9)])
+        self.assertGreaterEqual(len(layouts), 8)
+        self.assertEqual([lay["name"] for lay in layouts], [f"Open table {i}" for i in range(1, len(layouts) + 1)])
         for lay in layouts:
             with self.subTest(lay["name"]):
                 self.assertEqual(make_exhibitions.problems(lay, TABLE), [])
@@ -122,6 +123,24 @@ class Check(unittest.TestCase):
         self.assertIn("break  57", out)
         self.assertIn("NOT 147: needed the black", out)
         self.assertIn("1 of 2 tables make 147", out)
+        self.assertNotIn("Open table 1 ", out)
+
+    def test_fifty_tables_print_only_the_failing_ones_and_a_count(self):
+        make_exhibitions.write_file(self.file, make_exhibitions.renamed(
+            [make_exhibitions.candidate(1, n % 2, TABLE) for n in range(50)]))
+        breaks = [147] * 50
+        breaks[6], breaks[41] = 33, 140
+        code, out = self.check(report(*breaks))
+        self.assertEqual(code, 1)
+        self.assertEqual(out.splitlines()[-1].split(" (")[0], "48 of 50 tables make 147")
+        self.assertEqual(len(out.splitlines()), 3, out)
+        self.assertRegex(out, r"(?m)^Open table 7 +break  33 .*NOT 147")
+        self.assertRegex(out, r"(?m)^Open table 42 +break 140 .*NOT 147")
+        code, out = run("--check", "--verbose", "--file", str(self.file), "--cli", str(self.cli),
+                        canned=report(*breaks))
+        self.assertEqual(code, 1)
+        self.assertEqual(len(out.splitlines()), 51, out)
+        self.assertRegex(out, r"(?m)^Open table 50 +break 147 .* 147$")
 
     def test_a_planned_pot_that_stayed_out_fails_the_check_even_at_147(self):
         code, _ = self.check(report(147, 147, failures=[{"where": "exhibition Open table 1"}]))
@@ -141,6 +160,64 @@ class Check(unittest.TestCase):
         code, out = run("--check", "--file", str(self.file), "--cli", str(self.folder / "missing.exe"))
         self.assertEqual(code, 2)
         self.assertIn("no ofs_sim_cli", out)
+
+
+def made_by_some(cli, file, threads, folder):
+    """A stand-in for the simulator: about two tables in three make 147, the same ones whatever their place."""
+    layouts = json.loads(pathlib.Path(file).read_text(encoding="utf-8"))["layouts"]
+    breaks = [147 if round(lay["balls"][0]["x"] * 1e4) % 3 else 57 for lay in layouts]
+    out = report(*breaks)
+    for entry, lay in zip(out["exhibitions"], layouts):
+        entry["name"] = lay["name"]
+    return out, []
+
+
+class Search(unittest.TestCase):
+    def setUp(self):
+        self._folder = tempfile.TemporaryDirectory()
+        self.folder = pathlib.Path(self._folder.name)
+        self.file = self.folder / "exhibitions.json"
+        self.cli = self.folder / "ofs_sim_cli.exe"
+        self.cli.write_text("")
+
+    def tearDown(self):
+        self._folder.cleanup()
+
+    def search(self, *argv):
+        out = io.StringIO()
+        results = []
+
+        def recorded(*args):
+            results.append(made_by_some(*args))
+            return results[-1]
+
+        recorded.results = results
+        fake = mock.Mock(side_effect=recorded)
+        with mock.patch.object(make_exhibitions, "run_tournament", fake), contextlib.redirect_stdout(out), \
+                contextlib.redirect_stderr(out):
+            code = make_exhibitions.main(["--file", str(self.file), "--cli", str(self.cli), *argv])
+        return code, out.getvalue(), fake
+
+    def test_fifty_tables_are_found_in_batches_and_named_in_order(self):
+        code, out, fake = self.search("--count", "50")
+        self.assertEqual(code, 0, out)
+        layouts = make_exhibitions.load(self.file)
+        self.assertEqual([lay["name"] for lay in layouts], [f"Open table {i}" for i in range(1, 51)])
+        for lay in layouts:
+            self.assertEqual(make_exhibitions.problems(lay, TABLE), [])
+        self.assertEqual(len({json.dumps(lay["balls"]) for lay in layouts}), 50)
+        played = [len(report["exhibitions"]) for report, _ in fake.side_effect.results]
+        self.assertEqual(played[-1], 50, "the file is played once more as written")
+        self.assertTrue(all(n <= 12 for n in played[:-1]), played)
+        self.assertIn("wrote 50 tables", out)
+        self.assertNotIn("candidate 1-", out)
+        self.assertRegex(out, r"(?m)^  \d+ of 12 candidates made 147; \d+ of 50 tables$")
+
+    def test_a_limit_too_small_for_the_count_is_an_error(self):
+        code, out, _ = self.search("--count", "50", "--limit", "30")
+        self.assertEqual(code, 2)
+        self.assertRegex(out, r"30 candidates gave \d+ of 50 tables")
+        self.assertFalse(self.file.exists())
 
 
 class Needed(unittest.TestCase):

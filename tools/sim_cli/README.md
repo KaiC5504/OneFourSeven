@@ -349,7 +349,9 @@ ofs_sim_cli tournament --a maximum --frames 0 --exhibitions
 - Failures, each printed (the first 100) and counted, and exit 1:
   - every check `match` makes of a stroke or a choice (the table, the turn, the scores and break,
     the judgement read twice, the logged decision re-judged, the engine refusing nothing, no
-    `app.error`); the frame stops there;
+    `app.error`); the frame stops there. A decision the engine would not take is logged again at
+    warn with its `error` and `pre`, as the game logs one; an exception logs `app.error` (`kind`
+    `exception`, `level`, `seed`, `frame`) and its repro holds the frame it was thrown in;
   - a frame still not over after `--max-strokes` strokes (default 600, re-racks included);
   - a planned pot that stayed out: a stroke whose `why.kind` is `pot` by a level whose execution
     has no error (`aim_sigma_rad`, `speed_sigma` and `tip_sigma` all 0), which did not pot the ball
@@ -383,11 +385,14 @@ ofs_sim_cli tournament --a maximum --frames 0 --exhibitions
   ended `done`, `sims`, `steps`, `time`, `cancelled`); `fallbacks`. Everything but `think`'s times and `timing`
   is the same for the same options.
 - `--log FILE` writes the run's log as JSONL, the lines a game session logs: `params.loaded` (the
-  physics file, then each level file), then each frame in order with its `match.started` (with
-  `level`: B's id, the game's opponent seat), `frame.started`, `opponent.decision` (with `level`,
-  `seed`, `meant` and `think`), `opponent.fallback`, `rules.cue_placed`, `shot.simulated`,
-  `rules.decision`, `rules.choice`, `frame.ended` and `match.ended` lines; an exhibition's
-  `exhibition.started` and `exhibition.ended` lines with its strokes between. `match_id` is
+  physics file, then each level file), `rules.configured` (the referee's and stand-in's values and
+  each level's, with its file's `hash`, as the game's binding logs them), then each frame in order
+  with its `match.started` (with `level`: B's id, the game's opponent seat), `frame.started`,
+  `opponent.decision` (with `level`, `seed`, `meant`, `think` and `pre_hash`), `opponent.fallback`,
+  `rules.cue_placed`, `shot.simulated`, `rules.decision`, `rules.choice`, `frame.ended` and
+  `match.ended` lines; an exhibition's `exhibition.started` and `exhibition.ended` lines with its
+  strokes between (`why` `claimed` when the level claimed the frame, `failed` when a failure
+  stopped the break). `match_id` is
   `tournament-<seed>-<frame>` (an exhibition's `tournament-<seed>-x<table>`). `referee`,
   `opponent`, `replay` and `tools/check_logs.py` all read it.
 
@@ -399,12 +404,23 @@ whether the log came from the phone or from `tournament --log`.
 ```
 ofs_sim_cli opponent logs/2026-11-17/20261117-201500-a1b2c3.jsonl
 ofs_sim_cli opponent build/tournament.jsonl --line 2041
+ofs_sim_cli opponent logs/2026-11-17/20261117-201500-a1b2c3.jsonl --strict
 ```
 
 - Every `opponent.decision` line with a `level` (or just `--line N`) is made again; the
   stand-in's lines, which have none, are skipped and counted.
-- The level is `core/data/opponent_<level>.json`: it must be the file the log was made with, and
-  each level used is printed with its content hash to compare with the one the session loaded.
+- A decision the game refused (logged at warn, with `error`) is not made again: it prints `line N
+  shot  refused in the game: <error> (shot_id S)`, says whether its `pre` holds the frame it was
+  decided from to rebuild it, and is counted apart. It does not fail the exit code.
+- The level's and the stand-in's values are those of the last `rules.configured` before the
+  decision that lists the level (`levels`, `standin`), the values the session was playing with.
+  Each level is printed once: `level beginner: the log's values, the same as
+  core/data/opponent_beginner.json (rules.configured at line L, hash H)`, or `the log's values
+  differ from core/data's; using the log's`, the hint when a session from before a tuning is
+  read. A log with no `rules.configured` (one from before M4's fix round) falls back on
+  `core/data/opponent_<level>.json` and `standin_params.json` and says so. When one
+  `rules.configured` lists two levels of one id (a tournament of a level against a retuned copy),
+  the decision is made with each and the one that gives the logged decision is taken.
 - A stroke (`kind` `shot`) is made from the `pre` of the `rules.decision` line with the same
   `shot_id`. That frame has the cue ball where the stroke placed it; when the stroke placed it
   (`cue` logged) it is put back where the engine leaves a ball in hand, the legal place nearest
@@ -414,13 +430,31 @@ ofs_sim_cli opponent build/tournament.jsonl --line 2041
   `match_id` and player, which is the frame the session had reached; with nothing pending there it
   was a claim or concession in place of a stroke, made by `choose_stroke`. Its physics and referee
   values are those of the nearest stroke of the match, before it or else after it.
+- When the decision has `pre_hash`, the rebuilt frame's `frame_hash` must be it; when it is not
+  (`line N  frame  NOT REBUILT  the frame could not be rebuilt: ...`), the decision is not made
+  again, and that is counted apart from the differences. A stroke's `strike` must also be the one
+  its `shot.simulated` bundle played (`line N  struck  DIFFERS  decided ..., struck ...`).
+  `params_changed: true` (the physics values changed while it thought) is noted beside any of
+  these.
 - Each is made with `Rng(seed)` and, when `think.stopped` is not `done`, `Think{max_steps =
   think.steps}` (otherwise no limit, and never a clock), on the table from `--table` or
-  `core/data/table_shape.json`. `strike`, `meant`, `nominated` and `cue`, or a choice's `choice`,
-  are compared exactly, JSON numbers at full precision.
+  `core/data/table_shape.json`. For a line logged on this build's platform (the line's
+  `platform`) `strike`, `meant`, `nominated` and `cue`, or a choice's `choice`, are compared
+  exactly, JSON numbers at full precision.
+- A line from another platform (the phone's `ios` read on Windows) was made with another libm,
+  which rounds the last bits otherwise: nearly every solved aim differs in its last digits, and a
+  candidate near a jaw can pot on one and stay out on the other. There `why.kind`, `why.target`,
+  `why.pocket`, `nominated` and a choice's `choice` are compared exactly and the numbers of
+  `strike`, `meant` and `cue` within 1e-9. A mismatch is printed as `line N  strike  DIFFERS
+  ACROSS PLATFORMS (ios -> windows)  logged ..., remade ...` with a `think` line beside it (the
+  logged and remade `candidates`, `sims`, `steps`), and counted apart; so is a frame that does not
+  rebuild there. Neither fails the exit code unless `--strict` is given.
 - It prints one line per difference with its line number and both values (`line N  strike
   DIFFERS  logged ..., remade ...`), `NOT REPLAYED line N: why` for a decision whose frame or
   values the log does not hold, and a count at the end (`made again R of D decisions: X
-  differences, U unreadable, N not replayed; S without a level skipped`). Exit 1 on any difference
-  or unreadable line (a line that is not JSON, a level that does not load, a bundle from another
-  table); 2 when the log cannot be read or has no `opponent.decision` line; 0 otherwise.
+  differences, U unreadable, N not replayed, B frames not rebuilt, K struck otherwise; P differ
+  across platforms; F refused in the game; S without a level skipped`). Exit 1 on any difference,
+  unreadable line (a line that is not JSON, a level that does not load, a bundle from another
+  table), frame not rebuilt or strike struck otherwise of this platform, and with `--strict` on
+  any across platforms too; 2 when the log cannot be read or has no `opponent.decision` line; 0
+  otherwise.
