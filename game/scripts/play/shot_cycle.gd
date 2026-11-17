@@ -87,7 +87,8 @@ func _init(rig: CameraRig = null) -> void:
 ## from, core metres), "track" (where it is from the cut to then, latest first), "drop_centre",
 ## "middle".
 ## watch_table, when not empty, is why a shot at a pocket is watched from the full table whatever
-## the cue ball does ("practice").
+## the cue ball does: "practice", or "watching" (the person watches the opponent's turn from above
+## or walking round, CameraRig.watch()).
 static func plan(playback: ShotPlayback, balls: Array[Dictionary], cue_ball: int, pocket_camera: bool,
 		pockets: Array, watch_table: String = "") -> Dictionary:
 	var pots: Array[Dictionary] = []

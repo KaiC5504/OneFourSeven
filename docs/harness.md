@@ -41,7 +41,7 @@ warning and is ignored.
 | `--mute` | Mutes the master audio bus before anything plays. `run_debug.py` and `harness_client.py` always pass it (`run_debug.py --sound` leaves it out): agent runs make no sound. |
 | `--harness-port=<port>` | Opens the command channel on 127.0.0.1 (Windows only). `0` picks a free port; the game prints `harness listening on 127.0.0.1:<port>` to stdout. |
 | `--demo-position=<name>` | Loads `res://data/positions/<name>.json` one frame after the scene is ready. |
-| `--demo-screen=<name>` | Opens a screen one frame after the scene is ready: `home` (where the app opens anyway), `match_setup` or `table` as `open_screen` does; `match` starts a best of 3 with seed 147 and the person to break; `pause`, `frame_summary` and `match_summary` show that screen for a picture with no match behind it, the summaries filled from `res://data/rules/example_match.json` (the match summary with its frame in play counted as the last). |
+| `--demo-screen=<name>` | Opens a screen one frame after the scene is ready: `home` (where the app opens anyway), `match_setup` or `table` as `open_screen` does; `match` starts a best of 3 with seed 147 and the person to break; `pause`, `frame_summary`, `match_summary` and `exhibition_summary` show that screen for a picture with no match behind it, the frame's and the match's summaries filled from `res://data/rules/example_match.json` (the match summary with its frame in play counted as the last), the exhibition's with a maximum. |
 | `--screenshot=<path>` | Saves a PNG after one second, and once the camera has landed where it is going. Not headless: that renders nothing. |
 | `--dump-state=<path>` | Writes the state (as `dump_state` below) at the same moment. |
 | `--quit-after=<seconds>` | Quits, after any capture above has finished. |
@@ -94,14 +94,16 @@ with Harness(resolution="1912x880", extra_args=["--no-link"]) as game:
 | `screenshot` | `path` | the PNG's absolute path, taken once the camera has landed (5 s at most); `harness.command` logs the path as given |
 | `overlay` | `visible` (true or false) | `{"visible"}`: the debug overlay, as F3 or a three-finger tap toggles it |
 | `input` | `events`, `frames_between` (default 1) | `{"sent": n}` after the last event has reached the scene |
-| `start_match` | `best_of` (1, 3, 5, 7, 9 or 11; default 3), `first_breaker` (`random`, `you`, `computer`; default `random`), `seed` (optional), `autoplay`, `fast` (default false) | `{"match_id"}`; an error with the engine's `last_error()` when it refuses (`app.error` says more) |
-| `match_state` | | `MatchController.harness_state()`: `active`, `match_id`, `frame` (the frame view), `match`, `nominated`, `placing`, `blocked`, `autoplay`, `waiting` (as `match_wait`'s: what the screen shows) |
+| `start_match` | `best_of` (1, 3, 5, 7, 9 or 11; default 3), `first_breaker` (`random`, `you`, `computer`; default `random`), `level` (a level id of `OfsMatch.levels()`, `beginner` or `maximum`; absent or `""` is the stand-in), `seed` (optional), `autoplay`, `fast` (default false) | `{"match_id"}`; an error with the engine's `last_error()` when it refuses (`app.error` says more). Autoplay plays the person's side with the stand-in whatever the level |
+| `start_exhibition` | `layout` (an index into `core/data/exhibitions.json`'s tables; default 0), `seed` (optional), `fast` (default false) | `{"match_id", "layout"}` (`layout`: the table's name): Watch a 147 as Home starts it, the 147 at that table and the person only watching. It ends at the summary (`match_wait`'s `exhibition_summary`) |
+| `watch` | `view`: `cue`, `above` or `round` | `{"view"}`: the view of the opponent's turn, as the view button steps through them (`camera.watch` logs `how` `harness`). `above` and `round` only while the button shows: the opponent at the table in a match, or an exhibition |
+| `match_state` | | `MatchController.harness_state()`: `active`, `match_id`, `frame` (the frame view), `match`, `nominated`, `placing`, `blocked`, `autoplay`, `waiting` (as `match_wait`'s: what the screen shows), `level` (the opponent's level id, `""` for the stand-in), `exhibition` (Watch a 147 is on), `thinking` (a level is choosing its stroke), `watch` (the view of the opponent's turn: `cue`, `above` or `round`) |
 | `match_shot` | a strike as `play_shot`'s, `nominated` (a colour, optional), `cue` `[x, y]` (optional, when the cue ball is in hand) | `{"shot_id"}`: the person's stroke exactly as given. The in-hand cue ball is put at `cue`, or left where it is, and confirmed; without `nominated` the aim line declares as it does for a player. A place the engine refuses is an error with its `last_error()` |
 | `match_choose` | `kind` (a decision name offered: `play`, `play_again`, `replace`, ...) | `{"kind"}`; an error with what is offered and the engine's `last_error()` |
-| `match_wait` | `timeout_s` (default 30) | `{"waiting", "waited_s"}` once the match waits for the person: `shot`, `choice`, `frame_summary` or `match_summary`, as the screen shows it, or `stalled` when the stand-in could not play (the pause menu is up; resuming asks it once more) (after the last frame, `frame_summary` until `match_continue` brings the match's; a conceded match goes straight to `match_summary`); an error at the timeout or with no match on the table |
+| `match_wait` | `timeout_s` (default 30) | `{"waiting", "waited_s"}` once the match waits for the person: `shot`, `choice`, `frame_summary`, `match_summary` or `exhibition_summary`, as the screen shows it, or `stalled` when the stand-in could not play (the pause menu is up; resuming asks it once more) (after the last frame, `frame_summary` until `match_continue` brings the match's; a conceded match goes straight to `match_summary`); an error at the timeout or with no match on the table |
 | `match_autoplay` | `on`, `fast` (default false) | `{"on", "fast"}`: the stand-in plays the person's strokes and choices too; `fast` skips each stroke's playback and every wait |
 | `match_pause` | `on` | `{"on", "can_concede", "can_concede_match", "can_claim"}`: opens the pause menu as the scoreboard's button does, or resumes from it. While it is up the opponent waits; `match_choose` with `concede_frame`, `concede_match` or `claim_frame` takes it from there when the engine offers it. An error unless the match's own screen (to open) or the menu (to resume) is showing |
-| `match_continue` | | `{"screen"}`: from a frame summary to the next frame (after the last, to the match summary), from the match summary to Home. When the engine refuses the next frame the match is left and the answer is `{"error": "next frame refused: <last_error()>"}` |
+| `match_continue` | | `{"screen"}`: from a frame summary to the next frame (after the last, to the match summary), from the match summary or the exhibition summary to Home. When the engine refuses the next frame the match is left and the answer is `{"error": "next frame refused: <last_error()>"}` |
 | `quit` | | `"quitting"`, then the game exits |
 
 `load_position` with `balls` takes the game's ball list, `[{"ball": "red", "index": 3, "x":
@@ -120,7 +122,7 @@ settings, last shot, camera, break, `practice`, the practice shot's position nam
 | `camera.pitch_deg`, `camera.zoom_scale` | the aiming camera's tilt and zoom (spec 8.5) |
 | `camera.view` | `aim` (behind the cue ball, including the swoop back to it), `shot` (a shot holds the camera: still behind the cue ball for the stroke, then cut to the full-table view), `pocket` (the shot cycle's camera behind the pocket of the first object ball to drop) or `overview` |
 | `break` | the running break as the counter shows it: the shot's pots count up as they drop, and it is 0 after a shot that pots nothing or the cue ball, a retake, undo, redo, setup, edit mode or `load_position`. In a match, the frame's break as the scoreboard shows it |
-| `screen` | `home`, `match_setup`, `table`, `match`, `pause`, `frame_summary` or `match_summary`, as `screen.changed` logged it |
+| `screen` | `home`, `match_setup`, `table`, `match`, `pause`, `frame_summary`, `match_summary` or `exhibition_summary`, as `screen.changed` logged it |
 | `mode` | `home`, `free_table` or `match`: whose balls are on the table (`balls`, `cue_ball`) |
 
 `wait_idle` returns once the shot has settled, as the camera starts swooping back behind the cue
@@ -147,7 +149,10 @@ confirmed by `match_shot`'s `cue`; `match_pause` opens the pause menu, and `open
 an `app.error` in the log.
 
 `python tools/play_match.py` plays a whole match this way with the stand-in on both sides
-(`--best-of`, `--seed`, `--first-breaker`, `--slow`, `--out`), in a user folder of its own under
+(`--best-of`, `--seed`, `--first-breaker`, `--slow`, `--out`), or with `--level ID` against
+that level (the person's side still the stand-in's; the log is then also checked with
+`ofs_sim_cli opponent`, which makes every `opponent.decision` again), or with `--exhibition`
+one Watch a 147 (`start_exhibition`), reporting the break, in a user folder of its own under
 `build/play-match`, saves the state and a picture at the match summary (asked for by relative
 paths, so no folder of the user's reaches the log, and then moved to `--out`), and then has
 `ofs_sim_cli referee` (the Debug build's, or `$OFS_SIM_CLI`) re-judge every `rules.decision` of
@@ -202,7 +207,9 @@ A first touch also arrives as a left mouse button (Godot's mouse-from-touch emul
 
 Hidden by default, in every build: F3, a three-finger tap or the `overlay` command shows it
 top-right inside the safe area. It shows the build, fps, frame time average, p95 and max,
-dropped frames, the last shot's simulation time and the last guide prediction's time, thermal
+dropped frames, the last shot's simulation time and the last guide prediction's time, the
+opponent's last decision (`think`: level, milliseconds, simulations, steps and how the search
+stopped, from `opponent.decision`'s `think`), thermal
 state, memory footprint, the parameter hash in use and any waiting for the next shot, and the
 link status. It refreshes at most twice a second and only while shown, so it never keeps an
 idle game drawing. Its numbers start once the first second is logged (`perf.second`).

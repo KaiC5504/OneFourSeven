@@ -41,6 +41,7 @@ var _hold := Timer.new()
 var _fade: Tween
 var _text := ""
 var _area := Rect2()
+var _opponent := OPPONENT
 
 
 func _init() -> void:
@@ -89,7 +90,7 @@ func announce(calls: Array, person: int = 0, context: Dictionary = {}) -> void:
 		if kind.is_empty():
 			continue
 		kinds.append(kind)
-		if text_for(call, person).is_empty():
+		if text_for(call, person, _opponent).is_empty():
 			Kit.problem("RefereeLine: no words for the call \"%s\"" % kind)
 		elif kind == "foul" and not _has_value(call):
 			Kit.missing(WHO, "value")
@@ -97,7 +98,7 @@ func announce(calls: Array, person: int = 0, context: Dictionary = {}) -> void:
 			Kit.missing(WHO, "detail")
 		elif kind == "frame_over" and not FRAME_OVER.has(call["detail"]) and not PLAIN_ENDS.has(call["detail"]):
 			Kit.problem("RefereeLine: no words for the end reason \"%s\"; said \"Frame over\"" % call["detail"])
-	var line := line_for(calls, person)
+	var line := line_for(calls, person, _opponent)
 	if line.is_empty():
 		return
 	_end_fade()
@@ -114,6 +115,11 @@ func announce(calls: Array, person: int = 0, context: Dictionary = {}) -> void:
 		if context.has(key):
 			fields[key] = context[key]
 	Log.info("match", "match.call", fields)
+
+
+## The name the other player is called by: the opponent's level's, OPPONENT until given one.
+func set_opponent_name(opponent: String) -> void:
+	_opponent = opponent
 
 
 ## Hides the line at once (a new frame, the match left).
@@ -136,7 +142,8 @@ func place_in(area: Rect2) -> void:
 
 
 ## One call in words (WORDS, FRAME_OVER for frame_over's reason); "" for an unknown kind.
-static func text_for(call: Dictionary, person: int = 0) -> String:
+## `opponent` is the name an award to the other player is said with.
+static func text_for(call: Dictionary, person: int = 0, opponent: String = OPPONENT) -> String:
 	var kind := str(call.get("kind", ""))
 	match kind:
 		"foul":
@@ -145,20 +152,20 @@ static func text_for(call: Dictionary, person: int = 0) -> String:
 			var reason := str(call.get("detail", ""))
 			var words: String = FRAME_OVER.get(reason, "Frame over")
 			if AWARDS.has(reason) and _has_value(call):
-				words += " to you" if int(call["value"]) == person else " to " + OPPONENT
+				words += " to you" if int(call["value"]) == person else " to " + opponent
 			return words
 	return WORDS.get(kind, "")
 
 
 ## The whole line announce shows for `calls`: each call's words in order, joined by SEPARATOR. A
 ## foul followed by its miss is said once, as the referee does: "FOUL AND A MISS 4".
-static func line_for(calls: Array, person: int = 0) -> String:
+static func line_for(calls: Array, person: int = 0, opponent: String = OPPONENT) -> String:
 	var said := PackedStringArray()
 	for i in calls.size():
 		var kind := _kind_at(calls, i)
 		if kind.is_empty() or (kind == "foul" and _kind_at(calls, i + 1) == "miss"):
 			continue
-		var words := text_for(calls[i], person)
+		var words := text_for(calls[i], person, opponent)
 		if kind == "miss" and _kind_at(calls, i - 1) == "foul" and _has_value(calls[i - 1]):
 			words += " %d" % int(calls[i - 1]["value"])
 		if not words.is_empty():

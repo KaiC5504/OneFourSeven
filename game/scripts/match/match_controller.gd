@@ -53,6 +53,9 @@ const PERSON := 0
 const OPPONENT := 1
 ## Seconds before the opponent acts, at pace 1 (spec 10.5: at least about 0.6 s).
 const THINK_SECONDS := 0.9
+## A level's stroke: its cue then stands, feathers and strikes (OpponentShow), which makes up the
+## rest of the natural pause.
+const LEVEL_THINK_SECONDS := 0.3
 const CHOICE_SECONDS := 1.2
 const REFEREE_PATH := "res://data/referee_params.json"
 const STANDIN_PATH := "res://data/standin_params.json"
@@ -799,7 +802,9 @@ func _ask_opponent() -> void:
 	if _pending() != "none":
 		_driver.request_choice(engine, _turn_player, CHOICE_SECONDS * pace, _level_of(_turn_player))
 	else:
-		_driver.request_shot(engine, _turn_player, THINK_SECONDS * pace, _level_of(_turn_player))
+		var level_id := _level_of(_turn_player)
+		var think := THINK_SECONDS if level_id.is_empty() else LEVEL_THINK_SECONDS
+		_driver.request_shot(engine, _turn_player, think * pace, level_id)
 
 
 func _on_shot_chosen(player: int, shot: Dictionary) -> void:

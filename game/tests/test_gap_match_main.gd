@@ -163,6 +163,8 @@ func _spawn(frame: Dictionary, engine: FakeMatchEngine = null) -> MainScript:
 	tree.root.add_child(main)
 	await tree.process_frame
 	_engine = engine if engine != null else FakeMatchEngine.new()
+	# The stand-in plays these, as when no level could be configured: the setup then offers none.
+	_engine.level_list = []
 	_engine.frame_view = frame
 	_engine.match_view = _json(MATCH)
 	_engine.match_view.erase("frame")

@@ -17,11 +17,12 @@ extends Node
 signal captures_done
 
 ## What --demo-screen takes. The first three open as open_screen does; "match" starts DEMO_MATCH,
-## the person to break; the last three are shown for pictures, the summaries filled from
-## EXAMPLE_MATCH_PATH, with no match behind them.
-const SCREENS: Array[String] = ["home", "match_setup", "table", "match", "pause", "frame_summary", "match_summary"]
+## the person to break; the last four are shown for pictures, the frame's and the match's summaries
+## filled from EXAMPLE_MATCH_PATH, with no match behind them.
+const SCREENS: Array[String] = ["home", "match_setup", "table", "match", "pause", "frame_summary", "match_summary",
+		"exhibition_summary"]
 const OPEN_SCREENS: Array[String] = ["home", "match_setup", "table"]
-const DEMO_SCREENS: Array[String] = ["pause", "frame_summary", "match_summary"]
+const DEMO_SCREENS: Array[String] = ["pause", "frame_summary", "match_summary", "exhibition_summary"]
 const DEMO_MATCH := {"best_of": 3, "first_breaker": "you", "seed": 147}
 const EXAMPLE_MATCH_PATH := "res://data/rules/example_match.json"
 const BREAKERS: Array[String] = ["random", "you", "computer"]
@@ -52,8 +53,8 @@ const MAX_FRAMES_BETWEEN := 600
 const KEY_MODIFIERS: Array[String] = ["ctrl", "shift", "alt", "meta"]
 const STRIKE_KEYS: Array[String] = ["aim_rad", "tip_x", "tip_y", "elevation_rad", "speed_m_s"]
 const COMMANDS: Array[String] = ["ping", "load_position", "play_shot", "wait_idle", "set_setting", "dump_state",
-		"screenshot", "overlay", "input", "open_screen", "start_match", "match_state", "match_shot", "match_choose",
-		"match_wait", "match_autoplay", "match_pause", "match_continue", "quit"]
+		"screenshot", "overlay", "input", "open_screen", "start_match", "start_exhibition", "watch", "match_state",
+		"match_shot", "match_choose", "match_wait", "match_autoplay", "match_pause", "match_continue", "quit"]
 const OVERLAY_PATH := "Hud/Overlay"
 
 ## The scene commands act on; tests swap in a fake one.
@@ -628,6 +629,13 @@ func run_command(cmd: String, args: Dictionary) -> Dictionary:
 			outcome = await _open_screen(args)
 		"start_match":
 			outcome = _start_match(args)
+		"start_exhibition":
+			outcome = _start_exhibition(args)
+		"watch":
+			if args.get("view") is String:
+				outcome = _ask_scene("harness_watch", [args["view"]])
+			else:
+				outcome = _fail("view must be cue, above or round, got %s" % JSON.stringify(args.get("view")))
 		"match_state":
 			outcome = _ask_scene("harness_match_state", [])
 		"match_shot":
@@ -871,6 +879,11 @@ func _start_match(args: Dictionary) -> Dictionary:
 	if not breaker is String or not BREAKERS.has(breaker):
 		return _fail("first_breaker must be one of %s, got %s" % [", ".join(BREAKERS), JSON.stringify(breaker)])
 	var config := {"best_of": best_of, "first_breaker": breaker}
+	var level: Variant = args.get("level", "")
+	if not level is String:
+		return _fail("level must be a level id (\"\" for the stand-in), got %s" % JSON.stringify(level))
+	if not (level as String).is_empty():
+		config["level"] = level
 	if args.has("seed"):
 		var match_seed: Variant = _integer(args["seed"])
 		if match_seed == null or match_seed < 0:
@@ -880,6 +893,19 @@ func _start_match(args: Dictionary) -> Dictionary:
 		if not args.get(flag, false) is bool:
 			return _fail("%s must be true or false, got %s" % [flag, JSON.stringify(args[flag])])
 	return _ask_scene("harness_start_match", [config, args.get("autoplay", false), args.get("fast", false)])
+
+
+## Watch a 147 on exhibition table `layout` (an index, default 0).
+func _start_exhibition(args: Dictionary) -> Dictionary:
+	var layout: Variant = _integer(args.get("layout", 0))
+	if layout == null or layout < 0:
+		return _fail("layout must be an exhibition table's index, 0 or more, got %s" % JSON.stringify(args.get("layout")))
+	var match_seed: Variant = _integer(args.get("seed", -1))
+	if match_seed == null or (args.has("seed") and match_seed < 0):
+		return _fail("seed must be a whole number, 0 or more, got %s" % JSON.stringify(args.get("seed")))
+	if not args.get("fast", false) is bool:
+		return _fail("fast must be true or false, got %s" % JSON.stringify(args["fast"]))
+	return _ask_scene("harness_start_exhibition", [layout, args.get("fast", false), match_seed])
 
 
 func _match_shot(args: Dictionary) -> Dictionary:

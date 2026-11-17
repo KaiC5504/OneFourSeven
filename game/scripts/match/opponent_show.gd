@@ -8,19 +8,20 @@ extends Node
 ## The feathering is done: strike `shot` now (the Dictionary given to begin()).
 signal strike_due(shot: Dictionary)
 
-## Seconds the cue stands still on its line first, at pace 1.
-const STAND_S := 0.35
+## Seconds the cue stands still on its line first, at pace 1. With a level's thinking pause
+## (MatchController.LEVEL_THINK_SECONDS) the whole wait before a stroke is about 1.6 s.
+const STAND_S := 0.25
 ## Feathers before the stroke, and the seconds each takes (back and forward).
 const FEATHERS := 2
-const FEATHER_S := 0.42
+const FEATHER_S := 0.32
 ## How far a feather draws the cue back, and the last backswing at the lowest and the highest
 ## cue speed, in metres.
 const FEATHER_PULL_M := 0.07
 const BACKSWING_MIN_M := 0.06
 const BACKSWING_MAX_M := 0.24
 ## Seconds the last backswing takes, and its hold at the back.
-const BACKSWING_S := 0.38
-const HOLD_S := 0.12
+const BACKSWING_S := 0.3
+const HOLD_S := 0.1
 
 var _shot: Dictionary = {}
 var _pace := 1.0

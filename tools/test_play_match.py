@@ -34,6 +34,25 @@ def match_log(match_id="s-m1", frames=((63, 41, 0), (20, 71, 1), (55, 54, 0)), e
     return "\n".join(lines) + "\n"
 
 
+def levelled_log(match_id="s-m1", level="beginner"):
+    """A match against a level: match_log with an opponent.decision of that level."""
+    return match_log(match_id) + line("opponent.decision", {"match_id": match_id, "kind": "shot", "player": 1,
+                                                            "seed": "7", "level": level}) + "\n"
+
+
+def exhibition_log(match_id="s-m1", break_points=147, why="maximum"):
+    """Watch a 147: the 147's strokes, then exhibition.ended and the abandoned match."""
+    lines = [line("app.start", {}), line("match.started", {"match_id": match_id, "level": "maximum", "exhibition": True})]
+    for _ in range(3):
+        lines.append(line("opponent.decision", {"match_id": match_id, "kind": "shot", "player": 1, "seed": "1",
+                                                 "level": "maximum"}))
+        lines.append(line("rules.decision", {"match_id": match_id, "frame": 1}))
+    lines.append(line("exhibition.ended", {"match_id": match_id, "break_points": break_points,
+                                           "maximum": break_points >= 147, "why": why, "strokes": 3}))
+    lines.append(line("match.ended", {"match_id": match_id, "winner": -1, "frames": [0, 0], "reason": "abandoned"}))
+    return "\n".join(lines) + "\n"
+
+
 class FakeGame:
     """Stands in for harness_client.Harness: answers each command from a script and, when it
     stops, leaves the session log the real game would have written."""
@@ -58,6 +77,8 @@ class FakeGame:
         self.calls.append((cmd, args))
         if cmd == "start_match":
             return {"match_id": "s-m1"}
+        if cmd == "start_exhibition":
+            return {"match_id": "s-m1", "layout": "open reds"}
         if cmd == "match_wait":
             if not self.waits:
                 raise HarnessError("match_wait: still waiting on \"opponent\" after 1.0 s")
@@ -102,6 +123,7 @@ class ArgumentTests(unittest.TestCase):
     def test_defaults_are_a_fast_best_of_three(self):
         args = play_match.parse_args([])
         self.assertEqual((args.best_of, args.seed, args.first_breaker, args.slow, args.show), (3, 147, "random", False, False))
+        self.assertEqual((args.level, args.exhibition), ("", None), "the stand-in, a match")
         self.assertEqual(args.resolution, "1912x880")
         self.assertEqual(args.out, play_match.DEFAULT_OUT)
 
@@ -111,9 +133,15 @@ class ArgumentTests(unittest.TestCase):
         self.assertEqual((args.best_of, args.seed, args.first_breaker, args.slow, args.show), (5, 9, "computer", True, True))
         self.assertEqual((args.resolution, args.out, args.timeout, args.godot), ("956x440", pathlib.Path("x"), 30.0, "g.exe"))
 
+    def test_a_level_or_an_exhibition(self):
+        self.assertEqual(play_match.parse_args(["--level", "maximum"]).level, "maximum")
+        self.assertEqual(play_match.parse_args(["--exhibition"]).exhibition, 0)
+        self.assertEqual(play_match.parse_args(["--exhibition", "2"]).exhibition, 2)
+
     def test_bad_arguments_exit_2(self):
         for bad in (["--best-of", "4"], ["--first-breaker", "me"], ["--seed", "-1"], ["--resolution", "big"],
-                    ["--timeout", "0"], ["--frobnicate"]):
+                    ["--timeout", "0"], ["--frobnicate"], ["--exhibition", "-1"], ["--level", "Pro Level"],
+                    ["--level", "beginner", "--exhibition"]):
             with self.subTest(bad=bad), contextlib.redirect_stderr(io.StringIO()):
                 with self.assertRaises(SystemExit) as raised:
                     play_match.parse_args(bad)
@@ -214,12 +242,18 @@ class RunTests(unittest.TestCase):
         self.cli.write_text("")
         self.args = play_match.parse_args(["--out", str(self.dir / "out"), "--timeout", "60", "--show"])
         self.referee_calls = []
+        self.opponent_calls = []
         self.made = []
 
-    def run_with(self, game, verdict=(0, "re-judged 6 decisions: all agree\n"), cli=True, off_schema=()):
+    def run_with(self, game, verdict=(0, "re-judged 6 decisions: all agree\n"), cli=True, off_schema=(),
+                 remade=(0, "made again 1 of 1 decisions: 0 differences\n")):
         def referee(sim_cli, log):
             self.referee_calls.append((sim_cli, log))
             return verdict
+
+        def opponent(sim_cli, log):
+            self.opponent_calls.append((sim_cli, log))
+            return remade
 
         def make_game(**kwargs):
             self.made.append(kwargs)
@@ -230,7 +264,7 @@ class RunTests(unittest.TestCase):
         # The logs written here are a match's bones, not whole schema lines.
         with mock.patch.dict(os.environ, environ), \
                 mock.patch.object(play_match.check_logs, "check_file", return_value=(0, list(off_schema))):
-            code = play_match.run(self.args, make_game=make_game, referee=referee,
+            code = play_match.run(self.args, make_game=make_game, referee=referee, opponent=opponent,
                                   user_dir_for=lambda base: ({"OFS_TEST_USER": str(base)}, self.user), out=said)
             self.moved_user_dir = os.environ.get("OFS_TEST_USER")
         return code, said.getvalue()
@@ -256,6 +290,63 @@ class RunTests(unittest.TestCase):
         for words in ("6 strokes judged, 3 frames ended", "frame 2: 20-71, computer (black, 2 strokes)",
                       "result: you, frames [2, 1], frames", "referee (ofs_sim_cli referee): exit 0", "all agree", "ok:"):
             self.assertIn(words, said)
+
+    def test_the_stand_ins_match_is_not_made_again(self):
+        self.assertEqual(self.run_with(self.game())[0], 0)
+        self.assertEqual(self.opponent_calls, [])
+
+    def test_a_level_plays_the_opponents_side_and_its_decisions_are_made_again(self):
+        self.args.level = "beginner"
+        game = FakeGame(["frame_summary", "frame_summary", "match_summary"], self.user, levelled_log())
+        code, said = self.run_with(game)
+        self.assertEqual(code, 0, said)
+        self.assertEqual(game.calls[0], ("start_match", {"best_of": 3, "first_breaker": "random", "seed": 147,
+                                                         "autoplay": True, "fast": True, "level": "beginner"}))
+        self.assertEqual(self.opponent_calls, [(self.cli, self.user / "logs" / "session.jsonl")])
+        for words in ("best of 3, against beginner", "opponent (ofs_sim_cli opponent): exit 0", "0 differences"):
+            self.assertIn(words, said)
+
+    def test_a_level_whose_decisions_differ_fails(self):
+        self.args.level = "beginner"
+        game = FakeGame(["frame_summary", "frame_summary", "match_summary"], self.user, levelled_log())
+        code, said = self.run_with(game, remade=(1, "line 7  strike DIFFERS  logged 1, remade 2\n"))
+        self.assertEqual(code, 1)
+        self.assertIn("strike DIFFERS", said)
+        self.assertIn("not made again as logged", said)
+
+    def test_a_level_with_no_decision_of_its_own_fails(self):
+        self.args.level = "beginner"
+        code, said = self.run_with(self.game())
+        self.assertEqual(code, 1)
+        self.assertIn("no opponent.decision of a level", said)
+
+    def test_an_exhibition_is_watched_to_its_summary_and_reports_the_break(self):
+        self.args.exhibition = 1
+        game = FakeGame(["exhibition_summary"], self.user, exhibition_log())
+        code, said = self.run_with(game)
+        self.assertEqual(code, 0, said)
+        self.assertEqual(game.calls[0], ("start_exhibition", {"layout": 1, "seed": 147, "fast": True}))
+        self.assertEqual(game.commands(), ["start_exhibition", "match_wait", "dump_state", "screenshot"])
+        self.assertTrue((self.dir / "out" / "exhibition_summary.png").is_file())
+        self.assertEqual(len(self.opponent_calls), 1)
+        for words in ("exhibition s-m1: table 1 (open reds)", "break: 147 (a maximum), ended maximum", "ok: the exhibition"):
+            self.assertIn(words, said)
+
+    def test_an_exhibition_that_breaks_down_still_reports_its_break(self):
+        self.args.exhibition = 0
+        code, said = self.run_with(FakeGame(["exhibition_summary"], self.user, exhibition_log(break_points=56, why="missed")))
+        self.assertEqual(code, 0, said)
+        self.assertIn("break: 56, ended missed", said)
+
+    def test_an_exhibition_left_or_unended_fails(self):
+        self.args.exhibition = 0
+        code, said = self.run_with(FakeGame(["exhibition_summary"], self.user, exhibition_log(why="left")))
+        self.assertEqual(code, 1)
+        self.assertIn("was left", said)
+        code, said = self.run_with(FakeGame(["shot"], self.user, match_log(ended=False)))
+        self.assertEqual(code, 1)
+        self.assertIn("who only watches", said)
+        self.assertIn("no exhibition.ended", said)
 
     def test_slow_plays_every_stroke_out(self):
         self.args.slow = True

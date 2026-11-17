@@ -403,7 +403,11 @@ func test_the_opponents_stroke_is_lined_up_then_struck_exactly_as_given_under_it
 	check(cue.visible and cue.axis().dot(TableSpace.core_to_godot(cos(0.35), sin(0.35))) > 0.99, "the cue shows on its line")
 	check_eq([setup.tip_x, setup.tip_y, setup.speed_m_s], [0.1, -0.2, 2.0], "its strike is on the controls")
 	check(not (main.get_node("Guides/AimLine") as Node3D).visible, "with no guides")
-	_check_controls(main, true, false, "while it lines up")
+	var pull: PullControl = main.get_node("Hud/PullCue")
+	check(pull.visible and not (main.get_node("Hud/StrokeCue") as Control).visible, "its power on the power bar")
+	check_near(pull.shown_power(), PullControl.power_for_speed(2.0, Physics.param("max_cue_speed_m_s", 10.0)), 1e-9,
+			"at its speed")
+	check(pull.mouse_filter == Control.MOUSE_FILTER_IGNORE and pull.modulate.a < 1.0, "dimmed, taking no touch")
 	var rig: CameraRig = main.get_node("CameraRig")
 	_land(main)
 	check(rig.transform.is_equal_approx(rig.pose_for(main._cue_xy(), 0.35, setup.effective_elevation())),
@@ -425,6 +429,7 @@ func test_the_opponents_stroke_is_lined_up_then_struck_exactly_as_given_under_it
 	await _until_idle(main)
 	check_eq(_last_call("judge")[3], {"shot_id": shot_id}, "a tap skips it, and it is judged under that id")
 	check_eq([setup.speed_m_s, setup.power, setup.last_stroke_speed_m_s], mine, "the person's own cue is back on the controls")
+	check(pull.shown_power() < 0.0 and not pull.visible, "and the opponent's power is off the bar")
 	_check_controls(main, true, true, "the person's turn")
 	main.free()
 
@@ -879,6 +884,8 @@ func _spawn(frame: Dictionary) -> MainScript:
 	tree.root.add_child(main)
 	await tree.process_frame
 	_engine = Scripted.new()
+	# The stand-in plays these, as when no level could be configured: the setup then offers none.
+	_engine.level_list = []
 	_engine.frame_view = frame
 	_engine.match_view = _json(MATCH)
 	_engine.match_view.erase("frame")

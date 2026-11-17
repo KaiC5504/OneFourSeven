@@ -4,9 +4,10 @@ extends Node3D
 ## every control writes, and the shot from strike to playback and its cycle (spec 8.5: the pocket
 ## camera, the points, the break, the aim turned to the next ball). The free table adds edit mode
 ## and the practice shots (spec 12.1). A match plays as MatchController says: whose stroke it is,
-## ball in hand (spec 8.6), nomination (spec 8.7), the opponent's strokes (spec 10.5), the
-## referee's calls and choices, pause and the summaries; no rule is worked out here. Also the
-## harness's hooks (spec 16.5, docs/harness.md).
+## ball in hand (spec 8.6), nomination (spec 8.7), the opponent's strokes and the views to watch
+## them from (spec 10.5), the referee's calls and choices, pause and the summaries; no rule is
+## worked out here. Watch a 147 is a match the person only watches. Also the harness's hooks
+## (spec 16.5, docs/harness.md).
 
 const HudScript := preload("res://scripts/hud.gd")
 ## The modes, as a shot's log context names them.
@@ -19,6 +20,7 @@ const MATCH_SETUP := "match_setup"
 const PAUSE := "pause"
 const FRAME_SUMMARY := "frame_summary"
 const MATCH_SUMMARY := "match_summary"
+const EXHIBITION_SUMMARY := "exhibition_summary"
 const LAYOUT := "full_rack"
 const HARNESS_STRIKE := "harness"
 ## A practice shot shown as filmed.
@@ -31,8 +33,8 @@ const PERSON := MatchController.PERSON
 const SETTING_UP: Array[String] = ["", "nominate"]
 ## And while the shot controls show at all: also through the opponent's turn, dimmed.
 const STROKE_ON: Array[String] = ["", "nominate", "opponent", "playing"]
-## Seconds the opponent's cue stands on its line before it strikes (spec 10.5), at pace 1.
-const LINEUP_SECONDS := 0.5
+## Watch a 147's level (docs/opponent/README.md).
+const EXHIBITION_LEVEL := "maximum"
 ## Ball in hand: how far back from the baulk line the camera's place is looked for, and in what steps.
 const PLACING_STEP_M := 0.05
 const PLACING_STEPS := 40
@@ -104,10 +106,15 @@ var _practices: Array[Dictionary] = []
 ## The practice shot the strip is showing: its place in _practices, or -1.
 var _practice := -1
 var _strip := PracticeStrip.new()
-## The stand-in's stroke while its cue stands on the line, and the timer of that wait.
+## The opponent's stroke while its cue stands on the line and feathers (_show).
 var _opponent := {}
 var _lining_up := false
-var _lineup := Timer.new()
+## How the next change of watching view came about, for camera.watch: button, harness or turn.
+var _watch_how := "button"
+## The opponent is at the table: from its turn starting until the person's.
+var _opponent_turn := false
+## The exhibition table last watched, so Again shows another.
+var _exhibition_table := -1
 ## The harness's whole-match run: every stroke's playback is skipped and nothing waits.
 var _fast := false
 ## The person's cue while the stand-in's stroke is on the controls, and the free table's while a
@@ -167,6 +174,9 @@ var _view_missing := {}
 @onready var _match_summary: MatchSummary = $Hud/MatchSummary
 @onready var _settings_panel: SettingsPanel = $Hud/SettingsPanel
 @onready var _overlay: DebugOverlay = $Hud/Overlay
+@onready var _show: OpponentShow = $OpponentShow
+@onready var _watch: WatchButton = $Hud/WatchButton
+@onready var _exhibition_summary: ExhibitionSummary = $Hud/ExhibitionSummary
 
 
 func _ready() -> void:
@@ -242,6 +252,7 @@ func _ready() -> void:
 	_home.play_pressed.connect(_open_match_setup)
 	_home.free_table_pressed.connect(_enter_free_table)
 	_home.settings_pressed.connect(_settings_panel.open)
+	_home.watch_pressed.connect(_watch_147)
 	_match_setup.start_pressed.connect(_start_match)
 	_match_setup.back_pressed.connect(_go_home)
 	_match.table_changed.connect(_on_match_table_changed)
@@ -254,6 +265,12 @@ func _ready() -> void:
 	_match.frame_ended.connect(_on_frame_ended)
 	_match.match_ended.connect(func(match_state: Dictionary) -> void: _finished = match_state)
 	_match.stalled.connect(_on_stalled)
+	_match.exhibition_ended.connect(_on_exhibition_ended)
+	_show.strike_due.connect(func(_shot: Dictionary) -> void: _play_opponent())
+	_watch.view_chosen.connect(_set_watch.bind("button"))
+	_rig.watch_changed.connect(_on_watch_changed)
+	_exhibition_summary.again_pressed.connect(_watch_147)
+	_exhibition_summary.home_pressed.connect(_leave_match)
 	_scoreboard.auto_place = false
 	_scoreboard.pause_pressed.connect(_open_pause)
 	_choices.chosen.connect(_on_chosen)
@@ -269,10 +286,6 @@ func _ready() -> void:
 	_pause.settings_pressed.connect(_settings_panel.open)
 	_frame_summary.continue_pressed.connect(_on_continue)
 	_match_summary.home_pressed.connect(_on_summary_home)
-	_lineup.name = "Lineup"
-	_lineup.one_shot = true
-	_lineup.timeout.connect(_play_opponent)
-	add_child(_lineup)
 
 	_build_selection()
 	_build_notice()
@@ -297,6 +310,11 @@ func _ready() -> void:
 	_go_home()
 
 
+func _exit_tree() -> void:
+	# Perf outlives the scene: a show cut off here must not keep the game drawing.
+	Perf.set_active(&"opponent_show", false)
+
+
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_APPLICATION_RESUMED or what == NOTIFICATION_APPLICATION_FOCUS_IN:
 		_layout()
@@ -308,6 +326,11 @@ func _process(delta: float) -> void:
 		_cycle.update(_cycle_t)
 	if _settling:
 		_settle()
+	elif _show.is_showing():
+		_pose_opponent_cue()
+	else:
+		set_process(false)
+		Perf.set_active(&"opponent_show", false)
 
 
 # Keyboard test aids (spec 8.8): R retake, Ctrl+Z undo, Ctrl+Y redo, Space shoots at the last power
@@ -326,7 +349,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif free and event.is_action_pressed("redo", false, true):
 		redo()
 	elif event.is_action_pressed("shoot", false, true):
-		if _pull.is_visible_in_tree() and not _playing:
+		if _pull.is_visible_in_tree() and _setting_up():
 			_pull.shoot_last_power()
 	else:
 		return
@@ -483,9 +506,14 @@ func _strike(strike_mode: String, as_given: Dictionary = {}, given_id: String = 
 
 ## Chooses the camera sequence for the shot about to play (spec 8.5), logs it and starts it.
 func _start_cycle(playback: ShotPlayback, shot_id: String) -> void:
-	# A practice shot is played for what the cue ball does after the pot.
-	_plan = ShotCycle.plan(playback, _table_balls(), _table_cue(), bool(Settings.get_value("pocket_camera")), _pockets,
-			"practice" if _practice >= 0 and _mode == FREE_TABLE else "")
+	# A practice shot is played for what the cue ball does after the pot; a stroke watched from above
+	# or walking round is watched whole from there.
+	var whole := ""
+	if _practice >= 0 and _mode == FREE_TABLE:
+		whole = "practice"
+	elif _rig.watch() != "cue":
+		whole = "watching"
+	_plan = ShotCycle.plan(playback, _table_balls(), _table_cue(), bool(Settings.get_value("pocket_camera")), _pockets, whole)
 	var fields := {"shot_id": shot_id, "sequence": _plan["sequence"]}
 	for key: String in ["ball", "pocket", "drop_t", "near_t"]:
 		if _plan.has(key):
@@ -641,8 +669,8 @@ func _settle_match() -> void:
 	_sync_match_ui()
 	_preselect()
 	_refresh()
-	# A frame that ended keeps the whole table behind its summary.
-	if not _frame_summary.visible:
+	# A frame or an exhibition that ended keeps the whole table behind its summary.
+	if not _frame_summary.visible and not _exhibition_summary.visible:
 		_rig.hold(false)
 
 
@@ -952,8 +980,10 @@ func _show_controls() -> void:
 		FREE_TABLE:
 			shown = not editing
 		MATCH:
-			shown = _playing or STROKE_ON.has(_match.strike_blocked())
-	var pull := setup.strike_mode == ShotSetup.PULL
+			# Watch a 147 has no stroke of the person's to show.
+			shown = not _match.is_exhibition() and (_playing or STROKE_ON.has(_match.strike_blocked()))
+	# The opponent's power is shown on the power bar whatever the person strikes with.
+	var pull := setup.strike_mode == ShotSetup.PULL or _pull.shown_power() >= 0.0
 	_spin.visible = shown
 	_elevation.visible = shown
 	_wheel.visible = shown and bool(Settings.get_value("fine_tune_wheel"))
@@ -1000,10 +1030,11 @@ func _on_drag_moved(at: Vector2, relative: Vector2) -> void:
 			_placer.drag((under as Vector2) + _cue_drag_offset)
 		return
 	if _dragged < 0:
-		if _playing:
+		if _playing and _rig.watch() == "cue":
 			# At the pocket (or before the first cut) a drag cuts to the full-table view to walk round.
 			_cycle.walk_round(_cycle_t)
-		_rig.orbit(relative.x)
+		# Pans the view from above; otherwise walks round, as orbit.
+		_rig.pan(relative)
 		return
 	var xy: Variant = TableSpace.screen_to_core(_rig.camera(), at, _balls.radius)
 	if xy != null:
@@ -1275,6 +1306,10 @@ func _layout() -> void:
 	_referee.place_in(Rect2(safe.position.x, under, safe.size.x, HudScript.LINE_HEIGHT))
 	_choices.place_in(rects["centre"])
 	_placer.place_in(rects["centre"])
+	# Top right, left of the power cue, level with the scoreboard.
+	var cue_left := (rects["cue"] as Rect2).position.x
+	_watch.place_in(Rect2(safe.position, Vector2(cue_left - HudScript.GAP + WatchButton.EDGE_MARGIN - safe.position.x,
+			safe.size.y)))
 	# What the full-table view keeps the pockets clear of: the controls that show while a shot
 	# plays. A match has its scoreboard where the free table has its bar, with the referee's line
 	# under it whether one shows or not, so the view is the same shot after shot. Home has its name.
@@ -1287,6 +1322,8 @@ func _layout() -> void:
 				var board := _scoreboard.covered_rect()
 				board.size.y += HudScript.LINE_GAP + HudScript.LINE_HEIGHT
 				controls.append(board)
+				# Whether it shows or not, so the view is the same shot after shot.
+				controls.append(Rect2(_watch.position, _watch.size))
 			elif key != "wheel" or with_wheel:
 				controls.append(rects[key])
 	var notice_y := safe.position.y + HudScript.EDGE
@@ -1430,6 +1467,8 @@ func _open_match_setup() -> void:
 		_go_home()
 	_close_match()
 	_home.close()
+	# Empty when the levels could not be configured: the row hides and the stand-in plays.
+	_match_setup.set_levels(_match.levels())
 	_match_setup.open()
 	_set_screen(MATCH_SETUP)
 
@@ -1444,6 +1483,9 @@ func _start_match(config: Dictionary, autoplay: bool = false, fast: bool = false
 	# One still on is left here, so that autoplay is not handed its turn.
 	_match.abandon()
 	_take_back_cue()
+	# A view chosen in the last match does not carry into this one.
+	_opponent_turn = false
+	_set_watch("cue", "turn")
 	_referee.clear()
 	_choices.dismiss()
 	if _free_setup.is_empty():
@@ -1478,6 +1520,7 @@ func _start_match(config: Dictionary, autoplay: bool = false, fast: bool = false
 	_pause.close()
 	_frame_summary.close()
 	_match_summary.close()
+	_exhibition_summary.close()
 	_hide_notice()
 	_finished = {}
 	_set_screen(MATCH)
@@ -1511,11 +1554,16 @@ func _close_match() -> void:
 	_pause.close()
 	_frame_summary.close()
 	_match_summary.close()
+	_exhibition_summary.close()
 	_referee.clear()
 	_choices.dismiss()
 	if _placer.covered_rect().has_area():
 		_placer.end()
 	_placing_view = false
+	_opponent_turn = false
+	_set_watch("cue", "turn")
+	_show_watch()
+	_pull.show_power(-1.0)
 	_nomination.mark(null)
 	_cue_dragging = false
 	_tap_over = -1
@@ -1592,6 +1640,7 @@ func _sync_match_ui() -> void:
 	_placing_view = _placer.is_placing()
 	if _choices.is_offering() and _match.strike_blocked() != "choice":
 		_choices.dismiss()
+	_show_watch()
 	_show_controls()
 	_update_aim_enabled()
 	_layout()
@@ -1600,9 +1649,47 @@ func _sync_match_ui() -> void:
 	_refresh()
 
 
+## The view button (spec 10.5): while the opponent is at the table in a match, deciding after a
+## foul included, and all through Watch a 147.
+func _show_watch() -> void:
+	var deciding := _match.waiting() == "opponent" and not _match.autoplay
+	var shown := _mode == MATCH and _match.is_active() and (_match.is_exhibition() or _opponent_turn or deciding)
+	if _watch.visible != shown:
+		_watch.visible = shown
+
+
+## Asks the camera for a view of the opponent's turn; `how` (button, harness, turn) goes on the
+## camera.watch line it brings.
+func _set_watch(view: String, how: String) -> void:
+	if _rig.watch() == view:
+		return
+	_watch_how = how
+	_rig.set_watch(view)
+
+
+func _on_watch_changed(view: String) -> void:
+	_watch.set_view(view)
+	var fields := {"view": view, "how": _watch_how}
+	if not _match.match_id().is_empty():
+		fields["match_id"] = _match.match_id()
+	Log.info("ui", "camera.watch", fields)
+	_watch_how = "button"
+
+
+## The opponent's name on every surface that says it.
+func _name_opponent(opponent: String) -> void:
+	_scoreboard.set_opponent_name(opponent)
+	_frame_summary.set_opponent_name(opponent)
+	_match_summary.set_opponent_name(opponent)
+	_pause.set_opponent_name(opponent)
+	_choices.set_opponent_name(opponent)
+	_referee.set_opponent_name(opponent)
+
+
 func _on_match_table_changed(balls: Array[Dictionary], _cue_ball: int, reason: StringName) -> void:
 	if reason == &"ended":
-		if _mode == MATCH and not _starting:
+		# An exhibition's summary stands over the table it was left on.
+		if _mode == MATCH and not _starting and not _exhibition_summary.visible:
 			_go_home()
 		return
 	if _mode != MATCH:
@@ -1614,6 +1701,8 @@ func _on_match_table_changed(balls: Array[Dictionary], _cue_ball: int, reason: S
 
 
 func _on_frame_changed(frame: Dictionary) -> void:
+	# The first thing a match's start says, so every surface has the name before it speaks.
+	_name_opponent(_match.level_name())
 	_scoreboard.show_frame(frame, _match.match_state(), PERSON)
 	# The scoreboard widens while someone needs snookers: placed again, and the camera keeps clear
 	# of what it covers now. Nothing is written or refitted when nothing moved.
@@ -1628,9 +1717,11 @@ func _on_calls_made(calls: Array, shot_id: String) -> void:
 	_referee.announce(calls, PERSON, fields)
 
 
-func _on_turn_started(_player: int, person: bool) -> void:
+func _on_turn_started(player: int, person: bool) -> void:
 	_tap_over = -1
+	_opponent_turn = not person and player == MatchController.OPPONENT
 	if person:
+		_set_watch("cue", "turn")
 		_take_back_cue()
 		# After a stroke the settle turns the aim, to log where; any other turn starts here.
 		if not _playing and not _match.placing():
@@ -1641,6 +1732,8 @@ func _on_turn_started(_player: int, person: bool) -> void:
 
 
 func _on_choice_needed(options: Array[String]) -> void:
+	_opponent_turn = false
+	_set_watch("cue", "turn")
 	_take_back_cue()
 	_offered = options
 	_choices.offer(options, _match.frame())
@@ -1658,14 +1751,15 @@ func _on_chosen(kind: String) -> void:
 
 
 func _on_opponent_chose(kind: String) -> void:
-	var words := String(OPPONENT_CHOSE.get(kind, ""))
+	var words := String(OPPONENT_CHOSE.get(kind, "")).replace(MatchController.STANDIN_NAME, _match.level_name())
 	if not words.is_empty():
 		_show_notice(words)
 
 
 ## The opponent's stroke (spec 10.5): its cue ball placed and its colour declared as it says, its
-## strike put on the controls so the cue shows on the line with the camera behind it, and after a
-## moment struck exactly as given under the id the stand-in logged it with.
+## strike put on the controls so the cue shows on the line with the camera behind it and the
+## dimmed spin ball and power bar show it, then its cue stands, feathers and goes through
+## (OpponentShow) and it is struck exactly as given under the id its decision was logged with.
 func _on_opponent_ready(shot: Dictionary) -> void:
 	var strike: Variant = shot.get("strike")
 	var problem := ""
@@ -1707,12 +1801,17 @@ func _on_opponent_ready(shot: Dictionary) -> void:
 	_opponent = shot
 	_lining_up = true
 	_set_up(strike)
+	var max_speed := Physics.param("max_cue_speed_m_s", 10.0)
+	_pull.show_power(PullControl.power_for_speed(float(strike["speed_m_s"]), max_speed))
+	if shot.has("think"):
+		_overlay.set_think(str(shot.get("level", "")), shot["think"])
 	_sync_match_ui()
-	var wait := 0.0 if _fast else LINEUP_SECONDS * _match.pace
-	if wait > 0.0:
-		_lineup.start(wait)
-	else:
+	if _fast or _match.pace <= 0.0:
 		_play_opponent()
+		return
+	_show.begin(shot, _match.pace, max_speed)
+	Perf.set_active(&"opponent_show", true)
+	set_process(true)
 
 
 func _play_opponent() -> void:
@@ -1734,13 +1833,26 @@ func _play_opponent() -> void:
 
 
 func _cancel_lineup() -> void:
-	_lineup.stop()
+	_show.cancel()
+	Perf.set_active(&"opponent_show", false)
 	_opponent = {}
 	_lining_up = false
 
 
-## The person's own cue back on the controls, as it stood before the stand-in's stroke went on them.
+## The opponent's cue drawn back as far as its show has it now; written only when it moved.
+func _pose_opponent_cue() -> void:
+	var back := _show.backswing_m()
+	if back == _backswing_m or not _lining_up:
+		return
+	_backswing_m = back
+	_cue.set_pose(_cue_xy(), setup.aim_rad, setup.effective_elevation(), Vector2(setup.tip_x, setup.tip_y), back)
+
+
+## The person's own cue back on the controls, as it stood before the opponent's stroke went on them.
 func _take_back_cue() -> void:
+	if _pull.shown_power() >= 0.0:
+		_pull.show_power(-1.0)
+		_show_controls()
 	if _person_setup.is_empty():
 		return
 	var mine := _person_setup
@@ -1853,7 +1965,7 @@ func _open_pause() -> void:
 	if _screen != MATCH:
 		return
 	_hide_notice()
-	_pause.open(_offers("concede_frame"), _offers("concede_match"), _offers("claim_frame"))
+	_pause.open(_offers("concede_frame"), _offers("concede_match"), _offers("claim_frame"), _match.is_exhibition())
 	_hold_match(true)
 	_set_screen(PAUSE)
 
@@ -1882,7 +1994,9 @@ func _close_pause() -> void:
 ## line runs on behind the menu.
 func _hold_match(on: bool) -> void:
 	_match.process_mode = Node.PROCESS_MODE_DISABLED if on else Node.PROCESS_MODE_INHERIT
-	_lineup.paused = on
+	_show.set_paused(on)
+	if _show.is_showing():
+		Perf.set_active(&"opponent_show", not on)
 
 
 func _concede(whole_match: bool) -> void:
@@ -1934,15 +2048,64 @@ func _on_frame_ended(summary: Dictionary, match_state: Dictionary) -> void:
 		_frame_summary.show_summary(summary, match_state, PERSON)
 		_set_screen(FRAME_SUMMARY)
 	_show_scoreboard()
+	_opponent_turn = false
+	_set_watch("cue", "turn")
 	# The whole table stands behind the summary until the next frame is racked.
 	_rig.hold(true)
 	_rig.show_broadcast()
 	_sync_match_ui()
 
 
+## Watch a 147 is over (not left): its summary over the whole table, as a frame's.
+func _on_exhibition_ended(result: Dictionary) -> void:
+	if str(result.get("why", "")) == "left" or _mode != MATCH:
+		return
+	_cancel_lineup()
+	_pause.close()
+	_hold_match(false)
+	_hide_notice()
+	_referee.clear()
+	_opponent_turn = false
+	_set_watch("cue", "turn")
+	_exhibition_summary.open(result)
+	_set_screen(EXHIBITION_SUMMARY)
+	_show_scoreboard()
+	_rig.hold(true)
+	_rig.show_broadcast()
+	_sync_match_ui()
+
+
+## Home's Watch a 147, and the summary's Again: the 147 at one of the exhibition tables, another
+## than last time when there is more than one. False, the person told, when it can't start.
+func _watch_147() -> bool:
+	var tables := 0
+	if _match.ensure_engine():
+		tables = (_match.engine.exhibitions() as PackedStringArray).size()
+	if tables == 0:
+		Log.error("app", "app.error", {"kind": "message", "message":
+				"main: Watch a 147 has no exhibition table to start (engine %s: %s)" % [
+				"configured" if _match.engine != null else "missing", _engine_error()]})
+		_show_notice(NO_MATCH_NOTICE)
+		return false
+	var table := randi() % tables
+	if tables > 1 and table == _exhibition_table:
+		table = (table + 1 + randi() % (tables - 1)) % tables
+	return _start_exhibition(table)
+
+
+## match_seed below 0 leaves the seed to the match.
+func _start_exhibition(table: int, fast: bool = false, match_seed: int = -1) -> bool:
+	_exhibition_table = table
+	var config := {"exhibition": table, "level": EXHIBITION_LEVEL}
+	if match_seed >= 0:
+		config["seed"] = match_seed
+	return _start_match(config, false, fast)
+
+
 ## The scoreboard shows in a match but not under a summary, where its last state would be stale.
 func _show_scoreboard() -> void:
-	_scoreboard.visible = _mode == MATCH and not _frame_summary.visible and not _match_summary.visible
+	_scoreboard.visible = _mode == MATCH and not _frame_summary.visible and not _match_summary.visible \
+			and not _exhibition_summary.visible
 
 
 ## The frame summary's Continue: the next frame, or after the last one the match's summary. False
@@ -2089,9 +2252,9 @@ func harness_open_screen(screen: String) -> bool:
 	return true
 
 
-## Shows "pause", "frame_summary" or "match_summary" over whatever is on the table, for pictures:
-## the summaries filled from match_state (serialize.hpp's match). No match need be behind them;
-## their buttons close them.
+## Shows "pause", "frame_summary", "match_summary" or "exhibition_summary" over whatever is on the
+## table, for pictures: the frame's and the match's filled from match_state (serialize.hpp's
+## match), the exhibition's with a maximum. No match need be behind them; their buttons close them.
 func harness_demo_screen(screen: String, match_state: Dictionary) -> bool:
 	match screen:
 		PAUSE:
@@ -2103,8 +2266,11 @@ func harness_demo_screen(screen: String, match_state: Dictionary) -> bool:
 			_frame_summary.show_summary(last if last is Dictionary else {}, match_state, PERSON)
 		MATCH_SUMMARY:
 			_match_summary.show_summary(match_state, PERSON)
+		EXHIBITION_SUMMARY:
+			_exhibition_summary.open({"break_points": 147, "maximum": true, "why": "maximum"})
 		_:
-			_harness_refused("demo screen", "no demo of \"%s\"; known: pause, frame_summary, match_summary" % screen)
+			_harness_refused("demo screen", "no demo of \"%s\"; known: pause, frame_summary, match_summary, exhibition_summary"
+					% screen)
 			return false
 	_set_screen(screen)
 	return true
@@ -2118,15 +2284,40 @@ func harness_start_match(config: Dictionary, autoplay: bool, fast: bool) -> Dict
 	return {"match_id": _match.match_id()}
 
 
+## Starts Watch a 147 on exhibition table `layout` (an index into the engine's exhibitions());
+## match_seed below 0 leaves the seed to the match. {"match_id", "layout"}, or {"error"}.
+func harness_start_exhibition(layout: int, fast: bool, match_seed: int = -1) -> Dictionary:
+	var tables := (_match.engine.exhibitions() as PackedStringArray) if _match.ensure_engine() else PackedStringArray()
+	if layout < 0 or layout >= tables.size():
+		return {"error": "layout %d is not one of the %d exhibition tables %s" % [layout, tables.size(), tables]}
+	if not _start_exhibition(layout, fast, match_seed):
+		return {"error": "the exhibition did not start: %s; app.error in the log says more" % _engine_error()}
+	return {"match_id": _match.match_id(), "layout": tables[layout]}
+
+
+## The view of the opponent's turn as the view button gives it: "cue", "above" or "round"; the last
+## two only while the button shows. {"view"}, or {"error"}.
+func harness_watch(view: String) -> Dictionary:
+	if not CameraRig.WATCH_VIEWS.has(view):
+		return {"error": "view must be one of %s, got \"%s\"" % [CameraRig.WATCH_VIEWS, view]}
+	if view != "cue" and not _watch.visible:
+		return {"error": "the opponent is not at the table (screen \"%s\", waiting \"%s\")" % [_screen, _match.waiting()]}
+	_set_watch(view, "harness")
+	return {"view": _rig.watch()}
+
+
 func harness_match_state() -> Dictionary:
 	var state := _match.harness_state()
 	state["waiting"] = _shown_waiting()
+	state["watch"] = _rig.watch()
 	return state
 
 
 ## What the match waits for as the screen shows it: the last frame's summary stands before the
-## match's, which MatchController already waits on.
+## match's, which MatchController already waits on; an exhibition's summary once it has ended.
 func _shown_waiting() -> String:
+	if _exhibition_summary.visible:
+		return EXHIBITION_SUMMARY
 	if _frame_summary.visible:
 		return FRAME_SUMMARY
 	if _match_summary.visible:
@@ -2197,7 +2388,7 @@ func harness_match_waiting() -> Dictionary:
 		return {"error": "no match is on the table"}
 	var waiting := _shown_waiting()
 	return {"waiting": waiting, "person": not _playing and not _lining_up
-			and ["shot", "choice", "frame_summary", "match_summary", "stalled"].has(waiting)}
+			and ["shot", "choice", "frame_summary", "match_summary", EXHIBITION_SUMMARY, "stalled"].has(waiting)}
 
 
 func harness_match_autoplay(on: bool, fast: bool) -> Dictionary:
@@ -2225,14 +2416,16 @@ func harness_match_pause(on: bool) -> Dictionary:
 			"can_claim": _pause.button("claim_frame").visible}
 
 
-## From a frame summary on to the next frame (or the match's summary), from a match summary Home.
-## {"screen"}, or {"error"} when neither shows.
+## From a frame summary on to the next frame (or the match's summary), from a match's or an
+## exhibition's summary Home. {"screen"}, or {"error"} when none shows.
 func harness_match_continue() -> Dictionary:
 	if _frame_summary.visible:
 		if not _on_continue():
 			return {"error": harness_refusal()}
 	elif _match_summary.visible:
 		_on_summary_home()
+	elif _exhibition_summary.visible:
+		_leave_match()
 	else:
 		return {"error": "no summary is showing (screen \"%s\")" % _screen}
 	return {"screen": _screen}
