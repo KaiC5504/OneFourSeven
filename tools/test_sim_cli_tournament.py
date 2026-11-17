@@ -83,12 +83,14 @@ class TournamentTest(TournamentCase):
                 self.assertLessEqual(breaks["median"], breaks["highest"])
                 self.assertGreaterEqual(breaks["mean"], 1)
                 self.assertLessEqual(stats["safeties"] + stats["escapes"], stats["strokes"])
+                self.assertEqual(stats["safeties_with_pot"] + stats["no_pot"], stats["safeties"] + stats["escapes"])
                 self.assertLessEqual(stats["fouls"], stats["strokes"])
                 think = stats["think"]
                 self.assertEqual(set(think["stopped"]), {"done", "sims", "steps", "time"})
                 self.assertGreaterEqual(sum(think["stopped"].values()), stats["strokes"])
                 self.assertLessEqual(think["us_mean"], think["us_max"])
-        for name in ("frames won", "pots", "breaks (count)", "think us mean/p99/max", "failures: 0"):
+        for name in ("frames won", "pots", "breaks (count)", "safe with a pot", "no pot at all",
+                     "think us mean/p99/max", "failures: 0"):
             self.assertIn(name, self.result.stdout)
         self.assertIn("a: beginner (Beginner), core/data/opponent_beginner.json, hash ", self.result.stdout)
 
@@ -189,6 +191,26 @@ class TournamentTest(TournamentCase):
         self.assertIn(f"made again {len(decisions)} of {len(decisions)} decisions: 0 differences, 0 unreadable, "
                       "0 not replayed", remade.stdout)
 
+    def test_safeties_are_split_by_whether_the_search_found_a_pot(self):
+        with_pot = {"a": 0, "b": 0}
+        without = {"a": 0, "b": 0}
+        for line in self.lines:
+            d = line["data"]
+            if line["event"] != "opponent.decision" or d["kind"] != "shot":
+                continue
+            if d["why"].get("kind") not in ("safety", "escape"):
+                continue
+            side = "a" if d["player"] == 0 else "b"
+            if d["why"].get("pots", 0) > 0:
+                with_pot[side] += 1
+            else:
+                without[side] += 1
+        for side in ("a", "b"):
+            with self.subTest(side=side):
+                self.assertEqual(self.report[side]["safeties_with_pot"], with_pot[side])
+                self.assertEqual(self.report[side]["no_pot"], without[side])
+        self.assertGreater(without["a"] + without["b"], 0)
+
     def test_nothing_printed_or_written_names_the_home_folder(self):
         home = pathlib.Path.home().name
         self.assertNotIn(home, self.result.stdout)
@@ -222,9 +244,32 @@ class ReportToolTest(TournamentCase):
                      "The 147 on every exhibition table"):
             self.assertRegex(result.stdout, rf"(?m)^MISSING\s+{name}: no report")
         for name in ("Beginner's medium pots", "Beginner's long pots", "Beginner's mean break",
-                     "Beginner's safeties"):
+                     "Beginner's safeties with a pot to play"):
             self.assertRegex(result.stdout, rf"(?m)^(PASS|FAIL)\s+{name}: ")
+        self.assertRegex(result.stdout, r"(?m)^REPORTED\s+Beginner's strokes with no pot at all: \d+/\d+ ")
         self.assertIn("## Stage 1's marks", out.read_text(encoding="utf-8"))
+
+    def test_the_safety_mark_counts_only_strokes_with_a_pot_to_play(self):
+        def marks_for(safeties_with_pot, attempts, no_pot):
+            report = copy.deepcopy(self.report)
+            report["frames"] = 2000
+            for side in ("a", "b"):
+                stats = report[side]
+                stats["safeties_with_pot"] = safeties_with_pot
+                stats["pots"]["attempts"] = attempts
+                stats["no_pot"] = no_pot
+            path = self.tmp / "crafted.json"
+            path.write_text(json.dumps(report), encoding="utf-8")
+            result = self.report_tool(path, "--out", self.tmp / "crafted.md", "--check", "stage1")
+            return result.stdout
+
+        # Many strokes with no pot at all do not count against it, however many there are.
+        out = marks_for(safeties_with_pot=9, attempts=91, no_pot=500)
+        self.assertRegex(out, r"(?m)^PASS\s+Beginner's safeties with a pot to play: 18/200 \(9\.0%\)")
+        self.assertRegex(out, r"(?m)^REPORTED\s+Beginner's strokes with no pot at all: 1000/")
+        out = marks_for(safeties_with_pot=10, attempts=90, no_pot=0)
+        self.assertRegex(out, r"(?m)^FAIL\s+Beginner's safeties with a pot to play: 20/200 \(10\.0%\)")
+        self.assertRegex(out, r"(?m)^\d+ of 8 marks met")
 
     def test_a_file_that_is_not_a_report_exits_2(self):
         other = self.tmp / "other.json"

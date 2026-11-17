@@ -373,8 +373,11 @@ ofs_sim_cli tournament --a maximum --frames 0 --exhibitions
   by `bands`: `short`, `medium`, `long`, and `unknown` for a pot whose `why` names no band);
   `breaks` (`count`, `mean`, `median`, `highest`, `fifty_plus`, `hundred_plus`, `maximums`), every
   break of a point or more, its value the frame's `break_points` as it ended; `safeties` and
-  `escapes` (strokes of that `why.kind`); `fouls` (strokes that fouled); `points` (scored at the
-  table, penalties received not counted); `maximum` (`visits_on`: visits to the table that began
+  `escapes` (strokes of that `why.kind`); those two split by whether the search found a stroke that
+  makes a pot, `safeties_with_pot` (`why.pots` above 0: it had a pot and played safe) and `no_pot`
+  (`why.pots` 0 or absent; break-offs are of kind `break`, so in neither); `fouls` (strokes that
+  fouled); `points` (scored at the table, penalties received not counted); `maximum` (`visits_on`:
+  visits to the table that began
   with `opponent::maximum_on`, `completed`: those that made 147); `think` per decision
   (`sims_mean`, `sims_max`, `steps_mean`, `us_mean`, `us_p99`, `us_max`, and `stopped`: how many
   ended `done`, `sims`, `steps`, `time`); `fallbacks`. Everything but `think`'s times and `timing`

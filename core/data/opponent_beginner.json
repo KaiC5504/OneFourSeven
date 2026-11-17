@@ -1,13 +1,13 @@
 {
   "schema_version": 1,
   "id": "beginner",
-  "_note": "Level 1 of the computer opponent (spec 10.1): pots about 35% of medium shots and 10% of long ones, breaks under 10, rarely plays safe, mostly centre ball. 'values' is what is loaded; 'docs' gives each value's unit, source and note. Starting values until the tournament tunes them.",
+  "_note": "Level 1 of the computer opponent (spec 10.1): pots about 35% of medium shots and 10% of long ones, breaks under 10, rarely plays safe, mostly centre ball. 'values' is what is loaded; 'docs' gives each value's unit, source and note. aim_sigma_rad and aim_sigma_per_m were tuned to stage 1's marks by ofs_sim_cli tournament (2026-11-18); the rest are starting values.",
   "values": {
     "name": "Beginner",
     "tier": 1,
-    "aim_sigma_rad": 0.0015,
+    "aim_sigma_rad": 0.0026,
     "aim_sigma_per_cut": 0.6,
-    "aim_sigma_per_m": 0.3,
+    "aim_sigma_per_m": 0.8,
     "awkward_factor": 1.5,
     "speed_sigma": 0.15,
     "tip_sigma": 0.08,
