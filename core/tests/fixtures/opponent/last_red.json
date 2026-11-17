@@ -1,0 +1,59 @@
+{
+  "note": "A maximum still on: fourteen reds and fourteen blacks potted in this break (112), the last red by the top-right corner (the pocket at +x, -y) with the black on its spot.",
+  "cue_ball": 0,
+  "balls": [
+    {
+      "ball": "cue",
+      "index": 0,
+      "x": 1.05,
+      "y": -0.2
+    },
+    {
+      "ball": "red",
+      "index": 0,
+      "x": 1.45,
+      "y": -0.55
+    },
+    {
+      "ball": "yellow",
+      "index": 0,
+      "x": -1.0474999999999999,
+      "y": -0.292
+    },
+    {
+      "ball": "green",
+      "index": 0,
+      "x": -1.0474999999999999,
+      "y": 0.292
+    },
+    {
+      "ball": "brown",
+      "index": 0,
+      "x": -1.0474999999999999,
+      "y": 0.0
+    },
+    {
+      "ball": "blue",
+      "index": 0,
+      "x": 0.0,
+      "y": 0.0
+    },
+    {
+      "ball": "pink",
+      "index": 0,
+      "x": 0.89225,
+      "y": 0.0
+    },
+    {
+      "ball": "black",
+      "index": 0,
+      "x": 1.4605,
+      "y": 0.0
+    }
+  ],
+  "break_points": 112,
+  "scores": [
+    112,
+    0
+  ]
+}

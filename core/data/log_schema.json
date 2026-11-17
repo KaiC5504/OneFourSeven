@@ -1503,6 +1503,14 @@
         "person": {
           "type": "integer",
           "required": false
+        },
+        "level": {
+          "type": "string",
+          "required": false
+        },
+        "exhibition": {
+          "type": "string",
+          "required": false
         }
       }
     },
@@ -1770,6 +1778,226 @@
           "required": false
         },
         "error": {
+          "type": "string",
+          "required": false
+        },
+        "level": {
+          "type": "string",
+          "required": false
+        },
+        "meant": {
+          "type": "object",
+          "required": false
+        },
+        "think": {
+          "type": "object",
+          "required": false
+        }
+      }
+    },
+    "opponent.think": {
+      "subsystem": "opponent",
+      "levels": [
+        "info"
+      ],
+      "fields": {
+        "level": {
+          "type": "string",
+          "required": true
+        },
+        "player": {
+          "type": "integer",
+          "required": true
+        },
+        "seed": {
+          "type": "string",
+          "required": true
+        },
+        "shot_id": {
+          "type": "string",
+          "required": false
+        },
+        "budget": {
+          "type": "object",
+          "required": false
+        },
+        "match_id": {
+          "type": "string",
+          "required": false
+        },
+        "frame": {
+          "type": "integer",
+          "required": false
+        }
+      }
+    },
+    "opponent.maximum": {
+      "subsystem": "opponent",
+      "levels": [
+        "info"
+      ],
+      "fields": {
+        "state": {
+          "type": "string",
+          "required": true
+        },
+        "why": {
+          "type": "string",
+          "required": false
+        },
+        "player": {
+          "type": "integer",
+          "required": true
+        },
+        "break_points": {
+          "type": "integer",
+          "required": true
+        },
+        "reds": {
+          "type": "integer",
+          "required": true
+        },
+        "shot_id": {
+          "type": "string",
+          "required": false
+        },
+        "match_id": {
+          "type": "string",
+          "required": false
+        },
+        "frame": {
+          "type": "integer",
+          "required": false
+        }
+      }
+    },
+    "opponent.fallback": {
+      "subsystem": "opponent",
+      "levels": [
+        "warn"
+      ],
+      "fields": {
+        "level": {
+          "type": "string",
+          "required": true
+        },
+        "why": {
+          "type": "string",
+          "required": true
+        },
+        "player": {
+          "type": "integer",
+          "required": true
+        },
+        "seed": {
+          "type": "string",
+          "required": false
+        },
+        "shot_id": {
+          "type": "string",
+          "required": false
+        },
+        "match_id": {
+          "type": "string",
+          "required": false
+        },
+        "frame": {
+          "type": "integer",
+          "required": false
+        }
+      }
+    },
+    "opponent.cancelled": {
+      "subsystem": "opponent",
+      "levels": [
+        "info"
+      ],
+      "fields": {
+        "level": {
+          "type": "string",
+          "required": true
+        },
+        "why": {
+          "type": "string",
+          "required": true
+        },
+        "ms": {
+          "type": "number",
+          "required": false
+        },
+        "match_id": {
+          "type": "string",
+          "required": false
+        },
+        "frame": {
+          "type": "integer",
+          "required": false
+        }
+      }
+    },
+    "exhibition.started": {
+      "subsystem": "match",
+      "levels": [
+        "info"
+      ],
+      "fields": {
+        "layout": {
+          "type": "string",
+          "required": true
+        },
+        "level": {
+          "type": "string",
+          "required": true
+        },
+        "match_id": {
+          "type": "string",
+          "required": true
+        }
+      }
+    },
+    "exhibition.ended": {
+      "subsystem": "match",
+      "levels": [
+        "info"
+      ],
+      "fields": {
+        "break_points": {
+          "type": "integer",
+          "required": true
+        },
+        "maximum": {
+          "type": "boolean",
+          "required": true
+        },
+        "why": {
+          "type": "string",
+          "required": true
+        },
+        "strokes": {
+          "type": "integer",
+          "required": false
+        },
+        "match_id": {
+          "type": "string",
+          "required": true
+        }
+      }
+    },
+    "camera.watch": {
+      "subsystem": "ui",
+      "levels": [
+        "info"
+      ],
+      "fields": {
+        "view": {
+          "type": "string",
+          "required": true
+        },
+        "how": {
+          "type": "string",
+          "required": true
+        },
+        "match_id": {
           "type": "string",
           "required": false
         }

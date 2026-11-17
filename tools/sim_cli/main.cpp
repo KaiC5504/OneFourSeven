@@ -26,6 +26,9 @@ const char* const kUsage =
     "  match [--frames N] [--best-of N] [--seed S] [--threads T] [--out DIR] [--log out.jsonl]\n"
     "        [--params P] [--table T]\n"
     "  referee <log.jsonl> [--line N] [--table T]\n"
+    "  tournament --a LEVEL --b LEVEL [--frames N] [--seed S] [--threads T] [--report out.json]\n"
+    "             [--exhibitions] [--out DIR] [--log out.jsonl] [--params P] [--table T]\n"
+    "  opponent <log.jsonl> [--line N] [--table T]\n"
     "\n"
     "Exit codes: 0 ok, 1 a check failed, 2 bad arguments or input.\n";
 
@@ -48,6 +51,8 @@ int main(int argc, char** argv) {
         if (command == "pots") code = sim_cli::cmd_pots(args);
         if (command == "match") code = sim_cli::cmd_match(args);
         if (command == "referee") code = sim_cli::cmd_referee(args);
+        if (command == "tournament") code = sim_cli::cmd_tournament(args);
+        if (command == "opponent") code = sim_cli::cmd_opponent(args);
         if (code >= 0) {
             std::fflush(stdout);
             return code;

@@ -1,0 +1,48 @@
+{
+  "note": "The reds are gone: all six colours on their spots, the yellow on.",
+  "cue_ball": 0,
+  "balls": [
+    {
+      "ball": "cue",
+      "index": 0,
+      "x": -0.6,
+      "y": 0.3
+    },
+    {
+      "ball": "yellow",
+      "index": 0,
+      "x": -1.0474999999999999,
+      "y": -0.292
+    },
+    {
+      "ball": "green",
+      "index": 0,
+      "x": -1.0474999999999999,
+      "y": 0.292
+    },
+    {
+      "ball": "brown",
+      "index": 0,
+      "x": -1.0474999999999999,
+      "y": 0.0
+    },
+    {
+      "ball": "blue",
+      "index": 0,
+      "x": 0.0,
+      "y": 0.0
+    },
+    {
+      "ball": "pink",
+      "index": 0,
+      "x": 0.89225,
+      "y": 0.0
+    },
+    {
+      "ball": "black",
+      "index": 0,
+      "x": 1.4605,
+      "y": 0.0
+    }
+  ]
+}

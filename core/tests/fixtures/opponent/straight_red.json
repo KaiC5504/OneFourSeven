@@ -1,0 +1,54 @@
+{
+  "note": "One red 0.6 m from the cue ball, dead straight into the top-left corner (the pocket at +x, +y): the cue ball, the red and the pocket's corner are in one line.",
+  "cue_ball": 0,
+  "balls": [
+    {
+      "ball": "cue",
+      "index": 0,
+      "x": 0.8084,
+      "y": 0.206
+    },
+    {
+      "ball": "red",
+      "index": 0,
+      "x": 1.3,
+      "y": 0.55
+    },
+    {
+      "ball": "yellow",
+      "index": 0,
+      "x": -1.0474999999999999,
+      "y": -0.292
+    },
+    {
+      "ball": "green",
+      "index": 0,
+      "x": -1.0474999999999999,
+      "y": 0.292
+    },
+    {
+      "ball": "brown",
+      "index": 0,
+      "x": -1.0474999999999999,
+      "y": 0.0
+    },
+    {
+      "ball": "blue",
+      "index": 0,
+      "x": 0.0,
+      "y": 0.0
+    },
+    {
+      "ball": "pink",
+      "index": 0,
+      "x": 0.89225,
+      "y": 0.0
+    },
+    {
+      "ball": "black",
+      "index": 0,
+      "x": 1.4605,
+      "y": 0.0
+    }
+  ]
+}

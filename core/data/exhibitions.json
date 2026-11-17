@@ -1,0 +1,144 @@
+{
+  "schema_version": 1,
+  "_note": "Tables laid out for the 147 to play a maximum from (spec 10.1). Each ball is in the rules' form. The layouts are found by tools/make_exhibitions.py: ones the 147 completes a maximum from.",
+  "layouts": [
+    {
+      "name": "open 1",
+      "cue_ball": 0,
+      "balls": [
+        {
+          "ball": "cue",
+          "index": 0,
+          "x": 0.55,
+          "y": 0.25
+        },
+        {
+          "ball": "red",
+          "index": 0,
+          "x": 1.05,
+          "y": 0.12
+        },
+        {
+          "ball": "red",
+          "index": 1,
+          "x": 1.05,
+          "y": -0.12
+        },
+        {
+          "ball": "red",
+          "index": 2,
+          "x": 1.18,
+          "y": 0.25
+        },
+        {
+          "ball": "red",
+          "index": 3,
+          "x": 1.18,
+          "y": -0.25
+        },
+        {
+          "ball": "red",
+          "index": 4,
+          "x": 1.2,
+          "y": 0.0
+        },
+        {
+          "ball": "red",
+          "index": 5,
+          "x": 1.32,
+          "y": 0.14
+        },
+        {
+          "ball": "red",
+          "index": 6,
+          "x": 1.32,
+          "y": -0.14
+        },
+        {
+          "ball": "red",
+          "index": 7,
+          "x": 0.95,
+          "y": 0.3
+        },
+        {
+          "ball": "red",
+          "index": 8,
+          "x": 0.95,
+          "y": -0.3
+        },
+        {
+          "ball": "red",
+          "index": 9,
+          "x": 1.45,
+          "y": 0.33
+        },
+        {
+          "ball": "red",
+          "index": 10,
+          "x": 1.45,
+          "y": -0.33
+        },
+        {
+          "ball": "red",
+          "index": 11,
+          "x": 0.75,
+          "y": 0.18
+        },
+        {
+          "ball": "red",
+          "index": 12,
+          "x": 0.75,
+          "y": -0.18
+        },
+        {
+          "ball": "red",
+          "index": 13,
+          "x": 1.1,
+          "y": 0.45
+        },
+        {
+          "ball": "red",
+          "index": 14,
+          "x": 1.1,
+          "y": -0.45
+        },
+        {
+          "ball": "yellow",
+          "index": 0,
+          "x": -1.0474999999999999,
+          "y": -0.292
+        },
+        {
+          "ball": "green",
+          "index": 0,
+          "x": -1.0474999999999999,
+          "y": 0.292
+        },
+        {
+          "ball": "brown",
+          "index": 0,
+          "x": -1.0474999999999999,
+          "y": 0.0
+        },
+        {
+          "ball": "blue",
+          "index": 0,
+          "x": 0.0,
+          "y": 0.0
+        },
+        {
+          "ball": "pink",
+          "index": 0,
+          "x": 0.89225,
+          "y": 0.0
+        },
+        {
+          "ball": "black",
+          "index": 0,
+          "x": 1.4605,
+          "y": 0.0
+        }
+      ]
+    }
+  ]
+}

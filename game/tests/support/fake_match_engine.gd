@@ -21,6 +21,20 @@ var decisions: Array[Dictionary] = []
 ## What standin_shot returns next ({ok, places_cue, cue, nominated, strike, why, us}).
 var standin_shots: Array[Dictionary] = []
 var standin_choices: Array[String] = []
+## When false, configure_opponent refuses.
+var opponent_ready := true
+var level_list: Array = [
+	{"id": "beginner", "name": "Beginner", "tier": 1, "maximum": false},
+	{"id": "maximum", "name": "The 147", "tier": 0, "maximum": true},
+]
+var exhibition_names: Array[String] = ["open 1"]
+## What opponent_take returns next, in standin_shot's form plus "level", "meant" and "think".
+var opponent_shots: Array[Dictionary] = []
+var opponent_choices: Array[String] = []
+## How many times opponent_take answers {} (still thinking) before it hands the stroke over.
+var think_polls := 0
+var _thinking := false
+var _polls_left := 0
 ## When false, place_cue refuses.
 var cue_legal := true
 var error := ""
@@ -116,6 +130,56 @@ func standin_choice(player: int, seed: int) -> String:
 	if standin_choices.is_empty():
 		return ""
 	return standin_choices.pop_front()
+
+
+func configure_opponent(levels: Dictionary, _exhibitions_json: String) -> bool:
+	calls.append(["configure_opponent", levels.keys()])
+	return opponent_ready
+
+
+func levels() -> Array:
+	return level_list.duplicate(true)
+
+
+func exhibitions() -> PackedStringArray:
+	return PackedStringArray(exhibition_names)
+
+
+func opponent_think(level: String, seed: int, context: Dictionary, budget: Dictionary) -> bool:
+	calls.append(["opponent_think", level, seed, context, budget])
+	if opponent_shots.is_empty() or _thinking:
+		error = "no level stroke queued" if opponent_shots.is_empty() else "still thinking"
+		return false
+	_thinking = true
+	_polls_left = think_polls
+	return true
+
+
+func opponent_thinking() -> bool:
+	return _thinking
+
+
+func opponent_take() -> Dictionary:
+	if not _thinking:
+		return {}
+	if _polls_left > 0:
+		_polls_left -= 1
+		return {}
+	calls.append(["opponent_take"])
+	_thinking = false
+	return opponent_shots.pop_front()
+
+
+func opponent_cancel(why: String) -> void:
+	calls.append(["opponent_cancel", why])
+	_thinking = false
+
+
+func opponent_choice(level: String, player: int, seed: int) -> String:
+	calls.append(["opponent_choice", level, player, seed])
+	if opponent_choices.is_empty():
+		return ""
+	return opponent_choices.pop_front()
 
 
 func last_error() -> String:

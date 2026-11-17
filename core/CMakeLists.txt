@@ -31,6 +31,14 @@ add_library(ofs_core STATIC
     src/rules/serialize.cpp
     src/rules/rules_log.cpp
     src/opponent/standin.cpp
+    src/opponent/level.cpp
+    src/opponent/pots.cpp
+    src/opponent/solve.cpp
+    src/opponent/error_model.cpp
+    src/opponent/evaluate.cpp
+    src/opponent/search.cpp
+    src/opponent/decide.cpp
+    src/opponent/exhibition.cpp
 )
 
 target_include_directories(ofs_core
@@ -110,6 +118,28 @@ if(OFS_BUILD_TESTS)
     target_compile_definitions(ofs_rules_unit_tests PRIVATE
         OFS_TEST_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures")
     add_test(NAME ofs_rules_unit_tests COMMAND ofs_rules_unit_tests)
+
+    # The opponent (spec 10, 16.4). tests/opponent is written from the spec and the table's geometry by
+    # agents who own only that folder; tests/opponent_unit holds the builders' own tests. Both sets of
+    # owners add files freely, hence the globs. tests/opponent/rig.hpp is shared by both.
+    file(GLOB OFS_OPPONENT_SPEC_SOURCES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tests/opponent/*.cpp)
+    add_executable(ofs_opponent_tests tests/main.cpp ${OFS_OPPONENT_SPEC_SOURCES})
+    target_link_libraries(ofs_opponent_tests PRIVATE ofs_core)
+    target_include_directories(ofs_opponent_tests PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/tests/rules ${CMAKE_CURRENT_SOURCE_DIR}/tests/opponent)
+    target_compile_definitions(ofs_opponent_tests PRIVATE
+        OFS_TEST_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures")
+    add_test(NAME ofs_opponent_tests COMMAND ofs_opponent_tests)
+
+    file(GLOB OFS_OPPONENT_UNIT_SOURCES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tests/opponent_unit/*.cpp)
+    add_executable(ofs_opponent_unit_tests tests/main.cpp ${OFS_OPPONENT_UNIT_SOURCES})
+    target_link_libraries(ofs_opponent_unit_tests PRIVATE ofs_core)
+    target_include_directories(ofs_opponent_unit_tests PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/tests/rules ${CMAKE_CURRENT_SOURCE_DIR}/tests/opponent
+        ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    target_compile_definitions(ofs_opponent_unit_tests PRIVATE
+        OFS_TEST_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures")
+    add_test(NAME ofs_opponent_unit_tests COMMAND ofs_opponent_unit_tests)
 
     # Prints content_hash for each JSONL line on stdin; tools/test_devlink.py compares it
     # with devlink.py's hash over thousands of values.

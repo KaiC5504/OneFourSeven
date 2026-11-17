@@ -407,6 +407,16 @@ void OfsMatch::_bind_methods() {
     ClassDB::bind_method(D_METHOD("next_frame"), &OfsMatch::next_frame);
     ClassDB::bind_method(D_METHOD("standin_shot", "seed", "context"), &OfsMatch::standin_shot);
     ClassDB::bind_method(D_METHOD("standin_choice", "player", "seed"), &OfsMatch::standin_choice);
+    ClassDB::bind_method(D_METHOD("configure_opponent", "levels", "exhibitions_json"),
+                         &OfsMatch::configure_opponent);
+    ClassDB::bind_method(D_METHOD("levels"), &OfsMatch::levels);
+    ClassDB::bind_method(D_METHOD("exhibitions"), &OfsMatch::exhibitions);
+    ClassDB::bind_method(D_METHOD("opponent_think", "level", "seed", "context", "budget"),
+                         &OfsMatch::opponent_think);
+    ClassDB::bind_method(D_METHOD("opponent_thinking"), &OfsMatch::opponent_thinking);
+    ClassDB::bind_method(D_METHOD("opponent_take"), &OfsMatch::opponent_take);
+    ClassDB::bind_method(D_METHOD("opponent_cancel", "why"), &OfsMatch::opponent_cancel);
+    ClassDB::bind_method(D_METHOD("opponent_choice", "level", "player", "seed"), &OfsMatch::opponent_choice);
     ClassDB::bind_method(D_METHOD("last_error"), &OfsMatch::last_error);
 }
 
@@ -946,5 +956,29 @@ String OfsMatch::standin_choice(int64_t player, int64_t seed) {
             return String();
         });
 }
+
+// The level methods below are M4's contract: declared and bound, not yet built.
+
+bool OfsMatch::configure_opponent(const Dictionary &, const String &) {
+    last_error_ = String("configure_opponent is not built yet");
+    return false;
+}
+
+Array OfsMatch::levels() const { return Array(); }
+
+PackedStringArray OfsMatch::exhibitions() const { return PackedStringArray(); }
+
+bool OfsMatch::opponent_think(const String &, int64_t, const Dictionary &, const Dictionary &) {
+    last_error_ = String("opponent_think is not built yet");
+    return false;
+}
+
+bool OfsMatch::opponent_thinking() const { return false; }
+
+Dictionary OfsMatch::opponent_take() { return Dictionary(); }
+
+void OfsMatch::opponent_cancel(const String &) {}
+
+String OfsMatch::opponent_choice(const String &, int64_t, int64_t) { return String(); }
 
 String OfsMatch::last_error() const { return last_error_; }

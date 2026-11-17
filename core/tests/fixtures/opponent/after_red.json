@@ -1,0 +1,140 @@
+{
+  "note": "A maximum still on, a colour to come: one red potted in this break (1), fourteen left, the black on its spot with both top corners open.",
+  "cue_ball": 0,
+  "balls": [
+    {
+      "ball": "cue",
+      "index": 0,
+      "x": 1.25,
+      "y": 0.3
+    },
+    {
+      "ball": "red",
+      "index": 0,
+      "x": 1.05,
+      "y": 0.12
+    },
+    {
+      "ball": "red",
+      "index": 1,
+      "x": 1.05,
+      "y": -0.12
+    },
+    {
+      "ball": "red",
+      "index": 2,
+      "x": 1.18,
+      "y": 0.25
+    },
+    {
+      "ball": "red",
+      "index": 3,
+      "x": 1.18,
+      "y": -0.25
+    },
+    {
+      "ball": "red",
+      "index": 4,
+      "x": 1.2,
+      "y": 0.0
+    },
+    {
+      "ball": "red",
+      "index": 5,
+      "x": 0.95,
+      "y": 0.3
+    },
+    {
+      "ball": "red",
+      "index": 6,
+      "x": 0.95,
+      "y": -0.3
+    },
+    {
+      "ball": "red",
+      "index": 7,
+      "x": 1.45,
+      "y": 0.33
+    },
+    {
+      "ball": "red",
+      "index": 8,
+      "x": 1.45,
+      "y": -0.33
+    },
+    {
+      "ball": "red",
+      "index": 9,
+      "x": 0.75,
+      "y": 0.18
+    },
+    {
+      "ball": "red",
+      "index": 10,
+      "x": 0.75,
+      "y": -0.18
+    },
+    {
+      "ball": "red",
+      "index": 11,
+      "x": 1.1,
+      "y": 0.45
+    },
+    {
+      "ball": "red",
+      "index": 12,
+      "x": 1.1,
+      "y": -0.45
+    },
+    {
+      "ball": "red",
+      "index": 13,
+      "x": 0.6,
+      "y": 0.0
+    },
+    {
+      "ball": "yellow",
+      "index": 0,
+      "x": -1.0474999999999999,
+      "y": -0.292
+    },
+    {
+      "ball": "green",
+      "index": 0,
+      "x": -1.0474999999999999,
+      "y": 0.292
+    },
+    {
+      "ball": "brown",
+      "index": 0,
+      "x": -1.0474999999999999,
+      "y": 0.0
+    },
+    {
+      "ball": "blue",
+      "index": 0,
+      "x": 0.0,
+      "y": 0.0
+    },
+    {
+      "ball": "pink",
+      "index": 0,
+      "x": 0.89225,
+      "y": 0.0
+    },
+    {
+      "ball": "black",
+      "index": 0,
+      "x": 1.4605,
+      "y": 0.0
+    }
+  ],
+  "on": {
+    "kind": "any_colour"
+  },
+  "break_points": 1,
+  "scores": [
+    1,
+    0
+  ]
+}

@@ -1,0 +1,54 @@
+{
+  "note": "A long pot: the cue ball in baulk, the red 2.7 m away, for the top-left corner.",
+  "cue_ball": 0,
+  "balls": [
+    {
+      "ball": "cue",
+      "index": 0,
+      "x": -1.4,
+      "y": -0.3
+    },
+    {
+      "ball": "red",
+      "index": 0,
+      "x": 1.2,
+      "y": 0.5
+    },
+    {
+      "ball": "yellow",
+      "index": 0,
+      "x": -1.0474999999999999,
+      "y": -0.292
+    },
+    {
+      "ball": "green",
+      "index": 0,
+      "x": -1.0474999999999999,
+      "y": 0.292
+    },
+    {
+      "ball": "brown",
+      "index": 0,
+      "x": -1.0474999999999999,
+      "y": 0.0
+    },
+    {
+      "ball": "blue",
+      "index": 0,
+      "x": 0.0,
+      "y": 0.0
+    },
+    {
+      "ball": "pink",
+      "index": 0,
+      "x": 0.89225,
+      "y": 0.0
+    },
+    {
+      "ball": "black",
+      "index": 0,
+      "x": 1.4605,
+      "y": 0.0
+    }
+  ]
+}

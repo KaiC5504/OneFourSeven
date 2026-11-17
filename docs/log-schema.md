@@ -157,3 +157,27 @@ New subsystems: `input`, `ui`, `audio`, `settings`, `freetable`. A played shot l
   `points_remaining`, and what the rule looked at: `clear_path_before` (the position before a miss
   had a straight stroke at a ball on), `pot` and `clear_path` (in the position left), `score_gap`
   and `rerack_within`; `error` when it threw and took the first option.
+
+## Added in M4 (the computer opponent)
+
+| Event | Level | When | Data |
+| --- | --- | --- | --- |
+| `opponent.think` | info | a level was asked for a stroke and started thinking, off the main thread | `level`, `player`, `seed` (a decimal string), `shot_id`, `budget` (`max_sims`, `max_steps`, `max_ms`) |
+| `opponent.decision` | info/warn | as in M3, now for a level too | also `level` (absent for the stand-in), `meant` (the strike as planned; `strike` is the one played, error included), `think` (`candidates`, `sims`, `steps`, `depth`, `stopped`: `done`, `sims`, `steps`, `time` or `cancelled`; `ms`) |
+| `opponent.maximum` | info | the 147's maximum came on at the start of its visit, or went | `state` (`on`, `gone`), `why` (when gone: `a red was potted by the other player`, `a colour other than the black`, `the break ended`, `two reds in one stroke`, `a free ball`), `player`, `break_points`, `reds` (left on the table), `shot_id` |
+| `opponent.fallback` | warn | a level could not work a stroke out and played the stand-in's plainest | `level`, `why`, `player`, `seed`, `shot_id` |
+| `opponent.cancelled` | info | thinking was stopped before it answered (the match was left, the pause menu quit) | `level`, `why`, `ms` |
+| `exhibition.started` | info | Watch a 147 began | `layout` (its name in `exhibitions.json`), `level`, `match_id` |
+| `exhibition.ended` | info | the exhibition's break ended | `break_points`, `maximum` (147 made), `why` (`maximum`, `missed`, `fouled`, `left`), `strokes`, `match_id` |
+| `camera.watch` | info | the view of the opponent's turn changed | `view` (`cue`, `above`, `round`), `how` (`button`, `harness`, `turn`: back to the cue view at the person's turn), `match_id` |
+
+`match.started` also carries `level` (the opponent's level id) and, for Watch a 147, `exhibition`
+(the layout's name).
+
+A level's decision is made again from its line: `seed` and `think.steps` with the frame it was
+made from (`ofs_sim_cli opponent <log.jsonl>`). `why` for a level's stroke
+(`core/include/ofs/opponent/opponent.hpp`, in full in `docs/opponent/README.md`): `level`, `kind`
+(`pot`, `safety`, `escape`, `break`), `target`, `pocket`, `band` (`short`, `medium`, `long`),
+`cut_rad`, `chance` (as it read it), `worth`, `leave` (where it meant the cue ball to stop and what
+for), `plan` (the strokes it planned after this one), `others` (the next best three), `drawn` (the
+error added: `aim_rad`, `speed`, `tip_x`, `tip_y`), `maximum` (`on`, `off`, `gone`).

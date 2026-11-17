@@ -1,0 +1,117 @@
+{
+  "schema_version": 1,
+  "id": "maximum",
+  "_note": "The 147 (spec 10.1, the owner's sixth tier): no error at all and the best position the search finds, playing for a maximum break and nothing else. Not on the ladder of levels 1 to 5.",
+  "values": {
+    "name": "The 147",
+    "tier": 0,
+    "aim_sigma_rad": 0.0,
+    "aim_sigma_per_cut": 0.0,
+    "aim_sigma_per_m": 0.0,
+    "awkward_factor": 1.0,
+    "speed_sigma": 0.0,
+    "tip_sigma": 0.0,
+    "max_cut_rad": 1.35,
+    "max_tip": 0.5,
+    "speeds": 8,
+    "spins": 13,
+    "depth": 2,
+    "position_weight": 1.0,
+    "judgement_sigma": 0.0,
+    "safety_below": 0.0,
+    "max_sims": 30000,
+    "maximum": true
+  },
+  "docs": {
+    "name": {
+      "unit": "text",
+      "source": "ours",
+      "note": "The name the game shows."
+    },
+    "tier": {
+      "unit": "level",
+      "source": "spec 10.1",
+      "note": "1 to 5 on the ladder; 0 for the 147, which is outside it."
+    },
+    "aim_sigma_rad": {
+      "unit": "rad",
+      "source": "ours, tuned to spec 10.1 by ofs_sim_cli tournament",
+      "note": "Standard deviation of the aim on a short straight pot with nothing in the way."
+    },
+    "aim_sigma_per_cut": {
+      "unit": "1/rad",
+      "source": "ours, tuned",
+      "note": "The aim's sigma grows by this fraction per radian of cut."
+    },
+    "aim_sigma_per_m": {
+      "unit": "1/m",
+      "source": "ours, tuned",
+      "note": "The aim's sigma grows by this fraction per metre the cue ball travels to its ball."
+    },
+    "awkward_factor": {
+      "unit": "factor",
+      "source": "ours",
+      "note": "The aim's sigma is multiplied by this when cueing is hampered or the cue raised."
+    },
+    "speed_sigma": {
+      "unit": "fraction",
+      "source": "ours, tuned",
+      "note": "Standard deviation of the cue speed, as a fraction of the speed meant."
+    },
+    "tip_sigma": {
+      "unit": "fraction of R",
+      "source": "ours, tuned",
+      "note": "Standard deviation of each tip offset."
+    },
+    "max_cut_rad": {
+      "unit": "rad",
+      "source": "ours",
+      "note": "It does not consider a pot with a wider cut."
+    },
+    "max_tip": {
+      "unit": "fraction of R",
+      "source": "ours",
+      "note": "The largest tip offset it plays on purpose; 0 is centre ball only."
+    },
+    "speeds": {
+      "unit": "count",
+      "source": "ours",
+      "note": "Cue speeds it tries for a pot."
+    },
+    "spins": {
+      "unit": "count",
+      "source": "ours",
+      "note": "Tip offsets it tries for a pot; the first is centre ball."
+    },
+    "depth": {
+      "unit": "strokes",
+      "source": "ours",
+      "note": "Strokes it plans beyond this one, each simulated; 0 reads the leave only."
+    },
+    "position_weight": {
+      "unit": "0 to 1",
+      "source": "ours",
+      "note": "How much the position left counts beside the pot itself."
+    },
+    "judgement_sigma": {
+      "unit": "fraction",
+      "source": "ours, tuned",
+      "note": "The error in its own reading of a pot's chance (spec 10.3: lower levels choose worse)."
+    },
+    "safety_below": {
+      "unit": "chance",
+      "source": "ours, tuned",
+      "note": "It plays safe when its best pot's chance, as it reads it, is under this."
+    },
+    "max_sims": {
+      "unit": "count",
+      "source": "ours, from the think time of spec 10.6",
+      "note": "Simulations it may run for one stroke."
+    },
+    "maximum": {
+      "unit": "true or false",
+      "source": "the owner, 2026-11-16",
+      "note": "It plays for a maximum break and nothing else (spec 10.1)."
+    }
+  }
+}

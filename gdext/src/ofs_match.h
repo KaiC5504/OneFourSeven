@@ -9,6 +9,7 @@
 #include <godot_cpp/classes/ref_counted.hpp>
 #include <godot_cpp/variant/array.hpp>
 #include <godot_cpp/variant/dictionary.hpp>
+#include <godot_cpp/variant/packed_string_array.hpp>
 #include <godot_cpp/variant/string.hpp>
 
 #include "ofs/opponent/standin.hpp"
@@ -97,6 +98,42 @@ public:
     // none or the call is refused. A choice not offered is replaced by the first option and logged
     // as a warning. Logs opponent.decision with the seed and what it weighed (`why`).
     godot::String standin_choice(int64_t player, int64_t seed);
+
+    // The computer opponent's levels (spec 10.1) and the exhibition tables. `levels` maps a level's
+    // id to the text of its file (core/data/opponent_<id>.json); exhibitions_json is
+    // exhibitions.json. False, keeping what was configured, when anything is refused; either way
+    // logs rules.configured with "levels" (each level_json) and "exhibitions" (their names).
+    // Needs configure() first and is not allowed while a match is in progress.
+    bool configure_opponent(const godot::Dictionary &levels, const godot::String &exhibitions_json);
+    // [{id, name, tier, maximum}], by tier with the 147 last; empty before configure_opponent.
+    godot::Array levels() const;
+    // The exhibition tables' names, in the file's order.
+    godot::PackedStringArray exhibitions() const;
+
+    // start()'s config also takes "level" (a level id, copied onto match.started) and
+    // "exhibition" (an index into exhibitions()): the frame then starts from that table with the
+    // player who is not "person" at the table, red on, and exhibition.started is logged.
+
+    // Starts `level` thinking about the striker's stroke on a worker thread and returns at once:
+    // true when it started (opponent.think is logged with `context`'s shot_id and the seed).
+    // False, with last_error, for an unknown level, when no stroke can be played now, or while an
+    // earlier one is still thinking. budget: {max_sims, max_steps, max_ms}, each optional (0 or
+    // absent leaves the level's own; max_ms defaults to 1500, spec 10.6).
+    bool opponent_think(const godot::String &level, int64_t seed, const godot::Dictionary &context,
+                        const godot::Dictionary &budget);
+    // Thinking was started and its answer has not been taken or cancelled.
+    bool opponent_thinking() const;
+    // The answer once it is ready, in standin_shot's form plus "level", "meant" (the strike as
+    // planned) and "think" ({candidates, sims, steps, depth, stopped, ms}); empty while it is
+    // still thinking or when nothing was asked. Taking it logs opponent.decision, and
+    // opponent.maximum and opponent.fallback when they apply. {ok: false, error} when the frame
+    // is no longer the one it was asked about.
+    godot::Dictionary opponent_take();
+    // Stops the thinking and drops its answer; logs opponent.cancelled when there was any.
+    void opponent_cancel(const godot::String &why);
+    // A level's choice among the options for `player`, as standin_choice (it is quick: the main
+    // thread).
+    godot::String opponent_choice(const godot::String &level, int64_t player, int64_t seed);
 
     // Why the last call failed; "" when it didn't.
     godot::String last_error() const;
