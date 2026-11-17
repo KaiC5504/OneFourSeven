@@ -86,7 +86,8 @@ Four normals are always drawn, in the order aim, speed, tip x, tip y.
   pot leaves the black to follow: potting one would only end the maximum.
 - Once the maximum is gone (the owner, 2026-11-17) it plays on for the highest break still
   possible: the same search, taking the black after a red whenever it can and the best colour
-  when it cannot.
+  when it cannot. A second red potted in the same stroke costs it the black that would have
+  followed (7), so it does not smash the reds for points.
 - It has no error at all: the stroke played is the stroke planned.
 - **Watch a 147** starts it on a table from `core/data/exhibitions.json`, the reds already open.
   The exhibition ends when its break does.
@@ -137,9 +138,9 @@ What can be seen from outside, and so tested:
   reds and no break under way), `a free ball` (the frame's first stroke is a free ball: 147 is
   what it plays for, not 155) or `the break lost it`.
 - **A claim** (`claim_frame` open to the striker, which the rules offer only with the black alone
-  left) is taken in place of a stroke, except by the
-  147 while its maximum is on: it plays the frame out to the last black. No level concedes in
-  stage 1.
+  left) is taken in place of a stroke by Beginner. The 147
+  never claims while it has a pot of the ball on, the maximum on or gone: it plays for the
+  break, to the last black. With no pot it takes the claim. No level concedes in stage 1.
 
 ## Choices (`decide.cpp`, spec 10.4)
 

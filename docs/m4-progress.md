@@ -116,3 +116,20 @@ finger, the picker and the view button against the screen's edges, heat over a l
   camera's "excellent position", spec 8.5); a pot's chance from noisy simulations rather than
   the geometric margin, and the cost of a miss in a level's score (spec 10.2 steps 3 and 4, for
   the levels that plan); the break-off and first safety chosen by what they leave.
+- 2026-11-18: check round done (C++, Godot, logging, test gaps, spec and documents, statistics,
+  Windows run). Clean: no undefined behaviour, the search repeats exactly (also when stopped by
+  the clock), the worker thread, the match flow, every control driven on Windows. 28 gap tests
+  added. Build 2611180251 went to the phone at the owner's asking before the fixes.
+- Fix round (four agents): the 147's wasted budget (a collapsed speed ladder, a second simulation
+  per candidate, mouths rebuilt per reading), no pots with the cue ball touching a ball, the
+  claim that stopped its break with the black on, reds smashed for points once the maximum is
+  gone, short blacks slammed, Beginner's pace (nothing under 1 m/s); the exhibition's scoreboard
+  and its spin and power; leftovers on the dimmed controls while the opponent thinks; the
+  from-above view over the home indicator; a 0.8 s think clock; logs that rebuild a refused
+  stroke; `ofs_sim_cli opponent` on a phone log and on a log from before a tuning.
+- For stage 2, from the statistics check: the 147's safeties and break-off chosen by what they
+  leave (its waiting safety handed over a chance in 6 of 15); its long pots weighed by a
+  person's chance (36% of its reds go to the baulk corners); its position is very tight (0.18 m
+  median to the next ball); frames against Beginner run about 100 strokes with about 3 "foul and
+  a miss" calls, because its escapes fail half the time.
+- Owner, 2026-11-18: Watch a 147 gets about fifty proven tables instead of eight.
