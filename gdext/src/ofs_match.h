@@ -2,6 +2,7 @@
 
 #include <memory>
 #include <string>
+#include <vector>
 
 #include <nlohmann/json.hpp>
 
@@ -12,6 +13,8 @@
 #include <godot_cpp/variant/packed_string_array.hpp>
 #include <godot_cpp/variant/string.hpp>
 
+#include "ofs/opponent/exhibition.hpp"
+#include "ofs/opponent/level.hpp"
 #include "ofs/opponent/standin.hpp"
 #include "ofs/physics/params.hpp"
 #include "ofs/physics/table_shape.hpp"
@@ -35,6 +38,11 @@ protected:
     static void _bind_methods();
 
 public:
+    // Out of line, where OpponentJob is whole. The destructor stops any thinking first: the
+    // worker never outlives the engine.
+    OfsMatch();
+    ~OfsMatch() override;
+
     // Takes the physics (it must be configured) and its table, and the texts of
     // referee_params.json and standin_params.json. False when anything is refused, keeping the
     // previous configuration; either way logs rules.configured. Not allowed while a match is in
@@ -110,26 +118,30 @@ public:
     // The exhibition tables' names, in the file's order.
     godot::PackedStringArray exhibitions() const;
 
-    // start()'s config also takes "level" (a level id, copied onto match.started) and
-    // "exhibition" (an index into exhibitions()): the frame then starts from that table with the
-    // player who is not "person" at the table, red on, and exhibition.started is logged.
+    // start()'s config also takes "level" (a level id, copied onto match.started; absent or ""
+    // for none) and "exhibition" (an index into exhibitions(), best_of 1 only): the frame then
+    // starts from that table with the player who is not "person" at the table (player 1 without
+    // one), red on, and exhibition.started is logged.
 
     // Starts `level` thinking about the striker's stroke on a worker thread and returns at once:
     // true when it started (opponent.think is logged with `context`'s shot_id and the seed).
     // False, with last_error, for an unknown level, when no stroke can be played now, or while an
-    // earlier one is still thinking. budget: {max_sims, max_steps, max_ms}, each optional (0 or
-    // absent leaves the level's own; max_ms defaults to 1500, spec 10.6).
+    // earlier answer is still thinking or waiting to be taken. budget: {max_sims, max_steps,
+    // max_ms}, each optional. max_sims and max_steps: 0 or absent leave the level's own and no
+    // limit; max_ms: absent is 1500 (spec 10.6), 0 or negative no clock stop.
     bool opponent_think(const godot::String &level, int64_t seed, const godot::Dictionary &context,
                         const godot::Dictionary &budget);
     // Thinking was started and its answer has not been taken or cancelled.
     bool opponent_thinking() const;
     // The answer once it is ready, in standin_shot's form plus "level", "meant" (the strike as
     // planned) and "think" ({candidates, sims, steps, depth, stopped, ms}); empty while it is
-    // still thinking or when nothing was asked. Taking it logs opponent.decision, and
-    // opponent.maximum and opponent.fallback when they apply. {ok: false, error} when the frame
-    // is no longer the one it was asked about.
+    // still thinking or when nothing was asked, and never waits. Taking it logs
+    // opponent.decision, and opponent.maximum and opponent.fallback when they apply. {ok: false,
+    // error} when the frame is no longer the one it was asked about, the thinking threw, or the
+    // stroke could not be played; the answer is spent either way.
     godot::Dictionary opponent_take();
     // Stops the thinking and drops its answer; logs opponent.cancelled when there was any.
+    // abandon(), start() and freeing the engine do this too.
     void opponent_cancel(const godot::String &why);
     // A level's choice among the options for `player`, as standin_choice (it is quick: the main
     // thread).
@@ -156,6 +168,17 @@ private:
     godot::Dictionary refused(const char *call, const std::string &why, const nlohmann::json &given) const;
     // For a caught exception: sets last_error and logs app.error.
     godot::Dictionary thrown(const char *call, const std::string &message) const;
+    // The configured level with this id; null when there is none.
+    const ofs::opponent::Level *find_level(const std::string &id) const;
+    // standin_choice (no level) and opponent_choice, as `call`.
+    godot::String choose(const char *call, const std::string *level, int64_t player, int64_t seed);
+    // opponent_cancel without its guard.
+    void cancel_thinking(const std::string &why);
+    // opponent.maximum for the 147 about to play the frame in play, when its state has changed.
+    void log_maximum(const nlohmann::json &stroke_why, const nlohmann::json &context);
+
+    // One level's thinking: what the worker was handed, and what it gives back.
+    struct OpponentJob;
 
     bool ready_ = false;
     bool started_ = false;
@@ -168,5 +191,11 @@ private:
     std::unique_ptr<ofs::rules::TableOracle> oracle_;
     ofs::rules::MatchState match_;
     godot::String match_id_;
+    std::vector<ofs::opponent::Level> levels_;  // by tier, the 147 last
+    std::vector<ofs::opponent::Exhibition> exhibitions_;
+    std::unique_ptr<OpponentJob> job_;
+    // opponent.maximum is logged when this changes within one frame: "" (not yet on), "on", "gone".
+    std::string maximum_state_;
+    std::string maximum_frame_;  // the frame maximum_state_ belongs to
     mutable godot::String last_error_;
 };

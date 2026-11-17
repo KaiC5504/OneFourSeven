@@ -1,18 +1,24 @@
 #include "ofs_match.h"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <exception>
+#include <functional>
 #include <limits>
 #include <mutex>
 #include <set>
 #include <string_view>
+#include <thread>
 #include <utility>
 #include <vector>
 
 #include "ofs/log.hpp"
+#include "ofs/opponent/env.hpp"
+#include "ofs/opponent/evaluate.hpp"
+#include "ofs/opponent/opponent.hpp"
 #include "ofs/physics/serialize.hpp"
 #include "ofs/rng.hpp"
 #include "ofs/rules/engine.hpp"
@@ -358,17 +364,18 @@ void log_standin(bool ok, json fields, const json &context) {
                                       "opponent.decision", std::move(fields));
 }
 
-// Why the game could not play the stand-in's stroke as given: place_cue or OfsPhysics.simulate
-// would refuse it. "" when it can.
-std::string unplayable(const opponent::StandinShot &shot, const rules::FrameState &frame,
-                       const rules::TableOracle &oracle) {
+// Why the game could not play `who`'s stroke as given (a StandinShot or an opponent::Stroke):
+// place_cue or OfsPhysics.simulate would refuse it. "" when it can.
+template <typename Shot>
+std::string unplayable(const Shot &shot, const rules::FrameState &frame, const rules::TableOracle &oracle,
+                       const std::string &who) {
     const ofs::phys::CueStrike &c = shot.strike;
     for (const double v : {c.aim_rad, c.tip_x, c.tip_y, c.elevation_rad, c.speed_m_s}) {
-        if (!std::isfinite(v)) return "the stand-in's strike has a number that is not finite";
+        if (!std::isfinite(v)) return who + "'s strike has a number that is not finite";
     }
-    if (!(c.speed_m_s > 0.0)) return "the stand-in's strike has no speed";
+    if (!(c.speed_m_s > 0.0)) return who + "'s strike has no speed";
     if (!shot.places_cue) return {};
-    const std::string place = "the stand-in places the cue ball at " + point_text(shot.cue_pos.x, shot.cue_pos.y);
+    const std::string place = who + " places the cue ball at " + point_text(shot.cue_pos.x, shot.cue_pos.y);
     if (!frame.cue_in_hand) return place + ", and it is not in hand";
     if (!std::isfinite(shot.cue_pos.x) || !std::isfinite(shot.cue_pos.y) ||
         !oracle.cue_placement_legal(frame.balls, frame.cue_ball, shot.cue_pos)) {
@@ -381,6 +388,10 @@ double us_since(std::chrono::steady_clock::time_point began) {
     return std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - began).count();
 }
 
+double ms_since(std::chrono::steady_clock::time_point began) {
+    return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - began).count();
+}
+
 Array xy(const rules::Vec2 &v) {
     Array out;
     out.push_back(v.x);
@@ -388,7 +399,158 @@ Array xy(const rules::Vec2 &v) {
     return out;
 }
 
+Dictionary strike_view(const ofs::phys::CueStrike &c) {
+    Dictionary out;
+    out["aim_rad"] = c.aim_rad;
+    out["tip_x"] = c.tip_x;
+    out["tip_y"] = c.tip_y;
+    out["elevation_rad"] = c.elevation_rad;
+    out["speed_m_s"] = c.speed_m_s;
+    return out;
+}
+
+// The answer standin_shot and opponent_take give for `who`'s stroke or decision on frame `f`, and
+// its opponent.decision line in `line`. `problem` gets why the game could not apply it, "" when it
+// can.
+template <typename Shot>
+Dictionary shot_answer(const Shot &shot, const rules::FrameState &f, const rules::TableOracle &oracle,
+                       const std::string &who, std::uint64_t seed, double us, json &line, std::string &problem) {
+    const json reasons = shot.why.is_object() ? shot.why : json::object();
+    line = {{"kind", shot.decides ? "choice" : "shot"},
+            {"player", f.striker},
+            {"seed", std::to_string(seed)},
+            {"why", reasons},
+            {"us", us}};
+    Dictionary out = answer();
+    out["why"] = json_to_variant(reasons);
+    out["us"] = us;
+    problem.clear();
+    if (shot.decides) {
+        const std::vector<rules::DecisionKind> open = rules::options(f, f.striker);
+        const std::string name(rules::decision_name(shot.decision));
+        line["choice"] = name;
+        line["options"] = names(open);
+        out["decision"] = from_std(name);
+        if (!offered(open, shot.decision)) {
+            problem = who + " chose " + name + ", which is not open to player " + std::to_string(f.striker);
+        }
+        return out;
+    }
+    const ofs::phys::CueStrike &c = shot.strike;
+    const std::string nominated =
+        shot.input.has_nomination ? std::string(ofs::table::ball_name(shot.input.nominated)) : "";
+    line["strike"] = ofs::phys::to_json(c);
+    line["nominated"] = nominated;
+    if (shot.places_cue) {
+        line["cue"] =
+            json::array({ofs::phys::number_to_json(shot.cue_pos.x), ofs::phys::number_to_json(shot.cue_pos.y)});
+    }
+    out["places_cue"] = shot.places_cue;
+    out["cue"] = xy(shot.places_cue ? shot.cue_pos : f.balls.at(std::size_t(f.cue_ball)).pos);
+    out["nominated"] = from_std(nominated);
+    out["strike"] = strike_view(c);
+    problem = unplayable(shot, f, oracle, who);
+    return out;
+}
+
+// A whole number from 0 for a budget key; absent is 0.
+bool budget_count(const Dictionary &budget, const char *key, int &out, std::string &why) {
+    out = 0;
+    if (!budget.has(key)) return true;
+    int64_t value = 0;
+    if (!whole(budget[key], value) || value < 0 || value > std::numeric_limits<int>::max()) {
+        why = std::string("budget: \"") + key + "\" is not a whole number from 0 (" + variant_text(budget[key]) + ")";
+        return false;
+    }
+    out = int(value);
+    return true;
+}
+
+// Spec 10.6: the opponent answers within 1.5 s unless the caller says otherwise.
+constexpr double kDefaultThinkMs = 1500.0;
+
+bool read_budget(const Dictionary &budget, opponent::Think &out, std::string &why) {
+    out = opponent::Think{};
+    if (!budget_count(budget, "max_sims", out.max_sims, why) || !budget_count(budget, "max_steps", out.max_steps, why)) {
+        return false;
+    }
+    out.max_ms = kDefaultThinkMs;
+    if (budget.has("max_ms")) {
+        const Variant v = budget["max_ms"];
+        const bool number = v.get_type() == Variant::INT || v.get_type() == Variant::FLOAT;
+        const double ms = number ? double(v) : 0.0;
+        if (!number || std::isnan(ms)) {
+            why = "budget: \"max_ms\" is not a number (" + variant_text(v) + ")";
+            return false;
+        }
+        out.max_ms = ms > 0.0 && std::isfinite(ms) ? ms : 0.0;
+    }
+    return true;
+}
+
+json think_json(const opponent::Stroke &s, double ms) {
+    return {{"candidates", s.candidates}, {"sims", s.sims},       {"steps", s.steps},
+            {"depth", s.depth},           {"stopped", s.stopped}, {"ms", ms}};
+}
+
+json without_shot(json context) {
+    context.erase("shot_id");
+    return context;
+}
+
 }  // namespace
+
+struct OfsMatch::OpponentJob {
+    // Copied in on the main thread before the worker starts; the worker only reads them.
+    rules::FrameState frame;
+    ofs::phys::PhysicsParams params;
+    std::shared_ptr<const ofs::phys::TableShape> table;
+    rules::RefParams ref;
+    opponent::StandinParams standin;
+    opponent::Level level;
+    std::uint64_t seed = 0;
+    opponent::Think think;
+    std::string hash;  // rules::frame_hash(frame): the answer is for this frame only
+    json context;      // log_context with shot_id
+    std::chrono::steady_clock::time_point began;
+
+    std::atomic<bool> cancel{false};
+    // Set by the worker last, after it has written the answer below.
+    std::atomic<bool> done{false};
+    opponent::Stroke stroke;
+    std::string error;  // what it threw; "" when it didn't
+    double ms = 0.0;    // its own time
+
+    std::thread worker;
+
+    OpponentJob() = default;
+    OpponentJob(const OpponentJob &) = delete;
+    OpponentJob &operator=(const OpponentJob &) = delete;
+    ~OpponentJob() {
+        cancel.store(true);
+        if (worker.joinable()) worker.join();
+    }
+
+    // The worker's body: plain C++ only, nothing of Godot's.
+    void run() {
+        const auto start = std::chrono::steady_clock::now();
+        try {
+            const rules::ScopedLogContext scope(context);
+            const std::unique_ptr<rules::TableOracle> oracle = rules::make_geometry_oracle(*table, ref);
+            const opponent::Env env{*table, params, *oracle, ref, standin};
+            ofs::Rng rng(seed);
+            opponent::Think budget = think;
+            budget.cancel = &cancel;
+            stroke = opponent::choose_stroke(frame, level, env, rng, budget);
+        } catch (const std::exception &e) {
+            error = std::string("exception: ") + e.what();
+        } catch (...) {
+            error = "an exception that isn't a std::exception";
+        }
+        ms = ms_since(start);
+        done.store(true, std::memory_order_release);
+    }
+};
 
 void OfsMatch::_bind_methods() {
     ClassDB::bind_method(D_METHOD("configure", "physics", "referee_json", "standin_json"), &OfsMatch::configure);
@@ -557,35 +719,76 @@ Dictionary OfsMatch::start(const Dictionary &config, const String &match_id) {
             rules::MatchConfig c;
             std::string why;
             if (!read_config(config, c, why) || !rules::valid_config(c, why)) return refuse(why);
+            std::string level;
+            if (config.has("level")) {
+                const Variant v = config["level"];
+                if (v.get_type() != Variant::STRING && v.get_type() != Variant::STRING_NAME) {
+                    return refuse("config: \"level\" is not a level's id or \"\" (" + variant_text(v) + ")");
+                }
+                level = variant_text(v);
+                if (!level.empty() && find_level(level) == nullptr) {
+                    return refuse("config: \"level\" " + level + " is not a configured level");
+                }
+            }
+            const opponent::Exhibition *exhibition = nullptr;
+            if (config.has("exhibition")) {
+                int64_t index = -1;
+                if (!whole(config["exhibition"], index) || index < 0 ||
+                    index >= int64_t(exhibitions_.size())) {
+                    return refuse("config: \"exhibition\" " + variant_text(config["exhibition"]) +
+                                  " is not an index into the " + std::to_string(exhibitions_.size()) +
+                                  " exhibition tables");
+                }
+                if (c.best_of != 1) {
+                    return refuse("config: an exhibition is best of 1, not " + std::to_string(c.best_of));
+                }
+                exhibition = &exhibitions_[std::size_t(index)];
+            }
+            int64_t person = -1;
+            const bool has_person =
+                config.has("person") && whole(config["person"], person) && (person == 0 || person == 1);
             refresh_params();
             rules::MatchState next;
             {
                 const rules::ScopedLogContext scope({{"match_id", to_std(match_id)}});
                 next = rules::start_match(c, params_);
             }
+            if (exhibition != nullptr) {
+                // The opponent plays the table out; the person, when there is one, watches.
+                const int striker = has_person ? int(1 - person) : 1;
+                next.breaker = striker;
+                next.frame = opponent::exhibition_frame(*exhibition, striker, next.frame.seed);
+                next.frame.concede_any_time = c.concede_any_time;
+            }
             Dictionary out = answer();
             out["match"] = match_view(next);
 
             // One match at a time: the one still on is left as Quit leaves it.
+            cancel_thinking("a new match");
             abandon();
             const json context = {{"match_id", to_std(match_id)}, {"frame", next.frame_number}};
             json started = context;
-            if (config.has("person")) {
-                int64_t person = -1;
-                if (whole(config["person"], person) && (person == 0 || person == 1)) {
-                    started["person"] = person;
-                } else {
-                    rules::log_invalid("OfsMatch.start", "config: \"person\" is not 0 or 1 (" +
-                                                             variant_text(config["person"]) +
-                                                             "); match.started goes without it; match " +
-                                                             to_std(match_id));
-                }
+            if (has_person) {
+                started["person"] = person;
+            } else if (config.has("person")) {
+                rules::log_invalid("OfsMatch.start", "config: \"person\" is not 0 or 1 (" +
+                                                         variant_text(config["person"]) +
+                                                         "); match.started goes without it; match " +
+                                                         to_std(match_id));
             }
+            if (!level.empty()) started["level"] = level;
+            if (exhibition != nullptr) started["exhibition"] = exhibition->name;
             rules::log_match_started(next, started);
             json racked = context;
             racked["params_hash"] = params_hash_;
             rules::log_frame_started(next, racked);
+            if (exhibition != nullptr) {
+                ofs::log::info("match", "exhibition.started",
+                               {{"layout", exhibition->name}, {"level", level}, {"match_id", to_std(match_id)}});
+            }
             match_ = std::move(next);
+            maximum_state_.clear();
+            maximum_frame_.clear();
             match_id_ = match_id;
             started_ = true;
             last_error_ = String();
@@ -596,7 +799,32 @@ Dictionary OfsMatch::start(const Dictionary &config, const String &match_id) {
 
 bool OfsMatch::in_progress() const { return started_ && !match_.over; }
 
+OfsMatch::OfsMatch() = default;
+
+OfsMatch::~OfsMatch() {
+    guarded(
+        [&] {
+            cancel_thinking("the match engine was freed");
+            return true;
+        },
+        [&](const std::string &message) {
+            thrown("~OfsMatch", message);
+            return false;
+        });
+}
+
 void OfsMatch::abandon() {
+    if (job_) {
+        guarded(
+            [&] {
+                cancel_thinking("the match was abandoned");
+                return true;
+            },
+            [&](const std::string &message) {
+                thrown("abandon", message);
+                return false;
+            });
+    }
     if (!in_progress()) return;
     guarded(
         [&] {
@@ -846,48 +1074,9 @@ Dictionary OfsMatch::standin_shot(int64_t seed, const Dictionary &context) {
                 opponent::choose_shot(f, *table_, params_, *oracle_, ref_, standin_, rng);
             const double us = us_since(began);
 
-            const json reasons = shot.why.is_object() ? shot.why : json::object();
-            json line = {{"kind", shot.decides ? "choice" : "shot"},
-                         {"player", f.striker},
-                         {"seed", std::to_string(drawn)},
-                         {"why", reasons},
-                         {"us", us}};
-            Dictionary out = answer();
-            out["why"] = json_to_variant(reasons);
-            out["us"] = us;
+            json line;
             std::string problem;
-            if (shot.decides) {
-                const std::vector<rules::DecisionKind> open = rules::options(f, f.striker);
-                const std::string name(rules::decision_name(shot.decision));
-                line["choice"] = name;
-                line["options"] = names(open);
-                out["decision"] = from_std(name);
-                if (!offered(open, shot.decision)) {
-                    problem = "the stand-in chose " + name + ", which is not open to player " +
-                              std::to_string(f.striker);
-                }
-            } else {
-                const ofs::phys::CueStrike &c = shot.strike;
-                const std::string nominated =
-                    shot.input.has_nomination ? std::string(ofs::table::ball_name(shot.input.nominated)) : "";
-                line["strike"] = ofs::phys::to_json(c);
-                line["nominated"] = nominated;
-                if (shot.places_cue) {
-                    line["cue"] = json::array(
-                        {ofs::phys::number_to_json(shot.cue_pos.x), ofs::phys::number_to_json(shot.cue_pos.y)});
-                }
-                Dictionary strike;
-                strike["aim_rad"] = c.aim_rad;
-                strike["tip_x"] = c.tip_x;
-                strike["tip_y"] = c.tip_y;
-                strike["elevation_rad"] = c.elevation_rad;
-                strike["speed_m_s"] = c.speed_m_s;
-                out["places_cue"] = shot.places_cue;
-                out["cue"] = xy(shot.places_cue ? shot.cue_pos : f.balls.at(std::size_t(f.cue_ball)).pos);
-                out["nominated"] = from_std(nominated);
-                out["strike"] = strike;
-                problem = unplayable(shot, f, *oracle_);
-            }
+            Dictionary out = shot_answer(shot, f, *oracle_, "the stand-in", drawn, us, line, problem);
             // A claim or concession strikes nothing, so no shot carries its id.
             const json logged = log_context(match_, shot.decides ? String() : shot_id);
             if (!problem.empty()) {
@@ -903,17 +1092,27 @@ Dictionary OfsMatch::standin_shot(int64_t seed, const Dictionary &context) {
 }
 
 String OfsMatch::standin_choice(int64_t player, int64_t seed) {
+    return choose("standin_choice", nullptr, player, seed);
+}
+
+String OfsMatch::choose(const char *call, const std::string *level_id, int64_t player, int64_t seed) {
     return guarded(
         [&]() -> String {
             const rules::ScopedLogContext scope(scope_context());
             refresh_params();
-            const json given = {{"player", player}, {"seed", seed}};
+            json given = {{"player", player}, {"seed", seed}};
+            if (level_id != nullptr) given["level"] = *level_id;
             std::string why = not_in_progress();
             if (why.empty() && player != 0 && player != 1) why = "player " + std::to_string(player) + " is not 0 or 1";
+            const opponent::Level *level = level_id == nullptr ? nullptr : find_level(*level_id);
+            if (why.empty() && level_id != nullptr && level == nullptr) {
+                why = "level \"" + *level_id + "\" is not configured";
+            }
             if (!why.empty()) {
-                refusal("standin_choice", why, given);
+                refusal(call, why, given);
                 return String();
             }
+            const std::string who = level == nullptr ? "the stand-in" : "level " + level->id;
             const rules::FrameState &f = match_.frame;
             const std::vector<rules::DecisionKind> open = rules::options(f, int(player));
             const json context = log_context(match_);
@@ -923,26 +1122,32 @@ String OfsMatch::standin_choice(int64_t player, int64_t seed) {
                          {"seed", std::to_string(drawn)},
                          {"choice", ""},
                          {"options", names(open)}};
+            if (level != nullptr) line["level"] = level->id;
             if (open.empty()) {
                 why = "nothing is open to player " + std::to_string(player) + " now";
                 line["error"] = why;
                 log_standin(false, std::move(line), context);
-                refusal("standin_choice", why, given);
+                refusal(call, why, given);
                 return String();
             }
             ofs::Rng rng(drawn);
             const auto began = std::chrono::steady_clock::now();
             json weighed;
-            rules::DecisionKind chosen = opponent::choose_decision(f, int(player), open, standin_, rng, &weighed);
+            rules::DecisionKind chosen = rules::DecisionKind::play;
+            if (level == nullptr) {
+                chosen = opponent::choose_decision(f, int(player), open, standin_, rng, &weighed);
+            } else {
+                const opponent::Env env{*table_, params_, *oracle_, ref_, standin_};
+                chosen = opponent::choose_option(f, int(player), open, *level, env, rng, &weighed);
+            }
             line["us"] = us_since(began);
             line["why"] = weighed.is_object() ? weighed : json::object();
             const bool ok = offered(open, chosen);
             if (!ok) {
                 // The game could not apply it. The first option is the plain one (play, accept,
                 // play first), so the match goes on.
-                line["error"] = "the stand-in chose " + std::string(rules::decision_name(chosen)) +
-                                ", which is not open; " + std::string(rules::decision_name(open.front())) +
-                                " is taken";
+                line["error"] = who + " chose " + std::string(rules::decision_name(chosen)) + ", which is not open; " +
+                                std::string(rules::decision_name(open.front())) + " is taken";
                 chosen = open.front();
             }
             const std::string name(rules::decision_name(chosen));
@@ -952,33 +1157,300 @@ String OfsMatch::standin_choice(int64_t player, int64_t seed) {
             return from_std(name);
         },
         [&](const std::string &message) {
-            thrown("standin_choice", message);
+            thrown(call, message);
             return String();
         });
 }
 
-// The level methods below are M4's contract: declared and bound, not yet built.
-
-bool OfsMatch::configure_opponent(const Dictionary &, const String &) {
-    last_error_ = String("configure_opponent is not built yet");
-    return false;
+const opponent::Level *OfsMatch::find_level(const std::string &id) const {
+    for (const opponent::Level &level : levels_) {
+        if (level.id == id) return &level;
+    }
+    return nullptr;
 }
 
-Array OfsMatch::levels() const { return Array(); }
+bool OfsMatch::configure_opponent(const Dictionary &level_files, const String &exhibitions_json) {
+    return guarded(
+        [&] {
+            std::vector<std::string> problems;
+            if (!ready_) problems.push_back("the match engine is not configured: configure() first");
+            if (in_progress()) problems.push_back("a match is in progress: it must end or be abandoned first");
 
-PackedStringArray OfsMatch::exhibitions() const { return PackedStringArray(); }
+            std::vector<opponent::Level> loaded;
+            json described = json::array();
+            const Array keys = level_files.keys();
+            if (keys.is_empty()) problems.push_back("levels: none given");
+            for (int64_t i = 0; i < keys.size(); ++i) {
+                const Variant key = keys[i];
+                const std::string id = variant_text(key);
+                if (key.get_type() != Variant::STRING && key.get_type() != Variant::STRING_NAME) {
+                    problems.push_back("levels: the key " + id + " is not a level's id");
+                    continue;
+                }
+                const Variant text = level_files[key];
+                if (text.get_type() != Variant::STRING) {
+                    problems.push_back(id + ": not the text of a level file");
+                    continue;
+                }
+                const json file = json::parse(variant_text(text), nullptr, false);
+                if (file.is_discarded()) {
+                    problems.push_back(id + ": not valid JSON");
+                    continue;
+                }
+                opponent::Level level;
+                std::vector<std::string> found;
+                if (!opponent::load_level(file, level, found)) {
+                    for (const std::string &problem : found) problems.push_back(id + ": " + problem);
+                    continue;
+                }
+                if (level.id != id) {
+                    problems.push_back(id + ": the file is level " + level.id);
+                    continue;
+                }
+                described.push_back(opponent::level_json(level));
+                loaded.push_back(std::move(level));
+            }
+            std::stable_sort(loaded.begin(), loaded.end(), [](const opponent::Level &a, const opponent::Level &b) {
+                // The 147 (tier 0) is outside the ladder: last.
+                const int ta = a.tier == 0 ? std::numeric_limits<int>::max() : a.tier;
+                const int tb = b.tier == 0 ? std::numeric_limits<int>::max() : b.tier;
+                return ta != tb ? ta < tb : a.id < b.id;
+            });
 
-bool OfsMatch::opponent_think(const String &, int64_t, const Dictionary &, const Dictionary &) {
-    last_error_ = String("opponent_think is not built yet");
-    return false;
+            std::vector<opponent::Exhibition> tables;
+            json table_names = json::array();
+            const json file = json::parse(to_std(exhibitions_json), nullptr, false);
+            if (file.is_discarded()) {
+                problems.push_back("exhibitions: not valid JSON");
+            } else {
+                std::vector<std::string> found;
+                opponent::load_exhibitions(file, tables, found);
+                for (const std::string &problem : found) problems.push_back("exhibitions: " + problem);
+                for (const opponent::Exhibition &e : tables) table_names.push_back(e.name);
+            }
+
+            const bool ok = problems.empty();
+            json data = {{"ok", ok},
+                         {"values", rules::ref_params_values(ref_)},
+                         {"standin", standin_values(standin_)},
+                         {"params_hash", params_hash_},
+                         {"levels", described},
+                         {"exhibitions", table_names},
+                         {"problems", problems}};
+            if (!ok) {
+                std::string all;
+                for (const std::string &problem : problems) all += (all.empty() ? "" : "; ") + problem;
+                last_error_ = from_std(all);
+                ofs::log::error("rules", "rules.configured", std::move(data));
+                return false;
+            }
+            levels_ = std::move(loaded);
+            exhibitions_ = std::move(tables);
+            last_error_ = String();
+            ofs::log::info("rules", "rules.configured", std::move(data));
+            return true;
+        },
+        [&](const std::string &message) {
+            thrown("configure_opponent", message);
+            return false;
+        });
 }
 
-bool OfsMatch::opponent_thinking() const { return false; }
+Array OfsMatch::levels() const {
+    Array out;
+    for (const opponent::Level &level : levels_) {
+        Dictionary d;
+        d["id"] = from_std(level.id);
+        d["name"] = from_std(level.name);
+        d["tier"] = int64_t(level.tier);
+        d["maximum"] = level.maximum;
+        out.push_back(d);
+    }
+    return out;
+}
 
-Dictionary OfsMatch::opponent_take() { return Dictionary(); }
+PackedStringArray OfsMatch::exhibitions() const {
+    PackedStringArray out;
+    for (const opponent::Exhibition &e : exhibitions_) out.push_back(from_std(e.name));
+    return out;
+}
 
-void OfsMatch::opponent_cancel(const String &) {}
+bool OfsMatch::opponent_think(const String &level_id, int64_t seed, const Dictionary &context,
+                              const Dictionary &budget) {
+    const std::uint64_t drawn = static_cast<std::uint64_t>(seed);
+    const json given = {{"level", to_std(level_id)},
+                        {"seed", std::to_string(drawn)},
+                        {"context", variant_json(context, 0)},
+                        {"budget", variant_json(budget, 0)}};
+    return guarded(
+        [&] {
+            const String shot_id = context_text(context, "shot_id");
+            const rules::ScopedLogContext scope(scope_context(shot_id));
+            const opponent::Level *level = find_level(to_std(level_id));
+            std::string why = no_stroke_now();
+            if (why.empty() && level == nullptr) why = "level " + to_std(level_id) + " is not configured";
+            if (why.empty() && job_) {
+                why = job_->done.load(std::memory_order_acquire)
+                          ? "an earlier answer has not been taken: opponent_take or opponent_cancel first"
+                          : "level " + job_->level.id + " is still thinking";
+            }
+            opponent::Think think;
+            if (!why.empty() || !read_budget(budget, think, why)) {
+                refusal("opponent_think", why, given);
+                return false;
+            }
+            refresh_params();
+            auto job = std::make_unique<OpponentJob>();
+            job->frame = match_.frame;
+            job->params = params_;
+            job->table = table_;
+            job->ref = ref_;
+            job->standin = standin_;
+            job->level = *level;
+            job->seed = drawn;
+            job->think = think;
+            job->hash = rules::frame_hash(match_.frame);
+            job->context = log_context(match_, shot_id);
+            job->began = std::chrono::steady_clock::now();
 
-String OfsMatch::opponent_choice(const String &, int64_t, int64_t) { return String(); }
+            json line = {{"level", level->id},
+                         {"player", match_.frame.striker},
+                         {"seed", std::to_string(drawn)},
+                         {"budget", {{"max_sims", think.max_sims},
+                                     {"max_steps", think.max_steps},
+                                     {"max_ms", think.max_ms}}}};
+            for (auto it = job->context.begin(); it != job->context.end(); ++it) line[it.key()] = it.value();
+            ofs::log::info("opponent", "opponent.think", std::move(line));
+
+            OpponentJob &running = *job;
+            job->worker = std::thread([&running] { running.run(); });
+            job_ = std::move(job);
+            last_error_ = String();
+            return true;
+        },
+        [&](const std::string &message) {
+            thrown("opponent_think", message);
+            return false;
+        });
+}
+
+bool OfsMatch::opponent_thinking() const { return job_ != nullptr; }
+
+Dictionary OfsMatch::opponent_take() {
+    if (!job_ || !job_->done.load(std::memory_order_acquire)) return {};
+    return guarded(
+        [&]() -> Dictionary {
+            // Taken, refused or thrown, the answer is spent.
+            const std::unique_ptr<OpponentJob> job = std::move(job_);
+            job->worker.join();
+            const String shot_id = from_std(job->context.value("shot_id", std::string()));
+            const rules::ScopedLogContext scope(scope_context(shot_id));
+            const opponent::Level &level = job->level;
+            const opponent::Stroke &stroke = job->stroke;
+            const std::string who = "level " + level.id;
+            const json think = think_json(stroke, job->ms);
+            const json given = {{"level", level.id}, {"seed", std::to_string(job->seed)}};
+            const auto refuse = [&](const std::string &why, json line) {
+                line["level"] = level.id;
+                line["think"] = think;
+                line["error"] = why;
+                log_standin(false, std::move(line), job->context);
+                return refused("opponent_take", why, given);
+            };
+            const json plain = {{"kind", "shot"}, {"player", job->frame.striker}, {"seed", std::to_string(job->seed)}};
+            if (!job->error.empty()) return refuse(who + " could not choose a stroke: " + job->error, plain);
+            std::string why = not_in_progress();
+            if (why.empty() && rules::frame_hash(match_.frame) != job->hash) {
+                why = "the frame changed while " + who + " was thinking about it";
+            }
+            if (!why.empty()) return refuse(why, plain);
+
+            json line;
+            std::string problem;
+            Dictionary out = shot_answer(stroke, match_.frame, *oracle_, who, job->seed, job->ms * 1000.0, line, problem);
+            if (!problem.empty()) return refuse(problem, line);
+            line["level"] = level.id;
+            line["think"] = think;
+            out["level"] = from_std(level.id);
+            out["think"] = json_to_variant(think);
+            if (!stroke.decides) {
+                line["meant"] = ofs::phys::to_json(stroke.meant);
+                out["meant"] = strike_view(stroke.meant);
+            }
+            // A claim or concession strikes nothing, so no shot carries its id.
+            const json logged = stroke.decides ? without_shot(job->context) : job->context;
+            log_standin(true, std::move(line), logged);
+            if (!stroke.fallback.empty()) {
+                json fallback = {{"level", level.id},
+                                 {"why", stroke.fallback},
+                                 {"player", job->frame.striker},
+                                 {"seed", std::to_string(job->seed)}};
+                for (auto it = job->context.begin(); it != job->context.end(); ++it) fallback[it.key()] = it.value();
+                ofs::log::warn("opponent", "opponent.fallback", std::move(fallback));
+            }
+            if (level.maximum) log_maximum(stroke.why, job->context);
+            last_error_ = String();
+            return out;
+        },
+        [&](const std::string &message) { return thrown("opponent_take", message); });
+}
+
+void OfsMatch::log_maximum(const json &stroke_why, const json &context) {
+    const std::string frame_key = to_std(match_id_) + "/" + std::to_string(match_.frame_number) + "/" +
+                                  std::to_string(match_.reracks);
+    if (frame_key != maximum_frame_) {
+        maximum_frame_ = frame_key;
+        maximum_state_.clear();
+    }
+    const rules::FrameState &f = match_.frame;
+    const bool on = opponent::maximum_on(f);
+    json line;
+    if (on && maximum_state_.empty()) {
+        maximum_state_ = "on";
+        line = {{"state", "on"}};
+    } else if (!on && maximum_state_ == "on") {
+        maximum_state_ = "gone";
+        const auto why = stroke_why.is_object() ? stroke_why.find("maximum_why") : stroke_why.end();
+        line = {{"state", "gone"}, {"why", why != stroke_why.end() && why->is_string() ? why->get<std::string>() : ""}};
+    } else {
+        return;
+    }
+    const auto reds = std::count_if(f.balls.begin(), f.balls.end(),
+                                    [](const rules::BallOnTable &b) { return b.ball == rules::Ball::red; });
+    line["player"] = f.striker;
+    line["break_points"] = f.break_points;
+    line["reds"] = int64_t(reds);
+    for (auto it = context.begin(); it != context.end(); ++it) line[it.key()] = it.value();
+    ofs::log::info("opponent", "opponent.maximum", std::move(line));
+}
+
+void OfsMatch::opponent_cancel(const String &why) {
+    guarded(
+        [&] {
+            cancel_thinking(to_std(why));
+            return true;
+        },
+        [&](const std::string &message) {
+            thrown("opponent_cancel", message);
+            return false;
+        });
+}
+
+void OfsMatch::cancel_thinking(const std::string &why) {
+    if (!job_) return;
+    const std::unique_ptr<OpponentJob> job = std::move(job_);
+    job->cancel.store(true);
+    job->worker.join();
+    json line = without_shot(job->context);
+    line["level"] = job->level.id;
+    line["why"] = why;
+    line["ms"] = ms_since(job->began);
+    ofs::log::info("opponent", "opponent.cancelled", std::move(line));
+}
+
+String OfsMatch::opponent_choice(const String &level, int64_t player, int64_t seed) {
+    const std::string id = to_std(level);
+    return choose("opponent_choice", &id, player, seed);
+}
 
 String OfsMatch::last_error() const { return last_error_; }
