@@ -3,7 +3,9 @@
 The physics core on the command line (spec 16.1, 16.10, 21 M1): run one shot, replay a logged
 shot, fuzz thousands of random shots, time the benchmark shots, write the calibration data and
 measure how wide the pockets play. From M3 also the rules: play whole matches between two stand-in
-opponents with every stroke checked, and judge a log's referee decisions again.
+opponents with every stroke checked, and judge a log's referee decisions again. From M4 the
+computer opponent: play its levels against each other and count what they do, and make a log's
+opponent decisions again.
 
 Build it with the core (`cmake --build build/windows --config Release --target ofs_sim_cli`); it
 lands in `build/windows/tools/sim_cli/<config>/`. Every command reads the physics parameters from
@@ -310,3 +312,112 @@ ofs_sim_cli referee rulings_only.jsonl --allow-unreplayed
   replayed unless `--allow-unreplayed` is given (a log cut down to its rulings); 2 when the log
   cannot be read, has no `rules.decision` line, has a line that is not a log line or a shot whose
   bundle cannot be used; 0 otherwise.
+
+## tournament
+
+Two levels of the computer opponent play whole frames under the full rules and what each did is
+counted (spec 10.1, 16.4); `docs/opponent/README.md` ("What the tournament counts") defines every
+count, and `tools/opponent_report.py` turns the report into `docs/opponent/report.md` and checks a
+stage's marks.
+
+```
+ofs_sim_cli tournament --a beginner --b beginner --frames 2000 --seed 1 --threads 4 --report build/beginner.json
+ofs_sim_cli tournament --a maximum --b beginner --frames 200 --exhibitions --report build/maximum.json
+ofs_sim_cli tournament --a-file build/beginner_try.json --b beginner --frames 500 --log build/tournament.jsonl
+ofs_sim_cli tournament --a maximum --frames 0 --exhibitions
+```
+
+- `--a ID` and `--b ID` name the levels (`core/data/opponent_<id>.json`); A is player 0. `--a-file
+  PATH` or `--b-file PATH` reads a level file from elsewhere instead, for tuning without touching
+  `core/data`. Each level is printed with its file and content hash. An unknown id or a file that
+  is not a level exits 2.
+- Each frame is played as a match in the game: `opponent::choose_stroke` for the striker, the cue
+  ball placed when the stroke places it, the shot simulated and judged, and every pending decision
+  answered by `opponent::choose_option` and applied with `rules::decide`; a stroke that would claim
+  or concede the frame is applied the same way. A frame is a best of one, so a re-rack (S3.17)
+  plays the frame again within it. The referee's and stand-in's values are
+  `core/data/referee_params.json` and `standin_params.json`.
+- `--frames N` (default 100). Frame `i` of `--seed S` is always the same frame: its rack and lots
+  come from a seed mixed from `S` and `i`, and player `i % 2` breaks, so A breaks in the even
+  frames. The opponent's `Rng` for the frame's `n`th decision (strokes and choices counted
+  together, from 0) is seeded from the frame's seed and `n`; that seed is the `seed` on the
+  decision's `opponent.decision` line. Frames run on `--threads` (default 2, at most 4) and are
+  counted in frame order, so the report and the log are the same whatever the thread count, the
+  thinking times aside.
+- `--max-ms X` stops each decision's thinking after `X` ms of wall clock (default 0, no clock, so
+  a run is reproducible); with it set, how far each decision got depends on the PC.
+- Failures, each printed (the first 100) and counted, and exit 1:
+  - every check `match` makes of a stroke or a choice (the table, the turn, the scores and break,
+    the judgement read twice, the logged decision re-judged, the engine refusing nothing, no
+    `app.error`); the frame stops there;
+  - a frame still not over after `--max-strokes` strokes (default 600, re-racks included);
+  - a planned pot that stayed out: a stroke whose `why.kind` is `pot` by a level whose execution
+    has no error (`aim_sigma_rad`, `speed_sigma` and `tip_sigma` all 0), which did not pot the ball
+    its `why.target` names. The frame plays on.
+
+  The first 20 are written to `--out` (default `build/tournament-failures`, cleared of earlier
+  `tournament-*.json` first) as `tournament-<seed>-f<frame>-s<stroke>-<kind>.json` (an
+  exhibition's `-x<table>-`): the frame before and after, the opponent's seed, the level, the
+  stroke (cue place, nomination, strike played and meant, simulator seed, `why`) with its repro
+  `bundle`, `facts` and `judgement`, or the choice and its calls.
+- `--exhibitions` (with `--exhibitions-file F`, default `core/data/exhibitions.json`): level A
+  alone plays each table from `opponent::exhibition_frame` until its break ends (the turn passes,
+  a foul, or the frame ends), and the break made on each is reported. `--frames 0 --exhibitions`
+  plays only the tables and needs no `--b`.
+- It prints a table of the counts for A and B, each exhibition's break, the failures and the wall
+  time. `--report FILE` writes them as JSON: `frames`, `seed`, `params_hash`, `table_hash`,
+  `levels` (`a`, `b`: each level's values), `level_hashes`, `a` and `b` (the counts below),
+  `exhibitions` (`name`, `break_points`, `maximum`, `strokes`), `failures` (`where`, `stroke`,
+  `player`, `level`, `kind`, `detail`, `repro`) and `timing` (`wall_s`, `threads`,
+  `frames_per_s`). Each level's counts: `frames_won`; `strokes`; `pots` (`attempts`, `made`, and
+  by `bands`: `short`, `medium`, `long`, and `unknown` for a pot whose `why` names no band);
+  `breaks` (`count`, `mean`, `median`, `highest`, `fifty_plus`, `hundred_plus`, `maximums`), every
+  break of a point or more, its value the frame's `break_points` as it ended; `safeties` and
+  `escapes` (strokes of that `why.kind`); `fouls` (strokes that fouled); `points` (scored at the
+  table, penalties received not counted); `maximum` (`visits_on`: visits to the table that began
+  with `opponent::maximum_on`, `completed`: those that made 147); `think` per decision
+  (`sims_mean`, `sims_max`, `steps_mean`, `us_mean`, `us_p99`, `us_max`, and `stopped`: how many
+  ended `done`, `sims`, `steps`, `time`); `fallbacks`. Everything but `think`'s times and `timing`
+  is the same for the same options.
+- `--log FILE` writes the run's log as JSONL, the lines a game session logs: `params.loaded` (the
+  physics file, then each level file), then each frame in order with its `match.started` (with
+  `level`: B's id, the game's opponent seat), `frame.started`, `opponent.decision` (with `level`,
+  `seed`, `meant` and `think`), `opponent.fallback`, `rules.cue_placed`, `shot.simulated`,
+  `rules.decision`, `rules.choice`, `frame.ended` and `match.ended` lines; an exhibition's
+  `exhibition.started` and `exhibition.ended` lines with its strokes between. `match_id` is
+  `tournament-<seed>-<frame>` (an exhibition's `tournament-<seed>-x<table>`). `referee`,
+  `opponent`, `replay` and `tools/check_logs.py` all read it.
+
+## opponent
+
+Makes a log's opponent decisions again (spec 16.10) and compares them with what was logged,
+whether the log came from the phone or from `tournament --log`.
+
+```
+ofs_sim_cli opponent logs/2026-11-17/20261117-201500-a1b2c3.jsonl
+ofs_sim_cli opponent build/tournament.jsonl --line 2041
+```
+
+- Every `opponent.decision` line with a `level` (or just `--line N`) is made again; the
+  stand-in's lines, which have none, are skipped and counted.
+- The level is `core/data/opponent_<level>.json`: it must be the file the log was made with, and
+  each level used is printed with its content hash to compare with the one the session loaded.
+- A stroke (`kind` `shot`) is made from the `pre` of the `rules.decision` line with the same
+  `shot_id`. That frame has the cue ball where the stroke placed it; when the stroke placed it
+  (`cue` logged) it is put back where the engine leaves a ball in hand, the legal place nearest
+  the usual one (`table::default_cue_ball_position`). The physics values are the bundle's of the
+  `shot.simulated` line with that `shot_id`, the referee's that `rules.decision`'s.
+- A choice (no `shot_id`) is made from the `before` of the next `rules.choice` line of the same
+  `match_id` and player, which is the frame the session had reached; with nothing pending there it
+  was a claim or concession in place of a stroke, made by `choose_stroke`. Its physics and referee
+  values are those of the nearest stroke of the match, before it or else after it.
+- Each is made with `Rng(seed)` and, when `think.stopped` is not `done`, `Think{max_steps =
+  think.steps}` (otherwise no limit, and never a clock), on the table from `--table` or
+  `core/data/table_shape.json`. `strike`, `meant`, `nominated` and `cue`, or a choice's `choice`,
+  are compared exactly, JSON numbers at full precision.
+- It prints one line per difference with its line number and both values (`line N  strike
+  DIFFERS  logged ..., remade ...`), `NOT REPLAYED line N: why` for a decision whose frame or
+  values the log does not hold, and a count at the end (`made again R of D decisions: X
+  differences, U unreadable, N not replayed; S without a level skipped`). Exit 1 on any difference
+  or unreadable line (a line that is not JSON, a level that does not load, a bundle from another
+  table); 2 when the log cannot be read or has no `opponent.decision` line; 0 otherwise.
