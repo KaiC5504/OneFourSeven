@@ -13,7 +13,8 @@
 namespace ofs::opponent {
 
 struct Level {
-    std::string id;    // "beginner", "maximum": the file is opponent_<id>.json
+    // "beginner", "club", "amateur", "pro", "world", "maximum": the file is opponent_<id>.json
+    std::string id;
     std::string name;  // as the game shows it: "Beginner", "The 147"
     int tier = 1;      // 1 to 5 on the ladder of spec 10.1; 0 for the 147, which is outside it
 
@@ -36,6 +37,19 @@ struct Level {
     double judgement_sigma = 0.0;  // the error in its own reading of a pot's chance, as a fraction of it
     double safety_below = 0.0;     // it plays safe when its best pot's chance, as it reads it, is under this
     int max_sims = 200;            // simulations it may run for one stroke
+
+    // Tactics and risk (spec 10.1's last column, 10.2 steps 4 and 5).
+    // 0 the stand-in's plain safety; 1 basic safeties; 2 weighs them by the leave, with side;
+    // 3 also lays snookers and escapes with swerve.
+    int tactics = 0;
+    int safety_tries = 0;      // safeties, snookers and escapes it weighs for one stroke
+    int escape_cushions = 0;   // cushions it will go off to escape a snooker, 0 to 2
+    double miss_weight = 0.0;  // how much of what a miss leaves the other player it counts, 0 to 1
+    // Strokes with its own error it simulates to learn a pot's chance; 0 reads the margin.
+    int noisy_sims = 0;
+    // How far the score moves its risk: ahead it plays safer, needing snookers it lays them.
+    double score_aware = 0.0;
+    int concede_snookers = 0;  // it concedes a frame in which it needs this many snookers; 0 never
     bool maximum = false;          // it plays for a maximum, then for the highest break left (spec 10.1)
 };
 

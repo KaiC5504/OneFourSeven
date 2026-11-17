@@ -26,18 +26,25 @@ namespace ofs::opponent::rig {
 struct Levels {
     StandinParams standin;
     Level beginner;
+    Level club;
+    Level amateur;
+    Level pro;
+    Level world;
     Level maximum;
     std::vector<Exhibition> exhibitions;
 };
 
-// core/data's standin_params.json, opponent_beginner.json, opponent_maximum.json and
-// exhibitions.json, loaded once. A file that is refused aborts the test run with its problems.
+// core/data's standin_params.json, the six level files and exhibitions.json, loaded once. A file that is refused aborts the test run with its problems.
 inline const Levels& levels() {
     static const Levels instance = [] {
         Levels l;
         std::vector<std::string> problems;
         load_standin_params(rules::scenario::data_file("standin_params.json"), l.standin, problems);
         load_level(rules::scenario::data_file("opponent_beginner.json"), l.beginner, problems);
+        load_level(rules::scenario::data_file("opponent_club.json"), l.club, problems);
+        load_level(rules::scenario::data_file("opponent_amateur.json"), l.amateur, problems);
+        load_level(rules::scenario::data_file("opponent_pro.json"), l.pro, problems);
+        load_level(rules::scenario::data_file("opponent_world.json"), l.world, problems);
         load_level(rules::scenario::data_file("opponent_maximum.json"), l.maximum, problems);
         load_exhibitions(rules::scenario::data_file("exhibitions.json"), l.exhibitions, problems);
         if (!problems.empty()) {

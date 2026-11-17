@@ -1291,6 +1291,14 @@
         "frame": {
           "type": "integer",
           "required": false
+        },
+        "position": {
+          "type": "number",
+          "required": false
+        },
+        "next_by": {
+          "type": "string",
+          "required": false
         }
       }
     },

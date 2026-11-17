@@ -224,3 +224,98 @@ three next best: `target`, `pocket`, `worth`, `chance`); `drawn` (`aim_rad`, `sp
 - Harness (`docs/harness.md`): `start_match` takes `level`; `start_exhibition` (`layout`, `seed`,
   `fast`); `watch` (`view`); `match_state` gains `level`, `exhibition`, `thinking`, `watch`;
   `--demo-screen exhibition_summary`.
+
+# Stage 2: levels 2 to 5 and the tactics
+
+Stage 1 above stays as it is for Beginner (`tactics` 0) and for the 147 until its file says
+otherwise. Stage 2 adds four levels (`club`, `amateur`, `pro`, `world`: tiers 2 to 5 of spec 10.1),
+the strokes that are not pots, and planning for levels that have error. Everything is still one
+`choose_stroke`, deterministic for the frame, the level, the seed and the steps taken.
+
+## Worth: the one scale
+
+Every stroke a level may play is scored in points to the striker, so a pot and a safety can be
+compared:
+
+- **A pot**: `chance * (value + kBreakOn * (1 - w) + w * leave) - (1 - chance) * level.miss_weight
+  * giveaway`.
+  - `chance`: `pot_chance` on the pot's margin; with `level.noisy_sims` above 0, the share of that
+    many strokes, each with the level's own error drawn from a stream of its own (never the
+    stroke's four draws), that pot the ball without a foul.
+  - `leave`: what the position left is worth to the striker, as it reads it: for `depth` 0,
+    `read_position(...).worth` of the position the planned stroke leaves; for `depth` 1 to 3 the
+    best continuation found by simulating that many further pots, each stage narrower than the
+    last, each pot's worth weighted by its chance (the 147's staged scheme with chances in it).
+  - `giveaway`: `read_position(...).worth` for the other player of the position one simulated
+    miss leaves (the planned stroke with its aim turned just past the margin, to the thicker
+    side); 0 when that stroke fouls is not assumed: a foul's points are added.
+- **A tactic** (`Tactic::worth`): the foul points the stroke expects to be given, less what the
+  position left is worth to the other player as the level reads it (`read_position` with this
+  level as the reader: it judges others by itself), less the foul points it expects to give.
+- A level misreads every score by `judgement_sigma` (one normal draw per candidate from the
+  judgement stream) and plays the highest. A pot whose chance as it reads it is under
+  `safety_below` is not played while a tactic was found.
+- **The score** (`score_aware`, spec 10.2 step 5), by how much of it the level has: ahead by more
+  than the points left on the table it takes no pot under an even chance and prefers the safety
+  that leaves least; needing snookers (the points left are fewer than its deficit) a snooker's
+  expected foul points count in full and a pot that cannot win the frame counts only for the
+  position it leaves; it concedes (`choose_option`, and at its turn) when it needs
+  `concede_snookers` snookers or more, never with `concede_snookers` 0.
+
+## Tactics (`tactics.hpp`, `tactics.cpp`)
+
+`choose_tactic` weighs up to `level.safety_tries` strokes, each simulated once as planned (one
+step each) and passed by the referee (a stroke that fouls as planned is never a candidate):
+
+- **Safety** (`tactics` 1 and up): a contact on a ball on, from thin to half ball, at a few
+  speeds, the cue ball sent away from the reds (back to baulk when the reds are at the top);
+  from `tactics` 2 also with side and with stun or screw, and over every reachable ball on.
+- **Snooker** (`tactics` 3): as a safety, kept when the position left has no ball on that the
+  other player can hit directly (`rules::TableOracle`'s test for a snooker); its expected foul
+  points are the penalty times the chance this level's own escape would fail from there, read by
+  rule of thumb (no escape is simulated for the other player).
+- **Escape** (the striker cannot hit a ball on directly): paths off 1 to `escape_cushions`
+  cushions found by mirroring the table and then solved on the simulator to hit a ball on;
+  with `tactics` 3 also a swerve round the blocking ball (the cue raised, side on). With
+  `escape_cushions` 0 and no swerve nothing is found and the stand-in's escape is played. Of the
+  strokes that hit a ball on it takes the best worth; if none does, the one that comes nearest.
+- **Break-off** (the cue ball in hand, fifteen reds, red on): places in the D, a thin contact on
+  an end red of the last row, speeds and side, weighed as a safety is.
+- `why`: `kind`, `target` (the ball met first), `thickness` (0 thin to 1 full), `cushions` (those
+  met before the ball, for an escape), `spec`, `leave` (`cue`, `snookered`: true or false,
+  `next`: the other player's best pot as read, `chance`), `worth`, `others` (up to three).
+- A level with `tactics` 0, or a budget stopped before the first candidate, gives `found` false
+  and the stand-in's stroke is played, as in stage 1.
+
+## The ladder (`ofs_sim_cli tournament`, spec 10.1, 16.4)
+
+The tournament also counts, per level: safeties by what followed (the other player's next stroke
+was a pot attempt, and whether it went in); snookers laid and the foul points they brought;
+escapes that hit a ball on; break-offs after which the other player had a pot; and the highest
+break in each frame (the **typical break** is the median of those).
+
+Stage 2's marks, each level against itself over 1,000 frames unless said:
+
+| Level | Medium pots | Long pots | Typical break |
+| --- | --- | --- | --- |
+| Club | 55 to 65% | 20 to 30% | 10 to 20 |
+| Amateur | 75 to 85% | 40 to 50% | 20 to 40 |
+| Pro | 86 to 94% | 60 to 70% | 40 to 70 |
+| World class | 92 to 98% | 70 to 80% | 60 and over, a century in at least one frame in ten |
+
+Each level beats the one below in at least 70% of 300 frames (Club over Beginner, Amateur over
+Club, Pro over Amateur, World class over Pro). No stroke of any level is refused by the engine,
+and every decision is made again by `ofs_sim_cli opponent`. World class decides within 1.5 s at
+its slowest on this PC's Release build (the iPhone is about twice as fast). Beginner's stage-1
+marks still hold.
+
+## The game, stage 2
+
+- The picker offers the six in tier order with the 147 last: Beginner, Club, Amateur, Pro, World
+  class, The 147.
+- **The evaluation handed to the game (spec 8.5)**: a reader level `person` (the owner's own
+  fitted error, never offered as an opponent) lets the game ask what a position is worth.
+  The next-ball pick takes the pot that reader would play (its chance and what it leaves), with
+  the geometric pick as the fallback; a potted shot that leaves the striker an excellent
+  position is watched whole from the full-table view (`shot.camera` reason `position`), and
+  `shot.result` carries `position`, the worth of what was left.

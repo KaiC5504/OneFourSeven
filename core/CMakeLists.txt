@@ -39,6 +39,7 @@ add_library(ofs_core STATIC
     src/opponent/search.cpp
     src/opponent/decide.cpp
     src/opponent/maximum.cpp
+    src/opponent/tactics.cpp
     src/opponent/exhibition.cpp
 )
 

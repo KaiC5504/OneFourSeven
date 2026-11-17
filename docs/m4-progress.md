@@ -89,6 +89,35 @@ session: an agent that needs a change reports it.
 Only the phone can show: the think time and no hitch while it thinks, the walk-round drag under a
 finger, the picker and the view button against the screen's edges, heat over a long break.
 
+## Stage 2 (started 2026-11-18, straight on from stage 1 as planned)
+
+Done means: the marks in `docs/opponent/README.md` ("The ladder") met; the picker offers the six;
+World class decides within 1.5 s on the iPhone; the full gate green; a build on his iPhone with a
+play checklist for the four new levels.
+
+Contracts (one commit): `budget.hpp` (the search's budget, now shared), `tactics.hpp` with a stub
+that finds nothing, seven new level values (`tactics`, `safety_tries`, `escape_cushions`,
+`miss_weight`, `noisy_sims`, `score_aware`, `concede_snookers`) in `level.hpp`, the loader and
+all six level files (`opponent_club.json`, `opponent_amateur.json`, `opponent_pro.json`,
+`opponent_world.json` with starting values), the test rig's six levels, the README's stage 2
+part, `shot.result.position` and `shot.camera` reason `position` in the schema.
+
+Wave 1:
+
+| Agent | Builds | Owns |
+| --- | --- | --- |
+| TA tactics | safeties, snookers, escapes, the break-off | `core/src/opponent/tactics.cpp`, `core/tests/opponent_unit/test_tactics_*.cpp` |
+| PL planning | levels with error that plan, the cost of a miss, the pot against the tactic, the score, concessions | `core/src/opponent/search.cpp`, `decide.cpp`, `maximum.cpp`, `evaluate.cpp`, `core/tests/opponent_unit/test_plan_*.cpp` and the search's existing unit tests |
+| TO tools | the tactics' counts, the ladder, the report's stage 2 marks, the gate | `tools/sim_cli/tournament.cpp`, `README.md`, `tools/opponent_report.py`, their tests, `scripts/gate.py`, `test_ci/test_gate.py` |
+| GA game | six levels in the picker | `game/scripts/match/match_controller.gd`, `game/scripts/ui/screens/match_setup_screen.gd`, their tests |
+| EV evaluation in the game | the `person` reader, the next-ball pick by it, the camera's excellent position | `gdext/src/ofs_match.{h,cpp}`, `core/data/opponent_person.json`, `game/scripts/play/next_target.gd`, `shot_cycle.gd`, `game/scripts/main.gd`, their tests |
+| T3 | independent tests of the tactics and the levels | `core/tests/opponent/test_spec_10_tactics_*.cpp`, `test_spec_10_levels_*.cpp` |
+
+Wave 2: the four levels tuned to the marks and the ladder (`core/data/opponent_{club,amateur,pro,world}.json`);
+the 147 given the tactics, the phone's headroom and a person's eye for long pots
+(`opponent_maximum.json`, `maximum.cpp`), its fifty tables proven again. Then the check round, the
+fixes and the build.
+
 ## Log
 
 - 2026-11-17: contracts committed.

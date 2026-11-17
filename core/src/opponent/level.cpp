@@ -38,6 +38,13 @@ const std::vector<Field>& fields() {
         {"safety_below", &Level::safety_below, nullptr, 0.0, 1.0},
         // A simulation is tens of microseconds: a million is a minute of thinking.
         {"max_sims", nullptr, &Level::max_sims, 1.0, 1000000.0},
+        {"tactics", nullptr, &Level::tactics, 0.0, 3.0},
+        {"safety_tries", nullptr, &Level::safety_tries, 0.0, 1000.0},
+        {"escape_cushions", nullptr, &Level::escape_cushions, 0.0, 2.0},
+        {"miss_weight", &Level::miss_weight, nullptr, 0.0, 1.0},
+        {"noisy_sims", nullptr, &Level::noisy_sims, 0.0, 64.0},
+        {"score_aware", &Level::score_aware, nullptr, 0.0, 1.0},
+        {"concede_snookers", nullptr, &Level::concede_snookers, 0.0, 10.0},
     };
     return all;
 }
