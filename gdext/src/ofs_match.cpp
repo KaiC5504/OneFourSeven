@@ -19,6 +19,7 @@
 #include "ofs/opponent/env.hpp"
 #include "ofs/opponent/evaluate.hpp"
 #include "ofs/opponent/opponent.hpp"
+#include "ofs/params.hpp"
 #include "ofs/physics/serialize.hpp"
 #include "ofs/rng.hpp"
 #include "ofs/rules/engine.hpp"
@@ -489,13 +490,27 @@ bool read_budget(const Dictionary &budget, opponent::Think &out, std::string &wh
 }
 
 json think_json(const opponent::Stroke &s, double ms) {
-    return {{"candidates", s.candidates}, {"sims", s.sims},       {"steps", s.steps},
-            {"depth", s.depth},           {"stopped", s.stopped}, {"ms", ms}};
+    json out = {{"candidates", s.candidates}, {"sims", s.sims},       {"steps", s.steps},
+                {"depth", s.depth},           {"stopped", s.stopped}, {"ms", ms}};
+    return out;
 }
 
 json without_shot(json context) {
     context.erase("shot_id");
     return context;
+}
+
+int64_t reds_on(const rules::FrameState &f) {
+    return int64_t(std::count_if(f.balls.begin(), f.balls.end(),
+                                 [](const rules::BallOnTable &b) { return b.ball == rules::Ball::red; }));
+}
+
+void log_maximum(const std::string &state, const std::string &why, const std::string &level, int player,
+                 int break_points, int64_t reds, const json &context) {
+    json line = {{"state", state}, {"level", level}, {"player", player}, {"break_points", break_points}, {"reds", reds}};
+    if (!why.empty()) line["why"] = why;
+    for (auto it = context.begin(); it != context.end(); ++it) line[it.key()] = it.value();
+    ofs::log::info("opponent", "opponent.maximum", std::move(line));
 }
 
 }  // namespace
@@ -510,8 +525,9 @@ struct OfsMatch::OpponentJob {
     opponent::Level level;
     std::uint64_t seed = 0;
     opponent::Think think;
-    std::string hash;  // rules::frame_hash(frame): the answer is for this frame only
-    json context;      // log_context with shot_id
+    std::string hash;         // rules::frame_hash(frame): the answer is for this frame only
+    std::string params_hash;  // of `params`: a change before the take is logged with the stroke
+    json context;             // log_context with shot_id
     std::chrono::steady_clock::time_point began;
 
     std::atomic<bool> cancel{false};
@@ -789,6 +805,7 @@ Dictionary OfsMatch::start(const Dictionary &config, const String &match_id) {
             match_ = std::move(next);
             maximum_state_.clear();
             maximum_frame_.clear();
+            maximum_armed_ = false;
             match_id_ = match_id;
             started_ = true;
             last_error_ = String();
@@ -965,6 +982,7 @@ Dictionary OfsMatch::judge(const Ref<OfsShotRecord> &record, const Dictionary &i
             out["frame"] = frame_view(next.frame);
 
             rules::log_decision(pre, in, facts, j, ref_, log_context(match_, shot_id));
+            maximum_judged(pre, j.post, j.fouls.empty() && j.points > 0, shot_id);
             log_event(next, event, log_context(next, shot_id), rack_context(next, shot_id));
             match_ = std::move(next);
             last_error_ = String();
@@ -1207,7 +1225,10 @@ bool OfsMatch::configure_opponent(const Dictionary &level_files, const String &e
                     problems.push_back(id + ": the file is level " + level.id);
                     continue;
                 }
-                described.push_back(opponent::level_json(level));
+                json entry = opponent::level_json(level);
+                // As ofs_sim_cli tournament reports the level's file.
+                entry["hash"] = ofs::params::content_hash(file);
+                described.push_back(std::move(entry));
                 loaded.push_back(std::move(level));
             }
             std::stable_sort(loaded.begin(), loaded.end(), [](const opponent::Level &a, const opponent::Level &b) {
@@ -1289,16 +1310,12 @@ bool OfsMatch::opponent_think(const String &level_id, int64_t seed, const Dictio
             const opponent::Level *level = find_level(to_std(level_id));
             std::string why = no_stroke_now();
             if (why.empty() && level == nullptr) why = "level " + to_std(level_id) + " is not configured";
-            if (why.empty() && job_) {
-                why = job_->done.load(std::memory_order_acquire)
-                          ? "an earlier answer has not been taken: opponent_take or opponent_cancel first"
-                          : "level " + job_->level.id + " is still thinking";
-            }
             opponent::Think think;
             if (!why.empty() || !read_budget(budget, think, why)) {
                 refusal("opponent_think", why, given);
                 return false;
             }
+            cancel_thinking("replaced");
             refresh_params();
             auto job = std::make_unique<OpponentJob>();
             job->frame = match_.frame;
@@ -1310,6 +1327,7 @@ bool OfsMatch::opponent_think(const String &level_id, int64_t seed, const Dictio
             job->seed = drawn;
             job->think = think;
             job->hash = rules::frame_hash(match_.frame);
+            job->params_hash = params_hash_;
             job->context = log_context(match_, shot_id);
             job->began = std::chrono::steady_clock::now();
 
@@ -1318,7 +1336,8 @@ bool OfsMatch::opponent_think(const String &level_id, int64_t seed, const Dictio
                          {"seed", std::to_string(drawn)},
                          {"budget", {{"max_sims", think.max_sims},
                                      {"max_steps", think.max_steps},
-                                     {"max_ms", think.max_ms}}}};
+                                     {"max_ms", think.max_ms}}},
+                         {"params_hash", params_hash_}};
             for (auto it = job->context.begin(); it != job->context.end(); ++it) line[it.key()] = it.value();
             ofs::log::info("opponent", "opponent.think", std::move(line));
 
@@ -1345,20 +1364,37 @@ Dictionary OfsMatch::opponent_take() {
             job->worker.join();
             const String shot_id = from_std(job->context.value("shot_id", std::string()));
             const rules::ScopedLogContext scope(scope_context(shot_id));
+            refresh_params();
             const opponent::Level &level = job->level;
             const opponent::Stroke &stroke = job->stroke;
             const std::string who = "level " + level.id;
             const json think = think_json(stroke, job->ms);
+            const bool params_changed = job->params_hash != params_hash_;
             const json given = {{"level", level.id}, {"seed", std::to_string(job->seed)}};
+            // The line carries the frame it was asked about, so the stroke can be made again.
             const auto refuse = [&](const std::string &why, json line) {
                 line["level"] = level.id;
                 line["think"] = think;
                 line["error"] = why;
+                line["pre"] = rules::frame_json(job->frame);
+                line["pre_hash"] = job->hash;
+                if (started_) {
+                    const std::string now = rules::frame_hash(match_.frame);
+                    if (now != job->hash) line["now_hash"] = now;
+                }
+                if (params_changed) line["params_changed"] = true;
                 log_standin(false, std::move(line), job->context);
                 return refused("opponent_take", why, given);
             };
-            const json plain = {{"kind", "shot"}, {"player", job->frame.striker}, {"seed", std::to_string(job->seed)}};
+            json plain = {{"kind", "shot"}, {"player", job->frame.striker}, {"seed", std::to_string(job->seed)}};
             if (!job->error.empty()) return refuse(who + " could not choose a stroke: " + job->error, plain);
+            if (stroke.decides) {
+                plain["kind"] = "choice";
+                plain["choice"] = std::string(rules::decision_name(stroke.decision));
+            } else {
+                plain["strike"] = ofs::phys::to_json(stroke.strike);
+                plain["meant"] = ofs::phys::to_json(stroke.meant);
+            }
             std::string why = not_in_progress();
             if (why.empty() && rules::frame_hash(match_.frame) != job->hash) {
                 why = "the frame changed while " + who + " was thinking about it";
@@ -1368,14 +1404,17 @@ Dictionary OfsMatch::opponent_take() {
             json line;
             std::string problem;
             Dictionary out = shot_answer(stroke, match_.frame, *oracle_, who, job->seed, job->ms * 1000.0, line, problem);
+            if (!stroke.decides) line["meant"] = ofs::phys::to_json(stroke.meant);
             if (!problem.empty()) return refuse(problem, line);
             line["level"] = level.id;
             line["think"] = think;
+            line["pre_hash"] = job->hash;
             out["level"] = from_std(level.id);
             out["think"] = json_to_variant(think);
-            if (!stroke.decides) {
-                line["meant"] = ofs::phys::to_json(stroke.meant);
-                out["meant"] = strike_view(stroke.meant);
+            if (!stroke.decides) out["meant"] = strike_view(stroke.meant);
+            if (params_changed) {
+                line["params_changed"] = true;
+                out["params_changed"] = true;
             }
             // A claim or concession strikes nothing, so no shot carries its id.
             const json logged = stroke.decides ? without_shot(job->context) : job->context;
@@ -1388,40 +1427,58 @@ Dictionary OfsMatch::opponent_take() {
                 for (auto it = job->context.begin(); it != job->context.end(); ++it) fallback[it.key()] = it.value();
                 ofs::log::warn("opponent", "opponent.fallback", std::move(fallback));
             }
-            if (level.maximum) log_maximum(stroke.why, job->context);
+            if (level.maximum) maximum_visit(level, !stroke.decides, job->context);
             last_error_ = String();
             return out;
         },
         [&](const std::string &message) { return thrown("opponent_take", message); });
 }
 
-void OfsMatch::log_maximum(const json &stroke_why, const json &context) {
-    const std::string frame_key = to_std(match_id_) + "/" + std::to_string(match_.frame_number) + "/" +
-                                  std::to_string(match_.reracks);
-    if (frame_key != maximum_frame_) {
-        maximum_frame_ = frame_key;
+std::string OfsMatch::maximum_key() const {
+    return to_std(match_id_) + "/" + std::to_string(match_.frame_number) + "/" + std::to_string(match_.reracks);
+}
+
+void OfsMatch::maximum_visit(const opponent::Level &level, bool strikes, const json &context) {
+    const std::string key = maximum_key();
+    if (key != maximum_frame_) {
+        maximum_frame_ = key;
         maximum_state_.clear();
     }
     const rules::FrameState &f = match_.frame;
+    maximum_armed_ = strikes;
+    maximum_player_ = f.striker;
+    maximum_level_ = level.id;
+    maximum_shot_ = context.value("shot_id", std::string());
+    // Within a visit the stroke judged says when it goes; only a visit's start is read here.
+    if (f.break_points != 0) return;
     const bool on = opponent::maximum_on(f);
-    json line;
-    if (on && maximum_state_.empty()) {
-        maximum_state_ = "on";
-        line = {{"state", "on"}};
-    } else if (!on && maximum_state_ == "on") {
-        maximum_state_ = "gone";
-        const auto why = stroke_why.is_object() ? stroke_why.find("maximum_why") : stroke_why.end();
-        line = {{"state", "gone"}, {"why", why != stroke_why.end() && why->is_string() ? why->get<std::string>() : ""}};
-    } else {
+    const std::string state = on ? "on" : "gone";
+    if (state == maximum_state_) return;
+    maximum_state_ = state;
+    const int64_t reds = reds_on(f);
+    // With all fifteen reds on, maximum_on fails at a visit's start only on a free ball.
+    const std::string why = on ? "" : reds == 15 && f.free_ball ? "a free ball" : "a red is off the table";
+    log_maximum(state, why, level.id, f.striker, f.break_points, reds, context);
+}
+
+void OfsMatch::maximum_judged(const rules::FrameState &pre, const rules::FrameState &post, bool scored,
+                              const String &shot_id) {
+    if (!maximum_armed_) return;
+    maximum_armed_ = false;
+    if (maximum_state_ != "on" || maximum_key() != maximum_frame_ || pre.striker != maximum_player_) return;
+    if (!maximum_shot_.empty() && maximum_shot_ != to_std(shot_id)) return;
+    const bool goes_on = scored && post.striker == pre.striker;
+    std::string why;
+    if (!goes_on) {
+        why = "the break ended";
+    } else if (post.over || opponent::maximum_on(post)) {
         return;
+    } else {
+        why = reds_on(pre) - reds_on(post) >= 2 ? "two reds in one stroke" : "a colour other than the black";
     }
-    const auto reds = std::count_if(f.balls.begin(), f.balls.end(),
-                                    [](const rules::BallOnTable &b) { return b.ball == rules::Ball::red; });
-    line["player"] = f.striker;
-    line["break_points"] = f.break_points;
-    line["reds"] = int64_t(reds);
-    for (auto it = context.begin(); it != context.end(); ++it) line[it.key()] = it.value();
-    ofs::log::info("opponent", "opponent.maximum", std::move(line));
+    maximum_state_ = "gone";
+    log_maximum("gone", why, maximum_level_, pre.striker, goes_on ? post.break_points : pre.break_points,
+                reds_on(post), log_context(match_, shot_id));
 }
 
 void OfsMatch::opponent_cancel(const String &why) {
@@ -1441,10 +1498,12 @@ void OfsMatch::cancel_thinking(const std::string &why) {
     const std::unique_ptr<OpponentJob> job = std::move(job_);
     job->cancel.store(true);
     job->worker.join();
-    json line = without_shot(job->context);
+    json line = job->context;
     line["level"] = job->level.id;
     line["why"] = why;
     line["ms"] = ms_since(job->began);
+    line["player"] = job->frame.striker;
+    line["seed"] = std::to_string(job->seed);
     ofs::log::info("opponent", "opponent.cancelled", std::move(line));
 }
 
