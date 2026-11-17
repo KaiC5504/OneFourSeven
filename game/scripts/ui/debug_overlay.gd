@@ -1,8 +1,9 @@
 class_name DebugOverlay
 extends Control
 ## The hidden on-device overlay (spec 16.6), opened by a three-finger tap (F3 on Windows): fps,
-## frame times, the last shot's simulation time, the last prediction's time, thermal state,
-## parameter hash and phone link status. Release builds have it too: TestFlight builds are release.
+## frame times, the last shot's simulation time, the last prediction's time, the opponent's last
+## decision (spec 10.6), thermal state, parameter hash and phone link status. Release builds have
+## it too: TestFlight builds are release.
 ##
 ## While shown it refreshes every REFRESH_SECONDS and only rewrites text that changed, so it never
 ## keeps an idle game drawing; while hidden nothing runs.
@@ -28,6 +29,7 @@ var _label: Label
 var _timer: Timer
 var _sim_us := -1.0
 var _predict_us := -1.0
+var _think := ""
 var _build := ""
 
 
@@ -54,13 +56,23 @@ static func build_text(info: Variant) -> String:
 			" dirty" if build.get("git_dirty", false) else ""]
 
 
+## The opponent's last decision in one line: level, time, simulations, steps and how it stopped,
+## from a stroke's "think" (OfsMatch.opponent_take: ms, sims, steps, stopped). "" when there is none.
+static func think_text(level: String, think: Variant) -> String:
+	if not think is Dictionary or level.is_empty():
+		return ""
+	var t: Dictionary = think
+	return "%s %.0f ms  %d sims  %d steps  %s" % [level, float(t.get("ms", 0.0)), int(t.get("sims", 0)),
+			int(t.get("steps", 0)), str(t.get("stopped", "?"))]
+
+
 static func ms_text(us: float) -> String:
 	return "%.2f ms" % (us / 1000.0) if us >= 0.0 else NONE
 
 
 ## perf is Perf.last_summary(); times are microseconds, negative when there is none yet.
 static func format_text(perf: Dictionary, sim_us: float, predict_us: float, params_hash: String,
-		pending_hash: String, link_status: String, build: String) -> String:
+		pending_hash: String, link_status: String, build: String, think: String = "") -> String:
 	var footprint: float = perf.get("footprint_mb", -1.0)
 	var lines := PackedStringArray([
 		"build    " + build,
@@ -70,6 +82,7 @@ static func format_text(perf: Dictionary, sim_us: float, predict_us: float, para
 		"dropped  %d" % int(perf.get("dropped_frames", 0)),
 		"shot     " + ms_text(sim_us),
 		"predict  " + ms_text(predict_us),
+		"think    " + (think if not think.is_empty() else NONE),
 		"thermal  " + str(perf.get("thermal_state", "unknown")),
 		"memory   " + ("%.0f MB" % footprint if footprint >= 0.0 else "unavailable"),
 		"params   " + (params_hash if not params_hash.is_empty() else NONE),
@@ -129,6 +142,13 @@ func set_shown(shown: bool, via: String) -> void:
 		_timer.stop()
 
 
+## The opponent's last decision, as think_text gives it.
+func set_think(level: String, think: Variant) -> void:
+	var text := think_text(level, think)
+	if not text.is_empty():
+		_think = text
+
+
 ## Microseconds; a negative time leaves that one as it was.
 func set_shot_times(sim_us: float, predict_us: float) -> void:
 	if sim_us >= 0.0:
@@ -143,7 +163,7 @@ func shown_text() -> String:
 
 func _refresh() -> void:
 	var content := format_text(Perf.last_summary(), _sim_us, _predict_us, Params.current_hash(),
-			Params.pending_hash(), Link.get_status(), _build)
+			Params.pending_hash(), Link.get_status(), _build, _think)
 	if _label.text != content:
 		_label.text = content
 	_place()

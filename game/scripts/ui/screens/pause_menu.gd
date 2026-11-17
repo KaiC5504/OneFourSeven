@@ -27,9 +27,10 @@ const TITLES := {
 	"claim_frame": "Claim frame",
 	"quit": "Quit",
 }
+const OPPONENT := "Computer"
 const CONSEQUENCES := {
-	"concede_frame": "Computer wins the frame",
-	"concede_match": "Computer wins the match",
+	"concede_frame": OPPONENT + " wins the frame",
+	"concede_match": OPPONENT + " wins the match",
 	"claim_frame": "You win the frame",
 	"quit": "The match will be discarded",
 }
@@ -44,6 +45,9 @@ var _question: VBoxContainer
 var _consequence: Label
 var _card: PanelContainer
 var _backdrop_down := false
+var _opponent := OPPONENT
+var _watching := false
+var _concessions: HBoxContainer
 
 
 func _init() -> void:
@@ -58,7 +62,13 @@ func _ready() -> void:
 
 ## Each flag is whether the engine offers the person that decision now (the frame view's options)
 ## and no stroke is playing. A concession not offered is disabled; Claim frame shows only when it is.
-func open(can_concede_frame: bool, can_concede_match: bool = true, can_claim_frame: bool = false) -> void:
+## watching: the person only watches (Watch a 147), so the menu is Resume and Quit alone, and
+## Quit leaves at once: there is no match to lose.
+func open(can_concede_frame: bool, can_concede_match: bool = true, can_claim_frame: bool = false,
+		watching: bool = false) -> void:
+	_watching = watching
+	_concessions.visible = not watching
+	(_buttons["settings"] as Button).visible = not watching
 	set_available(can_concede_frame, can_concede_match, can_claim_frame)
 	_ask("")
 	_backdrop_down = false
@@ -73,7 +83,7 @@ func set_available(can_concede_frame: bool, can_concede_match: bool, can_claim_f
 		"claim_frame": can_claim_frame}
 	(_buttons["concede_frame"] as Button).disabled = not can_concede_frame
 	(_buttons["concede_match"] as Button).disabled = not can_concede_match
-	(_buttons["claim_frame"] as Button).visible = can_claim_frame
+	(_buttons["claim_frame"] as Button).visible = can_claim_frame and not _watching
 	if offered.has(_confirming) and not bool(offered[_confirming]):
 		_ask("")
 	_auto_place()
@@ -81,6 +91,14 @@ func set_available(can_concede_frame: bool, can_concede_match: bool, can_claim_f
 
 func close() -> void:
 	visible = false
+
+
+## The name the concessions' questions give the winner: the opponent's level's, OPPONENT until
+## given one.
+func set_opponent_name(opponent: String) -> void:
+	_opponent = opponent
+	if not _confirming.is_empty():
+		_ask(_confirming)
 
 
 ## "resume", "claim_frame", "concede_frame", "concede_match", "settings", "quit", and while a
@@ -121,11 +139,12 @@ func _build() -> void:
 	claim.pressed.connect(_ask.bind("claim_frame"))
 	claim.visible = false
 	var concessions := _pair(_menu)
+	_concessions = concessions
 	_add(concessions, "concede_frame", "Concede frame").pressed.connect(_ask.bind("concede_frame"))
 	_add(concessions, "concede_match", "Concede match").pressed.connect(_ask.bind("concede_match"))
 	var rest := _pair(_menu)
 	_add(rest, "settings", "Settings").pressed.connect(settings_pressed.emit)
-	_add(rest, "quit", "Quit").pressed.connect(_ask.bind("quit"))
+	_add(rest, "quit", "Quit").pressed.connect(_on_quit)
 
 	_question = VBoxContainer.new()
 	_question.add_theme_constant_override("separation", GAP)
@@ -159,9 +178,16 @@ func _add(parent: Container, id: String, text: String, primary: bool = false) ->
 func _ask(action: String) -> void:
 	_confirming = action
 	_title.text = TITLES[action]
-	_consequence.text = String(CONSEQUENCES.get(action, ""))
+	_consequence.text = String(CONSEQUENCES.get(action, "")).replace(OPPONENT, _opponent)
 	_menu.visible = action.is_empty()
 	_question.visible = not action.is_empty()
+
+
+func _on_quit() -> void:
+	if _watching:
+		quit_confirmed.emit()
+	else:
+		_ask("quit")
 
 
 func _on_confirm() -> void:

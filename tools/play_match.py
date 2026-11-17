@@ -2,6 +2,7 @@
 """Plays a whole match in the debug game and has every referee decision re-judged from its log.
 
     python tools/play_match.py [--best-of N] [--seed S] [--first-breaker random|you|computer]
+                               [--level ID | --exhibition [TABLE]]
                                [--slow] [--resolution WxH] [--out DIR] [--timeout SECONDS]
                                [--godot EXE] [--show]
 
@@ -12,9 +13,14 @@ match_continue take it through each frame's summary to the match's, where the st
 state.json and the screen saved as match_summary.png. Then the session log is read and
 `ofs_sim_cli referee` (the Debug build's, or $OFS_SIM_CLI) re-judges every rules.decision in it.
 
+--level ID plays the match against that level of the computer opponent (beginner, maximum), the
+person's side still the stand-in's. --exhibition plays one Watch a 147 instead, on exhibition table
+TABLE (default 0), to its summary (exhibition_summary.png), and reports the break. With either,
+`ofs_sim_cli opponent` also makes every opponent.decision of the log again and must agree.
+
 Prints the strokes, each frame and the result. Exit code 0 only when the match finished, the log
 fits the schema (tools/check_logs.py) and has no app.error or rules.invalid, and the referee
-agrees; 1 when any of those fails; 2 for bad arguments, or when the game or ofs_sim_cli could
+(and with a level, the opponent check) agrees; 1 when any of those fails; 2 for bad arguments, or when the game or ofs_sim_cli could
 not be run.
 
 The seed is the match's: the rack and who breaks. The stand-in's choices and each shot's own
@@ -53,6 +59,7 @@ REFEREE_TIMEOUT = 600
 # Saved in the game's user folder, then moved to --out.
 STATE_FILE = "state.json"
 PICTURE_FILE = "match_summary.png"
+EXHIBITION_PICTURE_FILE = "exhibition_summary.png"
 EXIT_OK, EXIT_FAILED, EXIT_UNUSABLE = 0, 1, 2
 
 
@@ -61,6 +68,10 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     parser.add_argument("--best-of", type=int, default=3, choices=MATCH_LENGTHS, help="frames (default 3)")
     parser.add_argument("--seed", type=int, default=147, help="the match's seed (default 147)")
     parser.add_argument("--first-breaker", default="random", choices=BREAKERS)
+    against = parser.add_mutually_exclusive_group()
+    against.add_argument("--level", default="", help="the computer opponent's level id (default: the stand-in)")
+    against.add_argument("--exhibition", type=int, nargs="?", const=0, default=None, metavar="TABLE",
+                         help="play one Watch a 147 on this exhibition table (default 0) instead of a match")
     parser.add_argument("--slow", action="store_true", help="let every stroke play out instead of skipping it")
     parser.add_argument("--resolution", default="1912x880", help="window size, WxH")
     parser.add_argument("--out", type=Path, default=DEFAULT_OUT, help="where the run's user folder and files go")
@@ -74,6 +85,10 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
         parser.error(f"--resolution {args.resolution}: want WxH, e.g. 1912x880")
     if not args.timeout > 0:
         parser.error(f"--timeout {args.timeout}: want more than 0 seconds")
+    if args.exhibition is not None and args.exhibition < 0:
+        parser.error(f"--exhibition {args.exhibition}: want a table index, 0 or more")
+    if args.level and not re.fullmatch(r"[a-z0-9_]+", args.level):
+        parser.error(f"--level {args.level}: want a level id such as beginner")
     return args
 
 
@@ -109,7 +124,8 @@ def read_log(path: Path, match_id: str = "") -> dict:
     summary, the match.ended line, every app.error and rules.invalid, and the lines that are not
     JSON. With match_id, only that match's rules, frame and match lines count; app.error and
     rules.invalid lines always do."""
-    seen = {"lines": 0, "strokes": 0, "frames": [], "result": None, "errors": [], "not_json": 0}
+    seen = {"lines": 0, "strokes": 0, "frames": [], "result": None, "exhibition": None, "levelled": 0, "errors": [],
+            "not_json": 0}
     with open(path, encoding="utf-8", errors="replace") as handle:
         for line in handle:
             if not line.strip():
@@ -139,6 +155,10 @@ def read_log(path: Path, match_id: str = "") -> dict:
                 seen["frames"].append(data.get("summary") if isinstance(data.get("summary"), dict) else {})
             elif name == "match.ended":
                 seen["result"] = data
+            elif name == "exhibition.ended":
+                seen["exhibition"] = data
+            elif name == "opponent.decision" and data.get("level"):
+                seen["levelled"] += 1
     return seen
 
 
@@ -150,8 +170,11 @@ def play(game, args: argparse.Namespace, out: Path, clock: Callable[[], float] =
     played = {"match_id": "", "frames": 0, "finished": False, "problem": ""}
     deadline = clock() + args.timeout
     try:
+        if args.exhibition is not None:
+            return watch(game, args, played, deadline, clock)
+        level = {"level": args.level} if args.level else {}
         started = game.call("start_match", best_of=args.best_of, first_breaker=args.first_breaker, seed=args.seed,
-                            autoplay=True, fast=not args.slow)
+                            autoplay=True, fast=not args.slow, **level)
         played["match_id"] = started["match_id"]
         while True:
             left = deadline - clock()
@@ -175,9 +198,36 @@ def play(game, args: argparse.Namespace, out: Path, clock: Callable[[], float] =
     return played
 
 
+def watch(game, args: argparse.Namespace, played: dict, deadline: float, clock: Callable[[], float]) -> dict:
+    """Watch a 147 to its summary, play()'s answer for an exhibition; the picture is
+    EXHIBITION_PICTURE_FILE. Raises HarnessError as the harness does."""
+    started = game.call("start_exhibition", layout=args.exhibition, seed=args.seed, fast=not args.slow)
+    played["match_id"] = started["match_id"]
+    played["layout"] = started.get("layout", "")
+    left = deadline - clock()
+    if left <= 0:
+        played["problem"] = f"the exhibition was not over after {args.timeout:.0f} s"
+        return played
+    waiting = game.call("match_wait", timeout_s=left)["waiting"]
+    if waiting != "exhibition_summary":
+        played["problem"] = f"the exhibition waits for the person ({waiting!r}), who only watches"
+        return played
+    game.call("dump_state", path=STATE_FILE)
+    game.call("screenshot", path=EXHIBITION_PICTURE_FILE)
+    played["finished"] = True
+    return played
+
+
 def run_referee(sim_cli: Path, log: Path) -> tuple[int, str]:
     done = subprocess.run([str(sim_cli), "referee", str(log)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                           text=True, encoding="utf-8", errors="replace", timeout=REFEREE_TIMEOUT)
+    return done.returncode, done.stdout
+
+
+def run_opponent(sim_cli: Path, log: Path) -> tuple[int, str]:
+    """`ofs_sim_cli opponent`, which reads the levels from core/data: run from the repository."""
+    done = subprocess.run([str(sim_cli), "opponent", str(log)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                          text=True, encoding="utf-8", errors="replace", timeout=REFEREE_TIMEOUT, cwd=str(ROOT))
     return done.returncode, done.stdout
 
 
@@ -190,6 +240,7 @@ def frame_line(summary: dict, number: int) -> str:
 
 def run(args: argparse.Namespace, make_game: Callable[..., object] = Harness,
         referee: Callable[[Path, Path], tuple[int, str]] = run_referee,
+        opponent: Callable[[Path, Path], tuple[int, str]] = run_opponent,
         user_dir_for: Callable[[Path], tuple[dict[str, str], Path]] = isolated_user_dir,
         out: TextIO = sys.stdout) -> int:
     def say(text: str) -> None:
@@ -216,12 +267,13 @@ def run(args: argparse.Namespace, make_game: Callable[..., object] = Harness,
         played = play(game, args, folder)
     finally:
         code = game.stop()
-    for name in (STATE_FILE, PICTURE_FILE):
+    for name in (STATE_FILE, PICTURE_FILE, EXHIBITION_PICTURE_FILE):
         if (user_dir / name).is_file():
             shutil.move(str(user_dir / name), str(folder / name))
     failures = []
+    exhibition = args.exhibition is not None
     if not played["finished"]:
-        failures.append(f"the match did not finish: {played['problem']}")
+        failures.append(f"the {'exhibition' if exhibition else 'match'} did not finish: {played['problem']}")
     if code not in (0, None):
         failures.append(f"the game exited with code {code}; its last output:\n{game.tail()}")
 
@@ -232,12 +284,26 @@ def run(args: argparse.Namespace, make_game: Callable[..., object] = Harness,
             say("FAILED: " + failure)
         return EXIT_FAILED
     seen = read_log(log, played["match_id"])
-    say(f"match {played['match_id'] or '(not started)'}: best of {args.best_of}, seed {args.seed}, log {log}")
+    if exhibition:
+        say(f"exhibition {played['match_id'] or '(not started)'}: table {args.exhibition} "
+            f"({played.get('layout') or '?'}), seed {args.seed}, log {log}")
+    else:
+        against = f", against {args.level}" if args.level else ""
+        say(f"match {played['match_id'] or '(not started)'}: best of {args.best_of}{against}, seed {args.seed}, log {log}")
     say(f"  {seen['strokes']} strokes judged, {len(seen['frames'])} frames ended")
     for number, summary in enumerate(seen["frames"], 1):
         say(frame_line(summary, number))
     result = seen["result"]
-    if result is None:
+    if exhibition:
+        ended = seen["exhibition"]
+        if ended is None:
+            failures.append("the log has no exhibition.ended line for the exhibition")
+        else:
+            maximum = " (a maximum)" if ended.get("maximum") else ""
+            say(f"  break: {ended.get('break_points')}{maximum}, ended {ended.get('why')}")
+            if ended.get("why") == "left":
+                failures.append("the exhibition was left, not watched to its end")
+    elif result is None:
         failures.append("the log has no match.ended line for the match")
     else:
         winner = {0: "you", 1: "computer"}.get(result.get("winner"), "nobody")
@@ -267,10 +333,25 @@ def run(args: argparse.Namespace, make_game: Callable[..., object] = Harness,
     if verdict != 0:
         failures.append(f"the referee does not agree with the game's decisions (exit {verdict})")
 
+    if args.level or exhibition:
+        if seen["levelled"] == 0:
+            failures.append("the log has no opponent.decision of a level to make again")
+        try:
+            remade, output = opponent(sim_cli, log)
+        except (OSError, subprocess.TimeoutExpired) as error:
+            say(f"{sim_cli} opponent could not be run: {error}")
+            return EXIT_UNUSABLE
+        say(f"opponent ({sim_cli.name} opponent): exit {remade}")
+        for line in output.strip().splitlines()[-15:]:
+            say("  " + line)
+        if remade != 0:
+            failures.append(f"the opponent's decisions are not made again as logged (exit {remade})")
+
     for failure in failures:
         say("FAILED: " + failure)
     if not failures:
-        say(f"ok: the match finished, the log is clean and the referee agrees; state and picture in {folder}")
+        say(f"ok: the {'exhibition' if exhibition else 'match'} finished, the log is clean and the referee agrees; "
+            f"state and picture in {folder}")
     return EXIT_FAILED if failures else EXIT_OK
 
 

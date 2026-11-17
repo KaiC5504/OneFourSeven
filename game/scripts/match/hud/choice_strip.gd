@@ -37,6 +37,7 @@ var _row := HBoxContainer.new()
 var _buttons := {}
 var _area := Rect2()
 var _offering := false
+var _opponent := OPPONENT
 
 
 func _init() -> void:
@@ -76,7 +77,7 @@ func _ready() -> void:
 func offer(options: Array[String], frame: Dictionary) -> void:
 	_drop_buttons()
 	for kind in options:
-		var label := label_for(kind, frame)
+		var label := label_for(kind, frame, _opponent)
 		if label.is_empty():
 			Kit.problem("ChoiceStrip: no button for the decision \"%s\"" % kind)
 			continue
@@ -92,8 +93,14 @@ func offer(options: Array[String], frame: Dictionary) -> void:
 	if _offering:
 		if _buttons.has("play") and not frame.get("free_ball") is bool:
 			Kit.missing(WHO, "free_ball")
-		_prompt.text = _question(_buttons.keys(), frame)
+		_prompt.text = _question(_buttons.keys(), frame, _opponent)
 		_fit()
+
+
+## The name the other player is called by: the opponent's level's, OPPONENT until given one. An
+## offer already showing keeps its words.
+func set_opponent_name(opponent: String) -> void:
+	_opponent = opponent
 
 
 func dismiss() -> void:
@@ -127,19 +134,19 @@ func covered_rect() -> Rect2:
 	return Rect2(_panel.position, _panel.size) if _offering else Rect2()
 
 
-## A decision's button text (LABELS), or "Take the free ball" for play when `frame` called one; ""
-## for an unknown kind.
-static func label_for(kind: String, frame: Dictionary = {}) -> String:
+## A decision's button text (LABELS, the other player called `opponent`), or "Take the free ball"
+## for play when `frame` called one; "" for an unknown kind.
+static func label_for(kind: String, frame: Dictionary = {}, opponent: String = OPPONENT) -> String:
 	if kind == "play" and frame.get("free_ball") == true:
 		return FREE_BALL_PLAY
-	return LABELS.get(kind, "")
+	return String(LABELS.get(kind, "")).replace(OPPONENT, opponent)
 
 
 # The strip speaks to whoever decides, so after a foul the offender is always the other player.
-static func _question(kinds: Array, frame: Dictionary) -> String:
+static func _question(kinds: Array, frame: Dictionary, opponent: String) -> String:
 	if kinds.has("play") or kinds.has("play_again") or kinds.has("replace"):
 		var penalty := Kit.integer(frame, "last_penalty", WHO, 0)
-		return "%s fouled: %d to you" % [OPPONENT, penalty] if penalty > 0 else "%s fouled" % OPPONENT
+		return "%s fouled: %d to you" % [opponent, penalty] if penalty > 0 else "%s fouled" % opponent
 	if kinds.has("accept_rerack") or kinds.has("refuse_rerack"):
 		return "Re-rack?"
 	if kinds.has("play_first") or kinds.has("play_second"):

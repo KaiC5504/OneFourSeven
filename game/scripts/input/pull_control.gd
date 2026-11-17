@@ -54,6 +54,8 @@ var _armed := false
 ## The setup's power and speed before this press, put back when it is cancelled.
 var _before_power := 0.0
 var _before_speed := 0.0
+## The power show_power puts on the strip, or -1 for none.
+var _shown := -1.0
 
 
 func _ready() -> void:
@@ -94,6 +96,22 @@ static func pull_for_power(power: float) -> float:
 
 static func backswing_for_pull(units: float) -> float:
 	return power_for_pull(units) * BACKSWING_AT_FULL_M
+
+
+## Shows the strip drawn back to `power` (0 to 1) with its fill line and no readout, as another
+## player's stroke is shown on the dimmed controls; -1 clears it. The setup is not touched, and a
+## pull of the person's own draws over it.
+func show_power(power: float) -> void:
+	var shown := clampf(power, 0.0, 1.0) if power >= 0.0 else -1.0
+	if shown == _shown:
+		return
+	_shown = shown
+	queue_redraw()
+
+
+## The power show_power is showing, or -1.
+func shown_power() -> float:
+	return _shown
 
 
 func is_pulling() -> bool:
@@ -277,14 +295,15 @@ func _on_setup_changed(what: StringName) -> void:
 
 
 func _draw() -> void:
-	CueStrip.draw(self, size, _pull, is_pulling())
-	if not is_pulling() or _pull <= 0.0:
+	var pull := _pull if is_pulling() or _shown < 0.0 else pull_for_power(_shown)
+	CueStrip.draw(self, size, pull, is_pulling())
+	if pull <= 0.0:
 		return
 	var rest := CueStrip.TIP_REST
-	var tip := CueStrip.tip_y(size.y, _pull)
+	var tip := CueStrip.tip_y(size.y, pull)
 	var x := size.x / 2.0
 	draw_line(Vector2(x, rest), Vector2(x, tip), Color(FILL_COLOUR, 0.55), 4.0, true)
-	if not _armed:
+	if not is_pulling() or not _armed:
 		return
 	# Left of the strip and above the thumb, so the thumb never covers it.
 	var box := Rect2(Vector2(-READOUT_GAP - READOUT_SIZE.x, clampf(_finger.y - 150.0, 0.0,

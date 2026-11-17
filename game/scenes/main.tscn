@@ -1,4 +1,4 @@
-[gd_scene load_steps=34 format=3]
+[gd_scene load_steps=37 format=3]
 
 [ext_resource type="Script" path="res://scripts/main.gd" id="1_main"]
 [ext_resource type="Script" path="res://scripts/view/stage.gd" id="3_stage"]
@@ -33,6 +33,9 @@
 [ext_resource type="Script" path="res://scripts/ui/screens/pause_menu.gd" id="32_pause"]
 [ext_resource type="Script" path="res://scripts/ui/screens/frame_summary.gd" id="33_frame"]
 [ext_resource type="Script" path="res://scripts/ui/screens/match_summary.gd" id="34_summary"]
+[ext_resource type="Script" path="res://scripts/match/opponent_show.gd" id="35_show"]
+[ext_resource type="Script" path="res://scripts/match/hud/watch_button.gd" id="36_watch"]
+[ext_resource type="Script" path="res://scripts/ui/screens/exhibition_summary.gd" id="37_exhibition"]
 
 [node name="Main" type="Node3D"]
 script = ExtResource("1_main")
@@ -86,6 +89,9 @@ script = ExtResource("24_match")
 [node name="Nomination" type="Node3D" parent="."]
 script = ExtResource("25_nomination")
 
+[node name="OpponentShow" type="Node" parent="."]
+script = ExtResource("35_show")
+
 [node name="Hud" type="CanvasLayer" parent="."]
 
 [node name="ElevationControl" type="Control" parent="Hud"]
@@ -129,6 +135,10 @@ script = ExtResource("28_choices")
 [node name="CuePlacer" type="Control" parent="Hud"]
 script = ExtResource("29_placer")
 
+[node name="WatchButton" type="Button" parent="Hud"]
+visible = false
+script = ExtResource("36_watch")
+
 [node name="HomeScreen" type="Control" parent="Hud"]
 script = ExtResource("30_home")
 
@@ -143,6 +153,9 @@ script = ExtResource("33_frame")
 
 [node name="MatchSummary" type="Control" parent="Hud"]
 script = ExtResource("34_summary")
+
+[node name="ExhibitionSummary" type="Control" parent="Hud"]
+script = ExtResource("37_exhibition")
 
 [node name="Notice" type="Label" parent="Hud"]
 visible = false
