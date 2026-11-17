@@ -958,13 +958,24 @@ func test_harness_state() -> void:
 	c.nominate("blue", "harness")
 	var state := c.harness_state()
 	check_eq(state, {"active": true, "match_id": c.match_id(), "frame": e.frame_view, "match": e.match_state(),
-			"nominated": "blue", "placing": false, "blocked": "", "autoplay": false, "waiting": "shot"},
-			"harness_state")
+			"nominated": "blue", "placing": false, "blocked": "", "autoplay": false, "waiting": "shot", "level": "",
+			"exhibition": false, "thinking": false}, "harness_state")
 	c.free()
 	var idle := MatchController.new()
 	check_eq(idle.harness_state(), {"active": false, "match_id": "", "frame": {}, "match": {}, "nominated": "",
-			"placing": false, "blocked": "inactive", "autoplay": false, "waiting": ""}, "with no match")
+			"placing": false, "blocked": "inactive", "autoplay": false, "waiting": "", "level": "", "exhibition": false,
+			"thinking": false}, "with no match")
 	idle.free()
+
+	var thinking := _engine(_turn(1))
+	thinking.opponent_shots.append(_level_shot())
+	thinking.think_polls = 100
+	c = _controller(thinking)
+	c.start(_with(CONFIG, {"level": "beginner"}))
+	state = c.harness_state()
+	check(state["level"] == "beginner" and state["thinking"] == true and state["exhibition"] == false,
+			"a level thinking: %s" % [state])
+	c.free()
 
 
 func test_a_listener_that_moves_the_match_on_ends_the_announcement() -> void:
@@ -1124,6 +1135,333 @@ func test_driver_asks_on_a_later_frame() -> void:
 	driver.free()
 
 
+func test_a_level_plays_the_opponents_strokes() -> void:
+	var e := _engine(_turn(1))
+	e.opponent_shots.append(_level_shot())
+	e.think_polls = 2
+	var c := _controller(e)
+	check(c.start(_with(CONFIG, {"level": "beginner"})), "start with a level")
+	check_eq(_last_call(e, "start")[1], {"best_of": 3, "first_breaker": 0, "seed": 147, "concede_any_time": [true, false],
+			"person": 0, "level": "beginner"}, "the engine is given the level")
+	check_eq(c.level(), "beginner", "level()")
+	check_eq(c.level_name(), "Beginner", "level_name() is the level's name")
+	check_eq(_names(), ["table_changed:frame", "frame_changed", "opponent_thinking", "turn_started"],
+			"the level starts thinking as the turn is announced")
+	var think := _last_call(e, "opponent_think")
+	check(think[1] == "beginner" and think[2] is int and (think[3] as Dictionary).has("shot_id") and think[4] == {},
+			"opponent_think(level, seed, {shot_id}, {}): %s" % [think])
+	_events.clear()
+	await _frames(6)
+	check_eq(_names(), ["opponent_thinking", "opponent_ready"], "thinking stops and its stroke arrives")
+	if _names().size() == 2:
+		check_eq(_events[0], ["opponent_thinking", false], "thinking off")
+		var shot: Dictionary = _events[1][1]
+		check_eq(shot["shot_id"], think[3]["shot_id"], "the id it thought under")
+		check_eq(int(shot["player"]), 1, "for the opponent")
+		for key: String in ["level", "meant", "think", "strike"]:
+			check_eq(shot.get(key), _level_shot()[key], "keeps the engine's %s" % key)
+	check_eq(_count(e, "standin_shot"), 0, "the stand-in is not asked")
+	check(not c.harness_state()["thinking"], "no longer thinking")
+	c.free()
+
+
+func test_a_levels_choice_and_the_persons_autoplay() -> void:
+	var e := _engine(_turn(1, {"pending": "after_foul", "decider": 1, "options": [[], ["play", "play_again"]]}))
+	e.opponent_choices.append("play_again")
+	e.decisions.append(_decided(_turn(0)))
+	var c := _controller(e)
+	c.start(_with(CONFIG, {"level": "maximum"}))
+	await _frames(2)
+	var asked := _last_call(e, "opponent_choice")
+	check(asked[1] == "maximum" and asked[2] == 1 and asked[3] is int, "the level chooses: %s" % [asked])
+	check_eq(_count(e, "standin_choice"), 0, "not the stand-in")
+	check_eq(_last_call(e, "decide"), ["decide", "play_again", 1], "its choice is applied")
+	check_eq(c.level_name(), "The 147", "the 147's name")
+
+	e.standin_shots.append(_standin_shot())
+	c.autoplay = true
+	await _frames(2)
+	check_eq(_count(e, "standin_shot"), 1, "autoplay for the person is the stand-in")
+	check_eq(_count(e, "opponent_think"), 0, "never the level")
+	c.free()
+
+
+func test_no_level_is_the_stand_in() -> void:
+	var e := _engine(_turn(1))
+	e.standin_shots.append(_standin_shot())
+	var c := _controller(e)
+	check(c.start(CONFIG), "start")
+	check(not (_last_call(e, "start")[1] as Dictionary).has("level"), "the engine is given no level")
+	check_eq(c.level(), "", "level()")
+	check_eq(c.level_name(), MatchController.STANDIN_NAME, "level_name()")
+	check(c.start(_with(CONFIG, {"level": ""})), "an empty level")
+	await _frames(2)
+	check_eq(_count(e, "opponent_think"), 0, "no level thinks")
+	check_eq(_count(e, "standin_shot"), 1, "the stand-in plays")
+	check_eq(_names().back(), "opponent_ready", "its stroke arrives")
+	c.free()
+
+
+func test_an_unknown_level_is_refused() -> void:
+	var e := _engine(_turn(0))
+	var c := _started(e)
+	var id := c.match_id()
+	var starts := _count(e, "start")
+	_mark_log()
+	check(not c.start(_with(CONFIG, {"level": "expert"})), "an id not listed")
+	check(not c.start(_with(CONFIG, {"level": 3})), "not an id at all")
+	check_eq(_count(e, "start"), starts, "the engine is not asked")
+	check(c.is_active() and c.match_id() == id, "the match in progress stays")
+	var errors := _errors_with("start: level")
+	check_eq(errors.size(), 2, "each logged")
+	if errors.size() == 2:
+		check(String(errors[0]["message"]).contains("\"expert\"") and String(errors[0]["message"]).contains("beginner"),
+				"naming it and the levels: " + String(errors[0]["message"]))
+	check_eq(c.levels(), _typed(e.level_list), "levels() as the engine lists them")
+	c.free()
+
+
+func test_the_opponents_levels_are_configured_with_the_engine() -> void:
+	var e := _engine(_turn(0))
+	var own := OwnEngine.new()
+	own.template = e
+	_mark_log()
+	check(own.ensure_engine(), "the engine")
+	var asked := _last_call(e, "configure_opponent")
+	check_eq(asked[1], MatchController.LEVEL_IDS, "configure_opponent with each level's file")
+	for id in MatchController.LEVEL_IDS:
+		check(not FileAccess.get_file_as_string(MatchController.LEVEL_PATH % id).is_empty(), "%s's file exists" % id)
+	check(not FileAccess.get_file_as_string(MatchController.EXHIBITIONS_PATH).is_empty(), "so does the exhibitions'")
+	check_eq(_logged("app.error").size(), 0, "nothing went wrong")
+	check_eq(own.levels().size(), 2, "levels()")
+	own.free()
+
+	var refusing := _engine(_turn(1))
+	refusing.opponent_ready = false
+	refusing.level_list = []
+	refusing.error = "maximum: aim_sigma_rad must be positive"
+	refusing.standin_shots.append(_standin_shot())
+	own = OwnEngine.new()
+	own.template = refusing
+	tree.root.add_child(own)
+	own.pace = 0.0
+	_mark_log()
+	check(own.start(_with(CONFIG, {"level": "beginner"})), "the match still starts")
+	var errors := _errors_with("no opponent levels")
+	check(errors.size() >= 1, "the refusal is logged")
+	if not errors.is_empty():
+		check(String(errors[0]["message"]).contains("aim_sigma_rad must be positive"), "with last_error: "
+				+ String(errors[0]["message"]))
+	check_eq(_errors_with("the stand-in plays").size(), errors.size() + 1, "and the level asked for is not played")
+	check_eq(own.level(), "", "the stand-in's match")
+	check_eq(own.levels(), [] as Array[Dictionary], "no levels")
+	check(not (_last_call(refusing, "start")[1] as Dictionary).has("level"), "the engine is given none")
+	await _frames(2)
+	check_eq(_count(refusing, "standin_shot"), 1, "the stand-in plays")
+	check_eq(_count(refusing, "opponent_think"), 0, "no level is asked")
+	own.free()
+
+
+func test_a_levels_refusals_stall_the_match() -> void:
+	var e := _engine(_turn(1))
+	e.error = "no level stroke queued"
+	_mark_log()
+	var c := _controller(e)
+	c.start(_with(CONFIG, {"level": "beginner"}))
+	await _frames(MatchController.MAX_REFUSALS + 4)
+	check_eq(_count(e, "opponent_think"), MatchController.MAX_REFUSALS, "asked again, then no more")
+	var errors := _errors_with("engine.opponent_think(\"beginner\", ")
+	check_eq(errors.size(), MatchController.MAX_REFUSALS + 1, "each refusal logged with the level and seed")
+	if not errors.is_empty():
+		check(String(errors[0]["message"]).contains("no level stroke queued"), "and why: " + String(errors[0]["message"]))
+	check_eq(_errors_with("the level \"beginner\" is not asked again").size(), 1, "giving up names the level")
+	check_eq(c.harness_state()["waiting"], "stalled", "stalled")
+	e.opponent_shots.append(_level_shot())
+	c.retry_standin()
+	await _frames(3)
+	check_eq(_names().back(), "opponent_ready", "a retry asks the level again")
+	c.free()
+
+
+func test_the_pause_holds_a_finished_think() -> void:
+	var e := _engine(_turn(1))
+	e.opponent_shots.append(_level_shot())
+	var c := _controller(e)
+	c.start(_with(CONFIG, {"level": "beginner"}))
+	# As main's pause menu holds the match.
+	c.process_mode = Node.PROCESS_MODE_DISABLED
+	_events.clear()
+	await _frames(4)
+	check_eq(_names(), [] as Array[String], "nothing is handed over while held")
+	check_eq(_count(e, "opponent_take"), 0, "the answer stays in the engine")
+	check(c.harness_state()["thinking"], "still thinking as far as the game knows")
+	c.process_mode = Node.PROCESS_MODE_INHERIT
+	await _frames(3)
+	check_eq(_names(), ["opponent_thinking", "opponent_ready"], "resumed, the stroke comes")
+	c.free()
+
+
+func test_leaving_while_a_level_thinks_cancels_it() -> void:
+	var e := _engine(_turn(1))
+	e.opponent_shots.append(_level_shot())
+	e.think_polls = 100
+	var c := _controller(e)
+	c.start(_with(CONFIG, {"level": "beginner"}))
+	await _frames(2)
+	_events.clear()
+	c.abandon()
+	check_eq(_last_call(e, "opponent_cancel"), ["opponent_cancel", "left"], "the thinking is stopped")
+	check_eq(_names(), ["opponent_thinking", "table_changed:ended"], "thinking off, then the table")
+	await _frames(3)
+	check_eq(_count(e, "opponent_take"), 0, "nothing is taken")
+	check_eq(_names().size(), 2, "or announced")
+	check_eq(c.level(), "", "the level goes with the match")
+	c.free()
+
+
+func test_exhibition_starts_from_its_table() -> void:
+	var e := _engine(_turn(1))
+	e.opponent_shots.append(_level_shot("maximum"))
+	var c := _controller(e)
+	check(c.start({"exhibition": 0, "level": "maximum", "seed": 9}), "start")
+	check_eq(_last_call(e, "start")[1], {"best_of": 1, "first_breaker": 1, "seed": 9, "concede_any_time": [true, false],
+			"person": 0, "level": "maximum", "exhibition": 0}, "best of 1 from that table with the opponent at it")
+	check(c.is_exhibition(), "is_exhibition()")
+	check(c.harness_state()["exhibition"] == true and c.harness_state()["level"] == "maximum", "in the harness state")
+	check_eq(_events[3], ["turn_started", 1, false], "the opponent plays")
+	await _frames(2)
+	check_eq(_names().back(), "opponent_ready", "its stroke")
+	check(c.start({"exhibition": 0}), "with no level")
+	check_eq(_last_call(e, "start")[1]["level"], "maximum", "the 147's")
+	_mark_log()
+	var starts := _count(e, "start")
+	check(not c.start({"exhibition": 1, "level": "maximum"}), "an index past the tables")
+	check(not c.start({"exhibition": "open 1", "level": "maximum"}), "a name, not an index")
+	check(not c.start({"exhibition": 0, "level": "nobody"}), "an unknown level")
+	check_eq(_count(e, "start"), starts, "the engine is not asked")
+	check_eq(_errors_with("start: exhibition").size(), 2, "logged")
+	c.free()
+
+
+func test_exhibition_ends_when_the_break_is_missed() -> void:
+	var e := _engine(_turn(1, {"strokes": 0}))
+	e.opponent_shots.append(_level_shot("maximum"))
+	var c := _controller(e)
+	c.start({"exhibition": 0, "level": "maximum"})
+	await _frames(2)
+	var shot: Dictionary = _events.back()[1]
+	c.shot_started(shot["shot_id"])
+	var id := c.match_id()
+	e.judgements.append(_judged(_turn(0, {"stats": _stats(40), "strokes": 21}), _legal()))
+	_events.clear()
+	_mark_log()
+	c.shot_finished(null)
+	check_eq(_names(), ["table_changed:shot", "frame_changed", "exhibition_ended", "table_changed:ended"],
+			"the person's turn ends it")
+	check_eq(_events[2][1], {"break_points": 40, "maximum": false, "why": "missed"}, "the break and why")
+	_check_ended(e, c, id, {"break_points": 40, "maximum": false, "why": "missed", "strokes": 21})
+	check_eq(_count(e, "abandon"), 1, "the engine's match is abandoned")
+	c.free()
+
+
+func test_exhibition_ends_with_a_foul() -> void:
+	var e := _engine(_turn(1))
+	e.opponent_shots.append(_level_shot("maximum"))
+	var c := _controller(e)
+	c.start({"exhibition": 0, "level": "maximum"})
+	await _frames(2)
+	c.shot_started("s-1")
+	var fouled := _turn(0, {"pending": "after_foul", "decider": 0, "offender": 1, "options": [["play", "play_again"], []],
+			"stats": _stats(56), "strokes": 30})
+	var judgement := _legal()
+	judgement["penalty"] = 4
+	judgement["points"] = 0
+	e.judgements.append(_judged(fouled, judgement))
+	var id := c.match_id()
+	_events.clear()
+	_mark_log()
+	c.shot_finished(null)
+	check_eq(_names(), ["table_changed:shot", "frame_changed", "exhibition_ended", "table_changed:ended"],
+			"the person is not asked to choose")
+	_check_ended(e, c, id, {"break_points": 56, "maximum": false, "why": "fouled", "strokes": 30})
+	c.free()
+
+
+func test_exhibition_ends_with_the_maximum() -> void:
+	var e := _engine(_turn(1, {"break_points": 140}))
+	e.opponent_shots.append(_level_shot("maximum"))
+	var c := _controller(e)
+	c.start({"exhibition": 0, "level": "maximum"})
+	await _frames(2)
+	c.shot_started("s-36")
+	var over := _turn(1, {"over": true, "winner": 1, "end_reason": "black", "break_points": 0, "stats": _stats(147),
+			"strokes": 36})
+	e.match_view["over"] = true
+	e.judgements.append(_judged(over, _legal(), {"event": "match_ended"}))
+	var id := c.match_id()
+	_events.clear()
+	_mark_log()
+	c.shot_finished(null)
+	check_eq(_names(), ["table_changed:shot", "frame_changed", "exhibition_ended", "table_changed:ended"],
+			"no frame or match summary")
+	_check_ended(e, c, id, {"break_points": 147, "maximum": true, "why": "maximum", "strokes": 36})
+	check_eq(_count(e, "abandon"), 0, "a finished match is not abandoned in the engine")
+	c.free()
+
+
+func test_exhibition_left_mid_break() -> void:
+	var e := _engine(_turn(1, {"break_points": 33, "stats": _stats(0), "strokes": 12}))
+	e.opponent_shots.append(_level_shot("maximum"))
+	e.think_polls = 100
+	var c := _controller(e)
+	c.start({"exhibition": 0, "level": "maximum"})
+	var id := c.match_id()
+	_events.clear()
+	_mark_log()
+	c.abandon()
+	check_eq(_names(), ["opponent_thinking", "exhibition_ended", "table_changed:ended"], "quit")
+	_check_ended(e, c, id, {"break_points": 33, "maximum": false, "why": "left", "strokes": 12})
+	check_eq(_last_call(e, "opponent_cancel"), ["opponent_cancel", "left"], "its thinking stopped")
+	c.abandon()
+	check_eq(_names().size(), 3, "leaving again says nothing")
+	check_eq(_logged("exhibition.ended").size(), 1, "and logs nothing")
+	c.free()
+
+
+func test_exhibition_never_waits_for_the_person() -> void:
+	var e := _engine(_turn(0, {"strokes": 0}))
+	var c := _controller(e)
+	_mark_log()
+	check(c.start({"exhibition": 0}), "the engine puts the person at the table")
+	check(not _names().has("turn_started"), "no turn for the person")
+	check_eq(_names().back(), "table_changed:ended", "the exhibition is over at once")
+	check_eq(_errors_with("before the opponent struck").size(), 1, "which is logged")
+	check_eq(_logged("exhibition.ended").size(), 1, "exhibition.ended")
+	c.free()
+
+
+## The exhibition has ended and logged so, the match left.
+func _check_ended(e: ScriptedEngine, c: MatchController, id: String, logged: Dictionary) -> void:
+	var result: Dictionary = logged.duplicate()
+	result.erase("strokes")
+	var ended: Array = _events.filter(func(event: Array) -> bool: return event[0] == "exhibition_ended")
+	check(ended.size() == 1 and ended[0][1] == result, "exhibition_ended %s: %s" % [result, ended])
+	var lines := _logged("exhibition.ended")
+	check_eq(lines.size(), 1, "exhibition.ended once")
+	if lines.size() == 1:
+		var expected := logged.duplicate()
+		expected["match_id"] = id
+		var line := lines[0]
+		check(int(line["break_points"]) == int(expected["break_points"]) and line["maximum"] == expected["maximum"]
+				and line["why"] == expected["why"] and int(line["strokes"]) == int(expected["strokes"])
+				and line["match_id"] == id, "the line %s, expected %s" % [line, expected])
+	check(not c.is_active() and not c.is_exhibition(), "left")
+	check_eq(c.match_id(), "", "no match")
+	for name: String in ["frame_ended", "match_ended", "turn_started", "choice_needed"]:
+		check(not _names().has(name), "no %s" % name)
+	check_eq(e.called().count("opponent_think"), 1, "the opponent was asked once")
+
+
 func _engine(frame: Dictionary) -> ScriptedEngine:
 	var e := ScriptedEngine.new()
 	e.frame_view = frame
@@ -1151,6 +1489,8 @@ func _controller(e: ScriptedEngine) -> MatchController:
 		_events.append(["frame_ended", summary, state]))
 	c.match_ended.connect(func(state: Dictionary) -> void: _events.append(["match_ended", state]))
 	c.stalled.connect(func(why: String) -> void: _events.append(["stalled", why]))
+	c.opponent_thinking.connect(func(on: bool) -> void: _events.append(["opponent_thinking", on]))
+	c.exhibition_ended.connect(func(result: Dictionary) -> void: _events.append(["exhibition_ended", result]))
 	tree.root.add_child(c)
 	return c
 
@@ -1215,6 +1555,28 @@ func _standin_shot() -> Dictionary:
 	return {"ok": true, "error": "", "places_cue": false, "cue": [], "nominated": "",
 			"strike": {"aim_rad": 0.5, "tip_x": 0.0, "tip_y": 0.1, "elevation_rad": 0.05, "speed_m_s": 2.5},
 			"why": {"kind": "pot"}, "us": 120}
+
+
+## A level's stroke as opponent_take gives it.
+func _level_shot(level := "beginner") -> Dictionary:
+	var shot := _standin_shot()
+	shot["level"] = level
+	shot["meant"] = {"aim_rad": 0.51, "tip_x": 0.0, "tip_y": 0.1, "elevation_rad": 0.05, "speed_m_s": 2.4}
+	shot["think"] = {"candidates": 4, "sims": 12, "steps": 900, "depth": 1, "stopped": "done", "ms": 3.5}
+	return shot
+
+
+func _with(base: Dictionary, more: Dictionary) -> Dictionary:
+	var out := base.duplicate(true)
+	out.merge(more, true)
+	return out
+
+
+## Frame stats with the opponent's highest break.
+func _stats(highest: int) -> Array:
+	var stats: Array = (_json(FRAME_VIEW)["stats"] as Array).duplicate(true)
+	stats[MatchController.OPPONENT]["highest_break"] = highest
+	return stats
 
 
 func _typed(list: Array) -> Array[Dictionary]:
