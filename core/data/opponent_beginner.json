@@ -11,15 +11,15 @@
     "awkward_factor": 1.5,
     "speed_sigma": 0.15,
     "tip_sigma": 0.08,
-    "max_cut_rad": 1.0,
+    "max_cut_rad": 1.35,
     "max_tip": 0.1,
     "speeds": 2,
     "spins": 1,
     "depth": 0,
     "position_weight": 0.1,
     "judgement_sigma": 0.5,
-    "safety_below": 0.05,
-    "max_sims": 60,
+    "safety_below": 0.0,
+    "max_sims": 150,
     "maximum": false
   },
   "docs": {
