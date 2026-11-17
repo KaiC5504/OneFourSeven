@@ -128,6 +128,18 @@ FrameState black_tied_blue_open(int reds) {
     return after_a_red(std::move(balls), 1);
 }
 
+// All fifteen reds, none potted. Red 0 is a half-ball cut into the top-left corner, and the cue
+// ball's line off it runs to red 1, which hangs by the top-right corner: struck firmly, both go.
+FrameState two_reds_in_a_stroke() {
+    std::vector<BallOnTable> balls{ball(Ball::cue, 0.5316, 0.574), ball(Ball::red, 1.0601, 0.4708, 0),
+                                   ball(Ball::red, 1.6745, -0.6985, 1)};
+    line_of_reds(balls, 2, 13);
+    for (const Ball c : {Ball::yellow, Ball::green, Ball::brown, Ball::blue, Ball::pink, Ball::black}) {
+        balls.push_back(spotted(c));
+    }
+    return rules::scenario::frame(std::move(balls));
+}
+
 }  // namespace
 
 TEST_CASE("the 147 plays what it planned, the same whatever the seed") {
@@ -335,4 +347,41 @@ TEST_CASE("a maximum still on is played out: the 147 does not claim the frame at
     CHECK(claim.decision == rules::DecisionKind::claim_frame);
     CHECK(word(claim, "kind") == "claim");
     CHECK(word(claim, "level") == "maximum");
+}
+
+TEST_CASE("a stroke that pots two reds ends the maximum: the 147 takes one that keeps it") {
+    const FrameState s = two_reds_in_a_stroke();
+    REQUIRE(maximum_on(s));
+    const Env env = rig::env();
+
+    // Among its candidates there are strokes that pot both reds and are no foul.
+    int both = 0;
+    int tried = 0;
+    for (const Pot& pot : pots(s, env, maximum().max_cut_rad)) {
+        if (pot.target != 1 || env.table.pockets[std::size_t(pot.pocket)].name != "top_left") continue;
+        for (const double speed : {1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 5.0}) {
+            for (const double tip_y : {-0.25, 0.0, 0.25}) {
+                Spec spec;
+                spec.speed_m_s = speed;
+                spec.tip_y = tip_y;
+                const SolvedPot solved = solve_pot(s, pot, spec, env, false, 12);
+                ++tried;
+                if (!solved.found || solved.trial.potted.size() != 2) continue;
+                const rules::Judgement j = rules::scenario::play(s, solved.trial.strike).judgement;
+                if (j.fouls.empty() && j.points == 2) ++both;
+            }
+        }
+    }
+    REQUIRE(tried > 0);
+    MESSAGE(both << " of " << tried << " strokes at the first red pot both");
+    REQUIRE(both > 0);
+
+    const Stroke st = choose(s, 1, sims(3000));
+    REQUIRE_FALSE(st.decides);
+    CHECK(word(st, "kind") == "pot");
+    const Played p = play(s, st);
+    CHECK(p.judgement.fouls.empty());
+    CHECK(p.judgement.points == 1);
+    CHECK(p.potted.size() == 1);
+    CHECK(maximum_on(p.judgement.post));
 }

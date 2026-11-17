@@ -95,8 +95,11 @@ constexpr int kSolveSims = 6;
 // The 147's search. Its first stage may spend this share of the level's simulations on the grid
 // of every pot struck every way; what is left looks further along the best.
 constexpr double kGridShare = 0.45;
-// After the grid the best few pots and spins are tried at speeds between the grid's: a cue ball's
-// run doubles from one rung to the next.
+// A cue ball's run doubles from one rung of the ladder to the next. While the grid's share lasts
+// every pot that was made is tried again half way between the rungs, then at the quarters; after
+// that the best few pots and spins are tried either side of their best speed, at a half and a
+// quarter of the spacing reached.
+constexpr int kBetweenPasses = 2;
 constexpr int kRefined = 6;
 constexpr double kRefineSteps[] = {0.5, 0.25};
 // Candidates looked one stroke further at each stage beyond the first, and how many of a
@@ -104,14 +107,23 @@ constexpr double kRefineSteps[] = {0.5, 0.25};
 // its list, to twice as many.
 constexpr int kBeam[kMaxDepth + 1] = {0, 8, 4, 2};
 constexpr int kFollowed = 3;
-// A position below the first is tried with fewer pots, spins and speeds.
+// A position below the first is tried with fewer pots and about kDeepTries strokes in all: every
+// rung of the ladder while it has one pot or two, else kDeepSpeeds of them, and as many spins as
+// that leaves, never under kDeepSpins. The rungs and spins are among the first position's own, so
+// a plan found below is found again when its position comes to be played.
 constexpr int kDeepPots = 4;
-constexpr int kDeepSpins[kMaxDepth + 1] = {0, 5, 5, 3};
+constexpr int kDeepTries[kMaxDepth + 1] = {0, 120, 90, 60};
 constexpr int kDeepSpeeds[kMaxDepth + 1] = {0, 6, 5, 4};
+constexpr int kDeepSpins = 3;
 // Two leaves are the same leave when the same ball went and the cue ball stops this close.
 constexpr double kSameLeave_m = 0.05;
 // A stroke that ends a maximum still on is worth this much less than any that keeps it.
 constexpr double kLost = 1000.0;
+// What a stroke costs, in points, at full pace and at the most spin the level plays, each growing
+// as the square: of two strokes that leave the table as well the quieter is played, as a
+// break-builder plays it. Small beside what a better position is worth.
+constexpr double kPaceCost = 0.8;
+constexpr double kSpinCost = 0.25;
 
 double distance(Vec2 a, Vec2 b) { return std::hypot(a.x - b.x, a.y - b.y); }
 
@@ -156,6 +168,14 @@ std::vector<double> ladder(const Pot& pot, int count, double from, double to, co
         out.push_back(least * std::pow(top / least, share));
     }
     return out;
+}
+
+// How far up that range a speed lies, 0 to 1.
+double pace(const Pot& pot, double speed, const Env& env) {
+    const double top = kTopSpeed * env.params.max_cue_speed_m_s;
+    const double least = std::min(least_pot_speed(pot, env), top);
+    if (!(top > least) || !(speed > least)) return 0.0;
+    return std::min(std::log(speed / least) / std::log(top / least), 1.0);
 }
 
 struct Range {
@@ -532,7 +552,6 @@ public:
 
     bool found() const { return !nodes_[0].cands.empty(); }
     int candidates() const { return int(nodes_[0].cands.size()); }
-    int stage() const { return stage_; }
 
     void fill(Stroke& out, Rng& rng) const {
         const Node& root = nodes_[0];
@@ -598,7 +617,8 @@ private:
         FrameState post;
         bool goes_on = false;
         Outlook leaf;
-        // The points it pots, less kLost when it ends a maximum that was on.
+        // The points it pots, less what the stroke costs: its pace and spin, and kLost when it
+        // ends a maximum that was on.
         double own = 0.0;
         int node = -1;  // the position it leaves, once looked into
         // By how many strokes beyond it were looked into: what its plan is worth, the candidate
@@ -623,6 +643,10 @@ private:
         std::vector<std::vector<double>> speeds;  // each pot's ladder
         std::vector<Try> todo;
         std::size_t next = 0;
+        int queued = 0;         // pots queued so far
+        int spins = 0;          // spins they are tried with
+        int between = 0;        // passes between the rungs queued
+        std::vector<int> made;  // candidates made, by pot
         // Aims found, to start the solver near: by pot and spin at the last speed tried, and by
         // pot and rung at centre ball.
         std::vector<std::vector<double>> last_aim;
@@ -638,13 +662,39 @@ private:
     }
 
     void queue(Node& n, int from, int to) {
-        const int spins = n.depth == 0 ? std::min(level_.spins, kTipCount)
-                                       : std::min({level_.spins, kTipCount, kDeepSpins[n.depth]});
+        std::vector<int> rungs;
+        const int all = level_.speeds;
+        const int few = n.depth == 0 || to - from <= 2 ? all : std::min(all, kDeepSpeeds[n.depth]);
+        for (int i = 0; i < few; ++i) rungs.push_back(few > 1 ? int(std::lround(double(i) * (all - 1) / (few - 1))) : 0);
+        int spins = std::min(level_.spins, kTipCount);
+        if (n.depth > 0) {
+            const int room = kDeepTries[n.depth] / std::max(1, (to - from) * few);
+            spins = std::clamp(room, std::min(kDeepSpins, spins), spins);
+        }
         for (int spin = 0; spin < spins; ++spin) {
             for (int pot = from; pot < to; ++pot) {
                 const std::vector<double>& speeds = n.speeds[std::size_t(pot)];
-                for (int rung = 0; rung < int(speeds.size()); ++rung) {
-                    n.todo.push_back({pot, spin, rung, speeds[std::size_t(rung)]});
+                for (const int rung : rungs) n.todo.push_back({pot, spin, rung, speeds[std::size_t(rung)]});
+            }
+        }
+        n.queued = to;
+        n.spins = spins;
+    }
+
+    // The speeds between the rungs, for every pot of the first position that has been made: the
+    // halves on the first pass, the quarters on the second.
+    void queue_between(Node& n) {
+        const std::vector<double> shares = n.between == 0 ? std::vector<double>{0.5} : std::vector<double>{0.25, 0.75};
+        ++n.between;
+        for (int spin = 0; spin < n.spins; ++spin) {
+            for (int pot = 0; pot < n.queued; ++pot) {
+                if (n.made[std::size_t(pot)] == 0) continue;
+                const std::vector<double>& speeds = n.speeds[std::size_t(pot)];
+                for (std::size_t rung = 0; rung + 1 < speeds.size(); ++rung) {
+                    for (const double share : shares) {
+                        n.todo.push_back(
+                            {pot, spin, -1, speeds[rung] * std::pow(speeds[rung + 1] / speeds[rung], share)});
+                    }
                 }
             }
         }
@@ -670,13 +720,13 @@ private:
         n.pots.insert(n.pots.end(), later.begin(), later.end());
 
         const Range range = speed_range(level_.speeds);
-        const int count = n.depth == 0 ? level_.speeds : std::min(level_.speeds, kDeepSpeeds[n.depth]);
         const double nan = std::numeric_limits<double>::quiet_NaN();
         for (const Pot& pot : n.pots) {
-            n.speeds.push_back(ladder(pot, count, range.from, range.to, env_));
+            n.speeds.push_back(ladder(pot, level_.speeds, range.from, range.to, env_));
             n.last_aim.emplace_back(std::size_t(kTipCount), nan);
             n.centre_aim.emplace_back(n.speeds.back().size(), nan);
         }
+        n.made.assign(n.pots.size(), 0);
         queue(n, 0, n.second);
     }
 
@@ -696,6 +746,7 @@ private:
         if (!attempt(bench_, n.s, pot, spec_of(level_, t.spin, t.speed), from, made)) return -1;
         last = made.strike.aim_rad;
         if (t.spin == 0 && t.rung >= 0) n.centre_aim[std::size_t(t.pot)][std::size_t(t.rung)] = made.strike.aim_rad;
+        ++n.made[std::size_t(t.pot)];
 
         Cand c;
         c.pot = t.pot;
@@ -704,7 +755,10 @@ private:
         c.strike = made.strike;
         c.cue_rest = made.cue_rest;
         c.goes_on = made.goes_on;
-        c.own = made.points - (keeps(n, made) ? 0.0 : kLost);
+        const Tip& tip = kTips[std::size_t(t.spin)];
+        const double share = pace(pot, t.speed, env_);
+        c.own = made.points - (keeps(n, made) ? 0.0 : kLost) - kPaceCost * share * share -
+                kSpinCost * (tip.x * tip.x + tip.y * tip.y);
         if (made.goes_on) c.leaf = read_table(made.post, pots(made.post, env_, level_.max_cut_rad), env_);
         c.value[0] = c.own + c.leaf.worth;
         c.post = std::move(made.post);
@@ -743,6 +797,11 @@ private:
                     queue(n, n.second, int(n.pots.size()));
                     continue;
                 }
+                if (n.depth == 0 && n.between < kBetweenPasses && bench_.budget.sims < sims_until) {
+                    const std::size_t before = n.todo.size();
+                    queue_between(n);
+                    if (n.todo.size() > before) continue;
+                }
                 n.done = true;
             } else if (bench_.budget.sims >= sims_until) {
                 n.done = true;
@@ -773,7 +832,8 @@ private:
         for (const int pick : picks) {
             const std::vector<double>& speeds = n.speeds[std::size_t(n.cands[std::size_t(pick)].pot)];
             if (speeds.size() < 2 || !(speeds.back() > speeds.front())) continue;
-            const double rung = std::pow(speeds.back() / speeds.front(), 1.0 / double(speeds.size() - 1));
+            const double rung =
+                std::pow(speeds.back() / speeds.front(), 1.0 / double(speeds.size() - 1) / double(1 << n.between));
             int best = pick;
             for (const double share : kRefineSteps) {
                 const double middle = n.cands[std::size_t(best)].speed;
