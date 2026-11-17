@@ -78,6 +78,8 @@ class Strip extends Control:
 	var opponent := OPPONENT
 	## "red", a colour's name, "any" (a colour of choice), "free" (a free ball) or "".
 	var on_ball := ""
+	## Watch a 147: one side only, the opponent's, centred.
+	var exhibition := false
 
 	var _panel := Kit.panel_style()
 	var _bold: FontVariation
@@ -88,12 +90,25 @@ class Strip extends Control:
 	## out about level. Whose snookers widens it while they show, rather than leaving that room
 	## empty all match.
 	func centre_x() -> float:
+		if exhibition:
+			return design_width() / 2.0
 		var font := get_theme_default_font()
 		return _side(font, YOU) + _spare(font) / 2.0
 
 	func design_width() -> float:
 		var font := get_theme_default_font()
+		if exhibition:
+			return ceilf(_exhibition_width(font))
 		return ceilf(_side(font, YOU) + _side(font, opponent) + _spare(font))
+
+	# As wide as its fullest lines, so it keeps one width through the break.
+	func _exhibition_width(font: Font) -> float:
+		var top := _width(font, opponent, NAME_SIZE) + NAME_GAP + _width(_scores(), "147", SCORE_SIZE)
+		var colour := _width(font, "Colour", DETAIL_SIZE)
+		for ball: String in BALLS:
+			colour = maxf(colour, _width(font, ball.capitalize(), DETAIL_SIZE))
+		var detail := 2.0 * DISC_RADIUS + WORD_GAP + colour + DETAIL_GAP + _width(font, "Remaining 147", DETAIL_SIZE)
+		return 2.0 * PAD + maxf(top, detail)
 
 	# From the strip's edge to the middle of the frames block, on the side of `player`.
 	func _side(font: Font, player: String) -> float:
@@ -120,6 +135,9 @@ class Strip extends Control:
 		if said.is_empty():
 			return
 		var font := get_theme_default_font()
+		if exhibition:
+			_draw_exhibition(font)
+			return
 		var text_colour := SettingsPanel.TEXT
 		var muted := SettingsPanel.MUTED
 		var centre := centre_x()
@@ -164,6 +182,22 @@ class Strip extends Control:
 				low = at + width + DETAIL_GAP
 			else:
 				high = at - DETAIL_GAP
+		_draw_detail(font, centre, low, high)
+
+	# The level's name and its break as the big number, centred over the ball on and Remaining.
+	func _draw_exhibition(font: Font) -> void:
+		var scores := _scores()
+		var points := str(int(said["break"]))
+		var name_width := _width(font, opponent, NAME_SIZE)
+		var x := (size.x - name_width - NAME_GAP - _width(scores, points, SCORE_SIZE)) / 2.0
+		_write(font, opponent, x, TOP_BASELINE, NAME_SIZE, SettingsPanel.TEXT)
+		_write(scores, points, x + name_width + NAME_GAP, TOP_BASELINE, SCORE_SIZE, SettingsPanel.TEXT)
+		_draw_detail(font, size.x / 2.0, PAD, size.x - PAD)
+
+	# The lower line, centred on `centre` between `low` and `high`.
+	func _draw_detail(font: Font, centre: float, low: float, high: float) -> void:
+		var text_colour := SettingsPanel.TEXT
+		var muted := SettingsPanel.MUTED
 		# Each [words, colour]; a disc is drawn before the first when there is a ball on.
 		var parts: Array[Array] = []
 		if not String(said["on"]).is_empty():
@@ -171,7 +205,7 @@ class Strip extends Control:
 		if int(said["remaining"]) >= 0:
 			parts.append(["Remaining ", muted])
 			parts.append([str(int(said["remaining"])), text_colour])
-		if not String(said["required"]).is_empty():
+		if not String(said.get("required", "")).is_empty():
 			parts.append([String(said["required"]), WARNING])
 		var disc := 2.0 * DISC_RADIUS + WORD_GAP if not on_ball.is_empty() else 0.0
 		var total := disc
@@ -313,9 +347,11 @@ func show_frame(frame: Dictionary, match_state: Dictionary, person: int = 0) -> 
 	if over:
 		said.merge({"break": 0, "remaining": -1, "required": "", "on": "", "turn": ""}, true)
 		on_ball = ""
+	if _strip.exhibition:
+		said = {"break": said["break"], "remaining": said["remaining"], "on": said["on"]}
 	if said == _strip.said and on_ball == _strip.on_ball:
 		return
-	var widened: bool = said["required"] != _strip.said.get("required", "")
+	var widened: bool = said.get("required", "") != _strip.said.get("required", "")
 	_strip.said = said
 	_strip.on_ball = on_ball
 	_strip.queue_redraw()
@@ -333,6 +369,23 @@ func set_opponent_name(opponent: String) -> void:
 	_strip.opponent = opponent
 	_strip.queue_redraw()
 	_fit()
+
+
+## Watch a 147 (on) or a match: the person, who only watches, has no name, score or frames on it,
+## and the strip is the opponent's side alone, centred. What it said is dropped until the next
+## show_frame.
+func set_exhibition(on: bool) -> void:
+	if on == _strip.exhibition:
+		return
+	_strip.exhibition = on
+	_strip.said = {}
+	_strip.on_ball = ""
+	_strip.queue_redraw()
+	_fit()
+
+
+func is_exhibition() -> bool:
+	return _strip.exhibition
 
 
 ## Puts the scoreboard along the top of `area` (canvas units), the frames in the strip's middle
@@ -361,9 +414,13 @@ func pause_button() -> Button:
 ## ("you" | "opponent")}. The numbers are ints: break is 0 when none shows, and a number the frame
 ## or the match did not give is -1 and is left blank; turn is "" when the frame names no striker.
 ## Once the frame is over, break is 0, remaining -1, and required, on and turn are "". {} before
-## any frame.
+## any frame. In an exhibition {name (the opponent's), break (0 before the first pot), on,
+## remaining}.
 func texts() -> Dictionary:
-	return _strip.said.duplicate()
+	var said := _strip.said.duplicate()
+	if _strip.exhibition and not said.is_empty():
+		said["name"] = _strip.opponent
+	return said
 
 
 ## The ball on in words for a frame view: "Red", "Colour" (a colour of choice), the colour's name

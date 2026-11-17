@@ -210,6 +210,8 @@ var _aim_top := 0.0
 var _watch := "cue"
 ## What the controls leave of the canvas (keep_clear), for the view from above.
 var _clear_rect := Rect2()
+## The canvas's safe area (set_safe_area); none set is the whole canvas.
+var _safe := Rect2()
 var _above_warned := false
 var _above_zoom := 1.0
 ## Core metres the view from above has slid off the table's centre.
@@ -311,6 +313,15 @@ func keep_clear(rects: Array[Rect2]) -> void:
 		else:
 			clear_lo.x = maxf(clear_lo.x, grown.end.x)
 	_clear_rect = Rect2(clear_lo, clear_hi - clear_lo)
+	_apply()
+
+
+## The canvas's safe area (canvas units), as the HUD lays itself out in. The view from above stays
+## inside it: keep_clear has nothing along the bottom, where the iPhone's home indicator is.
+func set_safe_area(rect: Rect2) -> void:
+	if rect == _safe:
+		return
+	_safe = rect
 	_apply()
 
 
@@ -748,14 +759,17 @@ func above_pose(zoom: float = 1.0, pan_m := Vector2.ZERO) -> Transform3D:
 	return Transform3D(basis, middle - basis.x * off.x + basis.y * off.y + basis.z * depth)
 
 
-## What the controls leave of the canvas, less ABOVE_MARGIN; the whole canvas when that is too
-## small to show the table.
+## What the controls leave of the safe area, less ABOVE_MARGIN; the whole safe area when that is
+## too small to show the table.
 func _above_area() -> Rect2:
 	var canvas := _canvas()
-	var whole := Rect2(Vector2.ZERO, canvas).grow(-ABOVE_MARGIN)
+	var safe := Rect2(Vector2.ZERO, canvas)
+	if safe.intersection(_safe).has_area():
+		safe = safe.intersection(_safe)
+	var whole := safe.grow(-ABOVE_MARGIN)
 	if _keep_clear.is_empty():
 		return whole
-	var area := _clear_rect.grow(-ABOVE_MARGIN)
+	var area := _clear_rect.intersection(safe).grow(-ABOVE_MARGIN)
 	if area.size.x < canvas.x * MIN_FIT_SCALE or area.size.y < canvas.y * MIN_FIT_SCALE:
 		if not _above_warned:
 			_above_warned = true

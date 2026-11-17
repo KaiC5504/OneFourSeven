@@ -1148,8 +1148,9 @@ func test_a_level_plays_the_opponents_strokes() -> void:
 	check_eq(_names(), ["table_changed:frame", "frame_changed", "opponent_thinking", "turn_started"],
 			"the level starts thinking as the turn is announced")
 	var think := _last_call(e, "opponent_think")
-	check(think[1] == "beginner" and think[2] is int and (think[3] as Dictionary).has("shot_id") and think[4] == {},
-			"opponent_think(level, seed, {shot_id}, {}): %s" % [think])
+	check(think[1] == "beginner" and think[2] is int and (think[3] as Dictionary).has("shot_id")
+			and think[4] == {"max_ms": OpponentDriver.LEVEL_MAX_MS},
+			"opponent_think(level, seed, {shot_id}, {max_ms}): %s" % [think])
 	_events.clear()
 	await _frames(6)
 	check_eq(_names(), ["opponent_thinking", "opponent_ready"], "thinking stops and its stroke arrives")
@@ -1438,6 +1439,82 @@ func test_exhibition_never_waits_for_the_person() -> void:
 	check_eq(_errors_with("before the opponent struck").size(), 1, "which is logged")
 	check_eq(_logged("exhibition.ended").size(), 1, "exhibition.ended")
 	c.free()
+
+
+func test_conceding_or_claiming_while_a_level_thinks_cancels_it_saying_which() -> void:
+	for case: Array in [["concede_frame", "conceded"], ["concede_match", "conceded"], ["claim_frame", "claimed"]]:
+		var kind: String = case[0]
+		var e := _engine(_turn(1, {"options": [[kind], []]}))
+		e.opponent_shots.append(_level_shot())
+		e.think_polls = 100
+		var c := _controller(e)
+		c.start(_with(CONFIG, {"level": "beginner"}))
+		check(c.harness_state()["thinking"], "%s: the level thinks" % kind)
+		e.decisions.append(_decided(_turn(1, {"over": true}), [], "frame_ended"))
+		check(c.call(kind), "%s taken" % kind)
+		check_eq(_last_call(e, "opponent_cancel"), ["opponent_cancel", case[1]], "%s: the thinking dropped as %s" % [kind, case[1]])
+		check_eq(_count(e, "opponent_cancel"), 1, "%s: once" % kind)
+		c.free()
+
+	# Refused all the same: the opponent is asked again, or it would never play.
+	var e := _engine(_turn(1, {"options": [["concede_frame"], []]}))
+	e.opponent_shots.append(_level_shot())
+	e.think_polls = 100
+	var c := _controller(e)
+	c.start(_with(CONFIG, {"level": "beginner"}))
+	check(not c.concede_frame(), "the engine refuses the concession")
+	check_eq(_count(e, "opponent_think"), 2, "the level is asked again")
+	check(c.harness_state()["thinking"] and c.waiting() == "opponent", "and thinks on")
+	c.free()
+
+
+func test_an_exhibition_offers_nothing_to_concede_or_claim() -> void:
+	var e := _engine(_turn(1, {"options": [["concede_frame", "concede_match", "claim_frame"], []]}))
+	e.opponent_shots.append(_level_shot("maximum"))
+	e.think_polls = 100
+	var c := _controller(e)
+	c.start({"exhibition": 0, "level": "maximum"})
+	_mark_log()
+	for kind: String in MatchController.PAUSE_DECISIONS:
+		check(not c.open_to_person(kind), "%s is not open" % kind)
+		check(not c.call(kind), "%s is refused" % kind)
+	check_eq(_count(e, "decide"), 0, "the engine is not asked")
+	check_eq(_count(e, "opponent_cancel"), 0, "the 147 thinks on")
+	var refused := _logged("match.refused")
+	check_eq(refused.size(), 3, "each refusal logged")
+	for line in refused:
+		check(String(line["why"]).contains("only watches"), "saying why: %s" % [line])
+	check_eq(_errors_with("").size(), 0, "with no app.error")
+	check(c.is_exhibition() and c.is_active(), "the exhibition goes on")
+	c.free()
+
+
+func test_the_judged_break_outlasts_the_frame_an_exhibition_clears() -> void:
+	var e := _engine(_turn(1, {"break_points": 140}))
+	e.opponent_shots.append(_level_shot("maximum"))
+	var c := _controller(e)
+	c.start({"exhibition": 0, "level": "maximum"})
+	await _frames(2)
+	check_eq(c.judged_break(), 0, "nothing judged yet")
+	c.shot_started("s-36")
+	var over := _turn(1, {"over": true, "winner": 1, "end_reason": "black", "break_points": 147, "stats": _stats(147),
+			"strokes": 36})
+	e.match_view["over"] = true
+	e.judgements.append(_judged(over, _legal(), {"event": "match_ended"}))
+	c.shot_finished(null)
+	check_eq(c.frame(), {}, "the exhibition has ended and its frame is gone")
+	check_eq(c.judged_break(), 147, "the break as judged stays")
+	c.free()
+
+	var m := _started(_engine(_turn(0, {"break_points": 0})))
+	m.shot_started("s-1")
+	(m.engine as ScriptedEngine).judgements.append(_judged(_turn(0, {"break_points": 7}), _legal()))
+	m.shot_finished(null)
+	check_eq(m.judged_break(), 7, "a match's is the frame's")
+	m.shot_started("s-2")
+	m.shot_finished(null)
+	check_eq(m.judged_break(), 7, "a refused judgement leaves the frame's as it was")
+	m.free()
 
 
 ## The exhibition has ended and logged so, the match left.

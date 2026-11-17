@@ -13,8 +13,9 @@ func test_a_level_thinks_at_once_and_waits_out_the_pause() -> void:
 	var driver := _driver()
 	driver.request_shot(e, 1, 0.3, "beginner")
 	var think := _last_call(e, "opponent_think")
-	check(think.size() == 5 and think[1] == "beginner" and think[2] is int and think[4] == {},
-			"opponent_think(level, seed, context, {}) in the same call: %s" % [think])
+	check(think.size() == 5 and think[1] == "beginner" and think[2] is int,
+			"opponent_think(level, seed, context, budget) in the same call: %s" % [think])
+	check_eq(think[4], {"max_ms": 800.0}, "a clock of 800 ms, spec 10.6's 1.5 s with room for the cue's show")
 	check_eq(think[2], driver.last_seed, "with the seed kept for the logs")
 	check(String((think[3] as Dictionary).get("shot_id", "")).begins_with(Log.session()), "and a shot id of this session")
 	check(driver.is_thinking() and driver.is_waiting(), "thinking")
@@ -129,10 +130,31 @@ func test_cancel_stops_the_thinking() -> void:
 	driver.request_shot(e, 1, 0.0, "beginner")
 	driver.request_choice(e, 1, 0.0, "beginner")
 	check_eq(e.called().count("opponent_cancel"), 2, "a later request drops the thinking")
+	check_eq(_last_call(e, "opponent_cancel"), ["opponent_cancel", "replaced"], "as replaced")
 	check_eq(_thinking, [true, false] as Array[bool], "and says so")
 	await _frames(2)
 	check_eq(_shots.size(), 0, "the dropped stroke never comes")
 	check_eq(_choices.size(), 1, "the choice does")
+	driver.free()
+
+
+func test_cancel_passes_its_reason_to_the_engine() -> void:
+	var e := _engine()
+	var driver := _driver()
+	for why: String in OpponentDriver.CANCEL_WHYS:
+		e.opponent_shots.append(_level_shot())
+		driver.request_shot(e, 1, 0.0, "beginner")
+		driver.cancel(why)
+		check_eq(_last_call(e, "opponent_cancel"), ["opponent_cancel", why], "\"%s\" passed through" % why)
+	e.opponent_shots.append(_level_shot())
+	driver.request_shot(e, 1, 0.0, "beginner")
+	OfsLog.flush()
+	var start := FileAccess.get_file_as_bytes(OfsLog.file_path()).size()
+	driver.cancel("bored")
+	check_eq(_last_call(e, "opponent_cancel"), ["opponent_cancel", "left"], "an unknown reason is told as left")
+	OfsLog.flush()
+	var text := FileAccess.get_file_as_bytes(OfsLog.file_path()).slice(start).get_string_from_utf8()
+	check(text.contains("app.error") and text.contains("cancel(\\\"bored\\\")"), "and logged: %s" % text)
 	driver.free()
 
 
