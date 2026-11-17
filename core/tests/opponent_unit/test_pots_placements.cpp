@@ -108,8 +108,6 @@ TEST_CASE("cue_placements: never empty, every place legal, the listed one first,
 
 TEST_CASE("open_reds: every red on the exhibition table, few in a fresh rack") {
     const rules::FrameState exhibition = exhibition_frame(rig::levels().exhibitions[0], 0, 1);
-    // "open 1" as laid on 2026-11-17 has its red 4, at (1.2, 0), shut in: reds 5 and 6 cover the
-    // top corners, reds 0 and 1 the middles, reds 11 and 12 the bottom corners.
     const int open_now = open_reds(exhibition, rig::env());
     MESSAGE("open reds on " << rig::levels().exhibitions[0].name << ": " << open_now);
     CHECK(open_now >= 14);

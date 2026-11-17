@@ -79,7 +79,7 @@ TEST_CASE("a layout with a ball missing or two balls overlapping is refused") {
     std::vector<Exhibition> out;
     std::vector<std::string> problems;
     CHECK_FALSE(load_exhibitions(short_one, out, problems));
-    CHECK(out.empty());
+    CHECK(out.size() == file["layouts"].size() - 1);
 
     nlohmann::json stacked = file;
     stacked["layouts"][0]["balls"][1]["x"] = stacked["layouts"][0]["balls"][2]["x"];
