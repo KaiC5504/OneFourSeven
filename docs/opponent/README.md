@@ -140,7 +140,8 @@ What can be seen from outside, and so tested:
 - **A claim** (`claim_frame` open to the striker, which the rules offer only with the black alone
   left) is taken in place of a stroke by Beginner. The 147
   never claims while it has a pot of the ball on, the maximum on or gone: it plays for the
-  break, to the last black. With no pot it takes the claim. No level concedes in stage 1.
+  break, to the last black. With the maximum gone and no pot it takes the claim; with the
+  maximum on and no pot it plays the stand-in's stroke and waits. No level concedes in stage 1.
 
 ## Choices (`decide.cpp`, spec 10.4)
 
@@ -180,7 +181,7 @@ A stroke: `level`; `kind` (`pot`, `safety`, `escape`, `break`); `target` (`red 3
 chose by); `spec` (`speed_m_s`, `tip_x`, `tip_y`, `elevation_rad` as meant); `leave` (`cue`:
 `[x, y]` where the cue ball stops as simulated, `next`: the ball it leaves itself on, `chance`:
 that pot's); `plan` (the strokes planned after this one: `target`, `pocket`); `others` (up to
-three next best: `target`, `pocket`, `worth`); `drawn` (`aim_rad`, `speed`, `tip_x`, `tip_y`);
+three next best: `target`, `pocket`, `worth`, `chance`); `drawn` (`aim_rad`, `speed`, `tip_x`, `tip_y`);
 `maximum` (`on`, `off`, `gone`). For a safety, escape or break-off the stand-in's `why`
 (`standin.hpp`) with `level`, `drawn` and `maximum` added, and for a level with error `listed`
 (the pots it had), `pots` and `declined`. A claim or concession: `level`, `kind`.
@@ -195,7 +196,8 @@ three next best: `target`, `pocket`, `worth`); `drawn` (`aim_rad`, `speed`, `tip
   index: best of 1 from that table, the opponent at the table, the person only watching). New:
   `levels()`, `level()`, `level_name()`, `is_exhibition()`, `signal opponent_thinking(on: bool)`,
   `signal exhibition_ended(result: Dictionary)` (`break_points`, `maximum`, `why`). The stroke
-  handed to `opponent_ready` gains `level`, `meant` and `think`. `harness_state()` gains `level`,
+  handed to `opponent_ready` gains `level`, `meant` and `think` (and `params_changed`, which
+  nothing in the game reads). `harness_state()` gains `level`,
   `exhibition` and `thinking`. Autoplay for the person stays the stand-in.
 - `OpponentDriver.request_shot(engine, player, seconds, level := "")` and `request_choice(...,
   level := "")`: with a level it calls `opponent_think` and polls `opponent_take` each frame,

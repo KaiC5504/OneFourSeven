@@ -158,6 +158,25 @@ func test_cancel_passes_its_reason_to_the_engine() -> void:
 	driver.free()
 
 
+func test_a_stroke_taken_and_then_dropped_is_logged_as_cancelled() -> void:
+	var e := _engine()
+	e.opponent_shots.append(_level_shot())
+	var driver := _driver()
+	driver.request_shot(e, 1, 5.0, "beginner")
+	await _frames(3)
+	check_eq(e.called().count("opponent_take"), 1, "taken, and held for the pause")
+	check_eq(_shots.size(), 0, "not handed over")
+	OfsLog.flush()
+	var start := FileAccess.get_file_as_bytes(OfsLog.file_path()).size()
+	driver.cancel("conceded")
+	OfsLog.flush()
+	var text := FileAccess.get_file_as_bytes(OfsLog.file_path()).slice(start).get_string_from_utf8()
+	check(text.contains("opponent.cancelled") and text.contains("\"why\":\"conceded\"")
+			and text.contains("\"level\":\"beginner\""), "logged by the driver: %s" % text)
+	check(not driver.is_thinking(), "no longer thinking")
+	driver.free()
+
+
 func test_the_pause_menu_holds_the_answer() -> void:
 	var e := _engine()
 	e.opponent_shots.append(_level_shot())

@@ -19,7 +19,7 @@ signal thinking_changed(on: bool)
 ## the cue's stand and feather on the line (OpponentShow) take the rest.
 const LEVEL_MAX_MS := 800.0
 ## Why thinking was dropped, as opponent.cancelled's "why" names it.
-const CANCEL_WHYS: Array[String] = ["left", "conceded", "claimed", "replaced", "paused"]
+const CANCEL_WHYS: Array[String] = ["left", "conceded", "claimed", "replaced"]
 
 ## The seed of the last request sent to the engine: a refusal is logged with it.
 var last_seed := 0
@@ -83,6 +83,11 @@ func cancel(why := "left") -> void:
 						"OpponentDriver: cancel(\"%s\") is not one of %s; the engine is told \"left\"" % [why, CANCEL_WHYS]})
 				why = "left"
 			engine.opponent_cancel(why)
+			# Already taken, the stroke is no longer the engine's to cancel: without this line its
+			# logged decision would read as one that was played.
+			if bool(_answer.get("ok", false)):
+				Log.info("opponent", "opponent.cancelled", {"level": _level, "why": why, "player": _player,
+						"seed": str(last_seed), "shot_id": _shot_id})
 		thinking_changed.emit(false)
 
 

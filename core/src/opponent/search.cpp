@@ -322,10 +322,10 @@ bool judged(const Bench& b, const FrameState& s, const Pot& pot, const phys::Cue
 }
 
 // The lowest the cue may lie for this aim and these tip offsets. The physics raises a stroke to
-// the minimum for its tip offsets (cue.hpp) and the game draws the cue there; the centre-ball
-// minimum, which a screw shot can be under and a stroke with top over, is what ofs_sim_cli
-// tournament checks a stroke against. Never under either, the stroke simulated is the stroke
-// played and logged.
+// the minimum for its tip offsets (cue.hpp), the game draws the cue there and ofs_sim_cli
+// tournament checks a stroke against it; a screw shot can be under the centre-ball minimum and
+// a stroke with top over it. Never under either, the stroke simulated is the stroke played and
+// logged.
 double lowest_cue(const phys::TableState& table, int cue_ball, double aim_rad, double tip_x, double tip_y,
                   const Env& env) {
     phys::CueStrike c;

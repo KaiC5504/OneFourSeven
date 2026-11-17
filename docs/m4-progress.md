@@ -133,3 +133,14 @@ finger, the picker and the view button against the screen's edges, heat over a l
   median to the next ball); frames against Beginner run about 100 strokes with about 3 "foul and
   a miss" calls, because its escapes fail half the time.
 - Owner, 2026-11-18: Watch a 147 gets about fifty proven tables instead of eight.
+- 2026-11-18: fix round merged (core, binding, game, tools), seams joined, fifty exhibition tables
+  proven with the fixed search. The 147 now reaches two strokes ahead on 3,566 of 7,583 decisions
+  (883 before); its pots above 4 m/s fell from 7.7% to 4.4%; Beginner's median pot pace from
+  2.72 to 1.94 m/s. Seam review: no high or medium finding; 1,952 decisions made again and
+  re-judged with no difference. Second Windows run: every fix confirmed; a stroke taken and then
+  dropped by a quit or concession is now logged as cancelled by the driver.
+- KaiC's first session (build 2611180251, 32 minutes, logs/2026-11-17/20261117-155154-de7468):
+  a watched 147, three frames won against Beginner, a 147 by the opponent in a match. Build
+  2611180409 with the fix round went to the phone at 04:09.
+- Left from the second Windows run, harness only: in an exhibition a refused concession still
+  lists the options as offered; `dump_state` at the exhibition summary has break 0.
