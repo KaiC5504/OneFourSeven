@@ -121,7 +121,8 @@ three next best: `target`, `pocket`, `worth`); `drawn` (`aim_rad`, `speed`, `tip
 - `OfsMatch` (`gdext/src/ofs_match.h`): `configure_opponent`, `levels`, `exhibitions`,
   `opponent_think` (a worker thread), `opponent_thinking`, `opponent_take`, `opponent_cancel`,
   `opponent_choice`; `start`'s config takes `level` and `exhibition`.
-- `MatchController.start(config)`: `level` (a level id, default `beginner`) and `exhibition` (an
+- `MatchController.start(config)`: `level` (a level id; absent or `""` is the stand-in, as the
+  tests and autoplay use it; the setup screen always gives one) and `exhibition` (an
   index: best of 1 from that table, the opponent at the table, the person only watching). New:
   `levels()`, `level()`, `level_name()`, `is_exhibition()`, `signal opponent_thinking(on: bool)`,
   `signal exhibition_ended(result: Dictionary)` (`break_points`, `maximum`, `why`). The stroke
