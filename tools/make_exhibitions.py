@@ -10,10 +10,12 @@ Candidates come from --seed, the same ones every time: fifteen reds opened from 
 them loosely about the pink and the black, a few out towards the middle; the colours on their
 spots; the cue ball on an easy first red that leaves the black. They are played in batches by
 `ofs_sim_cli tournament --a maximum --frames 0 --exhibitions` (--cli PATH, else OFS_SIM_CLI, else
-the Release build in build/windows-physics) and the first --count that make 147 are written as
-"Open table 1" onwards. Every written file is played once more as written, since a table's place
-in the file seeds its frame. --picture DIR draws each table of the file, top down, as DIR/<n>.png
-(needs Pillow). Exit 0 when every table makes 147, 1 when one does not, 2 when the tool cannot run.
+the Release build in build/windows-physics) and the first --count (default 50) that make 147 are
+written as "Open table 1" onwards. Every written file is played once more as written, since a
+table's place in the file seeds its frame. --check prints the tables that fail and a count, a
+search a count per batch; --verbose prints every table played. --picture DIR draws each table of the file, top down, as
+DIR/<n>.png (needs Pillow). Exit 0 when every table makes 147, 1 when one does not, 2 when the tool
+cannot run.
 """
 import argparse
 import collections
@@ -39,7 +41,8 @@ NOTE = ("Tables laid out for the 147 to play a maximum from (spec 10.1). Each ba
 COLOURS = ("yellow", "green", "brown", "blue", "pink", "black")
 COLOUR_ORDER = (("yellow", 120), ("green", 122), ("brown", 125), ("blue", 129), ("pink", 134), ("black", 140))
 
-# Pots along a cushion are not the 147's yet, so no red goes this near a cushion nose.
+# No red this near a cushion nose: the tables should look like an opened pack, and none should
+# hang on the hardest pot there is, one along a cushion.
 CUSHION_CLEAR_M = 0.15
 GAP_M = 0.015
 SPOT_CLEAR_RADII = 2.5
@@ -120,8 +123,6 @@ def cut_angle(cue, target, pocket, table):
     v = unit(cue, ghost)
     return math.acos(max(-1.0, min(1.0, v[0] * u[0] + v[1] * u[1]))), ghost
 
-
-# --- generating ---
 
 def red_problem(p, reds, table):
     """Why a red may not go at p; None when it may."""
@@ -269,8 +270,6 @@ def renamed(layouts):
     return [dict(lay, name=f"Open table {i + 1}") for i, lay in enumerate(layouts)]
 
 
-# --- proving ---
-
 def cli_path(given):
     path = pathlib.Path(given or os.environ.get("OFS_SIM_CLI") or DEFAULT_CLI)
     if not path.is_file():
@@ -352,7 +351,7 @@ def play(cli, layouts, threads):
     return results(report, lines, layouts)
 
 
-def find(cli, table, seed, wanted, start, batch, limit, threads, tally):
+def find(cli, table, seed, wanted, start, batch, limit, threads, tally, verbose=False):
     """`wanted` proven layouts from seed's candidates, starting at number `start`."""
     proven = []
     number = start
@@ -360,22 +359,32 @@ def find(cli, table, seed, wanted, start, batch, limit, threads, tally):
         if number - start >= limit:
             raise ToolError(f"{limit} candidates gave {len(proven)} of {wanted} tables")
         layouts = []
-        while len(layouts) < batch:
+        while len(layouts) < batch and number - start < limit:
             lay = candidate(seed, number, table)
             number += 1
             if lay is not None:
                 layouts.append(lay)
+        if not layouts:
+            continue
+        made = 0
         for lay, points, strokes, ok, why in play(cli, layouts, threads):
             tally["played"] += 1
-            print(f"  {lay['name']:<22} break {points:3d} in {strokes:2d} strokes  {'147' if ok else why}")
+            if verbose:
+                print(f"  {lay['name']:<22} break {points:3d} in {strokes:2d} strokes  {'147' if ok else why}")
             if ok:
+                made += 1
                 tally["made"] += 1
                 if len(proven) < wanted:
                     proven.append(lay)
             else:
                 tally["died"][why.split(",")[0] + f" (break {points})"] += 1
+        print(f"  {made} of {len(layouts)} candidates made 147; {len(proven)} of {wanted} tables")
         sys.stdout.flush()
     return proven, number
+
+
+def limit_for(args, wanted):
+    return args.limit if args.limit is not None else max(400, 25 * wanted)
 
 
 def verify_and_fill(cli, table, layouts, args, start, tally):
@@ -388,13 +397,11 @@ def verify_and_fill(cli, table, layouts, args, start, tally):
         if len(keep) == len(layouts):
             return layouts
         print(f"{len(layouts) - len(keep)} table(s) did not make 147 in their place in the file; replacing")
-        more, number = find(cli, table, args.seed, len(layouts) - len(keep), number, args.batch, args.limit,
-                            args.threads, tally)
+        more, number = find(cli, table, args.seed, len(layouts) - len(keep), number, args.batch,
+                            limit_for(args, len(layouts) - len(keep)), args.threads, tally, args.verbose)
         layouts = keep + more
     raise ToolError("the file's tables would not all make 147 in place")
 
-
-# --- pictures ---
 
 def draw(lay, table, path, scale=400):
     from PIL import Image, ImageDraw
@@ -438,8 +445,6 @@ def pictures(layouts, table, folder):
     print(f"pictures of {len(layouts)} tables in {folder}")
 
 
-# --- the commands ---
-
 def load(path):
     try:
         data = json.loads(pathlib.Path(path).read_text(encoding="utf-8"))
@@ -451,11 +456,13 @@ def load(path):
     return layouts
 
 
-def check(cli, layouts, threads):
+def check(cli, layouts, threads, verbose=False):
+    """Plays the tables: a line for each that fails (each table with `verbose`), then the count."""
     started = time.monotonic()
     played = play(cli, layouts, threads)
     for lay, points, strokes, ok, why in played:
-        print(f"{lay['name']:<22} break {points:3d} in {strokes:2d} strokes  {'147' if ok else 'NOT 147: ' + why}")
+        if verbose or not ok:
+            print(f"{lay['name']:<22} break {points:3d} in {strokes:2d} strokes  {'147' if ok else 'NOT 147: ' + why}")
     bad = sum(1 for p in played if not p[3])
     print(f"{len(played) - bad} of {len(played)} tables make 147 ({time.monotonic() - started:.1f} s)")
     return played
@@ -467,22 +474,26 @@ def main(argv=None):
     mode.add_argument("--check", action="store_true", help="play the file's tables; exit 1 unless each makes 147")
     mode.add_argument("--replace-failing", action="store_true", help="keep the tables that make 147, replace the rest")
     parser.add_argument("--file", default=str(EXHIBITIONS), help="the exhibitions file (default core/data's)")
-    parser.add_argument("--count", type=int, default=8, help="tables to write (default 8)")
+    parser.add_argument("--count", type=int, default=50, help="tables to write (default 50)")
     parser.add_argument("--seed", type=int, default=1, help="candidates come from this seed (default 1)")
     parser.add_argument("--start", type=int, default=0, help="the first candidate's number (default 0)")
     parser.add_argument("--batch", type=int, default=12, help="candidates played per run (default 12)")
-    parser.add_argument("--limit", type=int, default=400, help="give up after this many candidates (default 400)")
+    parser.add_argument("--limit", type=int, help="give up after this many candidates (default 25 per table "
+                                                  "wanted, at least 400)")
     parser.add_argument("--threads", type=int, default=4, help="ofs_sim_cli threads, at most 4 (default 4)")
     parser.add_argument("--cli", help="ofs_sim_cli (default OFS_SIM_CLI, else the Release build)")
     parser.add_argument("--picture", metavar="DIR", help="draw each table of the file into DIR")
+    parser.add_argument("--verbose", action="store_true", help="a line for every table played, not only the failing")
     args = parser.parse_args(argv)
     args.threads = max(1, min(4, args.threads))
+    if args.count < 1 or args.batch < 1 or (args.limit is not None and args.limit < 1):
+        parser.error("--count, --batch and --limit must be at least 1")
 
     try:
         table = Table()
         if args.check:
             layouts = load(args.file)
-            played = check(cli_path(args.cli), layouts, args.threads)
+            played = check(cli_path(args.cli), layouts, args.threads, args.verbose)
             if args.picture:
                 pictures(layouts, table, args.picture)
             return 0 if all(p[3] for p in played) else 1
@@ -492,12 +503,12 @@ def main(argv=None):
         started = time.monotonic()
         if args.replace_failing:
             layouts = load(args.file)
-            keep = [lay for lay, _, _, ok, _ in check(cli, layouts, args.threads) if ok]
+            keep = [lay for lay, _, _, ok, _ in check(cli, layouts, args.threads, args.verbose) if ok]
             wanted = len(layouts) - len(keep)
         else:
             keep, wanted = [], args.count
-        more, number = find(cli, table, args.seed, wanted, args.start, args.batch, args.limit, args.threads, tally) \
-            if wanted else ([], args.start)
+        more, number = find(cli, table, args.seed, wanted, args.start, args.batch, limit_for(args, wanted),
+                            args.threads, tally, args.verbose) if wanted else ([], args.start)
         layouts = verify_and_fill(cli, table, keep + more, args, number, tally)
         for lay in layouts:
             wrong = problems(lay, table)

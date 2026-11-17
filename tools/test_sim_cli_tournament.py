@@ -158,12 +158,41 @@ class TournamentTest(TournamentCase):
                     self.assertRegex(result.stdout, rf"exhibition {e['name']}\s+break\s+{e['break_points']} ")
                 self.assertIsNone(report["b"])
 
+    def test_an_exhibition_stopped_by_a_failure_ends_failed_in_the_log(self):
+        layouts = json.loads(EXHIBITIONS.read_text(encoding="utf-8"))["layouts"]
+        tables = self.tmp / "one.json"
+        tables.write_text(json.dumps({"schema_version": 1, "layouts": layouts[:1]}), encoding="utf-8")
+        log = self.tmp / "x.jsonl"
+        result = run("tournament", "--a", "maximum", "--frames", 0, "--exhibitions", "--exhibitions-file", tables,
+                     "--max-strokes", 1, "--out", self.tmp / "failures", "--report", self.tmp / "x.json", "--log", log,
+                     timeout=120)
+        self.assert_exit(result, 1)
+        report = json.loads((self.tmp / "x.json").read_text(encoding="utf-8"))
+        self.assertEqual([f["kind"] for f in report["failures"]], ["max_strokes"])
+        self.assertEqual(report["failures"][0]["where"], "exhibition " + layouts[0]["name"])
+        lines = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
+        ended = [line["data"] for line in lines if line["event"] == "exhibition.ended"]
+        self.assertEqual(len(ended), 1)
+        self.assertEqual(ended[0]["why"], "failed")
+        self.assertEqual(ended[0]["break_points"], report["exhibitions"][0]["break_points"])
+        configured = next(line["data"] for line in lines if line["event"] == "rules.configured")
+        self.assertEqual(configured["exhibitions"], [layouts[0]["name"]])
+        self.assertEqual([level["id"] for level in configured["levels"]], ["maximum"])
+        self.assertEqual(check_logs.check_file(log, check_logs.load_schema())[1], [])
+
     def test_the_log_passes_the_schema_the_referee_and_the_opponent(self):
         count, bad = check_logs.check_file(self.log, check_logs.load_schema())
         self.assertEqual(bad, [])
         self.assertEqual(count, len(self.lines))
         events = [line["event"] for line in self.lines]
-        self.assertEqual(events[:3], ["params.loaded"] * 3)
+        self.assertEqual(events[:4], ["params.loaded"] * 3 + ["rules.configured"])
+        configured = self.lines[3]["data"]
+        self.assertTrue(configured["ok"])
+        self.assertEqual(configured["problems"], [])
+        self.assertEqual(configured["levels"],
+                         [dict(self.report["levels"]["a"], hash=self.report["level_hashes"]["a"])])
+        self.assertEqual(configured["standin"], json.loads((DATA / "standin_params.json").read_text())["values"])
+        self.assertEqual(configured["params_hash"], self.report["params_hash"])
         for event in ("match.started", "match.ended", "frame.ended"):
             self.assertEqual(events.count(event), 6, event)
         decisions = [line["data"] for line in self.lines if line["event"] == "opponent.decision"]
@@ -172,6 +201,7 @@ class TournamentTest(TournamentCase):
         for d in decisions:
             self.assertEqual(d["level"], "beginner")
             self.assertRegex(d["seed"], r"^\d+$")
+            self.assertRegex(d["pre_hash"], r"^[0-9a-f]+$")
             if d["kind"] == "shot":
                 self.assertIn("meant", d)
                 self.assertEqual(set(d["think"]), {"candidates", "sims", "steps", "depth", "stopped", "ms"})

@@ -159,7 +159,7 @@ struct Tally {
 struct Failure {
     std::string kind;
     std::string detail;
-    std::string where;  // "frame 12" or "exhibition open 1"
+    std::string where;  // "frame 12" or "exhibition Open table 1"
     std::string name;   // the repro file's name
     int stroke = 0;
     int player = 0;
@@ -433,8 +433,9 @@ int band_index(const json& why) {
 }
 
 json think_json(const opponent::Stroke& st, double us) {
-    return {{"candidates", st.candidates}, {"sims", st.sims},     {"steps", st.steps},
-            {"depth", st.depth},           {"stopped", st.stopped}, {"ms", us / 1000.0}};
+    json think = {{"candidates", st.candidates}, {"sims", st.sims},     {"steps", st.steps},
+                  {"depth", st.depth},           {"stopped", st.stopped}, {"ms", us / 1000.0}};
+    return think;
 }
 
 // One stroke or choice, kept so a failure can be written out whole.
@@ -480,7 +481,20 @@ public:
             }
         } catch (const std::exception& e) {
             // The engine and the opponent promise never to throw.
-            fail("exception", e.what(), Step{});
+            Step step;
+            step.before = m_.frame;
+            step.seed = current_seed_;
+            step.decision.player = current_player_;
+            ofs::log::error("app", "app.error",
+                            {{"kind", "exception"},
+                             {"message", e.what()},
+                             {"function", "tournament"},
+                             {"match_id", match_id_},
+                             {"frame", m_.frame_number},
+                             {"level", side(current_player_).level.id},
+                             {"seed", std::to_string(current_seed_)}});
+            fail("exception", e.what(), step);
+            if (exhibition_ && !exhibition_ended_) end_exhibition(false);
         }
         t_capture = nullptr;
         out_.lines = std::move(capture_.lines);
@@ -539,22 +553,26 @@ private:
             const rules::ScopedLogContext scope(context(false));
             ok = stroke();
         }
-        if (!break_over_) {
-            exhibition_break_ = m_.frame.break_points;
+        end_exhibition(ok);
+    }
+
+    // A failure that stopped the break ends it as "failed", whatever ended the break before it.
+    void end_exhibition(bool ok) {
+        exhibition_ended_ = true;
+        if (!ok) {
+            if (!break_over_) exhibition_break_ = m_.frame.break_points;
             exhibition_why_ = "failed";
         }
-        out_.entry = {{"name", layout.name},
+        out_.entry = {{"name", run_.exhibitions[static_cast<std::size_t>(job_ - run_.frames)].name},
                       {"break_points", exhibition_break_},
                       {"maximum", exhibition_break_ >= 147},
                       {"strokes", frame_strokes_}};
-        if (exhibition_why_ != "failed") {
-            ofs::log::info("match", "exhibition.ended",
-                           {{"break_points", exhibition_break_},
-                            {"maximum", exhibition_break_ >= 147},
-                            {"why", exhibition_why_},
-                            {"strokes", frame_strokes_},
-                            {"match_id", match_id_}});
-        }
+        ofs::log::info("match", "exhibition.ended",
+                       {{"break_points", exhibition_break_},
+                        {"maximum", exhibition_break_ >= 147},
+                        {"why", exhibition_why_},
+                        {"strokes", frame_strokes_},
+                        {"match_id", match_id_}});
     }
 
     json rack_context() const {
@@ -563,9 +581,10 @@ private:
         return c;
     }
 
-    void log_choice_made(int player, const std::vector<DecisionKind>& open, DecisionKind kind, std::uint64_t seed,
+    // The line logged, to log again with its error if the engine will not take it; null when no log is kept.
+    json log_choice_made(int player, const std::vector<DecisionKind>& open, DecisionKind kind, std::uint64_t seed,
                          const json& why, double us, const opponent::Stroke* from_stroke) {
-        if (!capture_.keep) return;
+        if (!capture_.keep) return json();
         json names = json::array();
         for (DecisionKind k : open) names.push_back(json(rules::decision_name(k)));
         json line = {{"kind", "choice"},
@@ -575,10 +594,20 @@ private:
                      {"choice", rules::decision_name(kind)},
                      {"options", names},
                      {"why", why.is_object() ? why : json::object()},
-                     {"us", us}};
+                     {"us", us},
+                     {"pre_hash", rules::frame_hash(m_.frame)}};
         if (from_stroke != nullptr) line["think"] = think_json(*from_stroke, us);
         line.update(context(false));
-        ofs::log::info("opponent", "opponent.decision", std::move(line));
+        ofs::log::info("opponent", "opponent.decision", line);
+        return line;
+    }
+
+    // As the game logs a decision it would not play: again, at warn, with why and the frame.
+    void log_refused(json line, const std::string& error, const FrameState& before) {
+        if (line.is_null()) return;
+        line["error"] = error;
+        line["pre"] = rules::frame_json(before);
+        ofs::log::warn("opponent", "opponent.decision", std::move(line));
     }
 
     // Writes nothing yet: the first failures in frame order are written when the frame is merged.
@@ -712,17 +741,21 @@ private:
         const std::vector<DecisionKind> open = rules::options(m_.frame, player);
         if (open.empty()) return fail("options", "a decision is pending and its decider is offered nothing", step);
         step.seed = next_seed();
+        current_seed_ = step.seed;
+        current_player_ = player;
         ofs::Rng rng(step.seed);
         json why;
         const auto t0 = Clock::now();
         const DecisionKind kind =
             opponent::choose_option(m_.frame, player, open, side(player).level, env(), rng, &why);
-        log_choice_made(player, open, kind, step.seed, why, microseconds_since(t0), nullptr);
+        const json decided = log_choice_made(player, open, kind, step.seed, why, microseconds_since(t0), nullptr);
         in_visit_ = false;
         visit_on_ = false;
         if (!listed(open, kind)) {
-            return fail("opponent", "it chose " + std::string(rules::decision_name(kind)) + ", which was not offered",
-                        step);
+            const std::string refused =
+                "it chose " + std::string(rules::decision_name(kind)) + ", which was not offered";
+            log_refused(decided, refused, step.before);
+            return fail("opponent", refused, step);
         }
         return choose(step, player, kind);
     }
@@ -786,6 +819,8 @@ private:
         Tally& mine = stats(player);
 
         step.seed = next_seed();
+        current_seed_ = step.seed;
+        current_player_ = player;
         ofs::Rng rng(step.seed);
         opponent::Think think;
         think.max_ms = run_.max_ms;
@@ -805,13 +840,14 @@ private:
             step.is_stroke = false;
             step.decision.player = player;
             const std::vector<DecisionKind> open = rules::options(m_.frame, player);
-            log_choice_made(player, open, st.decision, step.seed, st.why, us, &st);
+            const json decided = log_choice_made(player, open, st.decision, step.seed, st.why, us, &st);
             end_break(player, m_.frame.break_points);
-            if (exhibition_) exhibition_why_ = "left";
+            if (exhibition_) exhibition_why_ = st.decision == DecisionKind::claim_frame ? "claimed" : "conceded";
             if (!listed(open, st.decision)) {
-                return fail("opponent",
-                            "it chose " + std::string(rules::decision_name(st.decision)) + ", which was not offered",
-                            step);
+                const std::string refused =
+                    "it chose " + std::string(rules::decision_name(st.decision)) + ", which was not offered";
+                log_refused(decided, refused, step.before);
+                return fail("opponent", refused, step);
             }
             return choose(step, player, st.decision);
         }
@@ -819,6 +855,7 @@ private:
         ++frame_strokes_;
         ++mine.strokes;
         const rules::ScopedLogContext scope(context(true));
+        json decided;
         if (capture_.keep) {
             json line = {{"kind", "shot"},
                          {"player", player},
@@ -829,13 +866,18 @@ private:
                          {"nominated", st.input.has_nomination ? ofs::table::ball_name(st.input.nominated) : ""},
                          {"why", st.why},
                          {"us", us},
-                         {"think", think_json(st, us)}};
+                         {"think", think_json(st, us)},
+                         {"pre_hash", rules::frame_hash(m_.frame)}};
             if (st.places_cue) line["cue"] = {st.cue_pos.x, st.cue_pos.y};
             line.update(context(true));
-            ofs::log::info("opponent", "opponent.decision", std::move(line));
+            ofs::log::info("opponent", "opponent.decision", line);
+            decided = std::move(line);
         }
         const std::string refused = refusal(st);
-        if (!refused.empty()) return fail("opponent", refused, step);
+        if (!refused.empty()) {
+            log_refused(decided, refused, step.before);
+            return fail("opponent", refused, step);
+        }
 
         const FrameState& pre = m_.frame;
         for (const rules::BallOnTable& b : pre.balls) {
@@ -852,10 +894,10 @@ private:
         step.in.table_hash = run_.setup.table_hash;
         const double least = phys::min_cue_elevation(step.in.start, pre.cue_ball, st.strike.aim_rad, table, params);
         if (st.strike.elevation_rad < least - 1e-12 || st.strike.elevation_rad > params.max_elevation_rad) {
-            return fail("opponent",
-                        format("its elevation %g rad is outside [%g, %g], what the cue allows there",
-                               st.strike.elevation_rad, least, params.max_elevation_rad),
-                        step);
+            const std::string elevation = format("its elevation %g rad is outside [%g, %g], what the cue allows there",
+                                                 st.strike.elevation_rad, least, params.max_elevation_rad);
+            log_refused(decided, elevation, step.before);
+            return fail("opponent", elevation, step);
         }
 
         const phys::ShotRecord record = phys::simulate(step.in, table, params);
@@ -960,8 +1002,12 @@ private:
     bool in_visit_ = false;
     bool visit_on_ = false;  // the visit began with a maximum still possible
     bool break_over_ = false;
+    bool exhibition_ended_ = false;
     int exhibition_break_ = 0;
     std::string exhibition_why_ = "missed";
+    // The decision being made, for an exception's app.error and repro.
+    std::uint64_t current_seed_ = 0;
+    int current_player_ = 0;
 };
 
 void work(Run& run) {
@@ -1257,9 +1303,33 @@ int cmd_tournament(const std::vector<std::string>& argv) {
         run.write_lines(head.lines);
         return kExitUsage;
     }
+    json levels = json::array();
     for (int i = 0; i < (run.two_sides ? 2 : 1); ++i) {
         const Side& s = run.sides[static_cast<std::size_t>(i)];
         ofs::log::info("params", "params.loaded", {{"source", s.source}, {"hash", s.hash}});
+        if (i == 1 && s.level.id == run.sides[0].level.id && s.hash == run.sides[0].hash) break;
+        json entry = opponent::level_json(s.level);
+        entry["hash"] = s.hash;
+        levels.push_back(std::move(entry));
+    }
+    {
+        // What the game's binding logs when it is configured, so `opponent` makes this log's
+        // decisions with the values they were made with.
+        json standin_file;
+        read_json_file(data_path("standin_params.json"), standin_file, error);
+        json configured = {{"ok", true},
+                           {"values", rules::ref_params_values(run.ref)},
+                           {"standin", standin_file.is_object() ? standin_file.value("values", json::object())
+                                                                : json::object()},
+                           {"params_hash", run.setup.params_hash},
+                           {"levels", levels},
+                           {"problems", json::array()}};
+        if (exhibitions) {
+            json names = json::array();
+            for (const opponent::Exhibition& e : run.exhibitions) names.push_back(e.name);
+            configured["exhibitions"] = std::move(names);
+        }
+        ofs::log::info("rules", "rules.configured", std::move(configured));
     }
     run.oracle = rules::make_geometry_oracle(run.setup.table, run.ref);
     run.area = std::make_unique<PlayArea>(run.setup.table);
