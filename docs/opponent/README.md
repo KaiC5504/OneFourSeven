@@ -352,7 +352,9 @@ marks still hold.
     worth, pots, chance, ball, pocket}`), and the reader's own worker: `reader_think(balls,
     cue_ball, on, seed)`, `reader_thinking()`, `reader_take()` (`{ok, ball, pocket, chance,
     worth, leave}`), `reader_cancel()`. `on` is the rules' form. The reader plays no error and
-    logs no `opponent.decision`.
+    logs no `opponent.decision`. `judge_preview(record, input)` is what the referee would make
+    of a stroke with nothing applied or logged: in a match the game asks it at the strike, to
+    know whether the person plays next and with which ball on.
   - The game keeps a reader of its own (`game/scripts/play/position_reader.gd`), on the free
     table as in a match. It thinks while the shot plays (the simulator knows where the balls
     stop at the strike), so the pick is there at the return; not ready, or refused, the
