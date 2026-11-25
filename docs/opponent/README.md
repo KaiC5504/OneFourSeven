@@ -185,7 +185,8 @@ that pot's); `plan` (the strokes planned after this one: `target`, `pocket`); `o
 three next best: `target`, `pocket`, `worth`, `chance`); `drawn` (`aim_rad`, `speed`, `tip_x`, `tip_y`);
 `maximum` (`on`, `off`, `gone`). For a safety, escape or break-off the stand-in's `why`
 (`standin.hpp`) with `level`, `drawn` and `maximum` added, and for a level with error `listed`
-(the pots it had), `pots` and `declined`. A claim or concession: `level`, `kind`.
+(the pots it had), `pots` and `declined`. A claim or concession: `level`, `kind`, and for a
+concession `snookers`, how many it needed.
 
 ## The game
 
@@ -321,7 +322,9 @@ step each) and passed by the referee (a stroke that fouls as planned is never a 
   `escape_cushions` 0 and no swerve nothing is found and the stand-in's escape is played. Of the
   strokes that hit a ball on it takes the best worth; if none does, the one that comes nearest.
 - **Break-off** (the cue ball in hand, fifteen reds, red on): places in the D, a thin contact on
-  an end red of the last row, speeds and side, weighed as a safety is.
+  an end red of the last row, speeds and side, weighed as a safety is. The break-off is played
+  only from the racked table: with the cue ball in hand, red on and fifteen reds that are no
+  longer a pack (an in-off in the opening exchanges), the stroke is chosen as any other.
 - `why`: `kind`, `target` (the ball met first), `thickness` (0 thin to 1 full; a safety's is no
   more than 0.5), `cushions` (those the cue ball met before the ball in the simulated stroke,
   for an escape), `hit`, `spec` (as `meant`), `leave` (`cue`, `snookered`: true or false,
