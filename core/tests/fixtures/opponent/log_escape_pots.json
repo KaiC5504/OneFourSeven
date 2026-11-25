@@ -1,0 +1,64 @@
+{
+  "note": "Snookered on the reds; the way off one cushion pots the red it meets. Logged from Amateur's self-play, where that stroke was thrown away as a pot and the stand-in's escape missed 8 times running.",
+  "cue_ball": 0,
+  "cue_in_hand": false,
+  "on": {
+    "kind": "red"
+  },
+  "striker": 0,
+  "scores": [
+    35,
+    36
+  ],
+  "break_points": 0,
+  "balls": [
+    {
+      "ball": "cue",
+      "index": 0,
+      "x": -1.715533709914123,
+      "y": -0.35965372178872707
+    },
+    {
+      "ball": "red",
+      "index": 9,
+      "x": -1.7770370982757577,
+      "y": 0.8872856739428124
+    },
+    {
+      "ball": "yellow",
+      "index": 0,
+      "x": -1.6940438819267871,
+      "y": -0.24087402247721318
+    },
+    {
+      "ball": "green",
+      "index": 0,
+      "x": -0.8867186016329958,
+      "y": -0.0313983737944876
+    },
+    {
+      "ball": "brown",
+      "index": 0,
+      "x": -1.063649107949195,
+      "y": 0.07682107842584518
+    },
+    {
+      "ball": "blue",
+      "index": 0,
+      "x": 0.0,
+      "y": 0.0
+    },
+    {
+      "ball": "pink",
+      "index": 0,
+      "x": -0.65630447269665,
+      "y": -0.7061545510785519
+    },
+    {
+      "ball": "black",
+      "index": 0,
+      "x": 1.4605,
+      "y": 0.0
+    }
+  ]
+}

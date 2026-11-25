@@ -1,0 +1,64 @@
+{
+  "note": "The last red a ball's width off the top cushion behind the pink, the cue ball near that cushion: the one way is off the baulk and a side cushion, some 8 m, and only at a firm pace. Logged from Pro's self-play: 14 misses running.",
+  "cue_ball": 0,
+  "cue_in_hand": false,
+  "on": {
+    "kind": "red"
+  },
+  "striker": 0,
+  "scores": [
+    57,
+    73
+  ],
+  "break_points": 0,
+  "balls": [
+    {
+      "ball": "cue",
+      "index": 0,
+      "x": 1.7088862559800657,
+      "y": -0.1646701168486249
+    },
+    {
+      "ball": "red",
+      "index": 12,
+      "x": 1.7356572805838781,
+      "y": 0.27201455860586465
+    },
+    {
+      "ball": "yellow",
+      "index": 0,
+      "x": -1.61264543848821,
+      "y": -0.5793959156005202
+    },
+    {
+      "ball": "green",
+      "index": 0,
+      "x": -1.5575160675709319,
+      "y": -0.2212121455505651
+    },
+    {
+      "ball": "brown",
+      "index": 0,
+      "x": -1.5063168515812373,
+      "y": -0.5082770132416501
+    },
+    {
+      "ball": "blue",
+      "index": 0,
+      "x": 0.0,
+      "y": 0.0
+    },
+    {
+      "ball": "pink",
+      "index": 0,
+      "x": 1.7286637079674172,
+      "y": 0.13623235581697288
+    },
+    {
+      "ball": "black",
+      "index": 0,
+      "x": 1.5994586719284922,
+      "y": -0.19665314013920565
+    }
+  ]
+}

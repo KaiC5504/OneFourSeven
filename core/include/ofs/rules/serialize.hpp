@@ -13,6 +13,7 @@
 //              "offender", "last_penalty", "last_miss", "original": position, "miss_run",
 //              "miss_warned", "quiet_strokes", "rerack_accepted", "rerack_deadline", "over",
 //              "winner", "end_reason", "restart"
+//              and "miss_streak" when it is above 0 (absent reads as 0)
 //   input:     {"nominated": "blue"}, "" for none
 //   facts:     member names; "pots": [{"ball", "pocket", "t"}], "rest": [[x, y], ...]
 //   foul:      {"kind", "clause", "value", "ball"}

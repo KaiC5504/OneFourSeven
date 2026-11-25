@@ -46,11 +46,17 @@ struct StandinShot {
     phys::CueStrike strike;
     // For opponent.decision. A stroke: {"kind": "pot" | "safety" | "escape" | "break", "target":
     // "red 3", "pocket": index or -1, "cut_rad", "candidates", "sims", "penalty" (what the stroke
-    // chosen cost when simulated as aimed, -1 when nothing was), "aim_error_rad", "speed_error"}.
+    // chosen cost when simulated as aimed, -1 when nothing was), "aim_error_rad", "speed_error"},
+    // and "misses" (FrameState::miss_streak) when the stroke follows a miss put back.
     // A decision: {"kind": "claim"} or {"kind": "concede", "required": penalty points it needs}.
     // When it could not work a stroke out: {"kind": "safety", "error"} and the plainest stroke.
     nlohmann::json why;
 };
+
+// The reds are still the pack: all fifteen on the table, each near their middle. With the cue ball
+// in hand and red on, only then is the stroke a break-off; once the pack is split it is a stroke
+// like any other, pots included.
+bool pack_intact(const rules::Position& p);
 
 // The stroke for the striker of `s` (not over, nothing pending). Always a stroke the engine
 // accepts: the cue placement is legal, a nomination is given whenever one is open, and the strike

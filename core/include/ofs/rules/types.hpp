@@ -102,6 +102,10 @@ struct FrameState : Position {
     // contact was available, or the cue ball touched a ball that could be on.
     int miss_run = 0;
     bool miss_warned = false;
+    // FOUL AND A MISS calls in a row with the position put back after each, whatever the position
+    // (miss_run counts only S3.14(d)'s): how often the striker has just missed from here. No rule
+    // reads it; the computer opponent does.
+    int miss_streak = 0;
 
     // S3.17, by RefParams' thresholds.
     int quiet_strokes = 0;     // quiet strokes in a row (RefParams::stalemate_quiet_travel_m)

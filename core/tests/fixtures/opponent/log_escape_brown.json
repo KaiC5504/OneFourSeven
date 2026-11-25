@@ -1,0 +1,47 @@
+{
+  "note": "Brown on, behind the pink and black from the cue ball; off the right-hand side cushion it is reached only at a firm pace. Logged from Club's self-play: the stand-in's escape missed 8 times running.",
+  "cue_ball": 0,
+  "cue_in_hand": false,
+  "on": {
+    "colour": "brown",
+    "kind": "colour"
+  },
+  "striker": 1,
+  "scores": [
+    26,
+    48
+  ],
+  "break_points": 0,
+  "balls": [
+    {
+      "ball": "cue",
+      "index": 0,
+      "x": 1.7153338686613522,
+      "y": -0.17027901148883282
+    },
+    {
+      "ball": "brown",
+      "index": 0,
+      "x": 0.3300808524627013,
+      "y": 0.839325235871846
+    },
+    {
+      "ball": "blue",
+      "index": 0,
+      "x": -1.0976034652180475,
+      "y": 0.17839174696931842
+    },
+    {
+      "ball": "pink",
+      "index": 0,
+      "x": 0.89225,
+      "y": 0.0
+    },
+    {
+      "ball": "black",
+      "index": 0,
+      "x": 1.4605,
+      "y": 0.0
+    }
+  ]
+}

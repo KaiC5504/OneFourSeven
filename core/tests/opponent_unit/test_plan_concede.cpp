@@ -108,7 +108,7 @@ TEST_CASE("the 147 does not concede while it has a pot, and does with none") {
 TEST_CASE("asked to choose, a level concedes when conceding is offered and it needs its snookers") {
     FrameState s = colours_behind(23);
     REQUIRE(snookers_needed(s, 0) == 6);
-    // Nothing pending: the options are the claim and the concessions, conceding among them.
+    // Nothing pending: the options are the concessions.
     const std::vector<DecisionKind> open = rules::options(s, 0);
     REQUIRE(std::find(open.begin(), open.end(), DecisionKind::concede_frame) != open.end());
     for (const Level* level : {&rig::levels().pro, &rig::levels().world}) {

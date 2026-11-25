@@ -1,0 +1,35 @@
+{
+  "note": "Pink on by the top corner with the black just behind it: any firm contact pots the black. Rolled up to it full enough the stroke is fair. Logged from Club's self-play.",
+  "cue_ball": 0,
+  "cue_in_hand": false,
+  "on": {
+    "colour": "pink",
+    "kind": "colour"
+  },
+  "striker": 1,
+  "scores": [
+    46,
+    49
+  ],
+  "break_points": 0,
+  "balls": [
+    {
+      "ball": "cue",
+      "index": 0,
+      "x": 1.3767783513012544,
+      "y": -0.2870655187035822
+    },
+    {
+      "ball": "pink",
+      "index": 0,
+      "x": 1.7129646988594425,
+      "y": 0.8447359176056257
+    },
+    {
+      "ball": "black",
+      "index": 0,
+      "x": 1.7759725365699632,
+      "y": 0.8508396911289078
+    }
+  ]
+}
