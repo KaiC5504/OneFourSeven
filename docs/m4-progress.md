@@ -177,3 +177,23 @@ fixes and the build.
   nothing committed; its three unfinished starts were kept as patches for the new agents. The
   contract gained the order of a decision, the score's formulas, the escape that hits nothing
   and the reader's binding (`docs/opponent/README.md`).
+- 2026-11-25, wave 1 (six agents) merged: the picker with six opponents, the tournament's stage 2
+  counts and marks, the reader and the excellent-position camera, the tactics, the levels'
+  planning and score, the independent tests. Rulings written into the contract on the way: a
+  pot's giveaway is the mean of a miss simulated on each side (2, 4 or 8 margins, the first that
+  stays out), since one margin past the aim often still pots; the typical break is the median of
+  each frame's highest break by either player (pooled over both sides it could not reach the
+  bands); concessions follow spec 10.4 (Beginner, Club and Amateur never, Pro at 4 snookers,
+  World at 3: the first files had Beginner conceding 165 frames in 300).
+- 2026-11-26, wave 2 merged. The 147 with tactics (level 3, 200 tries, two cushions, 9,000
+  simulations) and a person's eye for its long pots: 100 of 100 frames against Beginner with 98
+  maximums, 100 of 100 against World with 82, no foul, fifty of fifty tables, its slowest
+  decision 1.39 s in this PC's Debug build. The four levels tuned over 1,000 frames each
+  (medium pots, long pots, typical break): Club 58.0%, 25.6%, 15; Amateur 79.7%, 44.9%, 29; Pro
+  91.5%, 66.4%, 50; World 96.8%, 72.7%, 81 with a century in 283 frames. The ladder over 300:
+  Club over Beginner 93.0%, Amateur over Club 92.3%, Pro over Amateur 87.3%, World over Pro
+  77.7%. What moved them: lower pot floors (a level turned down pots it should take: 42% of
+  Club's breaks ended with a safety played with a pot on), smaller speed and tip errors, and a
+  charge for pace and spin on the leave of a level that plans (World played 39% of its pots at
+  4 m/s or more and lost the position; its median frame-high went from 50 to 73 with the charge
+  alone). The stage 2 lane of the full gate takes about 72 minutes on four threads.
