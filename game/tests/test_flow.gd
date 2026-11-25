@@ -844,6 +844,7 @@ func test_a_pot_cuts_to_the_pocket_scores_and_swoops_back_onto_the_next_ball() -
 	_check_schema("shot.camera", cameras[0])
 	check_eq(cameras[0]["shot_id"], shot_id, "for this shot")
 	check_eq(cameras[0]["sequence"], "pocket", "the pocket camera")
+	check_eq(main.harness_state()["last_shot"].get("camera"), {"sequence": "pocket", "reason": ""}, "the harness sees it")
 	check_eq(cameras[0]["ball"], "red 4", "for the red")
 	check(not cameras[0].has("reason"), "no reason against it")
 	check_eq((cameras[0]["pose"] as Array).size(), 5, "its pose")
@@ -1058,6 +1059,9 @@ func test_the_next_ball_is_the_reader_s_pot_when_next_target_lists_it() -> void:
 	check_near(float(result.get("next_chance", 0.0)), 0.3, 1e-12, "and its chance")
 	check_near(main.setup.aim_rad, 0.9, 1e-12, "the aim turned there")
 	check_near(float(result.get("position", -1.0)), 0.5, 1e-12, "the position left, as the reader reads it")
+	var last: Dictionary = main.harness_state()["last_shot"]
+	check_eq([last.get("next_ball"), last.get("next_by"), last.get("next_by_why"), last.get("position")],
+			["blue", "reader", "", result.get("position")], "the harness's last_shot says the same: %s" % [last])
 	check_eq(engine.reads.back()[2], {"kind": "any_colour"}, "read with the ball on")
 	check(not main.is_processing() and not bool(engine.reader_thinking()), "nothing left running")
 	main.reader.think(_balls_of(main), 0, {"kind": "red"}, 1)

@@ -39,9 +39,13 @@ class Scripted extends FakeMatchEngine:
 class Previewing extends Scripted:
 	var preview := {}
 	var previews: Array = []
+	## When not empty, every preview is refused with it.
+	var refusal := ""
 
 	func judge_preview(_record: Variant, input: Dictionary) -> Dictionary:
 		previews.append(input)
+		if not refusal.is_empty():
+			return {"ok": false, "error": refusal}
 		return {"ok": true, "error": "", "frame": preview}
 
 
@@ -352,6 +356,19 @@ func test_in_a_match_the_reader_is_asked_only_when_the_stroke_leaves_the_person_
 		await _person_stroke(main, after)
 		check(reader.thought.is_empty(), "not asked when the stroke leaves %s" % JSON.stringify(
 				{"striker": leaves["striker"], "pending": leaves["pending"], "over": leaves.get("over", false)}))
+
+	# A preview refused is logged each time, with its stroke, and the pick is geometry's.
+	previewing.refusal = "observe found the record malformed"
+	_mark_log()
+	for i in 2:
+		await _person_stroke(main, after)
+	var said := _logged("app.error").filter(func(d: Dictionary) -> bool: return String(d.get("message", "")).contains("judge_preview"))
+	check_eq(said.size(), 2, "each refusal logged: %s" % [said])
+	for line: Dictionary in said:
+		check(String(line.get("shot_id", "")).length() > 0 and line.get("match_id") == m.match_id()
+				and String(line["message"]).contains("observe found the record malformed"), "with the stroke and why: %s" % [line])
+	var why := _logged("shot.result").map(func(d: Dictionary) -> Variant: return d.get("next_by_why"))
+	check(why.size() == 2 and why.all(func(w: Variant) -> bool: return w == "not asked"), "and the pick says why: %s" % [why])
 	main.free()
 
 
