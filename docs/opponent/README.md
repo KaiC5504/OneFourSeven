@@ -247,8 +247,10 @@ compared:
     best continuation found by simulating that many further pots, each stage narrower than the
     last, each pot's worth weighted by its chance (the 147's staged scheme with chances in it).
   - `giveaway`: `read_position(...).worth` for the other player of the position one simulated
-    miss leaves (the planned stroke with its aim turned just past the margin, to the thicker
-    side); 0 when that stroke fouls is not assumed: a foul's points are added.
+    miss leaves: the planned stroke with its aim turned to the thicker side by 2 margins, or by
+    4, or by 8, the first at which the ball stays out (the margin is narrower than the window a
+    pot really forgives, so one margin often still pots); 0 when it drops even at 8. When the
+    miss fouls, the foul's points are added. `why.giveaway` and `why.miss_turn` say what was read.
 - **A tactic** (`Tactic::worth`): the foul points the stroke expects to be given, less what the
   position left is worth to the other player as the level reads it (`read_position` with this
   level as the reader: it judges others by itself), less the foul points it expects to give.
@@ -296,9 +298,13 @@ step each) and passed by the referee (a stroke that fouls as planned is never a 
   strokes that hit a ball on it takes the best worth; if none does, the one that comes nearest.
 - **Break-off** (the cue ball in hand, fifteen reds, red on): places in the D, a thin contact on
   an end red of the last row, speeds and side, weighed as a safety is.
-- `why`: `kind`, `target` (the ball met first), `thickness` (0 thin to 1 full), `cushions` (those
-  met before the ball, for an escape), `spec`, `leave` (`cue`, `snookered`: true or false,
-  `next`: the other player's best pot as read, `chance`), `worth`, `others` (up to three).
+- `why`: `kind`, `target` (the ball met first), `thickness` (0 thin to 1 full; a safety's is no
+  more than 0.5), `cushions` (those the cue ball met before the ball in the simulated stroke,
+  for an escape), `hit`, `spec` (as `meant`), `leave` (`cue`, `snookered`: true or false,
+  `next`: the other player's best pot as read, `chance`), `worth`, `gain`, `risk`, `score`
+  (`ahead` or `snookers` when the score moved the worth), `others` (up to three).
+- Snookered is always `TableOracle::snookered` on the position left, the engine's own test for
+  a free ball. With `tactics` 1 every stroke is centre ball, whatever the level's `max_tip`.
 - A level with `tactics` 0, or a budget stopped before the first candidate, gives `found` false
   and the stand-in's stroke is played, as in stage 1. With `tactics` 0 it returns before it
   touches the budget or the judgement stream, so Beginner's decisions are what they were.
