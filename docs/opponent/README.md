@@ -227,8 +227,15 @@ three next best: `target`, `pocket`, `worth`, `chance`); `drawn` (`aim_rad`, `sp
 
 # Stage 2: levels 2 to 5 and the tactics
 
-Stage 1 above stays as it is for Beginner (`tactics` 0) and for the 147 until its file says
-otherwise. Stage 2 adds four levels (`club`, `amateur`, `pro`, `world`: tiers 2 to 5 of spec 10.1),
+Stage 1 above stays as it is for Beginner (`tactics` 0). The 147's file has `tactics` 3 since
+stage 2: where stage 1 says it plays the stand-in's safety, escape or break-off, it now plays
+`choose_tactic`'s, with no error and itself as the reader of what is left; when it waits, what
+it never pots, and its claims are as stage 1 says. It searches 9,000 simulations a stroke
+(12,000 passed 1.5 s on this PC; maximums were as many at 6,000, the larger budget finishes
+both planning stages on 59% of decisions against 6%). And it has a person's eye: each pot it
+plans is charged up to one point for the chance the `person` reader would not give it, so that
+of two plans worth the same it takes the pot a good player would (reds to the baulk corners
+fell from 35% to 19%); the charge is far too small to give up a maximum for. Stage 2 adds four levels (`club`, `amateur`, `pro`, `world`: tiers 2 to 5 of spec 10.1),
 the strokes that are not pots, and planning for levels that have error. Everything is still one
 `choose_stroke`, deterministic for the frame, the level, the seed and the steps taken.
 

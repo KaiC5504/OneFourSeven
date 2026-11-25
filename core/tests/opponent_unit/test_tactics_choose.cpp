@@ -163,7 +163,10 @@ const char* const kPositions[] = {"ta_open", "long_red", "cut_red", "in_hand", "
 
 TEST_CASE("tactics: a level with tactics 0 returns before the budget and the judgement stream") {
     const rig::Levels& l = rig::levels();
-    for (const Level* level : {&l.beginner, &l.maximum}) {
+    // The 147's own file has tactics since stage 2: a copy without stands for any level that has none.
+    Level plain = l.maximum;
+    plain.tactics = 0;
+    for (const Level* level : {&l.beginner, &plain}) {
         for (const FrameState& s : {rig::position("ta_open"), rig::racked(2), rig::position("snookered")}) {
             const Run r = run(s, *level);
             CHECK_FALSE(r.tactic.found);
