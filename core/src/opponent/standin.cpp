@@ -596,7 +596,9 @@ public:
 
     // Played as aimed: the first that is no foul and, for a pot, scores; else the first with no
     // foul; else the lowest penalty; else (nothing simulated) the first. `penalty` is what it is
-    // expected to cost, -1 when it was not simulated.
+    // expected to cost, -1 when it was not simulated. After misses put back, the stroke that is no
+    // foul as aimed is the one that missed as played: the next such is taken, one further on for
+    // each miss, round again from the first.
     Candidate choose(int& penalty) {
         const int budget = std::max(sp_.max_sims, 0) * effort_;
         // Pots that stay out leave two simulations for a safety.
@@ -616,6 +618,7 @@ public:
         const auto wanted = [](const Candidate& c, const Checked& r) {
             return r.clean && (c.kind != Kind::pot || r.points > 0);
         };
+        std::vector<Candidate> fair;  // strokes that are no pot and no foul as aimed, after a miss
 
         for (const Candidate& listed : candidates_) {
             if (sims_ >= budget) break;
@@ -624,6 +627,11 @@ public:
             phys::ShotRecord record;
             Checked r = check(c, record);
             if (wanted(c, r)) {
+                if (misses_ > 0 && c.kind != Kind::pot) {
+                    fair.push_back(c);
+                    if (int(fair.size()) > misses_) break;
+                    continue;
+                }
                 penalty = 0;
                 return c;
             }
@@ -652,6 +660,10 @@ public:
             } else {
                 fouled(c, r);
             }
+        }
+        if (!fair.empty()) {
+            penalty = 0;
+            return fair[std::size_t(misses_) % fair.size()];
         }
         if (have_clean) {
             penalty = 0;

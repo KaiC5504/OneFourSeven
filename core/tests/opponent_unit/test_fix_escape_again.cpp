@@ -233,6 +233,22 @@ TEST_CASE("escape again: the stand-in's escape is what it was with no miss calle
     CHECK(o.judgement.fouls.empty());
     CHECK(again.balls[std::size_t(o.trial.first_hit)].ball == rules::Ball::brown);
 
+    // A stroke that is fair as aimed and missed as played is not played again either: each miss
+    // more takes the next fair one.
+    phys::CueStrike last = second.strike;
+    for (int misses = 2; misses <= 3; ++misses) {
+        CAPTURE(misses);
+        const FrameState more = missed("log_escape_brown", misses);
+        Rng rng_more(5);
+        const StandinShot next = choose_shot(more, r.table, r.params, env.oracle, env.ref, sp, rng_more);
+        REQUIRE_FALSE(next.decides);
+        CHECK_FALSE(same(next.strike, last));
+        CHECK(next.why["penalty"].get<int>() == 0);
+        CHECK(next.why["misses"].get<int>() == misses);
+        CHECK(as_meant(more, false, {}, next.strike, next.input).judgement.fouls.empty());
+        last = next.strike;
+    }
+
     // Club goes off no cushion: its escape is the stand-in's, before a miss and after.
     const Level& club = rig::levels().club;
     const Stroke one = stroke(s, club);
