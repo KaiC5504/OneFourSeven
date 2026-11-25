@@ -250,7 +250,8 @@ compared:
     miss leaves, the mean of two: the planned stroke with its aim turned to the thicker side
     and to the thinner, each by 2 margins, or by 4, or by 8, the first at which the ball stays
     out on that side (the margin is narrower than the window a pot really forgives, so one
-    margin often still pots); a side on which it drops even at 8 counts 0. When a miss fouls,
+    margin often still pots); a side on which it drops even at 8 counts 0, and so does a miss
+    after which the striker plays on (another ball on went in). When a miss fouls,
     the foul's points are added. `why.giveaway` and `why.miss_turn` (`[thick, thin]`) say what
     was read. A pot whose misses leave nothing is a shot to nothing, and is played as one.
 - **A tactic** (`Tactic::worth`): the foul points the stroke expects to be given, less what the
