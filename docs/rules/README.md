@@ -141,6 +141,11 @@ and clears the warning. Choosing `replace` with `miss_run` at 2 warns the offend
 the `warning` call). A further such miss with the warning standing awards the frame to the other
 player (`three_misses`).
 
+`miss_streak` is not the rulebook's: it counts every miss called running from one position,
+snookered or not (a miss makes it one more, `replace` keeps it, anything else makes it 0), so
+the computer opponent does not play again a stroke that has just missed. `frame_json` writes it
+only above 0.
+
 ## End of frame (S2.1, S3.4, S4.2)
 
 - Only the black left: the first pot or foul ends the frame (S3.4(a)); a foul there costs 7. Scores

@@ -260,7 +260,8 @@ compared:
     `read_position(...).worth` of the position the planned stroke leaves; for `depth` 1 to 3 the
     best continuation found by simulating that many further pots, each stage narrower than the
     last, each pot's worth weighted by its chance (the 147's staged scheme with chances in it).
-    At those depths the stroke's pace and spin are charged against it, `w * (leave - cost)`:
+    At those depths the stroke's pace and spin are charged against it, `w * max(0, leave -
+    cost)`, so never below a leave of nothing:
     `cost` is `kErrPaceCost` (4) times the square of its pace (0 at the least speed that pots,
     1 at the top, by the logarithm) plus `kErrSpinCost` (1) times the square of the tip's
     offset. The level's error grows with both, and its reading does not see what that does to
@@ -312,6 +313,9 @@ step each) and passed by the referee (a stroke that fouls as planned is never a 
 - **Safety** (`tactics` 1 and up): a contact on a ball on, from thin to half ball, at a few
   speeds, the cue ball sent away from the reds (back to baulk when the reds are at the top);
   from `tactics` 2 also with side and with stun or screw, and over every reachable ball on.
+  When no thin-to-half contact is legal a second pass tries any thickness from full ball to
+  0.05, rolled 0.3 m past the ball, and then cushion routes even with a ball in view, so such a
+  safety's thickness may pass 0.5.
 - **Snooker** (`tactics` 3): as a safety, kept when the position left has no ball on that the
   other player can hit directly (`rules::TableOracle`'s test for a snooker); its expected foul
   points are the penalty times the chance this level's own escape would fail from there, read by
@@ -321,10 +325,18 @@ step each) and passed by the referee (a stroke that fouls as planned is never a 
   with `tactics` 3 also a swerve round the blocking ball (the cue raised, side on). With
   `escape_cushions` 0 and no swerve nothing is found and the stand-in's escape is played. Of the
   strokes that hit a ball on it takes the best worth; if none does, the one that comes nearest.
+  Each route is scanned 0.056 rad to either side, and again at one and a half times the pace;
+  the stroke declares the ball it is simulated to meet; one that pots the ball it meets is
+  kept for last. After a foul and a miss from this position (`FrameState::miss_streak` above
+  0) it looks one cushion further than `escape_cushions` (two at most, for a level with at
+  least one), and a nearest that hit nothing gives way to the next nearest at each further
+  miss, so no failed stroke is played twice running; the stand-in's escape then gets up to
+  four times its simulations and faster paces.
 - **Break-off** (the cue ball in hand, fifteen reds, red on): places in the D, a thin contact on
   an end red of the last row, speeds and side, weighed as a safety is. The break-off is played
-  only from the racked table: with the cue ball in hand, red on and fifteen reds that are no
-  longer a pack (an in-off in the opening exchanges), the stroke is chosen as any other.
+  only from the racked table (fifteen reds within 0.16 m of their middle, the stand-in's
+  `pack_intact`): with the cue ball in hand, red on and fifteen reds that are no longer a pack
+  (an in-off in the opening exchanges), the stroke is chosen as any other.
 - `why`: `kind`, `target` (the ball met first), `thickness` (0 thin to 1 full; a safety's is no
   more than 0.5), `cushions` (those the cue ball met before the ball in the simulated stroke,
   for an escape), `hit`, `spec` (as `meant`), `leave` (`cue`, `snookered`: true or false,
@@ -332,8 +344,13 @@ step each) and passed by the referee (a stroke that fouls as planned is never a 
   (`ahead` or `snookers` when the score moved the worth), `swerve` (true on an escape played
   with the cue raised), `candidates` (how many it weighed), `others` (up to three); `leave`
   also has `worth`, what the position is worth to the other player as read. A planned pot's
-  `why` has `stages` (how far each stage of the plan got) and `chance_by` (`margin`, or `sims`
-  with `noisy_sims` above 0).
+  `why` has `stages` (how far each stage of the plan got), `chance_by` (`margin`, or `sims`
+  with `noisy_sims` above 0), `cost` (its pace and spin charge) and `leave.worth`. A tactic
+  played over a pot has `declined_worth` (the pot's score) and `floor` (the pot floor in
+  force) beside `declined`; an escape has `misses` (the streak it was chosen at) and
+  `keeps_turn`. When nothing was found and the stand-in's stroke is played, `why.tactic` says
+  why: `found` false, `candidates`, `stopped` (`done`, `tries` or the budget's word) and how
+  many strokes were set aside as `direct`, `fouled`, `potted`, `beyond` or `unclean`.
 - With every red in the top half, a safety's paces are measured to bring the cue ball back to
   baulk, cushions counted, and a safety that ends in the baulk half is chosen before any that
   does not, whatever their worth; snookers, escapes and break-offs are outside that rule.
@@ -343,7 +360,8 @@ step each) and passed by the referee (a stroke that fouls as planned is never a 
   each ball on and at its mirror images, so that there is a nearest to answer.
 - Snookered is always `TableOracle::snookered` on the position left, the engine's own test for
   a free ball. With `tactics` 1 every stroke is centre ball, whatever the level's `max_tip`.
-- A level with `tactics` 0, or a budget stopped before the first candidate, gives `found` false
+- A level with `tactics` 0, a budget stopped before the first candidate, or no stroke tried
+  that was legal, gives `found` false
   and the stand-in's stroke is played, as in stage 1. With `tactics` 0 it returns before it
   touches the budget or the judgement stream, so Beginner's decisions are what they were.
 - The misreading is `choose_tactic`'s own: one normal draw per legal candidate, in the order

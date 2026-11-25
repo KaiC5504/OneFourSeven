@@ -515,9 +515,7 @@ TEST_CASE("README Tactics, break-off: a thin contact on an end red of the last r
     }
 }
 
-// Skipped until the break-off is kept to the racked table; take the skip off once it is.
-TEST_CASE("README Tactics, break-off: with the cue ball in hand and fifteen reds that are no longer a pack, the stroke is chosen as any other" *
-          doctest::skip()) {
+TEST_CASE("README Tactics, break-off: with the cue ball in hand and fifteen reds that are no longer a pack, the stroke is chosen as any other") {
     FrameState s = rig::racked(1);
     REQUIRE(s.cue_in_hand);
     // The pack spread over the top half clear of the spots, as after an in-off a few strokes in.
