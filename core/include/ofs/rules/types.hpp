@@ -69,7 +69,7 @@ enum class EndReason : std::uint8_t {
 
 struct PlayerStats {
     int shots = 0;         // strokes played
-    int pots = 0;          // strokes that scored
+    int pots = 0;          // attempts that scored
     int pot_attempts = 0;  // strokes ShotFacts::pot_attempt marked
     int fouls = 0;
     int misses = 0;
