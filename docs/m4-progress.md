@@ -173,3 +173,7 @@ fixes and the build.
   2611180409 with the fix round went to the phone at 04:09.
 - Left from the second Windows run, harness only: in an exhibition a refused concession still
   lists the options as offered; `dump_state` at the exhibition summary has break 0.
+- 2026-11-25: stage 2 picked up again. Wave 1 of 18 November had stopped eight minutes in with
+  nothing committed; its three unfinished starts were kept as patches for the new agents. The
+  contract gained the order of a decision, the score's formulas, the escape that hits nothing
+  and the reader's binding (`docs/opponent/README.md`).

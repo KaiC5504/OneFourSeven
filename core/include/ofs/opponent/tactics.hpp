@@ -19,7 +19,8 @@ namespace ofs::opponent {
 
 struct Tactic {
     // False when it worked nothing out (level.tactics is 0, the budget stopped it before its
-    // first candidate, no candidate was legal): the caller plays the stand-in's stroke.
+    // first candidate, no candidate was legal): the caller plays the stand-in's stroke. An escape
+    // of which none hits a ball on is still found: the nearest, with why.hit false.
     bool found = false;
     std::string kind;  // "safety", "snooker", "escape" or "break"
     bool places_cue = false;

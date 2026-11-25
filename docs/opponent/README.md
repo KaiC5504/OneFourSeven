@@ -255,12 +255,27 @@ compared:
 - A level misreads every score by `judgement_sigma` (one normal draw per candidate from the
   judgement stream) and plays the highest. A pot whose chance as it reads it is under
   `safety_below` is not played while a tactic was found.
-- **The score** (`score_aware`, spec 10.2 step 5), by how much of it the level has: ahead by more
-  than the points left on the table it takes no pot under an even chance and prefers the safety
-  that leaves least; needing snookers (the points left are fewer than its deficit) a snooker's
-  expected foul points count in full and a pot that cannot win the frame counts only for the
-  position it leaves; it concedes (`choose_option`, and at its turn) when it needs
-  `concede_snookers` snookers or more, never with `concede_snookers` 0.
+- **The score** (`score_aware` = a, spec 10.2 step 5), by how much of it the level has. For a
+  tactic, `gain` is the foul points it expects to be given, `leave` what the position left is
+  worth to the other player, `risk` the foul points it expects to give; its worth is
+  `gain - leave - risk` unless the score says otherwise:
+  - **Ahead by more than the points left on the table** (`rules::points_remaining`): a pot is not
+    played under a chance of `safety_below + a * max(0, 0.5 - safety_below)` while a tactic was
+    found, and a tactic is worth `(1 - a) * gain - leave - (1 + a) * risk`: the safety that leaves
+    least.
+  - **Needing snookers** (the points left are fewer than its deficit): a pot's `value` and
+    `kBreakOn` terms are multiplied by `1 - a`, so that it counts for the position it leaves, and
+    a tactic is worth `(1 + a) * gain - (1 - a) * leave - risk`.
+  - It concedes (`choose_option`, and at its turn through `Stroke::decides`) when conceding is
+    among `rules::options` and it needs `concede_snookers` snookers or more, counted as the
+    rules count them (`penalty_points_required`); never with `concede_snookers` 0.
+- **The order** (`choose_stroke`): the claim or concession; then, for a level with `tactics`
+  above 0, `choose_tactic` (at most `safety_tries` steps); then the pots with what is left of
+  the budget; then the choice between the best pot and the tactic. The break-off is the
+  tactic's when it finds one. With neither a pot nor a tactic the stand-in's stroke is played,
+  as in stage 1. A tactic is played with the level's error (`with_error`, no pot), and its
+  `why` is the tactic's with `level`, `drawn`, `maximum` and, for a level with error, `listed`,
+  `pots` and `declined` added.
 
 ## Tactics (`tactics.hpp`, `tactics.cpp`)
 
@@ -285,7 +300,14 @@ step each) and passed by the referee (a stroke that fouls as planned is never a 
   met before the ball, for an escape), `spec`, `leave` (`cue`, `snookered`: true or false,
   `next`: the other player's best pot as read, `chance`), `worth`, `others` (up to three).
 - A level with `tactics` 0, or a budget stopped before the first candidate, gives `found` false
-  and the stand-in's stroke is played, as in stage 1.
+  and the stand-in's stroke is played, as in stage 1. With `tactics` 0 it returns before it
+  touches the budget or the judgement stream, so Beginner's decisions are what they were.
+- The misreading is `choose_tactic`'s own: one normal draw per legal candidate, in the order
+  they were tried, as the search misreads a pot; `Tactic::worth` is the chosen one's as misread.
+- An escape of which no candidate hits a ball on is the one exception to "never a foul as
+  planned": the nearest is answered, `found` true, with `why.hit` false (true otherwise).
+- It never throws. A trial simulation that fails is counted by `TrialFailures` as the search's
+  are; anything else it catches gives `found` false with `why.error`, which the caller logs.
 
 ## The ladder (`ofs_sim_cli tournament`, spec 10.1, 16.4)
 
@@ -319,3 +341,19 @@ marks still hold.
   the geometric pick as the fallback; a potted shot that leaves the striker an excellent
   position is watched whole from the full-table view (`shot.camera` reason `position`), and
   `shot.result` carries `position`, the worth of what was left.
+  - `OfsMatch`: `configure_reader(level_json)` (the file `core/data/opponent_person.json`; never
+    in `levels()`), `read_position(balls, cue_ball, on)` (at once, nothing simulated: `{ok,
+    worth, pots, chance, ball, pocket}`), and the reader's own worker: `reader_think(balls,
+    cue_ball, on, seed)`, `reader_thinking()`, `reader_take()` (`{ok, ball, pocket, chance,
+    worth, leave}`), `reader_cancel()`. `on` is the rules' form. The reader plays no error and
+    logs no `opponent.decision`.
+  - The game keeps a reader of its own (`game/scripts/play/position_reader.gd`), on the free
+    table as in a match. It thinks while the shot plays (the simulator knows where the balls
+    stop at the strike), so the pick is there at the return; not ready, or refused, the
+    geometric pick is used. `shot.result.next_by` says which: `reader` or `geometry`.
+  - **Excellent position** is judged at the strike and, like the cue ball's journey, the same
+    for a pot and for an attempt that stays out, so the view gives neither away: the position
+    is read as if the ball played at the pocket had gone in (that ball off the table, the ball
+    on that would follow). It is excellent when the cue ball ran 1.0 m or more after its first
+    ball and met a cushion, and what is left reads 0.75 or more of the most that ball on could
+    be worth. Starting values, the owner's to judge.
