@@ -148,11 +148,27 @@ constexpr double kRedCost = 7.0;
 // for leaves clearly better.
 constexpr double kPaceCost = 1.6;
 constexpr double kSpinCost = 0.5;
+// The 147 aims perfectly, so a long pot into a baulk corner was as good to it as a short one. Each
+// pot it plans is charged this much for the chance the person reader would not give it: the
+// owner's own aim (core/data/opponent_person.json, aim_sigma_rad and aim_sigma_per_cut). Far
+// below kLost, so it never buys a pot that ends a maximum.
+constexpr double kPersonAimSigma_rad = 0.0002;
+constexpr double kPersonSigmaPerCut = 5.7;
+constexpr double kEyeCost = 1.0;
 // The misses a pot's giveaway is read from: the aim turned this many margins to the thicker side,
 // the next tried while the ball still drops.
 constexpr double kMissTurns[] = {2.0, 4.0, 8.0};
 
 double distance(Vec2 a, Vec2 b) { return std::hypot(a.x - b.x, a.y - b.y); }
+
+Level person_eye() {
+    Level l;
+    l.aim_sigma_rad = kPersonAimSigma_rad;
+    l.aim_sigma_per_cut = kPersonSigmaPerCut;
+    l.aim_sigma_per_m = 0.0;
+    l.awkward_factor = 1.0;
+    return l;
+}
 
 std::string label(const BallOnTable& b) {
     std::string out(table::ball_name(b.ball));
@@ -769,11 +785,9 @@ public:
             out.why["miss_turn"] = {c.thick_turn, c.thin_turn};
         }
         if (errs_ && level_.noisy_sims > 0) out.why["chance_by"] = "sims";
-        if (errs_) {
-            nlohmann::json stages = nlohmann::json::array();
-            for (const auto& [looked, of] : looked_) stages.push_back({{"looked", looked}, {"of", of}});
-            out.why["stages"] = std::move(stages);
-        }
+        nlohmann::json stages = nlohmann::json::array();
+        for (const auto& [looked, of] : looked_) stages.push_back({{"looked", looked}, {"of", of}});
+        out.why["stages"] = std::move(stages);
         out.why["leave"] = {{"cue", {c.cue_rest.x, c.cue_rest.y}},
                             {"next", label(c.post, c.leaf.next)},
                             {"chance", c.leaf.chance}};
@@ -1053,6 +1067,8 @@ private:
         if (errs_) {
             weigh(n, pot, made, misread, c);
         } else {
+            const Spec spec{made.strike.speed_m_s, made.strike.tip_x, made.strike.tip_y, made.strike.elevation_rad};
+            c.own -= kEyeCost * (1.0 - pot_chance(eye_, pot, spec, pot.margin_rad));
             if (made.goes_on) c.leaf = read_table(made.post, pots(made.post, env_, level_.max_cut_rad), env_);
             c.value[0] = c.own + c.leaf.worth;
         }
@@ -1270,6 +1286,7 @@ private:
     }
 
     const Level& level_;
+    const Level eye_ = person_eye();
     const Env& env_;
     Bench bench_;
     Rng* misreads_;

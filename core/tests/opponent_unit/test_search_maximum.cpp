@@ -229,11 +229,12 @@ TEST_CASE("after a red with the maximum on the 147 declares the black, pots it a
     CHECK(maximum_on(p.judgement.post));
 }
 
-TEST_CASE("snookered, and from the break-off rack, the 147 plays the stand-in's stroke as it is meant") {
+TEST_CASE("snookered, and from the break-off rack, the 147 plays the tactics' stroke as it is meant") {
     const FrameState snookered = rig::position("snookered");
     const Stroke out = choose(snookered);
     REQUIRE_FALSE(out.decides);
-    CHECK((word(out, "kind") == "escape" || word(out, "kind") == "safety"));
+    CHECK((word(out, "kind") == "escape" || word(out, "kind") == "safety" || word(out, "kind") == "snooker"));
+    CHECK(out.why.contains("thickness"));
     CHECK(same(out.strike, out.meant));
     CHECK(word(out, "level") == "maximum");
     CHECK(out.fallback.empty());
@@ -243,6 +244,7 @@ TEST_CASE("snookered, and from the break-off rack, the 147 plays the stand-in's 
     const Stroke off = choose(rack);
     REQUIRE_FALSE(off.decides);
     CHECK(word(off, "kind") == "break");
+    CHECK(off.why.contains("thickness"));
     CHECK(word(off, "maximum") == "on");
     CHECK(off.places_cue);
     CHECK(play(rack, off).judgement.fouls.empty());
