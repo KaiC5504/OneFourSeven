@@ -419,7 +419,15 @@ TEST_CASE("tactics: a stopped budget answers with the best so far") {
     REQUIRE(early.tactic.found);
     check_answer(s, early.tactic);
     const Run whole = run(s, level);
-    CHECK(whole.tactic.worth >= early.tactic.worth);
+    // The reds are at the top: a safety that came back to baulk is played before any that did not.
+    const auto away = [](const Tactic& t) {
+        return t.kind != "safety" || t.why["leave"]["cue"][0].get<double>() < 0.0;
+    };
+    if (away(whole.tactic) == away(early.tactic)) {
+        CHECK(whole.tactic.worth >= early.tactic.worth);
+    } else {
+        CHECK(away(whole.tactic));
+    }
 
     // The budget is shared: steps the search took before count against the limit.
     {

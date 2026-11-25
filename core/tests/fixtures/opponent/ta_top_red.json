@@ -1,0 +1,14 @@
+{
+  "note": "One red near the top cushion, the cue ball just above the middle pockets: a safety's table with the red at the top.",
+  "cue_ball": 0,
+  "balls": [
+    {"ball": "cue", "index": 0, "x": 0.15, "y": 0.4},
+    {"ball": "red", "index": 0, "x": 1.35, "y": -0.3},
+    {"ball": "yellow", "index": 0, "x": -1.0475, "y": -0.292},
+    {"ball": "green", "index": 0, "x": -1.0475, "y": 0.292},
+    {"ball": "brown", "index": 0, "x": -1.0475, "y": 0.0},
+    {"ball": "blue", "index": 0, "x": 0.0, "y": 0.0},
+    {"ball": "pink", "index": 0, "x": 0.89225, "y": 0.0},
+    {"ball": "black", "index": 0, "x": 1.4605, "y": 0.0}
+  ]
+}

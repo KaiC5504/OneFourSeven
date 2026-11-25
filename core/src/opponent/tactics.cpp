@@ -50,9 +50,17 @@ constexpr double kTopSpeed = 0.95;
 constexpr double kThickness[] = {0.15, 0.3, 0.5};
 constexpr double kRuns[] = {1.2, 2.5, 4.0};
 constexpr double kRunsSnooker[] = {0.5, 1.2, 2.5, 4.0};
+// With every red in the top half the cue ball is sent back to baulk: each rung asks for these shares
+// of the run that takes it, off the cushions as a mirror, to kBaulkGoal_m (between the baulk line and
+// the baulk cushion), the run grown by kPerCushion for each cushion on the way as an escape's is.
+constexpr double kBaulkScale[] = {0.8, 1.0, 1.3};
+constexpr double kBaulkGoal_m = -1.4;
+constexpr int kBaulkBounces = 4;
 // A thick contact leaves the cue ball little of its pace: its run after is asked of the speed at
 // contact over the share it keeps (about the sine of the cut), never under this.
 constexpr double kLeastKept = 0.35;
+// Away from a touching ball: turned this much from straight away, every one parting from it.
+constexpr double kAwayTurns[] = {0.0, 0.5, -0.5, 1.0, -1.0, 1.35, -1.35};
 // Tactics 1 plays at the nearest balls on only; from 2 at every one it can reach.
 constexpr int kBasicBalls = 2;
 // Places in the D tried with the cue ball in hand.
@@ -261,6 +269,35 @@ Vec2 run_to(Vec2 from, Vec2 dir, double run) {
     return from;
 }
 
+// How far a ball sent from `from` along `dir` runs, off the cushions as a mirror, before it comes
+// down the table to x = `goal_x`, and the cushions it meets on the way; less than 0 when it does not
+// within `bounces`.
+double run_to_x(Vec2 from, Vec2 dir, double goal_x, int bounces, int& cushions) {
+    const double inf = std::numeric_limits<double>::infinity();
+    const double hx = table::kPlayingLength / 2.0 - kR;
+    const double hy = table::kPlayingWidth / 2.0 - kR;
+    double travelled = 0.0;
+    cushions = 0;
+    for (;;) {
+        const double tx = dir.x != 0.0 ? ((dir.x > 0.0 ? hx : -hx) - from.x) / dir.x : inf;
+        const double ty = dir.y != 0.0 ? ((dir.y > 0.0 ? hy : -hy) - from.y) / dir.y : inf;
+        const double leg = std::max(0.0, std::min(tx, ty));
+        if (dir.x < 0.0 && from.x > goal_x) {
+            const double to_goal = (goal_x - from.x) / dir.x;
+            if (to_goal <= leg) return travelled + to_goal;
+        }
+        if (cushions == bounces || !(leg < inf)) return -1.0;
+        from = from + dir * leg;
+        travelled += leg;
+        ++cushions;
+        if (tx < ty) {
+            dir.x = -dir.x;
+        } else {
+            dir.y = -dir.y;
+        }
+    }
+}
+
 // The line a ball's centre bounces on along one cushion.
 struct Rail {
     bool across = true;  // the top and baulk cushions, which run along y
@@ -394,11 +431,15 @@ struct Plan {
     double offset = 0.0;     // signed, in ball widths to the left of the target's centre
     double contact_m = 0.0;  // the cue ball's way to its ball
     int run = 0;             // the rung of pace
+    double after_m = 0.0;    // the run asked of the cue ball after its ball at that rung
+    Vec2 contact_at;         // where the cue ball meets its ball, and its heading then
+    Vec2 heading;
     int tip = -1;            // index into kTips; -1 centre ball
     int group = 0;           // plans that differ only in pace and spin share one
     int cushions = 0;        // planned, for an escape
     double window_rad = 0.0;
     bool swerve = false;
+    bool from_touching = false;  // played away from a touching ball on, which cannot be missed
     Route route;
     phys::CueStrike strike;  // aim, speed and tip; the elevation is the least the stroke asks for
 };
@@ -422,6 +463,9 @@ struct Weighed {
     double worth = 0.0;  // as read
     double read = 0.0;   // as misread
     double nearest = 0.0;  // a miss: how far the cue ball passed from a ball it may play at
+    // False for a safety that left the cue ball in the top half with every red there: it is played
+    // only when no safety came back to baulk.
+    bool away = true;
 };
 
 class Tactics {
@@ -438,6 +482,14 @@ public:
         } else if (left < -lead) {
             score_ = "snookers";
         }
+        int reds = 0;
+        int top = 0;
+        for (const BallOnTable& b : s.balls) {
+            if (b.ball != Ball::red) continue;
+            ++reds;
+            top += b.pos.x > 0.0 ? 1 : 0;
+        }
+        reds_top_ = reds > 0 && top == reds;
     }
 
     Tactic run() {
@@ -533,12 +585,8 @@ private:
 
     // The cue ball after a contact, as a rolling ball leaves one, run on to where the plan's pace
     // would take it: the further from the balls the other player will be on, the likelier a safety.
-    double promise(const Plan& plan, Vec2 dir, Vec2 contact) const {
-        const double sin_cut = std::min(std::abs(plan.offset), 1.0);
-        const double cos_cut = std::sqrt(1.0 - sin_cut * sin_cut);
-        const double deflect = std::atan2(sin_cut * cos_cut, sin_cut * sin_cut + 2.0 / 7.0);
-        const Vec2 away = turned(dir, plan.offset >= 0.0 ? deflect : -deflect);
-        const Vec2 end = run_to(contact, away, runs()[std::size_t(plan.run)]);
+    double promise(const Plan& plan) const {
+        const Vec2 end = run_to(plan.contact_at, away(plan), plan.after_m);
         double nearest = std::numeric_limits<double>::infinity();
         for (const int place : theirs_) {
             if (place == plan.target) continue;
@@ -551,10 +599,28 @@ private:
     int run_count() const { return level_.tactics >= 3 ? int(std::size(kRunsSnooker)) : int(std::size(kRuns)); }
     int middle_run() const { return level_.tactics >= 3 ? 2 : 1; }
 
+    // The cue ball's heading after the contact, as a rolling ball leaves one.
+    static Vec2 away(const Plan& plan) {
+        const double sin_cut = std::min(std::abs(plan.offset), 1.0);
+        const double cos_cut = std::sqrt(1.0 - sin_cut * sin_cut);
+        const double deflect = std::atan2(sin_cut * cos_cut, sin_cut * sin_cut + 2.0 / 7.0);
+        return turned(plan.heading, plan.offset >= 0.0 ? deflect : -deflect);
+    }
+
+    void set_run(Plan& plan, int run) const {
+        plan.run = run;
+        plan.after_m = runs()[std::size_t(run)];
+        const int soft = level_.tactics >= 3 ? 1 : 0;
+        if (!reds_top_ || run < soft) return;
+        int cushions = 0;
+        const double to_goal = run_to_x(plan.contact_at, away(plan), kBaulkGoal_m, kBaulkBounces, cushions);
+        if (to_goal < 0.0) return;
+        plan.after_m = kBaulkScale[std::size_t(run - soft)] * to_goal * (1.0 + kPerCushion * cushions);
+    }
+
     void price_safety(Plan& plan) const {
         const double kept = std::max(1.0 - plan.thickness, kLeastKept);
-        const double after = runs()[std::size_t(plan.run)];
-        plan.strike.speed_m_s = speed_for_run(plan.contact_m + after / (kept * kept), env_);
+        plan.strike.speed_m_s = speed_for_run(plan.contact_m + plan.after_m / (kept * kept), env_);
         if (plan.tip >= 0) {
             plan.strike.tip_x = kTips[std::size_t(plan.tip)].x * level_.max_tip;
             plan.strike.tip_y = kTips[std::size_t(plan.tip)].y * level_.max_tip;
@@ -596,6 +662,26 @@ private:
             std::stable_sort(order.begin(), order.end(), [&](int a, int b) {
                 return length(balls[std::size_t(a)].pos - cue) < length(balls[std::size_t(b)].pos - cue);
             });
+            // A touching ball on is deemed hit (S3.8(a)): the cue ball is played away from it, at no
+            // ball, and the referee says whether what it meets after is fair.
+            for (const int target : s_.cue_in_hand ? std::vector<int>() : s_.touching) {
+                if (!contains(targets_, target)) continue;
+                const Vec2 back = unit(cue - balls[std::size_t(target)].pos);
+                for (const double turn : kAwayTurns) {
+                    Plan plan;
+                    plan.kind = Kind::safety;
+                    plan.cue = cue;
+                    plan.target = target;
+                    plan.from_touching = true;
+                    plan.contact_at = cue;
+                    plan.heading = turned(back, turn);
+                    set_run(plan, middle_run());
+                    plan.group = group++;
+                    plan.strike.aim_rad = angle_of(plan.heading);
+                    price_safety(plan);
+                    listed.push_back({plan, promise(plan)});
+                }
+            }
             int reached = 0;
             for (const int target : order) {
                 if (level_.tactics < 2 && reached >= kBasicBalls) break;
@@ -613,11 +699,13 @@ private:
                         if (!contact_point(cue, balls[std::size_t(target)].pos, plan.offset, dir, contact)) continue;
                         if (!path_clear(balls, cue, contact, s_.cue_ball, target, kD + kPathMargin_m)) continue;
                         plan.contact_m = length(contact - cue);
-                        plan.run = middle_run();
+                        plan.contact_at = contact;
+                        plan.heading = dir;
+                        set_run(plan, middle_run());
                         plan.group = group++;
                         plan.strike.aim_rad = angle_of(dir);
                         price_safety(plan);
-                        listed.push_back({plan, promise(plan, dir, contact)});
+                        listed.push_back({plan, promise(plan)});
                         any = true;
                     }
                 }
@@ -651,7 +739,7 @@ private:
             for (int run = 0; run < run_count(); ++run) {
                 if (run == base.run) continue;
                 Plan plan = base;
-                plan.run = run;
+                set_run(plan, run);
                 plan.tip = -1;
                 price_safety(plan);
                 if (!take_step()) return;
@@ -667,7 +755,7 @@ private:
             const int run = weighed_[std::size_t(best)].plan.run;
             for (int tip = 0; tip < int(std::size(kTips)); ++tip) {
                 Plan plan = base;
-                plan.run = run;
+                set_run(plan, run);
                 plan.tip = tip;
                 price_safety(plan);
                 if (!take_step()) return;
@@ -802,7 +890,12 @@ private:
         }
         std::vector<Plan> swerve;
         if (swerves) swerve = swerve_plans(cue, balls, group);
-        if (by_cushion[0].empty() && swerve.empty()) return;
+        group += int(swerve.size());
+        // No route reaches a ball on: the strokes aimed at its mirror images are played for the
+        // one that comes nearest, which is answered when nothing hits.
+        std::vector<Plan> aimed;
+        if (routes.empty() && most > 0) aimed = image_plans(cue, most, group);
+        if (by_cushion[0].empty() && swerve.empty() && aimed.empty()) return;
 
         std::vector<Plan> order = by_cushion[0];
         int swerve_room = int(swerve.size());
@@ -813,10 +906,58 @@ private:
         for (std::size_t r = 1; r < std::size(kEscapeRuns); ++r) {
             order.insert(order.end(), by_cushion[r].begin(), by_cushion[r].end());
         }
+        order.insert(order.end(), aimed.begin(), aimed.end());
         for (const Plan& plan : order) {
             if (!take_step()) return;
             attempt(plan);
         }
+    }
+
+    // Straight at each ball on and at its images in the cushions, up to `most` deep, whatever is in
+    // the way; the nearest images first, at most kRoutes.
+    std::vector<Plan> image_plans(Vec2 cue, int most, int group) const {
+        struct Image {
+            int target;
+            Vec2 at;
+            int cushions;
+            int last;  // the rail it was last mirrored in; -1 none
+        };
+        const std::vector<Rail> all = rails();
+        std::vector<Image> images;
+        for (const int target : targets_) images.push_back({target, s_.balls[std::size_t(target)].pos, 0, -1});
+        for (std::size_t i = 0; i < images.size(); ++i) {
+            if (images[i].cushions >= most) continue;
+            for (int r = 0; r < int(all.size()); ++r) {
+                if (r == images[i].last) continue;
+                Image next = images[i];
+                const Rail& rail = all[std::size_t(r)];
+                if (rail.across) {
+                    next.at.x = 2.0 * (r == 0 ? rail.at : -rail.at) - next.at.x;
+                } else {
+                    next.at.y = 2.0 * (r == 2 ? rail.at : -rail.at) - next.at.y;
+                }
+                ++next.cushions;
+                next.last = r;
+                images.push_back(next);
+            }
+        }
+        std::stable_sort(images.begin(), images.end(),
+                         [&](const Image& a, const Image& b) { return length(a.at - cue) < length(b.at - cue); });
+        if (int(images.size()) > kRoutes) images.resize(std::size_t(kRoutes));
+        std::vector<Plan> out;
+        for (const Image& image : images) {
+            Plan plan;
+            plan.kind = Kind::escape;
+            plan.cue = cue;
+            plan.target = image.target;
+            plan.contact_m = length(image.at - cue);
+            plan.group = group++;
+            plan.strike.aim_rad = angle_of(image.at - cue);
+            plan.strike.speed_m_s =
+                speed_for_run(plan.contact_m * (1.0 + kPerCushion * image.cushions) + kEscapeRuns[0], env_);
+            out.push_back(plan);
+        }
+        return out;
     }
 
     // Round the nearest ball in the way of each of the nearest balls on: aimed past it to one side
@@ -1055,7 +1196,7 @@ private:
                 p_miss = miss_chance(plan.window_rad, aim_sigma_at(plan.contact_m, strike.elevation_rad) +
                                                           plan.cushions * kCushionSigma_rad);
             }
-        } else {
+        } else if (!plan.from_touching) {
             if (plan.target >= 0) penalty = std::max(penalty, table::ball_value(s_.balls[std::size_t(plan.target)].ball));
             const double sigma = aim_sigma_at(plan.contact_m, strike.elevation_rad);
             const double margin = plan.thickness * kD / std::max(plan.contact_m, kD);
@@ -1072,6 +1213,7 @@ private:
         }
         w.kind = plan.kind == Kind::break_off ? "break" : plan.kind == Kind::escape ? "escape" : "safety";
         if (plan.kind == Kind::safety && w.snookered && level_.tactics >= 3) w.kind = "snooker";
+        w.away = !reds_top_ || w.kind != "safety" || w.cue_rest.x < 0.0;
 
         if (!legal) {
             // A miss as planned, kept only in case nothing hits: its foul is known.
@@ -1178,12 +1320,16 @@ private:
         return gain - leave - risk;
     }
 
-    // The legal candidates by worth as misread, the first tried first among equals.
+    // The legal candidates by worth as misread, those sent back to baulk first, the first tried
+    // first among equals.
     std::vector<int> by_read() const {
         std::vector<int> order;
         for (int i = 0; i < int(weighed_.size()); ++i) order.push_back(i);
         std::stable_sort(order.begin(), order.end(), [&](int a, int b) {
-            return weighed_[std::size_t(a)].read > weighed_[std::size_t(b)].read;
+            const Weighed& wa = weighed_[std::size_t(a)];
+            const Weighed& wb = weighed_[std::size_t(b)];
+            if (wa.away != wb.away) return wa.away;
+            return wa.read > wb.read;
         });
         return order;
     }
@@ -1258,6 +1404,7 @@ private:
     std::vector<Ball> open_;
     std::vector<int> theirs_;
     std::string score_;  // "ahead", "snookers" or empty
+    bool reds_top_ = false;
     std::vector<Weighed> weighed_;
     std::vector<Weighed> misses_;
     int steps_ = 0;

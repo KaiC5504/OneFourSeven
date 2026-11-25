@@ -1,0 +1,15 @@
+{
+  "note": "The cue ball ringed by six colours 60 mm from it, in baulk, the two reds up the table: no stroke reaches a red first.",
+  "cue_ball": 0,
+  "balls": [
+    {"ball": "cue", "index": 0, "x": -0.6, "y": -0.2},
+    {"ball": "yellow", "index": 0, "x": -0.54, "y": -0.2},
+    {"ball": "green", "index": 0, "x": -0.57, "y": -0.148038},
+    {"ball": "brown", "index": 0, "x": -0.63, "y": -0.148038},
+    {"ball": "blue", "index": 0, "x": -0.66, "y": -0.2},
+    {"ball": "pink", "index": 0, "x": -0.63, "y": -0.251962},
+    {"ball": "black", "index": 0, "x": -0.57, "y": -0.251962},
+    {"ball": "red", "index": 0, "x": 0.9, "y": 0.45},
+    {"ball": "red", "index": 1, "x": 1.3, "y": -0.5}
+  ]
+}

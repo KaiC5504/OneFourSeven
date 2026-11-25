@@ -1,0 +1,16 @@
+{
+  "note": "The cue ball touching a red (2 micrometres apart) with the other reds beyond it: every red is behind the touching one, so the only safety is played away from it.",
+  "cue_ball": 0,
+  "balls": [
+    {"ball": "cue", "index": 0, "x": 0.3, "y": -0.25},
+    {"ball": "red", "index": 0, "x": 0.352502, "y": -0.25},
+    {"ball": "red", "index": 1, "x": 1.1, "y": -0.45},
+    {"ball": "red", "index": 2, "x": 1.25, "y": -0.05},
+    {"ball": "yellow", "index": 0, "x": -1.0475, "y": -0.292},
+    {"ball": "green", "index": 0, "x": -1.0475, "y": 0.292},
+    {"ball": "brown", "index": 0, "x": -1.0475, "y": 0.0},
+    {"ball": "blue", "index": 0, "x": 0.0, "y": 0.0},
+    {"ball": "pink", "index": 0, "x": 0.89225, "y": 0.0},
+    {"ball": "black", "index": 0, "x": 1.4605, "y": 0.0}
+  ]
+}
