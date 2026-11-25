@@ -844,6 +844,7 @@ func test_a_pot_cuts_to_the_pocket_scores_and_swoops_back_onto_the_next_ball() -
 	_check_schema("shot.camera", cameras[0])
 	check_eq(cameras[0]["shot_id"], shot_id, "for this shot")
 	check_eq(cameras[0]["sequence"], "pocket", "the pocket camera")
+	check_eq(main.harness_state()["last_shot"].get("camera"), {"sequence": "pocket", "reason": ""}, "the harness sees it")
 	check_eq(cameras[0]["ball"], "red 4", "for the red")
 	check(not cameras[0].has("reason"), "no reason against it")
 	check_eq((cameras[0]["pose"] as Array).size(), 5, "its pose")
@@ -1058,6 +1059,9 @@ func test_the_next_ball_is_the_reader_s_pot_when_next_target_lists_it() -> void:
 	check_near(float(result.get("next_chance", 0.0)), 0.3, 1e-12, "and its chance")
 	check_near(main.setup.aim_rad, 0.9, 1e-12, "the aim turned there")
 	check_near(float(result.get("position", -1.0)), 0.5, 1e-12, "the position left, as the reader reads it")
+	var last: Dictionary = main.harness_state()["last_shot"]
+	check_eq([last.get("next_ball"), last.get("next_by"), last.get("next_by_why"), last.get("position")],
+			["blue", "reader", "", result.get("position")], "the harness's last_shot says the same: %s" % [last])
 	check_eq(engine.reads.back()[2], {"kind": "any_colour"}, "read with the ball on")
 	check(not main.is_processing() and not bool(engine.reader_thinking()), "nothing left running")
 	main.reader.think(_balls_of(main), 0, {"kind": "red"}, 1)
@@ -1074,24 +1078,41 @@ func test_the_next_ball_is_the_geometric_pick_when_the_reader_cannot_say() -> vo
 		return _blue_pots([2])
 	var engine := _fake_reader(main, 3)
 	var result: Dictionary = await _played_with_reader(main)
-	check_eq([result.get("next_by"), int(result.get("next_pocket", -1))], ["geometry", 2], "a pot NextTarget does not list")
+	check_eq([result.get("next_by"), result.get("next_by_why"), int(result.get("next_pocket", -1))],
+			["geometry", "not ranked", 2], "a pot NextTarget does not list")
 	check_near(float(result.get("next_aim_rad", 0.0)), 0.7, 1e-12, "aimed as NextTarget picks")
 
 	engine = _fake_reader(main, 2)
 	engine.takes_before = -1
 	result = await _played_with_reader(main)
-	check_eq(result.get("next_by"), "geometry", "an answer not there at the return")
-	check(not bool(engine.reader_thinking()) and engine.cancels >= 1, "and the thinking is stopped")
+	check_eq([result.get("next_by"), result.get("next_by_why")], ["geometry", "late"], "an answer not there at the return")
+	check(bool(engine.reader_thinking()) and main.is_processing(), "and the thinking is left to finish")
+	var late: Array[Dictionary] = await _late_line(main)
+	check(late.size() == 1 and not bool(late[0]["applied"]) and late[0]["why"] == "timed out",
+			"until it is past its clock: %s" % [late])
+	check(not bool(engine.reader_thinking()) and engine.cancels >= 1 and not main.is_processing(),
+			"then stopped, and the scene idles")
 
-	engine = _fake_reader(main, 2)
-	engine.answer = {"ok": true, "error": "", "ball": ""}
-	result = await _played_with_reader(main)
-	check_eq(result.get("next_by"), "geometry", "the reader would not pot")
+	for case: Array in [[{"ok": true, "error": "", "ball": ""}, "would not pot"],
+			[{"ok": true, "error": "", "ball": "", "fallback": "no stroke found"}, "fallback"],
+			[{"ok": false, "error": "the test's reader threw"}, "failed"]]:
+		engine = _fake_reader(main, 2)
+		engine.answer = case[0]
+		result = await _played_with_reader(main)
+		check_eq([result.get("next_by"), result.get("next_by_why")], ["geometry", case[1]], "the reader: %s" % case[1])
 
 	main.reader = PositionReader.new()
 	result = await _played_with_reader(main)
-	check_eq(result.get("next_by"), "geometry", "no reader")
+	check_eq([result.get("next_by"), result.get("next_by_why")], ["geometry", "no reader"], "no reader")
 	check(not result.has("position"), "and no position read")
+
+	main.choose_next = func(_balls: Array[Dictionary], _cue_ball: int, _prefer: String) -> Dictionary:
+		var bad := _blue_pots([2])[0]
+		bad["aim_rad"] = NAN
+		return bad
+	result = await _played_with_reader(main)
+	check_eq([result.get("next_reason"), result.get("next_by"), result.get("next_by_why")], ["no usable aim", "geometry", "no reader"],
+			"an aim that can't be used still says who chose it")
 
 	engine = _fake_reader(main, 2)
 	Settings.set_value("aim_next_ball", false)
@@ -1103,6 +1124,74 @@ func test_the_next_ball_is_the_geometric_pick_when_the_reader_cannot_say() -> vo
 
 func _balls_of(main: MainScript) -> Array:
 	return (main.get_node("FreeTable") as FreeTable).balls
+
+
+## The shot.next_late lines once the scene has stopped waiting for a late reader (2 s at most).
+func _late_line(main: MainScript) -> Array[Dictionary]:
+	var deadline := Time.get_ticks_msec() + 2000
+	while not main._late.is_empty() and Time.get_ticks_msec() < deadline:
+		await tree.process_frame
+	var lines := _logged("shot.next_late")
+	for line in lines:
+		_check_schema("shot.next_late", line)
+	return lines
+
+
+func test_a_skipped_shot_still_takes_the_reader_s_pot_when_it_comes_after_the_return() -> void:
+	var main: MainScript = await _spawn()
+	main.choose_next = func(_balls: Array[Dictionary], _cue_ball: int, _prefer: String) -> Dictionary: return _blue_pots([2])[0]
+	main.rank_next = func(_balls: Array[Dictionary], _cue_ball: int, _prefer: String, _among: Array) -> Array[Dictionary]:
+		return _blue_pots([2, 3])
+	var engine := _fake_reader(main, 3)
+	engine.takes_before = 3
+	var result: Dictionary = await _played_with_reader(main)
+	check_eq([result.get("next_by"), result.get("next_by_why"), int(result.get("next_pocket", -1))], ["geometry", "late", 2],
+			"the geometric pick at the return")
+	check_near(main.setup.aim_rad, 0.7, 1e-12, "aimed there for now")
+	check(engine.cancels == 0, "the thinking not stopped on the main thread")
+	var late: Array[Dictionary] = await _late_line(main)
+	check_eq(late.size(), 1, "one shot.next_late")
+	if late.size() == 1:
+		check_eq([late[0]["shot_id"], late[0]["applied"], late[0]["why"], int(late[0].get("next_pocket", -1))],
+				[result["shot_id"], true, "", 3], "the reader's pot taken when it came")
+	check_near(main.setup.aim_rad, 0.9, 1e-12, "the aim turned to it, as a watched shot would have")
+	var last: Dictionary = main.harness_state()["last_shot"]
+	check_eq([last.get("next_by"), last.get("next_by_why"), (last.get("next_late", {}) as Dictionary).get("applied")],
+			["geometry", "late", true], "the harness sees it: %s" % [last])
+	check(not main.is_processing() and not bool(engine.reader_thinking()), "and nothing keeps the scene awake")
+
+	engine = _fake_reader(main, 3)
+	engine.takes_before = 3
+	result = await _played_with_reader(main)
+	main.setup.set_aim(0.2)
+	late = await _late_line(main)
+	check(late.size() == 1 and not bool(late[0]["applied"]) and late[0]["why"] == "aim moved",
+			"a late pot after the person has aimed is dropped: %s" % [late])
+	check_near(main.setup.aim_rad, 0.2, 1e-12, "the person's aim kept")
+
+	engine = _fake_reader(main, 3)
+	engine.takes_before = 3
+	result = await _played_with_reader(main)
+	_key(KEY_R)
+	late = _logged("shot.next_late")
+	check(late.size() == 1 and late[0]["why"] == "table changed", "a retake ends it at once: %s" % [late])
+	await tree.process_frame
+	check(not main.is_processing(), "and the scene idles")
+	_finish(main)
+
+
+func test_a_watched_shot_asks_the_reader_the_frame_after_the_strike() -> void:
+	var main: MainScript = await _spawn()
+	main.choose_next = func(_balls: Array[Dictionary], _cue_ball: int, _prefer: String) -> Dictionary: return _blue_pots([2])[0]
+	var engine := _fake_reader(main, 3)
+	main.harness_play_shot(_load_pot_keeping_reader(main))
+	check_eq(engine.thought.size(), 0, "not in the strike's own frame")
+	await tree.process_frame
+	check_eq(engine.thought.size(), 1, "but the next")
+	main.skip_shot()
+	await _until_idle(main)
+	check_eq(engine.thought.size(), 1, "and only once")
+	_finish(main)
 
 
 func test_the_break_starts_again_on_any_new_table() -> void:

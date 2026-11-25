@@ -150,7 +150,13 @@ var _harness_why := ""
 var _view_missing := {}
 ## The reader was asked, at the strike, about the position the shot leaves.
 var _reader_asked := false
-var _preview_failed := false
+## Why it was not, for shot.result's next_by_why; "" when it was.
+var _reader_skipped := ""
+## The shot whose question to the reader is put off to the next frame; "" when none waits.
+var _reader_due := ""
+## The reader still thinking when its shot settled: {shot_id, aim_rad, version, mode, prefer}. Its
+## pot turns the aim when it comes, if the aim and the table are as the settle left them.
+var _late := {}
 
 @onready var _stage: Stage = $Stage
 @onready var _table: TableView = $Table
@@ -338,11 +344,13 @@ func _process(delta: float) -> void:
 	if _playing and not _player.is_playing() and not _skip_requested:
 		_cycle_t += delta
 		_cycle.update(_cycle_t)
+	if not _late.is_empty():
+		_poll_late()
 	if _settling:
 		_settle()
 	elif _show.is_showing():
 		_pose_opponent_cue()
-	else:
+	elif _late.is_empty():
 		set_process(false)
 		Perf.set_active(&"opponent_show", false)
 
@@ -493,6 +501,7 @@ func _strike(strike_mode: String, as_given: Dictionary = {}, given_id: String = 
 	# where an ease to it had got to.
 	_flush_refresh()
 	_rig.finish_ease()
+	_end_late("shot played")
 	_record = record
 	_shot_id = shot_id
 	_skip_requested = false
@@ -503,8 +512,12 @@ func _strike(strike_mode: String, as_given: Dictionary = {}, given_id: String = 
 	_audio.begin_shot(record.strike_outcome())
 	_guides.hide_all()
 	var playback := ShotPlayback.from_record(record)
-	_start_cycle(playback, shot_id)
-	_ask_reader(record)
+	_start_cycle(playback, shot_id, strike)
+	_last_shot["camera"] = {"sequence": _plan["sequence"], "reason": _plan["reason"]}
+	# The reader has its 400 ms clock; the strike's frame has enough to do.
+	_reader_asked = false
+	_reader_due = shot_id
+	_ask_reader.call_deferred(record, shot_id)
 	_bar.close_menu()
 	_stroke.cancel_stroke("shot started")
 	# Their touches are ignored while it plays, so a thumb still down would never lift.
@@ -520,7 +533,7 @@ func _strike(strike_mode: String, as_given: Dictionary = {}, given_id: String = 
 
 
 ## Chooses the camera sequence for the shot about to play (spec 8.5), logs it and starts it.
-func _start_cycle(playback: ShotPlayback, shot_id: String) -> void:
+func _start_cycle(playback: ShotPlayback, shot_id: String, strike: Dictionary) -> void:
 	# A practice shot is played for what the cue ball does after the pot; a stroke watched from above
 	# or walking round is watched whole from there.
 	var whole := ""
@@ -528,8 +541,17 @@ func _start_cycle(playback: ShotPlayback, shot_id: String) -> void:
 		whole = "practice"
 	elif _rig.watch() != "cue":
 		whole = "watching"
-	_plan = ShotCycle.plan(playback, _table_balls(), _table_cue(), bool(Settings.get_value("pocket_camera")), _pockets, whole,
-			_worth_to_striker)
+	var rules := {}
+	if _mode == MATCH:
+		var frame := _match.frame()
+		rules = {"on": frame.get("on", {}), "free_ball": bool(frame.get("free_ball", false))}
+	var balls := _table_balls()
+	var cue_ball := _table_cue()
+	var plain := func(played: int) -> float:
+		return ShotCycle.plain_worth(Physics.predict, Physics.min_cue_elevation, balls, cue_ball, strike, played,
+				_worth_to_striker, rules)
+	_plan = ShotCycle.plan(playback, balls, cue_ball, bool(Settings.get_value("pocket_camera")), _pockets, whole,
+			_worth_to_striker, rules, plain)
 	var fields := {"shot_id": shot_id, "sequence": _plan["sequence"]}
 	for key: String in ["ball", "pocket", "drop_t", "near_t"]:
 		if _plan.has(key):
@@ -556,15 +578,29 @@ func _worth_to_striker(balls: Array[Dictionary], cue_ball: int, on: Dictionary) 
 
 ## Starts the reader on the position the shot will leave the person, while it plays: the pick at
 ## the return is the pot it would play (_turn_to_next). Nothing is asked with "aim_next_ball" off,
-## in an exhibition, or when the stroke leaves the opponent, or a choice, to come next.
-func _ask_reader(record: OfsShotRecord) -> void:
+## in an exhibition, or when the stroke leaves the opponent, or a choice, to come next. Called the
+## frame after the strike, or at the settle when that comes first; shot_id no longer due is
+## dropped.
+func _ask_reader(record: OfsShotRecord, shot_id: String) -> void:
+	if shot_id != _reader_due or record == null:
+		return
+	_reader_due = ""
 	reader.cancel()
 	_reader_asked = false
-	if not bool(Settings.get_value("aim_next_ball")) or not reader.is_ready():
+	_reader_skipped = ""
+	if not bool(Settings.get_value("aim_next_ball")):
+		return
+	if not reader.is_ready():
+		_reader_skipped = "no reader"
 		return
 	var left := _left_to_person(record)
-	if not left.is_empty():
-		_reader_asked = reader.think(left["balls"], int(left["cue_ball"]), left["on"], Physics.new_seed())
+	if left.is_empty():
+		_reader_skipped = "not asked"
+		return
+	_reader_asked = reader.think(left["balls"], int(left["cue_ball"]), left["on"], Physics.new_seed())
+	if not _reader_asked:
+		# The engine has logged why.
+		_reader_skipped = "refused"
 
 
 ## {balls, cue_ball, on} as the stroke leaves them for the person to play next; {} when it leaves
@@ -583,11 +619,10 @@ func _left_to_person(record: OfsShotRecord) -> Dictionary:
 		return {}
 	var preview: Variant = _match.engine.judge_preview(record, {"nominated": _match.nominated()})
 	if not preview is Dictionary or not bool((preview as Dictionary).get("ok", false)):
-		if not _preview_failed:
-			_preview_failed = true
-			Log.warn("app", "app.error", {"kind": "message", "message":
-					"main: judge_preview refused shot %s (%s); the next ball is picked by geometry" % [_shot_id,
-					(preview as Dictionary).get("error", "") if preview is Dictionary else type_string(typeof(preview))]})
+		# OfsMatch has logged its own refusal with the record's anomalies; this says what follows.
+		Log.warn("app", "app.error", _match_fields({"kind": "message", "shot_id": _shot_id, "message":
+				"main: judge_preview refused shot %s (%s); the next ball is picked by geometry" % [_shot_id,
+				(preview as Dictionary).get("error", "") if preview is Dictionary else type_string(typeof(preview))]}))
 		return {}
 	var frame: Dictionary = preview["frame"]
 	if bool(frame.get("over", false)) or String(frame.get("pending", "none")) != "none" or bool(frame.get("cue_in_hand", false)) \
@@ -687,6 +722,11 @@ func _settle() -> void:
 		return
 	set_process(false)
 	_settling = false
+	# A shot skipped in its first frame settles before the reader was asked.
+	if _unjudged:
+		_reader_due = ""
+	else:
+		_ask_reader(_record, _shot_id)
 	if _mode == MATCH:
 		_settle_match()
 		return
@@ -704,6 +744,7 @@ func _settle() -> void:
 	result.merge(_turn_to_next())
 	result.merge(_position_left())
 	Log.info("shot", "shot.result", result)
+	_keep_result(result)
 	_show_break()
 	_set_playing(false)
 	_rig.reset_view()
@@ -733,6 +774,7 @@ func _settle_match() -> void:
 	result.merge(_turn_to_next())
 	result.merge(_position_left())
 	Log.info("shot", "shot.result", result)
+	_keep_result(result)
 	_set_playing(false)
 	_rig.reset_view()
 	_sync_match_ui()
@@ -745,26 +787,56 @@ func _settle_match() -> void:
 
 ## Turns the aim to the next ball (spec 8.5, the return) unless "aim_next_ball" is off; shot.result's
 ## next_ fields. In a match the next ball is one of the balls on.
+## next_by_why says why the pick is geometry's: "no reader", "not asked" (the stroke leaves the
+## person nothing to play, or the referee could not say), "refused" (reader_think refused),
+## "late" (still thinking at the return: its pot may follow, shot.next_late), "failed", "would not
+## pot", "fallback" (it could not work a stroke out), "not ranked" (NextTarget does not list its
+## pot); "" when the pick is the reader's.
 func _turn_to_next() -> Dictionary:
 	var asked := _reader_asked
 	_reader_asked = false
-	var answer := reader.answer() if asked else {}
 	if not bool(Settings.get_value("aim_next_ball")):
+		reader.cancel()
 		return {"next_ball": "", "next_reason": "setting off"}
+	var why := _reader_skipped if not _reader_skipped.is_empty() else "not asked"
+	var answer := {}
+	if asked:
+		answer = reader.answer()
+		if not answer.is_empty():
+			why = ""
+		elif reader.thinking():
+			why = "late"
+		else:
+			why = "failed"
 	var prefer := "any" if _mode == MATCH else _cycle.prefer(_free.balls)
-	var chosen: Variant = _reader_pick(answer, prefer)
-	var by := "reader"
-	if (chosen as Dictionary).is_empty():
-		by = "geometry"
+	var chosen: Variant = {}
+	if not answer.is_empty():
+		var pick := _reader_pick(answer, prefer)
+		chosen = pick["entry"]
+		why = pick["why"]
+	var by := "reader" if why.is_empty() else "geometry"
+	if not why.is_empty():
 		if _mode == MATCH:
 			chosen = choose_among.call(_match.balls, _match.cue_ball, _on_places())
 		else:
 			chosen = choose_next.call(_free.balls, _free.cue_ball, prefer)
+	var out := _aim_at(chosen, prefer)
+	out["next_by"] = by
+	out["next_by_why"] = why
+	if why == "late":
+		_late = {"shot_id": _shot_id, "aim_rad": setup.aim_rad, "version": _table_version(), "mode": _mode,
+				"prefer": prefer}
+		set_process(true)
+	return out
+
+
+## Turns the aim to `chosen` (a NextTarget entry); shot.result's next_ fields but next_by.
+func _aim_at(chosen: Variant, prefer: String) -> Dictionary:
 	if not chosen is Dictionary or (chosen as Dictionary).is_empty():
 		if not chosen is Dictionary:
 			Log.warn("app", "app.error", {"kind": "message", "message": "main: NextTarget.choose(prefer %s) returned %s, not a Dictionary; the aim stays"
 					% [prefer, type_string(typeof(chosen))]})
-		return {"next_ball": "", "next_reason": "no object ball", "next_by": by}
+		return {"next_ball": "", "next_reason": "no object ball"}
 	var target: Dictionary = chosen
 	var aim: Variant = target.get("aim_rad")
 	if not (aim is float or aim is int) or not is_finite(float(aim)):
@@ -775,23 +847,79 @@ func _turn_to_next() -> Dictionary:
 	# NextTarget's "ball" is already the label ("red 3").
 	return {"next_ball": String(target.get("ball", "")), "next_pocket": int(target.get("pocket", -1)),
 			"next_aim_rad": setup.aim_rad, "next_cut_deg": float(target.get("cut_deg", 0.0)),
-			"next_chance": float(target.get("chance", 0.0)), "next_reason": String(target.get("reason", "")), "next_by": by}
+			"next_chance": float(target.get("chance", 0.0)), "next_reason": String(target.get("reason", ""))}
 
 
-## NextTarget's own entry for the reader's pot (its aim line and chance), or {} when the reader
-## gave none or NextTarget does not list it: the geometric pick is then the one.
+## {"entry": NextTarget's own entry for the reader's pot (its aim line and chance), "why": ""}, or
+## an empty entry and why there is none (next_by_why's words): the geometric pick is then the one.
 func _reader_pick(answer: Dictionary, prefer: String) -> Dictionary:
 	var ball := String(answer.get("ball", ""))
 	if ball.is_empty():
-		return {}
+		return {"entry": {}, "why": "would not pot" if String(answer.get("fallback", "")).is_empty() else "fallback"}
 	var match_on := _mode == MATCH
 	var ranked: Variant = rank_next.call(_table_balls(), _table_cue(), prefer, _on_places() if match_on else [])
-	if not ranked is Array:
-		return {}
-	for entry: Variant in ranked:
-		if entry is Dictionary and String(entry.get("ball", "")) == ball and int(entry.get("pocket", -1)) == int(answer.get("pocket", -2)):
-			return entry
-	return {}
+	if ranked is Array:
+		for entry: Variant in ranked:
+			if entry is Dictionary and String(entry.get("ball", "")) == ball and int(entry.get("pocket", -1)) == int(answer.get("pocket", -2)):
+				return {"entry": entry, "why": ""}
+	return {"entry": {}, "why": "not ranked"}
+
+
+## The late reader (_late): its pot turns the aim once it comes, unless the aim or the table has
+## moved on since the settle; shot.next_late says which. Polled each frame until it answers, fails
+## or is overdue.
+func _poll_late() -> void:
+	var answer := reader.answer()
+	var why := ""
+	if answer.is_empty():
+		if reader.thinking() and not reader.overdue():
+			return
+		why = "timed out" if reader.thinking() else "failed"
+	elif _playing or _mode != String(_late["mode"]) or _table_version() != int(_late["version"]) \
+			or _mode == MATCH and not _match.person_to_play():
+		why = "table changed"
+	elif not is_equal_approx(setup.aim_rad, float(_late["aim_rad"])):
+		why = "aim moved"
+	var fields := {}
+	if why.is_empty():
+		var pick := _reader_pick(answer, String(_late["prefer"]))
+		why = pick["why"]
+		if why.is_empty():
+			fields = _aim_at(pick["entry"], String(_late["prefer"]))
+			if String(fields.get("next_ball", "")).is_empty():
+				why = String(fields.get("next_reason", "no usable aim"))
+				fields = {}
+	_end_late(why, fields)
+
+
+## Ends the late reader, if there is one, as `why` ("" when its pot was taken, with `fields`).
+func _end_late(why: String, fields: Dictionary = {}) -> void:
+	if _late.is_empty():
+		return
+	var line := {"shot_id": String(_late["shot_id"]), "applied": why.is_empty(), "why": why, "ms": reader.asked_ms_ago()}
+	line.merge(fields)
+	if String(_late["mode"]) == MATCH:
+		line["match_id"] = _match.match_id()
+		line["frame"] = _match.frame_number()
+	_late = {}
+	reader.cancel()
+	Log.info("shot", "shot.next_late", line)
+	if _last_shot.get("shot_id") == line["shot_id"]:
+		_last_shot["next_late"] = {"applied": line["applied"], "why": why}
+		if why.is_empty():
+			for key: String in ["next_ball", "next_pocket", "next_aim_rad", "next_chance"]:
+				_last_shot["next_late"][key] = fields.get(key)
+	if why.is_empty():
+		_queue_refresh()
+
+
+## The harness's last_shot takes what shot.result said of the next ball.
+func _keep_result(result: Dictionary) -> void:
+	if _last_shot.get("shot_id") != result.get("shot_id"):
+		return
+	for key: String in ["next_ball", "next_by", "next_by_why", "position"]:
+		if result.has(key):
+			_last_shot[key] = result[key]
 
 
 ## shot.result's "position": what the position left is worth to the person when it is his to play
@@ -814,9 +942,11 @@ func _position_left() -> Dictionary:
 func _set_playing(on: bool) -> void:
 	_playing = on
 	if not on:
-		# A shot left unjudged, or done with: nothing waits on the reader any more.
+		# A shot left unjudged, or done with: nothing waits on the reader any more but a late pick.
 		_reader_asked = false
-		reader.cancel()
+		_reader_due = ""
+		if _late.is_empty():
+			reader.cancel()
 	_update_aim_enabled()
 	_show_controls()
 	_mark_nominated()
@@ -958,6 +1088,7 @@ func _on_table_changed(balls: Array[Dictionary], _cue_ball: int, reason: StringN
 	# Only a shot carries the break on; a retake, undo, redo, setup or edit starts again.
 	if reason != &"shot":
 		_reset_break()
+		_end_late("table changed")
 		_reader_asked = false
 		reader.cancel()
 	if reason != &"edit" or _selected >= balls.size():
@@ -1597,6 +1728,10 @@ func _open_match_setup() -> void:
 ## Starts a match (MatchController.start's config) and puts it on the table; autoplay and fast are
 ## the harness's. False, with the person told and the screen as it was, when it can't start.
 func _start_match(config: Dictionary, autoplay: bool = false, fast: bool = false) -> bool:
+	if not _match.check_start(config):
+		# MatchController has logged why; whatever was on the table goes on.
+		_show_notice(NO_MATCH_NOTICE)
+		return false
 	var from := _mode
 	_end_shot_now()
 	_cancel_lineup()
@@ -2267,6 +2402,13 @@ func _on_continue() -> bool:
 	return true
 
 
+## Why MatchController refused the last thing asked of it, for a harness answer; the engine's own
+## last_error when it kept none.
+func _refusal() -> String:
+	var why := _match.refusal()
+	return why if not why.is_empty() else "engine: " + _engine_error()
+
+
 ## What the engine last refused, for a harness answer; "" with no engine.
 func _engine_error() -> String:
 	var engine: Object = _match.engine
@@ -2410,7 +2552,7 @@ func harness_demo_screen(screen: String, match_state: Dictionary) -> bool:
 ## part too and fast skips every stroke's playback. {"match_id"}, or {"error"}.
 func harness_start_match(config: Dictionary, autoplay: bool, fast: bool) -> Dictionary:
 	if not _start_match(config, autoplay, fast):
-		return {"error": "the match did not start: %s; app.error in the log says more" % _engine_error()}
+		return {"error": "the match did not start: %s; app.error in the log says more" % _refusal()}
 	return {"match_id": _match.match_id()}
 
 
@@ -2421,7 +2563,7 @@ func harness_start_exhibition(layout: int, fast: bool, match_seed: int = -1) -> 
 	if layout < 0 or layout >= tables.size():
 		return {"error": "layout %d is not one of the %d exhibition tables %s" % [layout, tables.size(), tables]}
 	if not _start_exhibition(layout, fast, match_seed):
-		return {"error": "the exhibition did not start: %s; app.error in the log says more" % _engine_error()}
+		return {"error": "the exhibition did not start: %s; app.error in the log says more" % _refusal()}
 	return {"match_id": _match.match_id(), "layout": tables[layout]}
 
 
@@ -2506,8 +2648,8 @@ func harness_match_choose(kind: String) -> Dictionary:
 			_:
 				taken = _match.choose(kind)
 	if not taken:
-		return {"error": "\"%s\" was not chosen (offered: %s; engine: %s)" % [kind,
-				_person_options() if _mode == MATCH else [], _engine_error()]}
+		return {"error": "\"%s\" was not chosen (offered: %s; %s)" % [kind,
+				_person_options() if _mode == MATCH else [], _refusal() if _mode == MATCH else "no match is on the table"]}
 	return {"kind": kind}
 
 

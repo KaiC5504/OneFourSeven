@@ -7,6 +7,10 @@ extends RefCounted
 ## match's frame. Not configured, it answers nothing and the game keeps to the geometric pick.
 
 const LEVEL_PATH := "res://data/opponent_person.json"
+## OfsMatch's reader thinks to a 400 ms clock and then answers with what it has; past that and
+## this much more, an answer that has not come is not coming.
+const CLOCK_MS := 400
+const GRACE_MS := 200
 
 ## OfsMatch, or in tests an object with the same reader methods.
 var engine: Object
@@ -14,6 +18,9 @@ var _configured := false
 var _logged := false
 ## The answer taken from the engine and not yet used.
 var _answer := {}
+## Why the last thinking ended with no answer (reader_take's error); "" otherwise.
+var _failure := ""
+var _asked_ms := 0
 
 
 ## Makes and configures the engine unless one was given. False, logged once, when it can't be.
@@ -64,6 +71,8 @@ func read(balls: Array, cue_ball: int, on: Dictionary) -> Dictionary:
 ## Starts the reader thinking about the position a shot will leave; any earlier answer is dropped.
 func think(balls: Array, cue_ball: int, on: Dictionary, seed: int) -> bool:
 	_answer = {}
+	_failure = ""
+	_asked_ms = Time.get_ticks_msec()
 	if not _configured:
 		return false
 	return bool(engine.reader_think(balls, cue_ball, on, seed))
@@ -74,17 +83,41 @@ func poll() -> void:
 	if not _configured or not _answer.is_empty() or not bool(engine.reader_thinking()):
 		return
 	var got: Variant = engine.reader_take()
-	if got is Dictionary and bool((got as Dictionary).get("ok", false)):
+	if not got is Dictionary:
+		_failure = "reader_take gave %s, not a Dictionary" % type_string(typeof(got))
+	elif bool((got as Dictionary).get("ok", false)):
 		_answer = got
+	elif not String((got as Dictionary).get("error", "")).is_empty():
+		# The engine has logged it; the thinking is spent.
+		_failure = String(got["error"])
 
 
-## The reader's pot ({ball, pocket, chance, worth, leave}; ball "" when it would not pot), or {}
-## when it has not answered. Whatever was still thinking is stopped: the moment for it has gone.
+## The reader's pot ({ball, pocket, chance, worth, leave, stopped, fallback}; ball "" when it would
+## not pot), or {} when it has not answered yet. Used once: a second call gives {}.
 func answer() -> Dictionary:
 	poll()
 	var out := _answer
-	cancel()
+	_answer = {}
 	return out
+
+
+## Asked and still thinking: its answer may yet come (poll()).
+func thinking() -> bool:
+	return _configured and _answer.is_empty() and bool(engine.reader_thinking())
+
+
+## Thinking past its clock and the grace after it.
+func overdue() -> bool:
+	return thinking() and Time.get_ticks_msec() - _asked_ms > CLOCK_MS + GRACE_MS
+
+
+## Since think(), in milliseconds.
+func asked_ms_ago() -> int:
+	return Time.get_ticks_msec() - _asked_ms
+
+
+func failure() -> String:
+	return _failure
 
 
 func cancel() -> void:

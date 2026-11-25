@@ -1299,6 +1299,66 @@
         "next_by": {
           "type": "string",
           "required": false
+        },
+        "next_by_why": {
+          "type": "string",
+          "required": false
+        }
+      }
+    },
+    "shot.next_late": {
+      "subsystem": "shot",
+      "levels": [
+        "info"
+      ],
+      "fields": {
+        "shot_id": {
+          "type": "string",
+          "required": true
+        },
+        "applied": {
+          "type": "boolean",
+          "required": true
+        },
+        "why": {
+          "type": "string",
+          "required": true
+        },
+        "ms": {
+          "type": "integer",
+          "required": true
+        },
+        "next_ball": {
+          "type": "string",
+          "required": false
+        },
+        "next_pocket": {
+          "type": "integer",
+          "required": false
+        },
+        "next_aim_rad": {
+          "type": "number",
+          "required": false
+        },
+        "next_cut_deg": {
+          "type": "number",
+          "required": false
+        },
+        "next_chance": {
+          "type": "number",
+          "required": false
+        },
+        "next_reason": {
+          "type": "string",
+          "required": false
+        },
+        "match_id": {
+          "type": "string",
+          "required": false
+        },
+        "frame": {
+          "type": "integer",
+          "required": false
         }
       }
     },

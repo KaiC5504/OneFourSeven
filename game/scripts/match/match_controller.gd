@@ -119,6 +119,8 @@ var _nearest_failed := false
 ## The engine answers' keys found missing, each logged once.
 var _missing := {}
 var _last_refusal := ""
+## Why the last start, choice, concession, claim or next frame was refused; "" when it wasn't.
+var _refusal := ""
 ## The opponent's level id for the match; "" is the stand-in.
 var _level := ""
 var _level_name := STANDIN_NAME
@@ -175,34 +177,14 @@ func waiting() -> String:
 ## exhibition: an index into the engine's exhibitions() (Watch a 147: best of 1 from that table,
 ## the opponent at it, the person only watching; the 147's level when none is given)}. Starts
 ## frame 1 and emits table_changed(&"frame"), frame_changed and the first turn. False when the
-## config or the engine refuses. A match still on is left first.
+## config or the engine refuses (refusal() says why); a config refused leaves a match still on as
+## it was, and one the engine takes is left for it.
 func start(config: Dictionary) -> bool:
-	var first: Variant = config.get("first_breaker", "random")
-	if not BREAKERS.has(first):
-		_error("start: first_breaker %s is not \"random\", \"you\" or \"computer\"" % JSON.stringify(first))
+	var engine_config := _engine_config(config)
+	if engine_config.is_empty():
 		return false
-	var exhibition := -1
-	if config.has("exhibition"):
-		exhibition = _exhibition_index(config["exhibition"])
-		if exhibition < 0:
-			return false
-	var known: Variant = _level_for(config.get("level", ""), exhibition >= 0)
-	if known == null:
-		return false
-	var level := str(known)
-	var engine_config := {
-		"best_of": int(config.get("best_of", 1)),
-		"first_breaker": int(BREAKERS[first]),
-		"seed": int(config["seed"]) if config.has("seed") else Physics.new_seed(),
-		"concede_any_time": [true, false],
-		"person": PERSON,
-	}
-	if not level.is_empty():
-		engine_config["level"] = level
-	if exhibition >= 0:
-		engine_config["exhibition"] = exhibition
-		engine_config["best_of"] = 1
-		engine_config["first_breaker"] = OPPONENT
+	var level := str(engine_config.get("level", ""))
+	var exhibition := int(engine_config.get("exhibition", -1))
 	var left := not _match_id.is_empty()
 	if _exhibition >= 0 and left:
 		_log_exhibition_end(_exhibition_result("left"))
@@ -219,6 +201,18 @@ func start(config: Dictionary) -> bool:
 	if left:
 		table_changed.emit(balls, cue_ball, &"ended")
 	return false
+
+
+## Whether start(config) would be taken, asked before anything is changed: false, with why logged
+## and in refusal(), when the config or the engine refuses it.
+func check_start(config: Dictionary) -> bool:
+	return not _engine_config(config, false).is_empty()
+
+
+## Why the last start, choice (choose, concede_frame, concede_match, claim_frame) or next_frame
+## was refused; "" when it was taken.
+func refusal() -> String:
+	return _refusal
 
 
 ## Leaves the match with no winner (Quit, spec 11.2); logs through the engine. Also clears a
@@ -445,19 +439,21 @@ func shot_finished(record: OfsShotRecord) -> Dictionary:
 ## The person's choice among the options offered. False when it is not one of them, and for
 ## PAUSE_DECISIONS, which go through concede_frame, concede_match and claim_frame.
 func choose(kind: String) -> bool:
+	_refusal = ""
 	var offered: Array[String] = []
 	if _active and not _playing:
 		offered = _choices(PERSON)
 	if not offered.has(kind):
-		_error("choose(\"%s\") is not one of the person's options %s" % [kind, JSON.stringify(offered)], false)
+		_refuse("choose(\"%s\") is not one of the person's options %s" % [kind, JSON.stringify(offered)], false)
 		return false
 	return _decide(kind, PERSON)
 
 
 ## Racks the next frame after frame_ended; false when there is none to rack.
 func next_frame() -> bool:
+	_refusal = ""
 	if not _active or _waiting != "frame_summary":
-		_error("next_frame with no finished frame to follow (waiting \"%s\")" % _waiting, false)
+		_refuse("next_frame with no finished frame to follow (waiting \"%s\")" % _waiting, false)
 		return false
 	var answer := _dict(engine.next_frame())
 	if not bool(answer.get("ok", false)):
@@ -624,11 +620,54 @@ func _leave() -> void:
 	_exhibition = -1
 
 
+## The engine's start config for start(config), checked by the engine too; {}, with why logged
+## and kept for refusal(), when it would be refused. Nothing is changed; without draw_seed no
+## seed is drawn for a config that has none.
+func _engine_config(config: Dictionary, draw_seed: bool = true) -> Dictionary:
+	_refusal = ""
+	var first: Variant = config.get("first_breaker", "random")
+	if not BREAKERS.has(first):
+		_refuse("start: first_breaker %s is not \"random\", \"you\" or \"computer\"" % JSON.stringify(first))
+		return {}
+	var exhibition := -1
+	if config.has("exhibition"):
+		exhibition = _exhibition_index(config["exhibition"])
+		if exhibition < 0:
+			return {}
+	var known: Variant = _level_for(config.get("level", ""), exhibition >= 0)
+	if known == null:
+		return {}
+	var level := str(known)
+	var best_of: Variant = config.get("best_of", 1)
+	if not (best_of is int or best_of is float and is_finite(best_of) and best_of == floorf(best_of)):
+		_refuse("start: best_of %s is not a whole number" % JSON.stringify(best_of))
+		return {}
+	var engine_config := {
+		"best_of": int(best_of),
+		"first_breaker": int(BREAKERS[first]),
+		"seed": int(config["seed"]) if config.has("seed") else (Physics.new_seed() if draw_seed else 0),
+		"concede_any_time": [true, false],
+		"person": PERSON,
+	}
+	if not level.is_empty():
+		engine_config["level"] = level
+	if exhibition >= 0:
+		engine_config["exhibition"] = exhibition
+		engine_config["best_of"] = 1
+		engine_config["first_breaker"] = OPPONENT
+	if engine != null and engine.has_method("start_refusal"):
+		var why := str(engine.start_refusal(engine_config))
+		if not why.is_empty():
+			_refuse("start: the engine would refuse %s: %s" % [JSON.stringify(engine_config), why])
+			return {}
+	return engine_config
+
+
 ## A level id that may be played: "" for the stand-in, the 147's for an exhibition given none;
 ## null, with app.error logged, when it can't be.
 func _level_for(given: Variant, exhibition: bool) -> Variant:
 	if not (given is String or given is StringName):
-		_error("start: level %s is not a level id" % JSON.stringify(given))
+		_refuse("start: level %s is not a level id" % JSON.stringify(given))
 		return null
 	var id := str(given)
 	if id.is_empty() and not exhibition:
@@ -641,7 +680,7 @@ func _level_for(given: Variant, exhibition: bool) -> Variant:
 		for entry in known:
 			if bool(entry.get("maximum", false)):
 				return str(entry.get("id", ""))
-		_error("start: an exhibition needs the 147's level and none is listed (levels %s)" % JSON.stringify(ids))
+		_refuse("start: an exhibition needs the 147's level and none is listed (levels %s)" % JSON.stringify(ids))
 		return null
 	if id.is_empty() or ids.has(id):
 		return id
@@ -649,7 +688,7 @@ func _level_for(given: Variant, exhibition: bool) -> Variant:
 		# configure_opponent was refused and logged: the match goes on with the stand-in.
 		_error("start: level \"%s\" asked for with no levels configured; the stand-in plays" % id)
 		return ""
-	_error("start: level \"%s\" is not one of %s" % [id, JSON.stringify(ids)])
+	_refuse("start: level \"%s\" is not one of %s" % [id, JSON.stringify(ids)])
 	return null
 
 
@@ -660,7 +699,7 @@ func _exhibition_index(given: Variant) -> int:
 		count = (engine.exhibitions() as PackedStringArray).size()
 	var index := int(given) if (given is int or (given is float and is_finite(given) and given == floorf(given))) else -1
 	if index < 0 or index >= count:
-		_error("start: exhibition %s is not an index into the %d exhibition tables" % [JSON.stringify(given),
+		_refuse("start: exhibition %s is not an index into the %d exhibition tables" % [JSON.stringify(given),
 				maxi(count, 0)])
 		return -1
 	return index
@@ -676,8 +715,10 @@ func _name_of(level_id: String) -> String:
 
 
 func _concede(kind: String) -> bool:
+	_refusal = ""
 	var why := _closed(kind)
 	if not why.is_empty():
+		_refusal = "%s: %s" % [kind, why]
 		Log.info("match", "match.refused", {"kind": kind, "why": why, "match_id": _match_id, "frame": _frame_number})
 		return false
 	return _decide(kind, PERSON, false)
@@ -1019,7 +1060,14 @@ func _refused(method: String, args: Array, answer: Dictionary, severe: bool = tr
 		given.append(JSON.stringify(arg))
 	_last_refusal = "engine.%s(%s) refused: %s (last_error: %s)" % [method, ", ".join(given),
 			str(answer.get("error", "no error given")), str(engine.last_error())]
+	_refusal = _last_refusal
 	_error(_last_refusal, severe)
+
+
+## A call the game asked for is refused: logged, and kept for refusal().
+func _refuse(message: String, severe: bool = true) -> void:
+	_refusal = message
+	_error(message, severe)
 
 
 ## answer[key] when it is there as the engine's JSON forms promise; else `fallback`, with

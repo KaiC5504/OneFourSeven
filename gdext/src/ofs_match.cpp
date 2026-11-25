@@ -573,6 +573,7 @@ void OfsMatch::_bind_methods() {
     ClassDB::bind_method(D_METHOD("configure", "physics", "referee_json", "standin_json"), &OfsMatch::configure);
     ClassDB::bind_method(D_METHOD("is_ready"), &OfsMatch::is_ready);
     ClassDB::bind_method(D_METHOD("start", "config", "match_id"), &OfsMatch::start);
+    ClassDB::bind_method(D_METHOD("start_refusal", "config"), &OfsMatch::start_refusal);
     ClassDB::bind_method(D_METHOD("in_progress"), &OfsMatch::in_progress);
     ClassDB::bind_method(D_METHOD("abandon"), &OfsMatch::abandon);
     ClassDB::bind_method(D_METHOD("match_state"), &OfsMatch::match_state);
@@ -739,35 +740,11 @@ Dictionary OfsMatch::start(const Dictionary &config, const String &match_id) {
     };
     return guarded(
         [&]() -> Dictionary {
-            if (!ready_) return refuse("the match engine is not configured");
             rules::MatchConfig c;
             std::string why;
-            if (!read_config(config, c, why) || !rules::valid_config(c, why)) return refuse(why);
             std::string level;
-            if (config.has("level")) {
-                const Variant v = config["level"];
-                if (v.get_type() != Variant::STRING && v.get_type() != Variant::STRING_NAME) {
-                    return refuse("config: \"level\" is not a level's id or \"\" (" + variant_text(v) + ")");
-                }
-                level = variant_text(v);
-                if (!level.empty() && find_level(level) == nullptr) {
-                    return refuse("config: \"level\" " + level + " is not a configured level");
-                }
-            }
             const opponent::Exhibition *exhibition = nullptr;
-            if (config.has("exhibition")) {
-                int64_t index = -1;
-                if (!whole(config["exhibition"], index) || index < 0 ||
-                    index >= int64_t(exhibitions_.size())) {
-                    return refuse("config: \"exhibition\" " + variant_text(config["exhibition"]) +
-                                  " is not an index into the " + std::to_string(exhibitions_.size()) +
-                                  " exhibition tables");
-                }
-                if (c.best_of != 1) {
-                    return refuse("config: an exhibition is best of 1, not " + std::to_string(c.best_of));
-                }
-                exhibition = &exhibitions_[std::size_t(index)];
-            }
+            if (!read_start(config, c, level, exhibition, why)) return refuse(why);
             int64_t person = -1;
             const bool has_person =
                 config.has("person") && whole(config["person"], person) && (person == 0 || person == 1);
@@ -820,6 +797,53 @@ Dictionary OfsMatch::start(const Dictionary &config, const String &match_id) {
             return out;
         },
         [&](const std::string &message) { return thrown("start", message); });
+}
+
+bool OfsMatch::read_start(const Dictionary &config, rules::MatchConfig &c, std::string &level,
+                          const opponent::Exhibition *&exhibition, std::string &why) const {
+    if (!ready_) {
+        why = "the match engine is not configured";
+        return false;
+    }
+    if (!read_config(config, c, why) || !rules::valid_config(c, why)) return false;
+    if (config.has("level")) {
+        const Variant v = config["level"];
+        if (v.get_type() != Variant::STRING && v.get_type() != Variant::STRING_NAME) {
+            why = "config: \"level\" is not a level's id or \"\" (" + variant_text(v) + ")";
+            return false;
+        }
+        level = variant_text(v);
+        if (!level.empty() && find_level(level) == nullptr) {
+            why = "config: \"level\" " + level + " is not a configured level";
+            return false;
+        }
+    }
+    if (config.has("exhibition")) {
+        int64_t index = -1;
+        if (!whole(config["exhibition"], index) || index < 0 || index >= int64_t(exhibitions_.size())) {
+            why = "config: \"exhibition\" " + variant_text(config["exhibition"]) + " is not an index into the " +
+                  std::to_string(exhibitions_.size()) + " exhibition tables";
+            return false;
+        }
+        if (c.best_of != 1) {
+            why = "config: an exhibition is best of 1, not " + std::to_string(c.best_of);
+            return false;
+        }
+        exhibition = &exhibitions_[std::size_t(index)];
+    }
+    return true;
+}
+
+String OfsMatch::start_refusal(const Dictionary &config) const {
+    return guarded(
+        [&] {
+            rules::MatchConfig c;
+            std::string level;
+            const opponent::Exhibition *exhibition = nullptr;
+            std::string why;
+            return read_start(config, c, level, exhibition, why) ? String() : from_std(why);
+        },
+        [&](const std::string &message) { return from_std("start_refusal threw: " + message); });
 }
 
 bool OfsMatch::in_progress() const { return started_ && !match_.over; }
@@ -1768,6 +1792,8 @@ Dictionary OfsMatch::reader_take() {
                 out["worth"] = why.value("worth", 0.0);
                 out["leave"] = json_to_variant(why.value("leave", json::object()));
             }
+            out["stopped"] = from_std(stroke.stopped);
+            out["fallback"] = from_std(stroke.fallback);
             out["ms"] = job->ms;
             last_error_ = String();
             return out;
@@ -1788,20 +1814,49 @@ void OfsMatch::reader_cancel() {
 }
 
 Dictionary OfsMatch::judge_preview(const Ref<OfsShotRecord> &record, const Dictionary &input) const {
+    const String shot_id = record.is_null() ? String() : record->shot_id();
+    const auto fail = [&](const std::string &why, const json &anomalies) {
+        json line = log_context(match_, shot_id);
+        line["kind"] = "message";
+        line["message"] = "OfsMatch.judge_preview: " + why + "; input " + json_text(variant_json(input, 0)) +
+                          (anomalies.empty() ? std::string() : "; the record's anomalies " + json_text(anomalies));
+        line["function"] = "OfsMatch.judge_preview";
+        ofs::log::warn("app", "app.error", std::move(line));
+        last_error_ = from_std(why);
+        return failure(last_error_);
+    };
     return guarded(
         [&]() -> Dictionary {
             std::string why = no_stroke_now();
             if (why.empty() && record.is_null()) why = "no shot record: the stroke was not simulated";
             rules::ShotInput in;
-            if (!why.empty() || !read_input(input, in, why)) return failure(from_std(why));
+            if (!why.empty() || !read_input(input, in, why)) return fail(why, json::array());
             const rules::FrameState &pre = match_.frame;
             const ofs::phys::ShotRecord &shot = record->record();
+            json anomalies = json::array();
+            for (const ofs::phys::Anomaly &a : shot.anomalies) {
+                anomalies.push_back({{"kind", a.kind}, {"t", a.t}, {"balls", a.balls}, {"detail", a.detail}});
+            }
             why = not_played_from(pre, shot);
-            if (!why.empty()) return failure(from_std("the shot record was not simulated from balls(): " + why));
-            const rules::ShotFacts facts = rules::observe(pre, shot, *table_, ref_);
-            if (facts.anomaly && !stopped_by_guard(shot)) return failure("observe found the record malformed");
-            const rules::Judgement j = rules::judge(pre, in, facts, *oracle_, ref_);
-            if (j.post.strokes == pre.strokes) return failure("the referee could not judge the stroke");
+            if (!why.empty()) return fail("the shot record was not simulated from balls(): " + why, anomalies);
+            const rules::ShotFacts facts = [&] {
+                const rules::ScopedLogContext scope(scope_context(shot_id));
+                return rules::observe(pre, shot, *table_, ref_);
+            }();
+            if (facts.anomaly && !stopped_by_guard(shot)) {
+                return fail("observe found the record malformed (rules.invalid from observe, logged before this, says "
+                            "how)",
+                            anomalies);
+            }
+            const rules::Judgement j = [&] {
+                const rules::ScopedLogContext scope(scope_context(shot_id));
+                return rules::judge(pre, in, facts, *oracle_, ref_);
+            }();
+            if (j.post.strokes == pre.strokes) {
+                return fail("the referee could not judge the stroke (rules.invalid from judge, logged before this, says "
+                            "why)",
+                            anomalies);
+            }
             Dictionary out = answer();
             out["frame"] = frame_view(j.post);
             return out;

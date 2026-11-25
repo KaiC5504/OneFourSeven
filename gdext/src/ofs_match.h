@@ -59,6 +59,9 @@ public:
     // "abandoned"). Starts frame 1 and logs match.started and frame.started with match_id on them.
     // Returns {ok, error, match: match_state()}.
     godot::Dictionary start(const godot::Dictionary &config, const godot::String &match_id);
+    // Why start() would refuse `config`, "" when it would take it; nothing is changed or logged,
+    // so a refused start can leave the match in progress as it was.
+    godot::String start_refusal(const godot::Dictionary &config) const;
     // A match was started and neither finished nor abandoned.
     bool in_progress() const;
     // Ends the match in progress with no winner (the player quit) and logs match.ended with
@@ -170,7 +173,9 @@ public:
     bool reader_thinking() const;
     // Never waits: {ok: false} while it thinks or with nothing asked; once done {ok, ball, pocket,
     // chance, worth, leave} for the pot it would play, or {ok: true, ball: ""} when it would not
-    // pot. A failure is {ok: false, error}, logged as app.error. The answer is spent once taken.
+    // pot; either way with "stopped" (what ended the thinking: done, sims, steps, time) and
+    // "fallback" (why it could not work a stroke out and took the plainest, "" when it could).
+    // A failure is {ok: false, error}, logged as app.error. The answer is spent once taken.
     godot::Dictionary reader_take();
     void reader_cancel();
     // What the referee would make of the stroke `record` holds, as judge() would, with nothing
@@ -217,6 +222,9 @@ private:
 
     // One level's thinking: what the worker was handed, and what it gives back.
     struct OpponentJob;
+    // start()'s config read and checked; false with `why`.
+    bool read_start(const godot::Dictionary &config, ofs::rules::MatchConfig &c, std::string &level,
+                    const ofs::opponent::Exhibition *&exhibition, std::string &why) const;
     // read_position and reader_think's frame from the game's ball list; false with `why`.
     bool reader_frame(const godot::Array &balls, int64_t cue_ball, const godot::Dictionary &on,
                       ofs::rules::FrameState &out, std::string &why) const;

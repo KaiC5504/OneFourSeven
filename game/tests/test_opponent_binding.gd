@@ -801,6 +801,8 @@ func test_the_reader_thinks_on_its_own_thread_with_no_match() -> void:
 	check_eq(got.get("ball"), read["ball"], "a pot of the ball read_position lists")
 	check(int(got.get("pocket", -1)) >= 0 and float(got.get("chance", 0.0)) > 0.0 and got.get("leave") is Dictionary,
 			"with its pocket, chance and leave: %s" % [got])
+	check(["done", "sims", "steps", "time"].has(got.get("stopped")) and got.get("fallback") == "",
+			"with what ended its thinking and no fallback: %s" % [got])
 	check(not m.reader_thinking(), "done once taken")
 	check_eq(m.reader_take().get("ok"), false, "and spent")
 	for event: String in ["opponent.think", "opponent.decision", "opponent.cancelled", "app.error"]:
@@ -861,6 +863,26 @@ func test_judge_preview_says_what_the_referee_would_and_applies_nothing() -> voi
 	check_eq(post.get("striker"), (judged["frame"] as Dictionary).get("striker"), "the striker judge gives")
 	check_eq(post.get("on"), (judged["frame"] as Dictionary).get("on"), "and the ball on")
 	check_eq(m.judge_preview(null, {}).get("ok"), false, "no record")
+
+
+func test_judge_preview_logs_each_refusal_with_its_shot() -> void:
+	var m := _started_with("beginner", 0)
+	var elsewhere: Array[Dictionary] = []
+	for entry: Variant in m.balls():
+		var moved: Dictionary = (entry as Dictionary).duplicate()
+		moved["x"] = float(moved["x"]) + 0.001
+		elsewhere.append(moved)
+	var record := Physics.sim.simulate(elsewhere, m.cue_ball(), _strike(0.0, 2.0), 3, _context("preview_elsewhere"))
+	_mark_log()
+	for i in 2:
+		check_eq(m.judge_preview(record, {"nominated": ""}).get("ok"), false, "a record from other balls, time %d" % (i + 1))
+	var lines := _logged("app.error")
+	check_eq(lines.size(), 2, "logged each time")
+	for line in lines:
+		check(line.get("shot_id") == "preview_elsewhere" and String(line.get("message", "")).contains("not simulated from balls()")
+				and line.has("match_id"), "with the shot, the match and what was wrong: %s" % [line])
+	check(m.last_error().contains("not simulated from balls()"), "and last_error says so: %s" % m.last_error())
+	_check_schema()
 
 
 ## An engine with the levels and the reader.

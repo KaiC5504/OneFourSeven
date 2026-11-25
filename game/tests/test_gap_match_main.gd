@@ -106,7 +106,11 @@ func test_gap_the_harness_answers_with_the_engines_reason() -> void:
 	check(r["ok"], "the match starts: %s" % r)
 	_engine.error = "not in the D"
 	r = await harness.run_command("match_choose", {"kind": "replace"})
-	check(not r["ok"] and str(r["error"]).contains("engine: not in the D"), "match_choose: %s" % r)
+	check(not r["ok"] and str(r["error"]).contains("is not one of the person's options"),
+			"a choice not offered says so, not the engine's stale error: %s" % r)
+	r = await harness.run_command("match_choose", {"kind": "concede_frame"})
+	check(not r["ok"] and str(r["error"]).contains("engine.decide") and str(r["error"]).contains("not in the D"),
+			"one the engine refuses says what it said: %s" % r)
 
 	var over := _frame(0, {"over": true, "winner": 0, "end_reason": "black"})
 	_engine.match_view["history"].append({"number": 2, "breaker": 1, "winner": 0, "reason": "black", "scores": [70, 31],
@@ -120,6 +124,32 @@ func test_gap_the_harness_answers_with_the_engines_reason() -> void:
 	check(r["ok"] and r["result"]["waiting"] == "frame_summary", "at the frame's summary: %s" % r)
 	r = await harness.run_command("match_continue", {})
 	check(not r["ok"] and str(r["error"]) == "next frame refused: the match is over", "match_continue: %s" % r)
+	harness.free()
+	main.free()
+
+
+func test_a_refused_start_says_why_and_leaves_the_match_on() -> void:
+	var main: MainScript = await _spawn(_frame(0))
+	var harness: Node = HarnessScript.new()
+	harness.scene_provider = func() -> Node: return main
+	tree.root.add_child(harness)
+	var r: Dictionary = await harness.run_command("start_match", {"best_of": 3, "first_breaker": "you", "seed": 1})
+	check(r["ok"], "the match starts: %s" % r)
+	var m: MatchController = main.get_node("Match")
+	var match_id := m.match_id()
+	_engine.level_list = [{"id": "club", "name": "Club", "tier": 2, "maximum": false}]
+	var calls := _engine.calls.size()
+	for bad: Dictionary in [{"level": "bogus"}, {"first_breaker": "nobody"}, {"best_of": 2.5}]:
+		var config := {"best_of": 3, "first_breaker": "you"}
+		config.merge(bad, true)
+		r = await harness.run_command("start_match", config)
+		var said := str(r.get("error", ""))
+		check(not r["ok"] and said.contains(str(bad.values()[0])) and not said.contains("did not start: ;"),
+				"%s: refused, saying why: %s" % [bad, r])
+		check_eq([m.is_active(), m.match_id(), main.harness_state()["screen"]], [true, match_id, "match"],
+				"%s: the match still on, on its own screen" % [bad])
+	check(_engine.calls.slice(calls).filter(func(c: Array) -> bool: return c[0] == "abandon" or c[0] == "start").is_empty(),
+			"the engine neither left nor started a match: %s" % [_engine.calls.slice(calls)])
 	harness.free()
 	main.free()
 

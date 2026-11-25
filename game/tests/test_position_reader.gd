@@ -21,6 +21,8 @@ func test_configured_from_the_real_files_it_reads_and_thinks() -> void:
 		await tree.process_frame
 	var answer := reader.answer()
 	check_eq(answer.get("ball"), "black", "and would pot the black: %s" % [answer])
+	check(["done", "sims", "steps", "time"].has(answer.get("stopped")) and answer.get("fallback") == "",
+			"with what stopped its thinking and no fallback: %s" % [answer])
 	check_eq(reader.answer(), {}, "the answer is used once")
 	check_eq(_logged("app.error").size(), 0, "nothing went wrong")
 
@@ -46,7 +48,7 @@ func test_refused_it_answers_nothing_and_logs_once() -> void:
 	check_eq(unconfigured.read(_easy_black(), 0, {"kind": "red"}), {}, "a reader never configured reads nothing")
 
 
-func test_an_answer_not_there_in_time_is_dropped() -> void:
+func test_an_answer_not_there_yet_is_left_thinking_until_its_clock_is_past() -> void:
 	var engine := FakeReaderEngine.new()
 	engine.takes_before = -1
 	var reader := PositionReader.new()
@@ -54,9 +56,23 @@ func test_an_answer_not_there_in_time_is_dropped() -> void:
 	check(reader.think(_easy_black(), 0, {"kind": "any_colour"}, 1), "thinks")
 	reader.poll()
 	check_eq(reader.answer(), {}, "not ready at the return")
-	check(not bool(engine.reader_thinking()) and engine.cancels == 1, "and the thinking is stopped")
-	engine.takes_before = 2
+	check(reader.thinking() and engine.cancels == 0, "and left thinking: a cancel would wait for it")
+	check(not reader.overdue(), "not overdue inside its clock")
+	var deadline := Time.get_ticks_msec() + PositionReader.CLOCK_MS + PositionReader.GRACE_MS + 50
+	while Time.get_ticks_msec() < deadline:
+		await tree.process_frame
+	check(reader.overdue(), "overdue past its clock and the grace")
+	reader.cancel()
+	check(not reader.thinking() and engine.cancels == 1, "cancelled then")
+
+	engine.takes_before = 0
+	engine.answer = {"ok": false, "error": "the test's reader failed"}
+	reader.think(_easy_black(), 0, {"kind": "any_colour"}, 3)
+	check_eq(reader.answer(), {}, "a failure is no answer")
+	check(not reader.thinking() and reader.failure() == "the test's reader failed", "and says why: %s" % reader.failure())
+
 	engine.answer = {"ok": true, "error": "", "ball": "black", "pocket": 3}
+	engine.takes_before = 2
 	reader.think(_easy_black(), 0, {"kind": "any_colour"}, 2)
 	for i in 3:
 		reader.poll()
