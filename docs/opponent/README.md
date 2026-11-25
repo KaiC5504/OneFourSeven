@@ -393,17 +393,27 @@ marks still hold.
     in `levels()`), `read_position(balls, cue_ball, on)` (at once, nothing simulated: `{ok,
     worth, pots, chance, ball, pocket}`), and the reader's own worker: `reader_think(balls,
     cue_ball, on, seed)`, `reader_thinking()`, `reader_take()` (`{ok, ball, pocket, chance,
-    worth, leave}`), `reader_cancel()`. `on` is the rules' form. The reader plays no error and
+    worth, leave, stopped, fallback}`), `reader_cancel()`. `on` is the rules' form. The reader plays no error and
     logs no `opponent.decision`. `judge_preview(record, input)` is what the referee would make
     of a stroke with nothing applied or logged: in a match the game asks it at the strike, to
-    know whether the person plays next and with which ball on.
+    know whether the person plays next and with which ball on; a refusal is logged each time
+    (`app.error` with the shot and the record's anomalies). `start_refusal(config)` says why
+    `start()` would refuse a config, "" if it would take it, with nothing changed or logged.
   - The game keeps a reader of its own (`game/scripts/play/position_reader.gd`), on the free
     table as in a match. It thinks while the shot plays (the simulator knows where the balls
     stop at the strike), so the pick is there at the return; not ready, or refused, the
-    geometric pick is used. `shot.result.next_by` says which: `reader` or `geometry`.
+    geometric pick is used. `shot.result.next_by` says which: `reader` or `geometry`, and `next_by_why` why not the
+    reader. The reader is asked the frame after the strike. Not ready at the return (a skipped
+    shot), it is left to finish its clock, and its pot turns the aim when it comes if the aim
+    and the table are still as the return left them (`shot.next_late`).
   - **Excellent position** is judged at the strike and, like the cue ball's journey, the same
     for a pot and for an attempt that stays out, so the view gives neither away: the position
     is read as if the ball played at the pocket had gone in (that ball off the table, the ball
     on that would follow). It is excellent when the cue ball ran 1.0 m or more after its first
-    ball and met a cushion, and what is left reads 0.75 or more of the most that ball on could
-    be worth. Starting values, the owner's to judge.
+    ball and met a cushion, what is left reads 0.80 or more of the most that ball on could be
+    worth, and that beats by 0.03 of that most what the same pot struck plain (centre ball,
+    same pace) would leave: a shot played for position. In a match the position is the rules':
+    a free ball counts as the ball on and goes back on its spot, and a colour the rules re-spot
+    goes on its spot, or on the highest free one. Over 655 simulated pots one in eight earned
+    the view and no plain shot did (at 0.75 with no plain shot to beat, nearly one in two).
+    Starting values, the owner's to judge.
