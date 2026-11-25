@@ -1,0 +1,23 @@
+{
+  "note": "Red on, ten reds open about the baulk half and the middle. The cue ball is down by the bottom-right corner, where every red it can see is long or thin (Amateur reads them all under its safety_below) save one: red 9 beside the brown, cut into the bottom-left corner at a chance of about 0.37 as Amateur reads it. Whatever the pace and spin, a miss of it leaves the other player a red it reads at 8 points or more (test_spec_10_levels_score.cpp checks a grid of strokes), while a safety off red 6 leaves almost nothing.",
+  "cue_ball": 0,
+  "balls": [
+    {"ball": "cue", "index": 0, "x": -1.3243, "y": -0.7033},
+    {"ball": "red", "index": 0, "x": -0.9662, "y": -0.1695},
+    {"ball": "red", "index": 1, "x": 1.2761, "y": -0.3321},
+    {"ball": "red", "index": 2, "x": -0.6207, "y": 0.834},
+    {"ball": "red", "index": 3, "x": -0.0052, "y": -0.8022},
+    {"ball": "red", "index": 4, "x": 0.3747, "y": 0.4369},
+    {"ball": "red", "index": 5, "x": -1.1207, "y": 0.5118},
+    {"ball": "red", "index": 6, "x": -1.1833, "y": -0.8517},
+    {"ball": "red", "index": 7, "x": 0.6686, "y": 0.6227},
+    {"ball": "red", "index": 8, "x": -0.9552, "y": 0.5717},
+    {"ball": "red", "index": 9, "x": -1.2303, "y": -0.0734},
+    {"ball": "yellow", "index": 0, "x": -1.0475, "y": -0.292},
+    {"ball": "green", "index": 0, "x": -1.0475, "y": 0.292},
+    {"ball": "brown", "index": 0, "x": -1.0475, "y": 0.0},
+    {"ball": "blue", "index": 0, "x": 0.0, "y": 0.0},
+    {"ball": "pink", "index": 0, "x": 0.89225, "y": 0.0},
+    {"ball": "black", "index": 0, "x": 1.4605, "y": 0.0}
+  ]
+}
