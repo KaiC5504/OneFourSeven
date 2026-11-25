@@ -160,6 +160,7 @@ TEST_CASE("a pot that needs the top speed is tried at one speed, not at every ru
     // that are the same speed, nothing refined between them.
     Level flat = rig::levels().maximum;
     flat.depth = 0;
+    flat.tactics = 0;  // the pots' steps alone, without the tactics' before them
     const FrameState all_top = black_needing_top(true, env);
     const int listed = int(pots(all_top, env, flat.max_cut_rad).size());
     Rng again(3);

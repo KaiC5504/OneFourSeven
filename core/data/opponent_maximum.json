@@ -19,10 +19,10 @@
     "position_weight": 1.0,
     "judgement_sigma": 0.0,
     "safety_below": 0.0,
-    "max_sims": 6000,
-    "tactics": 0,
-    "safety_tries": 0,
-    "escape_cushions": 0,
+    "max_sims": 9000,
+    "tactics": 3,
+    "safety_tries": 200,
+    "escape_cushions": 2,
     "miss_weight": 0.0,
     "noisy_sims": 0,
     "score_aware": 0.0,
@@ -112,7 +112,7 @@
     },
     "max_sims": {
       "unit": "count",
-      "source": "ours, from the think time of spec 10.6",
+      "source": "ours, from the think time of spec 10.6: 6,000, 9,000 and 12,000 measured against Beginner on 2026-11-25. At 9,000 both stages finish in most decisions (one in twenty at 6,000) and the slowest took 1.4 s on the PC's Release build; 12,000 took 1.7 s.",
       "note": "Simulations it may run for one stroke."
     },
     "tactics": {
