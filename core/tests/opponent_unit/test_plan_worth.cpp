@@ -86,12 +86,13 @@ TEST_CASE("with miss_weight 0 no miss is simulated") {
     REQUIRE(text(st.why, "kind") == "pot");
     CHECK_FALSE(st.why.contains("miss_turn"));
     CHECK(costed.steps == st.steps);
-    // One to three turned strokes for each candidate made, within its step.
-    CHECK(costed.sims >= st.sims + costed.candidates);
-    CHECK(costed.sims <= st.sims + 3 * costed.candidates);
+    // One to three turned strokes a side for each candidate made, within its step.
+    CHECK(costed.sims >= st.sims + 2 * costed.candidates);
+    CHECK(costed.sims <= st.sims + 6 * costed.candidates);
 }
 
-TEST_CASE("the giveaway is read from a miss: the aim turned 2, 4 or 8 margins until the ball stays out") {
+TEST_CASE("the giveaway is the mean of a thick and a thin miss, each turned 2, 4 or 8 margins until the ball stays out") {
+    int missed_both = 0;
     for (const char* name : {"straight_red", "cut_red", "long_red", "pl_miss_gives_away"}) {
         CAPTURE(name);
         const FrameState s = rig::position(name);
@@ -99,11 +100,19 @@ TEST_CASE("the giveaway is read from a miss: the aim turned 2, 4 or 8 margins un
         level.miss_weight = 1.0;
         const Stroke st = choose(s, level);
         REQUIRE(text(st.why, "kind") == "pot");
-        const double turn = st.why["miss_turn"].get<double>();
-        MESSAGE(std::string(name) << ": missed at " << turn << " margins, giving away " << st.why["giveaway"].get<double>());
-        CHECK((turn == 2.0 || turn == 4.0 || turn == 8.0));
+        const nlohmann::json& turns = st.why["miss_turn"];
+        REQUIRE(turns.is_array());
+        REQUIRE(turns.size() == 2);
+        MESSAGE(std::string(name) << ": missed thick at " << turns[0] << " and thin at " << turns[1]
+                                  << " margins, giving away " << st.why["giveaway"].get<double>());
+        for (const nlohmann::json& turn : turns) {
+            const double t = turn.get<double>();
+            CHECK((t == 0.0 || t == 2.0 || t == 4.0 || t == 8.0));
+        }
+        missed_both += turns[0].get<double>() > 0.0 && turns[1].get<double>() > 0.0 ? 1 : 0;
         CHECK(st.why["giveaway"].get<double>() >= 0.0);
     }
+    CHECK(missed_both >= 3);
 }
 
 TEST_CASE("noisy chance is within sampling error of pot_chance on an open pot") {
