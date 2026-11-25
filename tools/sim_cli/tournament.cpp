@@ -213,6 +213,7 @@ struct JobResult {
     std::vector<std::string> lines;
     bool exhibition = false;
     json entry;  // an exhibition's report entry
+    int frame_best = -1;  // the frame's highest break by either player; -1 for an exhibition
 };
 
 struct Run {
@@ -239,6 +240,7 @@ struct Run {
     std::map<int, JobResult> waiting;
     int merged = 0;
     std::array<Tally, 2> totals;
+    std::vector<int> frame_best;
     std::vector<json> exhibition_entries;
     std::vector<Failure> failures;
     int repros = 0;
@@ -258,6 +260,7 @@ struct Run {
             JobResult& r = it->second;
             totals[0].add(r.sides[0]);
             totals[1].add(r.sides[1]);
+            if (r.frame_best >= 0) frame_best.push_back(r.frame_best);
             if (r.exhibition) exhibition_entries.push_back(r.entry);
             for (Failure& f : r.failures) {
                 if (repros < kMaxRepros) {
@@ -740,6 +743,7 @@ private:
         highs_recorded_ = true;
         stats(0).frame_highs.push_back(frame_high_[0]);
         stats(1).frame_highs.push_back(frame_high_[1]);
+        out_.frame_best = std::max(frame_high_[0], frame_high_[1]);
     }
 
     // A stroke by `player` settles what the stroke before it left waiting on the next one; the
@@ -1163,6 +1167,31 @@ void work(Run& run) {
     }
 }
 
+json highs_json(std::vector<int> highs) {
+    std::sort(highs.begin(), highs.end());
+    double median = 0.0;
+    if (!highs.empty()) {
+        const std::size_t n = highs.size();
+        median = n % 2 == 1 ? highs[n / 2] : 0.5 * (highs[n / 2 - 1] + highs[n / 2]);
+    }
+    // [break, frames] for each highest break that occurred, so reports of one level can be merged.
+    json counts = json::array();
+    for (std::size_t i = 0; i < highs.size();) {
+        std::size_t k = i;
+        while (k < highs.size() && highs[k] == highs[i]) ++k;
+        counts.push_back(json::array({highs[i], static_cast<long long>(k - i)}));
+        i = k;
+    }
+    const auto at_least = [&](int points) {
+        return static_cast<long long>(std::count_if(highs.begin(), highs.end(), [points](int h) { return h >= points; }));
+    };
+    return {{"frames", highs.size()},
+            {"typical", median},
+            {"fifty_plus", at_least(50)},
+            {"century", at_least(100)},
+            {"counts", counts}};
+}
+
 json stats_json(const Tally& s) {
     json bands = json::object();
     for (int i = 0; i < kBandCount; ++i) {
@@ -1192,24 +1221,6 @@ json stats_json(const Tally& s) {
     for (std::size_t i = 0; i < 4; ++i) stopped[kStopped[i]] = s.stopped[i];
     if (s.stopped_other > 0) stopped["cancelled"] = s.stopped_other;
 
-    std::vector<int> highs = s.frame_highs;
-    std::sort(highs.begin(), highs.end());
-    double high_median = 0.0;
-    if (!highs.empty()) {
-        const std::size_t n = highs.size();
-        high_median = n % 2 == 1 ? highs[n / 2] : 0.5 * (highs[n / 2 - 1] + highs[n / 2]);
-    }
-    // [break, frames] for each highest break that occurred, so reports of one level can be merged.
-    json counts = json::array();
-    for (std::size_t i = 0; i < highs.size();) {
-        std::size_t k = i;
-        while (k < highs.size() && highs[k] == highs[i]) ++k;
-        counts.push_back(json::array({highs[i], static_cast<long long>(k - i)}));
-        i = k;
-    }
-    const auto at_least = [&](int points) {
-        return static_cast<long long>(std::count_if(highs.begin(), highs.end(), [points](int h) { return h >= points; }));
-    };
     json by_cushions = json::object();
     long long escape_played = 0;
     long long escape_hit = 0;
@@ -1264,12 +1275,7 @@ json stats_json(const Tally& s) {
                {{"played", s.break_offs},
                 {"then_pot", s.break_off_then_pot},
                 {"then_no_pot", s.break_offs - s.break_off_then_pot}}}}},
-            {"frame_highs",
-             {{"frames", highs.size()},
-              {"typical", high_median},
-              {"fifty_plus", at_least(50)},
-              {"century", at_least(100)},
-              {"counts", counts}}},
+            {"frame_highs", highs_json(s.frame_highs)},
             {"concessions", s.concessions},
             {"claims", s.claims}};
 }
@@ -1326,7 +1332,7 @@ void print_table(const Run& run, const json& a, const json* b) {
         return format("%lld / %lld", s["maximum"]["visits_on"].get<long long>(),
                       s["maximum"]["completed"].get<long long>());
     });
-    row("typical break", [](const json& s) {
+    row("own typical break", [](const json& s) {
         return format("%.1f", s["frame_highs"]["typical"].get<double>());
     });
     row("  frames with 100+", [](const json& s) {
@@ -1614,6 +1620,7 @@ int cmd_tournament(const std::vector<std::string>& argv) {
                    {"level_hashes", {{"a", run.sides[0].hash}, {"b", run.two_sides ? json(run.sides[1].hash) : json()}}},
                    {"a", a},
                    {"b", run.two_sides ? b : json()},
+                   {"frame_best", highs_json(run.frame_best)},
                    {"exhibitions", run.exhibition_entries},
                    {"failures", failures},
                    {"timing",
@@ -1631,7 +1638,14 @@ int cmd_tournament(const std::vector<std::string>& argv) {
     if (printed > kMaxPrinted) {
         std::printf("... and %zu more failures (all of them are in --report)\n", run.failures.size() - kMaxPrinted);
     }
-    if (frames > 0) print_table(run, a, &b);
+    if (frames > 0) {
+        print_table(run, a, &b);
+        const json& best = report["frame_best"];
+        std::printf("  %-22s %-28s\n", "frame's best break",
+                    format("typical %.1f, 100+ in %s", best["typical"].get<double>(),
+                           percent(best["century"].get<long long>(), best["frames"].get<long long>()).c_str())
+                        .c_str());
+    }
     for (const json& e : run.exhibition_entries) {
         std::printf("exhibition %-20s break %3d in %3d strokes%s\n", e["name"].get<std::string>().c_str(),
                     e["break_points"].get<int>(), e["strokes"].get<int>(), e["maximum"].get<bool>() ? ", 147" : "");

@@ -112,8 +112,8 @@ def tactic_rows(stats):
     safeties, snookers = tactics["safeties"], tactics["snookers"]
     escapes, break_offs = tactics["escapes"], tactics["break_offs"]
     by_cushions = ", ".join(f"{k}: {v['hit']}/{v['played']}" for k, v in escapes["by_cushions"].items()) or "none"
-    return [("typical break (median of the frames' highest)", f"{highs['typical']:.1f}"),
-            ("frames with a century", percent(highs["century"], highs["frames"])),
+    return [("own typical break (median of its highest in each frame)", f"{highs['typical']:.1f}"),
+            ("frames with its own century", percent(highs["century"], highs["frames"])),
             ("safeties then a pot attempt", percent(safeties["then_pot_attempt"], safeties["played"])),
             ("- then potted", percent(safeties["then_potted"], safeties["played"])),
             ("snookers laid / called", f"{snookers['laid']} / {snookers['called']}"),
@@ -141,6 +141,11 @@ def section(name, report):
         lines += [f"| | A: {a} | B: {b} |", "| --- | --- | --- |"]
         lines += [f"| {label} | {left} | {right} |" for (label, left), (_, right) in zip(a_rows, b_rows)]
         lines.append("")
+        top = report.get("frame_best")
+        if isinstance(top, dict):
+            lines += [f"Each frame's highest break by either player: typical {top['typical']:g}, 50 or more in "
+                      f"{percent(top['fifty_plus'], top['frames'])}, a century in "
+                      f"{percent(top['century'], top['frames'])}.", ""]
     if report["exhibitions"]:
         lines += [f"Exhibitions, {a} alone:", "", "| Table | Break | Strokes | 147 |", "| --- | --- | --- | --- |"]
         lines += [f"| {e['name']} | {e['break_points']} | {e['strokes']} | {'yes' if e['maximum'] else 'no'} |"
@@ -275,12 +280,26 @@ def sides_of(report, level):
 
 
 def high_counts(sides):
-    """{break: frames} of the frames' highest breaks over `sides`."""
+    """{break: frames} of each player's own highest break in each frame over `sides`."""
     counts = {}
     for stats in sides:
         for points, frames in stats.get("frame_highs", {}).get("counts", []):
             counts[points] = counts.get(points, 0) + frames
     return counts
+
+
+def best_counts(report):
+    """{break: frames} of each frame's highest break by either player, or None when the report
+    predates `frame_best`."""
+    best = report.get("frame_best")
+    if not isinstance(best, dict) or "counts" not in best:
+        return None
+    return {points: frames for points, frames in best["counts"]}
+
+
+def predates(name, file):
+    return {"name": name, "value": f"no frame_best ({file})",
+            "wanted": "a report from a build that writes frame_best; this one predates it", "status": MISSING}
 
 
 def median_of(counts):
@@ -328,9 +347,6 @@ def stage2(reports):
         file, report = found
         sides = sides_of(report, level)
         medium, long_ = band_share(sides, "medium"), band_share(sides, "long")
-        counts = high_counts(sides)
-        typical = median_of(counts)
-        low, high = typical_range
         marks += [
             mark(names[0], f"{report['frames']} ({file})", f"at least {STAGE2_FRAMES}",
                  report["frames"] >= STAGE2_FRAMES),
@@ -338,10 +354,19 @@ def stage2(reports):
                  in_range(share(*medium), *medium_range)),
             mark(names[2], percent(*long_), f"{long_range[0]:.0%} to {long_range[1]:.0%}",
                  in_range(share(*long_), *long_range)),
-            mark(names[3], "none" if typical is None else f"{typical:g}",
-                 f"{low} and over" if high is None else f"{low} to {high}",
-                 typical is not None and low <= typical <= (high if high is not None else typical)),
         ]
+        counts = best_counts(report)
+        if counts is None:
+            marks += [predates(n, file) for n in names[3:]]
+            continue
+        typical = median_of(counts)
+        own = median_of(high_counts(sides))
+        low, high = typical_range
+        value = "none" if typical is None else f"{typical:g}"
+        if own is not None:
+            value += f" (each player's own: {own:g})"
+        marks.append(mark(names[3], value, f"{low} and over" if high is None else f"{low} to {high}",
+                          typical is not None and low <= typical <= (high if high is not None else typical)))
         if level == "world":
             centuries = sum(frames for points, frames in counts.items() if points >= 100)
             frames = sum(counts.values())
@@ -407,11 +432,14 @@ def stage2_part(reports):
             lines.append(f"| {NAMES[upper]} over {NAMES[lower]} | {report['frames']} | "
                          f"{percent(won, report['frames'])} | `{file}` |")
         lines.append("")
-    merged = {level: sides_of(best(reports, against_itself(level))[1], level) for level in levels}
+    selfplay = {level: best(reports, against_itself(level))[1] for level in levels}
+    merged = {level: sides_of(selfplay[level], level) for level in levels}
     merged = {level: sides for level, sides in merged.items() if sides and "tactics" in sides[0]}
     if merged:
         lines += ["## Tactics per level", "",
-                  "Each level against itself, both sides added; README \"The ladder\" says what each is.", "",
+                  "Each level against itself, both sides added; README \"The ladder\" says what each is. The "
+                  "typical break and the centuries are each frame's highest break by either player; \"each "
+                  "player's own\" is the median of each player's highest in each frame.", "",
                   "| | " + " | ".join(NAMES[level] for level in merged) + " |",
                   "| --- |" + " --- |" * len(merged)]
 
@@ -427,6 +455,9 @@ def stage2_part(reports):
         def row(label, fn):
             lines.append(f"| {label} | " + " | ".join(fn(sides) for sides in merged.values()) + " |")
 
+        def row_by_report(label, fn):
+            lines.append(f"| {label} | " + " | ".join(fn(selfplay[level]) for level in merged) + " |")
+
         def cushions(sides):
             buckets = {}
             for stats in sides:
@@ -435,9 +466,15 @@ def stage2_part(reports):
                     buckets[key] = (hit + counts["hit"], played + counts["played"])
             return ", ".join(f"{k}: {h}/{p}" for k, (h, p) in buckets.items()) or "-"
 
-        def typical(sides):
-            value = median_of(high_counts(sides))
+        def median_cell(counts):
+            value = None if counts is None else median_of(counts)
             return "-" if value is None else f"{value:g}"
+
+        def centuries(report):
+            counts = best_counts(report)
+            if counts is None:
+                return "-"
+            return cell(sum(n for points, n in counts.items() if points >= 100), sum(counts.values()))
 
         row("strokes", lambda s: str(total(s, "strokes")))
         row("safeties", lambda s: str(total(s, "tactics", "safeties", "played")))
@@ -456,9 +493,9 @@ def stage2_part(reports):
         row("- by cushions (hit/played)", cushions)
         row("break-offs then a pot", lambda s: cell(total(s, "tactics", "break_offs", "then_pot"),
                                                     total(s, "tactics", "break_offs", "played")))
-        row("typical break", typical)
-        row("frames with a century", lambda s: cell(total(s, "frame_highs", "century"),
-                                                    total(s, "frame_highs", "frames")))
+        row_by_report("typical break", lambda r: median_cell(best_counts(r)))
+        row("- each player's own", lambda s: median_cell(high_counts(s)))
+        row_by_report("frames with a century", centuries)
         row("concessions / claims", lambda s: f"{total(s, 'concessions')} / {total(s, 'claims')}")
         lines.append("")
 
