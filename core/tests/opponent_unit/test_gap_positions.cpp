@@ -286,8 +286,11 @@ TEST_CASE("the re-spotted black: each level places the cue ball, plays a stroke,
     }
 }
 
-TEST_CASE("needing snookers on the last colours, no level concedes") {
-    // README "The search": no level concedes in stage 1.
+TEST_CASE("needing snookers on the last colours, a level that never concedes plays on") {
+    // README "The score": never with concede_snookers 0. Beginner's own file concedes
+    // (test_plan_concede.cpp); a copy of it that does not plays on, as every level did in stage 1.
+    Level never = rig::levels().beginner;
+    never.concede_snookers = 0;
     FrameState colours = rig::position("colours");
     colours.scores = {0, 60};
     FrameState black = rig::position("black_only");
@@ -295,7 +298,7 @@ TEST_CASE("needing snookers on the last colours, no level concedes") {
     for (const FrameState& s : {colours, black}) {
         const std::vector<rules::DecisionKind> open = rules::options(s, s.striker);
         REQUIRE(std::find(open.begin(), open.end(), rules::DecisionKind::concede_frame) != open.end());
-        for (const Level* level : both()) {
+        for (const Level* level : {static_cast<const Level*>(&never), &rig::levels().maximum}) {
             CAPTURE(level->id);
             const Stroke st = choose(s, *level, 2);
             CHECK_FALSE(st.decides);
