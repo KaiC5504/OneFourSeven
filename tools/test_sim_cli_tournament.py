@@ -9,6 +9,7 @@ import tempfile
 import unittest
 
 import check_logs
+import opponent_report
 from test_sim_cli import CliTestCase, ROOT, run, shown
 
 DATA = ROOT / "core" / "data"
@@ -435,6 +436,23 @@ class TwoLevelsTest(CliTestCase, LadderCounts):
         lines = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
         self.check_ladder_counts(report, lines)
         self.assertEqual({d["data"]["level"] for d in lines if d["event"] == "opponent.decision"}, {"club", "amateur"})
+
+
+class NoPotsTest(CliTestCase):
+    def test_frames_with_no_pots_have_a_best_break_of_nothing(self):
+        report_file = self.tmp / "nothing.json"
+        result = run("tournament", "--a", "beginner", "--b", "beginner", "--frames", 2, "--max-strokes", 1,
+                     "--out", self.tmp / "failures", "--report", report_file, timeout=120)
+        # Each frame stops unfinished at its one stroke, which the run reports as a failure.
+        self.assert_exit(result, 1)
+        report = json.loads(report_file.read_text(encoding="utf-8"))
+        self.assertEqual([f["kind"] for f in report["failures"]], ["max_strokes", "max_strokes"])
+        best = report["frame_best"]
+        self.assertEqual(best["frames"], 2)
+        self.assertEqual(best["typical"], 0.0)
+        self.assertEqual(best["counts"], [[0, 2]])
+        self.assertEqual((best["fifty_plus"], best["century"]), (0, 0))
+        self.assertEqual(opponent_report.median_of(opponent_report.best_counts({"frame_best": best})), 0)
 
 
 class ReportToolTest(TournamentCase):
