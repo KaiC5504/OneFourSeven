@@ -159,7 +159,7 @@ by `choose_option`, judged by `rules::judge_shot`, exactly as a match in the gam
   judgement's `points` above 0 and no foul). Reported for all attempts and by `why.band`.
 - **break when in**: the mean and the median of every break of at least one point; also the
   highest break, and the counts of breaks of 50 and over, 100 and over, and 147.
-- **safeties**: strokes whose `why.kind` is `safety`, as a share of all strokes.
+- **safeties**: strokes whose `why.kind` is `safety` or `snooker`, as a share of all strokes.
 - **fouls** per stroke, **frames won**, **strokes** per frame.
 - **thinking**: per stroke the simulations run, the steps, and the time (mean, p99, max), and how
   each stopped; the count of fallbacks.
