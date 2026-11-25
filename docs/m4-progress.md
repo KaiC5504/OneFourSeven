@@ -188,7 +188,7 @@ fixes and the build.
 - 2026-11-26, wave 2 merged. The 147 with tactics (level 3, 200 tries, two cushions, 9,000
   simulations) and a person's eye for its long pots: 100 of 100 frames against Beginner with 98
   maximums, 100 of 100 against World with 82, no foul, fifty of fifty tables, its slowest
-  decision 1.39 s in this PC's Debug build. The four levels tuned over 1,000 frames each
+  decision 1.39 s on this PC (Release). The four levels tuned over 1,000 frames each
   (medium pots, long pots, typical break): Club 58.0%, 25.6%, 15; Amateur 79.7%, 44.9%, 29; Pro
   91.5%, 66.4%, 50; World 96.8%, 72.7%, 81 with a century in 283 frames. The ladder over 300:
   Club over Beginner 93.0%, Amateur over Club 92.3%, Pro over Amateur 87.3%, World over Pro

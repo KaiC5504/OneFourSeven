@@ -10,8 +10,9 @@ level's error; the new code is the pots.
 
 ## Levels
 
-One file each in `core/data`: `opponent_beginner.json`, `opponent_maximum.json` (`level.hpp` has
-every value). The game lists them from `OfsMatch.levels()`. `id` is what the logs and the harness
+One file each in `core/data`: `opponent_beginner.json`, `opponent_maximum.json`, and since stage 2
+`opponent_club.json`, `opponent_amateur.json`, `opponent_pro.json`, `opponent_world.json` and the
+reader `opponent_person.json`, never offered as an opponent (`level.hpp` has every value). The game lists them from `OfsMatch.levels()`. `id` is what the logs and the harness
 use; `name` is what the game shows.
 
 ## How a stroke is chosen (`choose_stroke`, spec 10.2)
@@ -105,7 +106,7 @@ What can be seen from outside, and so tested:
 - **A level with error** (Beginner) scores a candidate
   `chance * (value + kBreakOn * (1 - w) + w * leave)`: `chance` is `pot_chance` on the pot's
   margin, `leave` is `read_position(...).worth` of the position the stroke leaves it in (0 when
-  the turn passes), `w` is `level.position_weight`. It then misreads each score by
+  the turn passes), `w` is `level.position_weight`. It then misreads each chance (and so the score built on it) by
   `level.judgement_sigma` (a normal draw per candidate, from a stream of its own so the stroke's
   error draws stay four) and takes the best. When the best pot's chance as it reads it is under
   `level.safety_below`, or there is no pot, it plays the stand-in's safety, escape or break-off.
@@ -227,6 +228,11 @@ three next best: `target`, `pocket`, `worth`, `chance`); `drawn` (`aim_rad`, `sp
 
 # Stage 2: levels 2 to 5 and the tactics
 
+Not built, against spec 10.2: plants, doubles and kicks among the pots, and masse among the
+escapes (swerve is). A pot's chance is read from its margin (`noisy_sims` is 0 in every file;
+the simulated reading is there and off). Pro plans one stroke ahead as Amateur does; what
+parts them is error, budget and tactics.
+
 Stage 1 above stays as it is for Beginner (`tactics` 0). The 147's file has `tactics` 3 since
 stage 2: where stage 1 says it plays the stand-in's safety, escape or break-off, it now plays
 `choose_tactic`'s, with no error and itself as the reader of what is left; when it waits, what
@@ -271,8 +277,9 @@ compared:
 - **A tactic** (`Tactic::worth`): the foul points the stroke expects to be given, less what the
   position left is worth to the other player as the level reads it (`read_position` with this
   level as the reader: it judges others by itself), less the foul points it expects to give.
-- A level misreads every score by `judgement_sigma` (one normal draw per candidate from the
-  judgement stream) and plays the highest. A pot whose chance as it reads it is under
+- A level misreads the chance every score is built on by `judgement_sigma` (one normal draw per
+  candidate from the judgement stream: the chance times 1 plus the draw, kept between 0 and 1)
+  and plays the highest score. A pot whose chance as it reads it is under
   `safety_below` is not played while a tactic was found.
 - **The score** (`score_aware` = a, spec 10.2 step 5), by how much of it the level has. For a
   tactic, `gain` is the foul points it expects to be given, `leave` what the position left is
@@ -319,7 +326,11 @@ step each) and passed by the referee (a stroke that fouls as planned is never a 
   more than 0.5), `cushions` (those the cue ball met before the ball in the simulated stroke,
   for an escape), `hit`, `spec` (as `meant`), `leave` (`cue`, `snookered`: true or false,
   `next`: the other player's best pot as read, `chance`), `worth`, `gain`, `risk`, `score`
-  (`ahead` or `snookers` when the score moved the worth), `others` (up to three).
+  (`ahead` or `snookers` when the score moved the worth), `swerve` (true on an escape played
+  with the cue raised), `candidates` (how many it weighed), `others` (up to three); `leave`
+  also has `worth`, what the position is worth to the other player as read. A planned pot's
+  `why` has `stages` (how far each stage of the plan got) and `chance_by` (`margin`, or `sims`
+  with `noisy_sims` above 0).
 - With every red in the top half, a safety's paces are measured to bring the cue ball back to
   baulk, cushions counted, and a safety that ends in the baulk half is chosen before any that
   does not, whatever their worth; snookers, escapes and break-offs are outside that rule.
@@ -372,7 +383,7 @@ marks still hold.
 - **The evaluation handed to the game (spec 8.5)**: a reader level `person` (the owner's own
   fitted error, never offered as an opponent) lets the game ask what a position is worth.
   The next-ball pick takes the pot that reader would play (its chance and what it leaves), with
-  the geometric pick as the fallback; a potted shot that leaves the striker an excellent
+  the geometric pick as the fallback; a shot at a pocket that leaves the striker an excellent
   position is watched whole from the full-table view (`shot.camera` reason `position`), and
   `shot.result` carries `position`, the worth of what was left.
   - `OfsMatch`: `configure_reader(level_json)` (the file `core/data/opponent_person.json`; never

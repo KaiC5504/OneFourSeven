@@ -526,9 +526,10 @@ level 1.
     matches included, a shot at a pocket whose cue ball, after its first ball, goes on
     into another ball off a cushion or after 0.4 m of table, or takes three cushions.
     It is decided from the cue ball's run alone, the same for a pot and for an attempt
-    that stays out, so the view still gives neither away. The cue ball's finishing
-    position is not judged yet: that needs the opponent's evaluation of a position (M4),
-    which then also marks an excellent positional shot.
+    that stays out, so the view still gives neither away. So is an excellent positional
+    shot (M4 stage 2): the cue ball runs a metre or more after its first ball, meets a
+    cushion, and leaves a position the opponent's evaluation, reading for the owner,
+    puts at three quarters or more of the most the next ball could be worth.
   - **The settle:** the full-table view holds until every ball stops, and for at least
     0.8 s.
   - **The return:** the aim turns to the best pot among the balls that are on: each
@@ -540,9 +541,10 @@ level 1.
     lets any ball be played (Owner, 2026-11-16: red, colour, red, colour, and the best
     of whichever is on): a colour after a red, a red after a colour while reds remain,
     and once the reds are gone the colours in order, lowest first. With nothing clear
-    it aims at the nearest ball that is on. It does not yet look at where the cue ball
-    finishes: that
-    comes from the opponent's evaluation (M4), which the pick then uses. The camera
+    it aims at the nearest ball that is on. Since M4 stage 2 the pick is the pot the
+    opponent's evaluation would play for the owner (its chance and where the cue ball
+    finishes), worked out while the shot plays; the pick above is the fallback when
+    that is not ready. The camera
     swoops back down behind the cue ball onto that aim in about a second,
     eased in and out, closing in on the cue ball as it turns round the table.
     "Aim at the next ball" in Settings turns the aim turn off.
@@ -677,10 +679,11 @@ from the break-off; its spin and power show on the controls as it plays.
 ### 10.2 How it plays a shot
 1. **Generate candidates:**
    - pots: every ball on × every pocket, including plants, doubles off cushions and
-     kicks where plausible;
+     kicks where plausible (as built in M4: pots straight in and along a cushion;
+     plants, doubles and kicks are not looked for);
    - safeties: thin contacts and returns to baulk, plus snooker attempts;
    - escapes when snookered: direct paths, one- and two-cushion paths, swerve and masse
-     at higher levels;
+     at higher levels (as built: swerve; no masse);
    - break-off options.
 2. **Find the shot parameters** for each candidate: aim, speed, spin and elevation, by
    searching with the noise-free simulator to hit the intended contact and aim for good
@@ -724,8 +727,8 @@ from the break-off; its spin and power show on the controls as it plays.
 
 ### 10.6 Thinking-time budget
 - Decisions arrive within **≤ 1.5 s** on the iPhone at level 5, and faster at lower
-  levels. The 147 has the same bound (as built: 6,000 simulations a stroke and a 1.5 s
-  clock).
+  levels. The 147 has the same bound (as built: 9,000 simulations a stroke, and the game
+  stops any level's thinking at 0.8 s).
 - If the search would run longer, it is cut down by the time budget, so it is anytime
   and never freezes.
 - The opponent runs off the main thread.
@@ -737,7 +740,7 @@ from the break-off; its spin and power show on the controls as it plays.
   table · Settings over the table; M4 adds Watch a 147; Stats and the routines join with
   M5.
 - **Match setup:**
-  - opponent level (1–5) and the 147, from M4 (stage 1: Beginner and the 147);
+  - opponent level (1–5) and the 147, from M4;
   - match length: best of 1, 3, 5, 7, 9 or 11 frames (default 3);
   - who breaks first: random, you, or the computer (default random); alternates
     afterwards.
