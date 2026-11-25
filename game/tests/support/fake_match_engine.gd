@@ -23,8 +23,15 @@ var standin_shots: Array[Dictionary] = []
 var standin_choices: Array[String] = []
 ## When false, configure_opponent refuses.
 var opponent_ready := true
+## Level ids whose file configure_opponent refuses, as the engine does a malformed one.
+var refused_levels: Array[String] = []
+## What levels() answers; configure_opponent keeps only the ids it was given.
 var level_list: Array = [
 	{"id": "beginner", "name": "Beginner", "tier": 1, "maximum": false},
+	{"id": "club", "name": "Club", "tier": 2, "maximum": false},
+	{"id": "amateur", "name": "Amateur", "tier": 3, "maximum": false},
+	{"id": "pro", "name": "Pro", "tier": 4, "maximum": false},
+	{"id": "world", "name": "World class", "tier": 5, "maximum": false},
 	{"id": "maximum", "name": "The 147", "tier": 0, "maximum": true},
 ]
 var exhibition_names: Array[String] = ["open 1"]
@@ -38,6 +45,7 @@ var _polls_left := 0
 ## When false, place_cue refuses.
 var cue_legal := true
 var error := ""
+var _left_out: Array = []
 
 
 func configure(_physics: Object, _referee_json: String, _standin_json: String) -> bool:
@@ -134,7 +142,20 @@ func standin_choice(player: int, seed: int) -> String:
 
 func configure_opponent(levels: Dictionary, _exhibitions_json: String) -> bool:
 	calls.append(["configure_opponent", levels.keys()])
-	return opponent_ready
+	for id: Variant in levels:
+		if refused_levels.has(str(id)):
+			error = "%s: aim_sigma_rad must be positive" % id
+			return false
+	if not opponent_ready:
+		return false
+	# As the engine, each call replaces the levels: one left out before can come back.
+	var known := level_list + _left_out
+	level_list = known.filter(func(level: Dictionary) -> bool: return levels.has(level["id"]))
+	_left_out = known.filter(func(level: Dictionary) -> bool: return not levels.has(level["id"]))
+	# By tier with the 147 (tier 0) last, as OfsMatch.levels().
+	level_list.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		return (int(a["tier"]) if int(a["tier"]) > 0 else 1000) < (int(b["tier"]) if int(b["tier"]) > 0 else 1000))
+	return true
 
 
 func levels() -> Array:

@@ -18,6 +18,9 @@ const BREAKERS: Array[String] = ["random", "you", "computer"]
 const BREAKER_TEXT := {"random": "Random", "you": "You", "computer": "Computer"}
 const CARD_WIDTH := 640.0
 const BACK_WIDTH := 190.0
+## The levels' second row starts after this many when one row would squeeze a name.
+const LEVELS_PER_ROW := 3
+const BUTTON_SEPARATION := 10
 
 var auto_place := true
 
@@ -78,8 +81,12 @@ func set_levels(levels: Array) -> void:
 	_levels.visible = not ids.is_empty()
 	if ids.is_empty():
 		return
-	_choice_row(_levels, "Opponent", "level_", options, func(value: Variant) -> void:
-		_level = value)
+	var names: Array[String] = []
+	for option: Array in options:
+		names.append(option[1])
+	var columns := names.size() if _fit_one_row(names) else LEVELS_PER_ROW
+	var chosen := func(value: Variant) -> void: _level = value
+	_choice_row(_levels, "Opponent", "level_", options, chosen, columns)
 	(_controls["level_" + _level] as Button).set_pressed_no_signal(true)
 	_auto_place()
 
@@ -137,8 +144,10 @@ func _build() -> void:
 
 
 ## A titled row of buttons of which one is chosen, as in the settings panel; returns the muted
-## label at the title's right. Each button's id is `prefix` and its option's value.
-func _choice_row(parent: Container, title: String, prefix: String, options: Array, chosen: Callable) -> Label:
+## label at the title's right. Each button's id is `prefix` and its option's value; `columns`
+## (all of them when 0) wraps the buttons onto more rows, lined up.
+func _choice_row(parent: Container, title: String, prefix: String, options: Array, chosen: Callable,
+		columns: int = 0) -> Label:
 	var row := VBoxContainer.new()
 	row.add_theme_constant_override("separation", 6)
 	var header := HBoxContainer.new()
@@ -149,8 +158,11 @@ func _choice_row(parent: Container, title: String, prefix: String, options: Arra
 	var value := Kit.label("", Kit.SMALL_FONT_SIZE, SettingsPanel.MUTED)
 	header.add_child(value)
 	row.add_child(header)
-	var buttons := HBoxContainer.new()
-	buttons.add_theme_constant_override("separation", 10)
+	var buttons := GridContainer.new()
+	buttons.name = "Buttons"
+	buttons.columns = columns if columns > 0 else maxi(options.size(), 1)
+	buttons.add_theme_constant_override("h_separation", BUTTON_SEPARATION)
+	buttons.add_theme_constant_override("v_separation", BUTTON_SEPARATION)
 	var group := ButtonGroup.new()
 	for option: Array in options:
 		# A short name ("Pro") still gets a whole touch's width.
@@ -167,6 +179,22 @@ func _choice_row(parent: Container, title: String, prefix: String, options: Arra
 	row.add_child(buttons)
 	parent.add_child(row)
 	return value
+
+
+## Every name fits an equal share of the card's width at the buttons' font.
+func _fit_one_row(names: Array[String]) -> bool:
+	if names.is_empty():
+		return true
+	var font := get_theme_font(&"font", &"Button")
+	var font_size := get_theme_font_size(&"font_size", &"Button")
+	var padding := get_theme_stylebox(&"normal", &"Button").get_minimum_size().x
+	var share := (CARD_WIDTH - BUTTON_SEPARATION * (names.size() - 1)) / names.size()
+	if share < Kit.TOUCH:
+		return false
+	for words in names:
+		if font.get_string_size(words, HORIZONTAL_ALIGNMENT_LEFT, -1.0, font_size).x + padding > share:
+			return false
+	return true
 
 
 func _show_length() -> void:

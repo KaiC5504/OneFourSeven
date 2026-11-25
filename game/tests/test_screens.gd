@@ -24,16 +24,16 @@ const MIN_FONT_SIZE := 28
 const HOME_RECTS: Array[Rect2] = [Rect2(0.0, 0.0, 1912.0, 880.0), Rect2(124.0, 0.0, 1664.0, 838.0)]
 const TWO_LEVELS := [
 	{"id": "beginner", "name": "Beginner", "tier": 1, "maximum": false},
-	{"id": "maximum", "name": "The 147", "tier": 6, "maximum": true},
+	{"id": "maximum", "name": "The 147", "tier": 0, "maximum": true},
 ]
-## Stage 2's ladder (spec 10.1) and the 147: the longest names the row must hold.
+## Stage 2's ladder (spec 10.1) and the 147, as OfsMatch.levels() lists them.
 const SIX_LEVELS := [
 	{"id": "beginner", "name": "Beginner", "tier": 1, "maximum": false},
 	{"id": "club", "name": "Club", "tier": 2, "maximum": false},
 	{"id": "amateur", "name": "Amateur", "tier": 3, "maximum": false},
 	{"id": "pro", "name": "Pro", "tier": 4, "maximum": false},
-	{"id": "world_class", "name": "World class", "tier": 5, "maximum": false},
-	{"id": "maximum", "name": "The 147", "tier": 6, "maximum": true},
+	{"id": "world", "name": "World class", "tier": 5, "maximum": false},
+	{"id": "maximum", "name": "The 147", "tier": 0, "maximum": true},
 ]
 
 var _log_start := 0
@@ -133,6 +133,9 @@ func test_setup_offers_the_levels_with_the_first_chosen() -> void:
 		var where := "%d levels" % levels.size()
 		check(_shows(setup, setup.find_child("Levels", true, false) as Control), "%s: the row shows" % where)
 		check(_says(setup, "Opponent"), "%s: it is titled" % where)
+		var shown := (setup.find_child("Levels", true, false) as Control).find_children("*", "Button", true, false)
+		check_eq(shown.map(func(b: Node) -> String: return (b as Button).text),
+				levels.map(func(level: Dictionary) -> String: return level["name"]), "%s: a button each, in order, names only" % where)
 		for level: Dictionary in levels:
 			var b := setup.control("level_" + String(level["id"])) as Button
 			check(b != null and b.text == level["name"], "%s: %s has its button" % [where, level["id"]])
@@ -192,7 +195,9 @@ func test_setup_with_six_levels_keeps_every_name_on_the_card() -> void:
 		await tree.process_frame
 		var card := (setup.get_node("Card") as Control).get_global_rect()
 		check(safe.encloses(card), "%s: the card is inside: %s" % [safe, card])
-		var font := (setup.control("level_world_class") as Button).get_theme_font("font")
+		var font := (setup.control("level_world") as Button).get_theme_font("font")
+		var rows: Array[float] = []
+		var widths: Array[float] = []
 		for level: Dictionary in SIX_LEVELS:
 			var b := setup.control("level_" + String(level["id"])) as Button
 			var rect := b.get_global_rect()
@@ -200,6 +205,20 @@ func test_setup_with_six_levels_keeps_every_name_on_the_card() -> void:
 			var words := font.get_string_size(b.text, HORIZONTAL_ALIGNMENT_LEFT, -1.0, b.get_theme_font_size("font_size")).x
 			check(rect.size.x >= words, "%s: %s fits its button: %f for %f" % [safe, level["name"], rect.size.x, words])
 			check(rect.size.x >= 88.0 and rect.size.y >= 88.0, "%s: %s is a whole touch: %s" % [safe, level["name"], rect.size])
+			if rows.is_empty() or not is_equal_approx(rows.back(), rect.position.y):
+				rows.append(rect.position.y)
+			widths.append(rect.size.x)
+		# One ladder read left to right, top to bottom: one row of six or two rows of three, equal widths.
+		check(rows.size() == 1 or rows.size() == 2, "%s: one row or two: %s" % [safe, rows])
+		if rows.size() == 2:
+			check(rows[1] > rows[0], "%s: the second row is under the first" % safe)
+			var third := (setup.control("level_amateur") as Button).get_global_rect()
+			var fourth := (setup.control("level_pro") as Button).get_global_rect()
+			check(is_equal_approx(fourth.position.y, rows[1]) and is_equal_approx(third.position.y, rows[0]),
+					"%s: three in each row, Pro starting the second" % safe)
+			check_near(fourth.position.x, (setup.control("level_beginner") as Button).get_global_rect().position.x, 1.0,
+					"%s: the rows line up" % safe)
+		check_near(widths.min(), widths.max(), 1.0, "%s: every level's button is one width: %s" % [safe, widths])
 	setup.queue_free()
 	await tree.process_frame
 

@@ -59,7 +59,8 @@ const LEVEL_THINK_SECONDS := 0.3
 const CHOICE_SECONDS := 1.2
 const REFEREE_PATH := "res://data/referee_params.json"
 const STANDIN_PATH := "res://data/standin_params.json"
-const LEVEL_IDS: Array[String] = ["beginner", "maximum"]
+## Tiers 1 to 5 of spec 10.1, then the 147: the picker's order.
+const LEVEL_IDS: Array[String] = ["beginner", "club", "amateur", "pro", "world", "maximum"]
 const LEVEL_PATH := "res://data/opponent_%s.json"
 const EXHIBITIONS_PATH := "res://data/exhibitions.json"
 ## level_name() with no level: the stand-in.
@@ -91,6 +92,8 @@ var autoplay := false:
 			_advance()
 ## Scales the opponent's waits; 0 acts on the next frame.
 var pace := 1.0
+## Where the level files are read, LEVEL_PATH's form; tests point it elsewhere.
+var level_path := LEVEL_PATH
 
 var _driver := OpponentDriver.new()
 ## The engine ensure_engine made, as opposed to one a test set.
@@ -560,23 +563,44 @@ func _configure() -> bool:
 	return true
 
 
-## The levels and the exhibition tables. Refused, the matches are the stand-in's: levels() is empty.
+## The levels and the exhibition tables. A level whose file is missing or refused is left out of
+## levels(); with none left, or the exhibitions refused, the matches are the stand-in's.
 func _configure_opponent(made: Object) -> void:
 	var problems: PackedStringArray = []
 	var texts := {}
 	for id in LEVEL_IDS:
-		var path := LEVEL_PATH % id
-		texts[id] = FileAccess.get_file_as_string(path)
-		if String(texts[id]).is_empty():
+		var path := level_path % id
+		var text := FileAccess.get_file_as_string(path)
+		if text.is_empty():
 			problems.append("%s is missing or empty (%s)" % [path, error_string(FileAccess.get_open_error())])
+		else:
+			texts[id] = text
 	var exhibitions := FileAccess.get_file_as_string(EXHIBITIONS_PATH)
 	if exhibitions.is_empty():
 		problems.append("%s is missing or empty (%s)" % [EXHIBITIONS_PATH, error_string(FileAccess.get_open_error())])
-	if problems.is_empty() and not bool(made.configure_opponent(texts, exhibitions)):
-		problems.append("configure_opponent refused %s or %s: %s" % [", ".join(texts.keys().map(
-				func(id: String) -> String: return LEVEL_PATH % id)), EXHIBITIONS_PATH, str(made.last_error())])
-	if not problems.is_empty():
+		texts.clear()
+	if not texts.is_empty() and not bool(made.configure_opponent(texts, exhibitions)):
+		var refused := "configure_opponent refused %s or %s: %s" % [", ".join(texts.keys().map(
+				func(id: String) -> String: return level_path % id)), EXHIBITIONS_PATH, str(made.last_error())]
+		# The engine refuses the whole set for one bad file: each alone says which.
+		var kept := {}
+		var each: PackedStringArray = []
+		for id: String in texts:
+			if bool(made.configure_opponent({id: texts[id]}, exhibitions)):
+				kept[id] = texts[id]
+			else:
+				each.append("configure_opponent refused %s: %s" % [level_path % id, str(made.last_error())])
+		if not kept.is_empty() and kept.size() < texts.size() and bool(made.configure_opponent(kept, exhibitions)):
+			problems.append_array(each)
+			texts = kept
+		else:
+			problems.append(refused)
+			texts.clear()
+	if texts.is_empty():
 		_error("no opponent levels, the stand-in plays: %s; run scripts/sync_data.py if a file is missing"
+				% "; ".join(problems))
+	elif not problems.is_empty():
+		_error("opponent levels left out of the picker: %s; run scripts/sync_data.py if a file is missing"
 				% "; ".join(problems))
 
 

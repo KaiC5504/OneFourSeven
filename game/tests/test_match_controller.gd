@@ -1234,7 +1234,8 @@ func test_the_opponents_levels_are_configured_with_the_engine() -> void:
 		check(not FileAccess.get_file_as_string(MatchController.LEVEL_PATH % id).is_empty(), "%s's file exists" % id)
 	check(not FileAccess.get_file_as_string(MatchController.EXHIBITIONS_PATH).is_empty(), "so does the exhibitions'")
 	check_eq(_logged("app.error").size(), 0, "nothing went wrong")
-	check_eq(own.levels().size(), 2, "levels()")
+	check_eq(own.levels().map(func(level: Dictionary) -> String: return level["id"]), MatchController.LEVEL_IDS,
+			"levels(): the six in tier order, the 147 last")
 	own.free()
 
 	var refusing := _engine(_turn(1))
@@ -1261,6 +1262,78 @@ func test_the_opponents_levels_are_configured_with_the_engine() -> void:
 	check_eq(_count(refusing, "standin_shot"), 1, "the stand-in plays")
 	check_eq(_count(refusing, "opponent_think"), 0, "no level is asked")
 	own.free()
+
+
+func test_a_missing_level_file_leaves_the_other_five() -> void:
+	var dir := "user://test_levels"
+	DirAccess.make_dir_recursive_absolute(dir)
+	for id in MatchController.LEVEL_IDS:
+		DirAccess.remove_absolute("%s/opponent_%s.json" % [dir, id])
+		if id != "club":
+			var file := FileAccess.open("%s/opponent_%s.json" % [dir, id], FileAccess.WRITE)
+			file.store_string(FileAccess.get_file_as_string(MatchController.LEVEL_PATH % id))
+			file.close()
+	var e := _engine(_turn(0))
+	var own := OwnEngine.new()
+	own.template = e
+	own.level_path = dir + "/opponent_%s.json"
+	_mark_log()
+	check(own.ensure_engine(), "the engine")
+	var five: Array[String] = ["beginner", "amateur", "pro", "world", "maximum"]
+	check_eq(_last_call(e, "configure_opponent")[1], five, "configured with the five files there")
+	check_eq(own.levels().map(func(level: Dictionary) -> String: return level["id"]), five, "levels() lists those five")
+	var errors := _errors_with("left out of the picker")
+	check_eq(errors.size(), 1, "the missing one is logged once")
+	if errors.size() == 1:
+		check(String(errors[0]["message"]).contains("opponent_club.json"), "naming its file: " + String(errors[0]["message"]))
+	check(not own.start(_with(CONFIG, {"level": "club"})), "and it can't be asked for")
+	check_eq(_errors_with("start: level \"club\" is not one of").size(), 1, "which is logged")
+	check_eq(_count(e, "start"), 0, "the engine is not asked")
+	check(own.start(_with(CONFIG, {"level": "amateur"})), "another still plays")
+	own.free()
+	for id in MatchController.LEVEL_IDS:
+		DirAccess.remove_absolute("%s/opponent_%s.json" % [dir, id])
+	DirAccess.remove_absolute(dir)
+
+
+func test_a_level_file_the_engine_refuses_leaves_the_other_five() -> void:
+	var e := _engine(_turn(0))
+	e.refused_levels = ["pro"]
+	var own := OwnEngine.new()
+	own.template = e
+	_mark_log()
+	check(own.ensure_engine(), "the engine")
+	var five: Array[String] = ["beginner", "club", "amateur", "world", "maximum"]
+	check_eq(_last_call(e, "configure_opponent")[1], five, "configured at last with the five it takes")
+	check_eq(own.levels().map(func(level: Dictionary) -> String: return level["id"]), five, "levels() lists those five")
+	var errors := _errors_with("left out of the picker")
+	check_eq(errors.size(), 1, "the refusal is logged once")
+	if errors.size() == 1:
+		var message := String(errors[0]["message"])
+		check(message.contains("opponent_pro.json") and message.contains("aim_sigma_rad must be positive")
+				and not message.contains("opponent_club.json"), "naming its file and why, and only it: " + message)
+	check_eq(_errors_with("the stand-in plays").size(), 0, "the levels still play")
+	check(not own.start(_with(CONFIG, {"level": "pro"})), "the refused one can't be asked for")
+	check_eq(_errors_with("start: level \"pro\" is not one of").size(), 1, "which is logged")
+	check(own.start(_with(CONFIG, {"level": "world"})), "World class still plays")
+	check_eq(own.level_name(), "World class", "named")
+	own.free()
+
+
+func test_a_match_starts_at_each_of_the_six_levels() -> void:
+	var names := {"beginner": "Beginner", "club": "Club", "amateur": "Amateur", "pro": "Pro", "world": "World class",
+			"maximum": "The 147"}
+	for id in MatchController.LEVEL_IDS:
+		var e := _engine(_turn(0))
+		var c := _controller(e)
+		_mark_log()
+		check(c.start(_with(CONFIG, {"level": id})), "%s: the match starts" % id)
+		check_eq((_last_call(e, "start")[1] as Dictionary).get("level"), id, "%s: the engine is given the level" % id)
+		check_eq(c.level(), id, "%s: level()" % id)
+		check_eq(c.level_name(), names[id], "%s: level_name()" % id)
+		check_eq(c.harness_state()["level"], id, "%s: in the harness's state" % id)
+		check_eq(_logged("app.error").size(), 0, "%s: nothing went wrong" % id)
+		c.free()
 
 
 func test_a_levels_refusals_stall_the_match() -> void:
