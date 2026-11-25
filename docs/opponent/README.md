@@ -331,7 +331,11 @@ step each) and passed by the referee (a stroke that fouls as planned is never a 
 The tournament also counts, per level: safeties by what followed (the other player's next stroke
 was a pot attempt, and whether it went in); snookers laid and the foul points they brought;
 escapes that hit a ball on; break-offs after which the other player had a pot; and the highest
-break in each frame (the **typical break** is the median of those).
+break in each frame, for each player and for the frame (`frame_best`: the higher of the two).
+The **typical break** of a level is the median, over the frames of its self-play, of the frame's
+highest break by either player. (Taken over both players' highs it was capped near half of
+that: with 147 points on the table the loser of a frame rarely makes a break when the winner
+has made a big one.)
 
 Stage 2's marks, each level against itself over 1,000 frames unless said:
 
@@ -340,7 +344,7 @@ Stage 2's marks, each level against itself over 1,000 frames unless said:
 | Club | 55 to 65% | 20 to 30% | 10 to 20 |
 | Amateur | 75 to 85% | 40 to 50% | 20 to 40 |
 | Pro | 86 to 94% | 60 to 70% | 40 to 70 |
-| World class | 92 to 98% | 70 to 80% | 60 and over, a century in at least one frame in ten |
+| World class | 92 to 98% | 70 to 80% | 60 and over, a century by either player in at least one frame in ten |
 
 Each level beats the one below in at least 70% of 300 frames (Club over Beginner, Amateur over
 Club, Pro over Amateur, World class over Pro). No stroke of any level is refused by the engine,
