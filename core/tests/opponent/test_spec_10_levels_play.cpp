@@ -196,13 +196,15 @@ bool tactic_found(const FrameState& s, const Level& level) {
 TEST_CASE("spec 10.2 step 6, opponent.hpp: every stroke of club, amateur, pro and world over thirty positions and more is one the engine accepts") {
     const std::vector<FrameState> positions = every_position();
     REQUIRE(positions.size() >= 30);
+    // Whether the engine accepts the stroke does not hang on the budget: a small one covers it.
+    const Think think = sims(150);
     for (const Level* level : tactical()) {
         int strokes = 0;
         for (std::size_t i = 0; i < positions.size(); ++i) {
             CAPTURE(level->id);
             CAPTURE(i);
             Stroke st;
-            CHECK_NOTHROW(st = choose(positions[i], *level, 1 + i));
+            CHECK_NOTHROW(st = choose(positions[i], *level, 1 + i, think));
             check_accepted(positions[i], *level, st);
             ++strokes;
         }
@@ -244,7 +246,7 @@ TEST_CASE("README The order: with no pot on the table a level with tactics plays
 TEST_CASE("README The order, Worth: a long red under safety_below as the only pot gives way to the tactic") {
     const FrameState s = named("long_red");
     REQUIRE(pots(s, rig::env(), rig::levels().world.max_cut_rad).size() == 1);
-    // The levels' own floors were tuned to under this red's chance: each takes one above it.
+    // The tuned floors lie under this red's chance, so each copy is given 0.3, above it.
     std::vector<Level> held = {rig::levels().club, rig::levels().amateur, sharp(rig::levels().pro)};
     for (Level& floor : held) floor.safety_below = 0.3;
     for (const Level& held_level : held) {

@@ -237,7 +237,7 @@ class Stage2Marks(unittest.TestCase):
         self.assertEqual(statuses["World class's slowest decision"], "PASS")
 
     def test_the_typical_break_is_the_frames_best_not_each_players_own(self):
-        # Each player's own highs would pass by the old pooled median; the frames' best misses.
+        # Each player's own highs would pass by a median of each player's own; the frames' best misses.
         reports = good_reports()
         amateur = reports["amateur.json"]
         both(amateur, lambda s: s.update(frame_highs=highs_json({30: 1000})))

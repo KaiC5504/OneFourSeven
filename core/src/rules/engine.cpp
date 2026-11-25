@@ -525,7 +525,8 @@ Judgement judge(const FrameState& pre, const ShotInput& input, const ShotFacts& 
         j.points = points;
         post.scores[std::size_t(striker)] += points;
         post.break_points = pre.break_points + points;
-        ++stats.pots;
+        // Pots are counted against attempts: a safety that drops a red scores but makes no pot.
+        if (facts.pot_attempt) ++stats.pots;
         stats.highest_break = std::max(stats.highest_break, post.break_points);
     }
 

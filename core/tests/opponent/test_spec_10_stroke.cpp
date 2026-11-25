@@ -32,10 +32,11 @@ FrameState named(const std::string& name) { return name == "racked" ? rig::racke
 
 std::vector<const Level*> both() { return {&rig::levels().beginner, &rig::levels().maximum}; }
 
-// The 147's own budget is tens of thousands of simulations; Beginner keeps its own.
+// The 147's own budget is thousands of simulations, and what these tests check does not hang on
+// it; Beginner keeps its own.
 Think budget(const Level& level) {
     Think t;
-    if (level.maximum) t.max_sims = 1500;
+    if (level.maximum) t.max_sims = 500;
     return t;
 }
 

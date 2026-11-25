@@ -14,6 +14,7 @@ namespace {
 Judgement pot_ball(const FrameState& s, Ball b, int index = 0) {
     FakeOracle oracle;
     ShotFacts f = hit(s, b, index);
+    f.pot_attempt = true;  // as observe marks a first ball hit that drops
     pot(f, at(s, b, index));
     return judge(s, {}, f, oracle, RefParams{});
 }
@@ -235,6 +236,36 @@ TEST_CASE("pot attempts are counted from the facts, pots from the score") {
     j = judge(s, {}, f, oracle, RefParams{});
     CHECK(j.post.stats[0].pot_attempts == 1);
     CHECK(j.post.stats[0].pots == 1);
+}
+
+TEST_CASE("a safety that drops another red scores but is no pot made: pots never outnumber attempts") {
+    FakeOracle oracle;
+    FrameState s = open_table(15);
+    s.scores = {20, 4};
+    ShotFacts f = hit(s, Ball::red, 0);
+    pot(f, at(s, Ball::red, 9));
+    REQUIRE_FALSE(f.pot_attempt);
+    const Judgement j = judge(s, {}, f, oracle, RefParams{});
+    CHECK(j.fouls.empty());
+    CHECK(j.points == 1);
+    CHECK(j.post.scores[0] == 21);
+    CHECK(j.post.scores[1] == 4);
+    CHECK(j.post.break_points == 1);
+    CHECK(j.post.striker == 0);
+    CHECK(j.post.on.kind == OnKind::any_colour);
+    CHECK(j.post.stats[0].pot_attempts == 0);
+    CHECK(j.post.stats[0].pots == 0);
+    CHECK(j.post.stats[0].highest_break == 1);
+
+    // The colour after it is an attempt that drops: one of one.
+    ShotFacts colour = hit(j.post, Ball::black);
+    colour.pot_attempt = true;
+    pot(colour, at(j.post, Ball::black));
+    const Judgement k = judge(j.post, {}, colour, oracle, RefParams{});
+    CHECK(k.post.scores[0] == 28);
+    CHECK(k.post.stats[0].pot_attempts == 1);
+    CHECK(k.post.stats[0].pots == 1);
+    CHECK(k.post.stats[0].pots <= k.post.stats[0].pot_attempts);
 }
 
 TEST_CASE("the highest break is the largest the player reached, not the last") {
