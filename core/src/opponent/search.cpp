@@ -148,6 +148,16 @@ constexpr double kRedCost = 7.0;
 // for leaves clearly better.
 constexpr double kPaceCost = 1.6;
 constexpr double kSpinCost = 0.5;
+// The same for a level with error that plans, taken off the leave. Its own reading saturates
+// (most leaves of World class read a chance of 1), so without a charge it chose among equal plans
+// at any pace: two pots in five went at 4 m/s or more, where its error stopped the cue ball a
+// median 0.25 m from the plan. With these one in twenty does, the leaves it read as sure that had
+// no pot it would play fell from 8% to 5%, and the median of its frames' highest break rose from
+// 50 to 73 (ofs_sim_cli tournament, World class against itself, 60 frames). Off the leave, not the
+// worth: the pace spoils only the position of a pot that goes in, and charged in full it made a
+// 23% black beat the brown that left the yellow (pl_black_or_brown).
+constexpr double kErrPaceCost = 4.0;
+constexpr double kErrSpinCost = 1.0;
 // The misses a pot's giveaway is read from: the aim turned this many margins to the thicker side,
 // the next tried while the ball still drops.
 constexpr double kMissTurns[] = {2.0, 4.0, 8.0};
@@ -829,13 +839,14 @@ private:
         // ends a maximum that was on.
         double own = 0.0;
         // For a level with error: its chance (as misread, in the first position), what it scores
-        // beside the leave, and what its miss gives away; worth chance * (gain + w * leave) -
+        // beside the leave, and what its miss gives away; worth chance * (gain + w * (leave - cost)) -
         // (1 - chance) * miss_weight * giveaway.
         double chance = 1.0;
         double gain = 0.0;
         double giveaway = 0.0;
         double thick_turn = 0.0;  // the margins of each side's miss, 0 for a side that always potted
         double thin_turn = 0.0;
+        double cost = 0.0;  // its pace and spin, kErrPaceCost and kErrSpinCost
         int node = -1;  // the position it leaves, once looked into
         // By how many strokes beyond it were looked into: what its plan is worth, the candidate
         // of its node that plan plays next (-1 none), and whether the plan runs the whole way.
@@ -1051,6 +1062,7 @@ private:
         // it. While the maximum is on such a stroke already costs kLost.
         if (!n.on) c.own -= kRedCost * std::max(0, reds_left(n.s) - reds_left(made.post) - 1);
         if (errs_) {
+            c.cost = kErrPaceCost * share * share + kErrSpinCost * (tip.x * tip.x + tip.y * tip.y);
             weigh(n, pot, made, misread, c);
         } else {
             if (made.goes_on) c.leaf = read_table(made.post, pots(made.post, env_, level_.max_cut_rad), env_);
@@ -1094,7 +1106,7 @@ private:
     // What a candidate is worth with `leave` to follow it.
     double worth(const Cand& c, double leave) const {
         if (!errs_) return c.own + leave;
-        double out = c.chance * (c.gain + level_.position_weight * leave);
+        double out = c.chance * (c.gain + level_.position_weight * (leave - c.cost));
         if (level_.miss_weight > 0.0) out -= (1.0 - c.chance) * level_.miss_weight * c.giveaway;
         return out;
     }

@@ -70,9 +70,11 @@ TEST_CASE("at its turn a level concedes once it needs its snookers, with why nam
     CHECK_FALSE(on.decides);
 }
 
-TEST_CASE("Beginner's file concedes as soon as it needs a snooker; a copy with 0 never does") {
-    const Level& beginner = rig::levels().beginner;
-    REQUIRE(beginner.concede_snookers == 1);
+TEST_CASE("a copy of Beginner that concedes at one snooker does so at once; its file, with 0, never does") {
+    const Level& file = rig::levels().beginner;
+    REQUIRE(file.concede_snookers == 0);
+    CHECK_FALSE(turn(colours_behind(60), file).decides);
+    const Level beginner = with_concede(file, 1);
     const Stroke st = turn(colours_behind(1), beginner);
     CHECK(st.decides);
     CHECK(st.decision == DecisionKind::concede_frame);
@@ -109,7 +111,7 @@ TEST_CASE("asked to choose, a level concedes when conceding is offered and it ne
     // Nothing pending: the options are the claim and the concessions, conceding among them.
     const std::vector<DecisionKind> open = rules::options(s, 0);
     REQUIRE(std::find(open.begin(), open.end(), DecisionKind::concede_frame) != open.end());
-    for (const Level* level : {&rig::levels().club, &rig::levels().pro, &rig::levels().world}) {
+    for (const Level* level : {&rig::levels().pro, &rig::levels().world}) {
         CAPTURE(level->id);
         Rng rng(3);
         nlohmann::json why;
@@ -117,6 +119,12 @@ TEST_CASE("asked to choose, a level concedes when conceding is offered and it ne
         CHECK(why.value("kind", std::string()) == "concede");
         CHECK(why.value("snookers", 0) == 6);
         CHECK(why.value("level", std::string()) == level->id);
+    }
+    // Spec 10.4: only the top levels concede; at their turn the others play on.
+    for (const Level* level : {&rig::levels().club, &rig::levels().amateur}) {
+        CAPTURE(level->id);
+        REQUIRE(level->concede_snookers == 0);
+        CHECK_FALSE(turn(s, *level).decides);
     }
 
     // After the other player's foul, conceding is offered only to a player who may concede at any

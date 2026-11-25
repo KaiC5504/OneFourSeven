@@ -287,8 +287,8 @@ TEST_CASE("the re-spotted black: each level places the cue ball, plays a stroke,
 }
 
 TEST_CASE("needing snookers on the last colours, a level that never concedes plays on") {
-    // README "The score": never with concede_snookers 0. Beginner's own file concedes
-    // (test_plan_concede.cpp); a copy of it that does not plays on, as every level did in stage 1.
+    // README "The score": never with concede_snookers 0, as every level played in stage 1
+    // (test_plan_concede.cpp has a copy that does concede).
     Level never = rig::levels().beginner;
     never.concede_snookers = 0;
     FrameState colours = rig::position("colours");
