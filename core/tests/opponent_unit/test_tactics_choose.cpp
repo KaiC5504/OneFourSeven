@@ -1,4 +1,4 @@
-// choose_tactic (docs/opponent/README.md "Tactics", "Worth", "The score"): the builder's own tests.
+// choose_tactic (docs/opponent/README.md "Tactics", "Worth", "The score").
 // Levels are copied with few tries where what is tested does not depend on how many.
 
 #include <doctest/doctest.h>

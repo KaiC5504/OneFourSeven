@@ -1,5 +1,5 @@
-// choose_tactic where the independent tests first found it short of the README: a touching ball,
-// the reds at the top, and an escape with no route to a ball on.
+// choose_tactic on a touching ball, the reds at the top, and an escape with no route to a ball on
+// (README "Tactics").
 
 #include <doctest/doctest.h>
 

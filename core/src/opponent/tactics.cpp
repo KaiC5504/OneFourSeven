@@ -19,6 +19,7 @@
 #include "ofs/opponent/evaluate.hpp"
 #include "ofs/opponent/pots.hpp"
 #include "ofs/opponent/solve.hpp"
+#include "ofs/opponent/standin.hpp"
 #include "ofs/physics/cue.hpp"
 #include "ofs/rules/engine.hpp"
 
@@ -48,6 +49,11 @@ constexpr double kTopSpeed = 0.95;
 // run after it at each rung of pace; the middle rung is the first tried. Tactics 3 adds a soft
 // rung that leaves the cue ball near its ball, where snookers are laid.
 constexpr double kThickness[] = {0.15, 0.3, 0.5};
+// When none of those is clear, or none is legal as planned (a ball on seen only between two others
+// or by its edge, a ball behind it that any firm contact pots), every contact from a full ball to
+// the finest edge, the cue ball asked to run only kSoftRun_m past its ball.
+constexpr double kAnyThickness[] = {1.0, 0.85, 0.7, 0.5, 0.3, 0.15, 0.05};
+constexpr double kSoftRun_m = 0.3;
 constexpr double kRuns[] = {1.2, 2.5, 4.0};
 constexpr double kRunsSnooker[] = {0.5, 1.2, 2.5, 4.0};
 // With every red in the top half the cue ball is sent back to baulk: each rung asks for these shares
@@ -97,6 +103,14 @@ constexpr int kHalvings = 3;
 constexpr double kProbe_rad = 0.003;
 constexpr double kMaxTurn_rad = 0.08;
 constexpr double kCloseEnough_m = 0.003;
+// Where those steps find no aim that meets the ball first (a long route off two cushions can come
+// back a ball's width or more from the mirror's line), the aims either side are tried in turn, this
+// far apart and this many each way, and the middle of the widest run that meets it is kept. For at
+// most kScanned routes a decision.
+constexpr double kScanStep_rad = 0.004;
+constexpr int kScanSteps = 14;
+constexpr int kScanned = 6;
+constexpr double kScanFaster = 1.5;
 // Cushion routes stay this far from a corner pocket's end of a cushion and a middle pocket's centre.
 constexpr double kCornerGap_m = 0.13;
 constexpr double kMiddleGap_m = 0.16;
@@ -166,12 +180,6 @@ std::string label(const Position& p, int place) {
     std::string out(table::ball_name(b.ball));
     if (b.ball == Ball::red) out += " " + std::to_string(b.index);
     return out;
-}
-
-int reds_left(const Position& p) {
-    int reds = 0;
-    for (const BallOnTable& b : p.balls) reds += b.ball == Ball::red ? 1 : 0;
-    return reds;
 }
 
 std::vector<BallOnTable> balls_with_cue(const Position& p, Vec2 cue) {
@@ -440,6 +448,7 @@ struct Plan {
     double window_rad = 0.0;
     bool swerve = false;
     bool from_touching = false;  // played away from a touching ball on, which cannot be missed
+    bool soft = false;           // rolled up to its ball, whatever the rung of pace says
     Route route;
     phys::CueStrike strike;  // aim, speed and tip; the elevation is the least the stroke asks for
 };
@@ -466,6 +475,7 @@ struct Weighed {
     // False for a safety that left the cue ball in the top half with every red there: it is played
     // only when no safety came back to baulk.
     bool away = true;
+    bool keeps_turn = false;  // as planned it pots a ball and the striker plays on
 };
 
 class Tactics {
@@ -490,10 +500,13 @@ public:
             top += b.pos.x > 0.0 ? 1 : 0;
         }
         reds_top_ = reds > 0 && top == reds;
+        // After a miss put back, an escape may go off one cushion more (README "Tactics").
+        reach_ = std::min(level.escape_cushions, kStudied);
+        if (reach_ >= 1 && s.miss_streak > 0) reach_ = std::min(reach_ + 1, kStudied);
     }
 
     Tactic run() {
-        if (s_.cue_in_hand && s_.on.kind == OnKind::red && reds_left(s_) == 15) {
+        if (s_.cue_in_hand && s_.on.kind == OnKind::red && pack_intact(s_)) {
             break_offs();
         } else {
             std::vector<Vec2> places;
@@ -506,16 +519,27 @@ public:
             for (const Vec2 cue : places) {
                 direct = direct || env_.oracle.clear_path(balls_with_cue(s_, cue), s_.cue_ball, targets_);
             }
-            const bool planned = direct && safeties(places);
-            if (!planned) escapes(places.front());
+            direct_ = direct;
+            if (direct) {
+                safeties(places, kThickness, std::size(kThickness));
+                if (weighed_.empty()) safeties(places, kAnyThickness, std::size(kAnyThickness));
+            }
+            // Also with a ball on in view when no contact on it was legal.
+            if (weighed_.empty()) escapes(places.front());
         }
         return answer();
     }
 
 private:
     bool take_step() {
-        if (steps_ >= level_.safety_tries) return false;
-        if (!budget_.open()) return false;
+        if (steps_ >= level_.safety_tries) {
+            stopped_ = "tries";
+            return false;
+        }
+        if (!budget_.open()) {
+            stopped_ = budget_.stopped;
+            return false;
+        }
         ++budget_.steps;
         ++steps_;
         return true;
@@ -620,7 +644,8 @@ private:
 
     void price_safety(Plan& plan) const {
         const double kept = std::max(1.0 - plan.thickness, kLeastKept);
-        plan.strike.speed_m_s = speed_for_run(plan.contact_m + plan.after_m / (kept * kept), env_);
+        plan.strike.speed_m_s = plan.soft ? speed_for_run(plan.contact_m + kSoftRun_m, env_)
+                                          : speed_for_run(plan.contact_m + plan.after_m / (kept * kept), env_);
         if (plan.tip >= 0) {
             plan.strike.tip_x = kTips[std::size_t(plan.tip)].x * level_.max_tip;
             plan.strike.tip_y = kTips[std::size_t(plan.tip)].y * level_.max_tip;
@@ -647,8 +672,9 @@ private:
         if (theirs_.empty() && lowest >= 0) theirs_.push_back(lowest);
     }
 
-    // False when no contact was found to plan.
-    bool safeties(const std::vector<Vec2>& places) {
+    // Contacts on the balls on at each of `thickness`, the most promising tried first.
+    void safeties(const std::vector<Vec2>& places, const double* thickness, std::size_t count) {
+        const bool first_pass = thickness == kThickness;
         find_theirs();
         struct Listed {
             Plan plan;
@@ -664,7 +690,7 @@ private:
             });
             // A touching ball on is deemed hit (S3.8(a)): the cue ball is played away from it, at no
             // ball, and the referee says whether what it meets after is fair.
-            for (const int target : s_.cue_in_hand ? std::vector<int>() : s_.touching) {
+            for (const int target : s_.cue_in_hand || !first_pass ? std::vector<int>() : s_.touching) {
                 if (!contains(targets_, target)) continue;
                 const Vec2 back = unit(cue - balls[std::size_t(target)].pos);
                 for (const double turn : kAwayTurns) {
@@ -686,14 +712,17 @@ private:
             for (const int target : order) {
                 if (level_.tactics < 2 && reached >= kBasicBalls) break;
                 bool any = false;
-                for (const double thickness : kThickness) {
+                for (std::size_t t = 0; t < count; ++t) {
                     for (const double side : {1.0, -1.0}) {
+                        // A full ball has one side.
+                        if (side < 0.0 && !(thickness[t] < 1.0)) continue;
                         Plan plan;
                         plan.kind = Kind::safety;
                         plan.cue = cue;
                         plan.target = target;
-                        plan.thickness = thickness;
-                        plan.offset = side * (1.0 - thickness);
+                        plan.thickness = thickness[t];
+                        plan.offset = side * (1.0 - thickness[t]);
+                        plan.soft = !first_pass;
                         Vec2 dir;
                         Vec2 contact;
                         if (!contact_point(cue, balls[std::size_t(target)].pos, plan.offset, dir, contact)) continue;
@@ -712,17 +741,16 @@ private:
                 if (any) ++reached;
             }
         }
-        if (listed.empty()) return false;
+        if (listed.empty()) return;
         std::stable_sort(listed.begin(), listed.end(),
                          [](const Listed& a, const Listed& b) { return a.promise > b.promise; });
 
         const int first = std::max(1, int(std::ceil(kFirstPass * level_.safety_tries)));
         for (std::size_t i = 0; i < listed.size() && int(i) < first; ++i) {
-            if (!take_step()) return true;
+            if (!take_step()) return;
             attempt(listed[i].plan);
         }
         refine();
-        return true;
     }
 
     // The best contacts at the other paces, then (tactics 2 and up) with spin at their best pace.
@@ -737,14 +765,17 @@ private:
         for (const int pick : picks) {
             const Plan base = weighed_[std::size_t(pick)].plan;
             for (int run = 0; run < run_count(); ++run) {
-                if (run == base.run) continue;
+                // A contact that was legal rolled up to its ball is tried at every pace.
+                if (run == base.run && !base.soft) continue;
                 Plan plan = base;
+                plan.soft = false;
                 set_run(plan, run);
                 plan.tip = -1;
                 price_safety(plan);
                 if (!take_step()) return;
                 attempt(plan);
             }
+            if (base.soft) continue;
             if (level_.tactics < 2 || !(level_.max_tip > 0.0)) continue;
             int best = pick;
             for (std::size_t i = 0; i < weighed_.size(); ++i) {
@@ -854,7 +885,7 @@ private:
     }
 
     void escapes(Vec2 cue) {
-        const int most = std::min(level_.escape_cushions, kStudied);
+        const int most = reach_;
         const bool swerves = level_.tactics >= 3;
         if (most <= 0 && !swerves) return;
         const std::vector<BallOnTable> balls = balls_with_cue(s_, cue);
@@ -1147,7 +1178,48 @@ private:
                 found_off = std::abs(passes - wanted);
             }
         }
+        if (!std::isfinite(found_off) && scanned_ < kScanned) {
+            ++scanned_;
+            found = scanned(plan, found, raised);
+        }
         plan.strike.aim_rad = found;
+    }
+
+    // The aims either side of `from`, the cue ball simulated alone at each: the middle of the widest
+    // run of neighbours that meet the plan's ball first, the nearer to `from` of two as wide. When
+    // none does the pace is raised once by kScanFaster and they are tried again (a cushion throws
+    // a slow ball wider than a firm one); `from` itself when none does then either.
+    double scanned(Plan& plan, double from, int& raised) {
+        const double top = kTopSpeed * env_.params.max_cue_speed_m_s;
+        for (int pass = 0; pass < 2; ++pass) {
+            int best_start = 0;
+            int best_run = 0;
+            int start = 0;
+            int run = 0;
+            const auto close = [&] {
+                const auto off = [](int s, int n) { return std::abs(2 * s + n - 1); };
+                if (run > best_run || (run == best_run && run > 0 && off(start, run) < off(best_start, best_run))) {
+                    best_start = start;
+                    best_run = run;
+                }
+                run = 0;
+            };
+            for (int i = -kScanSteps; i <= kScanSteps; ++i) {
+                int first = -1;
+                double passes = 0.0;
+                if (course_at(plan, from + i * kScanStep_rad, first, passes, raised) && first == plan.target) {
+                    if (run == 0) start = i;
+                    ++run;
+                } else {
+                    close();
+                }
+            }
+            close();
+            if (best_run > 0) return from + (best_start + 0.5 * (best_run - 1)) * kScanStep_rad;
+            if (!(plan.strike.speed_m_s < top)) break;
+            plan.strike.speed_m_s = std::min(plan.strike.speed_m_s * kScanFaster, top);
+        }
+        return from;
     }
 
     void attempt(Plan plan) {
@@ -1162,16 +1234,32 @@ private:
         phys::ShotRecord record;
         const Trial trial = try_strike(from, plan.cue, strike, env_, &record);
         ++budget_.sims;
-        if (!trial.clean) return;
-        const rules::ShotInput input = declaration(plan.target);
+        if (!trial.clean) {
+            ++unclean_;
+            return;
+        }
+        // An escape is declared for the ball it is simulated to meet: with a colour of choice on,
+        // a route found to one colour often reaches another first.
+        const bool other_met = plan.kind == Kind::escape && trial.first_hit != plan.target &&
+                               contains(targets_, trial.first_hit);
+        const rules::ShotInput input = declaration(other_met ? trial.first_hit : plan.target);
         rules::Judgement j = rules::judge_shot(from, input, record, env_.table, env_.oracle, env_.ref);
         const bool legal = j.fouls.empty();
-        if (!legal && plan.kind != Kind::escape) return;
+        if (!legal && plan.kind != Kind::escape) {
+            ++fouled_;
+            return;
+        }
         // A stroke after which the striker is still at the table potted a ball: it is a pot, which
-        // the search weighs with its chance; as a tactic the level's error would not repeat it.
-        if (legal && (j.post.over || j.post.striker == s_.striker)) return;
-        if (legal && plan.kind == Kind::escape && !plan.swerve &&
-            cushions_before(record) > level_.escape_cushions) {
+        // the search weighs with its chance; as a tactic the level's error would not repeat it. It
+        // is kept for when nothing else is legal (a ball over a pocket that any contact pots),
+        // but not by a level playing for a maximum, which pots only the ball it needs.
+        const bool keeps_turn = legal && (j.post.over || j.post.striker == s_.striker);
+        if (keeps_turn) {
+            ++potted_;
+            if (level_.maximum || j.post.over) return;
+        }
+        if (legal && plan.kind == Kind::escape && !plan.swerve && cushions_before(record) > reach_) {
+            ++beyond_;
             return;
         }
 
@@ -1182,7 +1270,7 @@ private:
         w.first_hit = trial.first_hit;
         w.cue_rest = trial.rest[std::size_t(s_.cue_ball)];
         w.cushions = cushions_before(record);
-        // A safety's thickness is the one planned (0 to half ball); an escape's is as it met.
+        // A safety's thickness is the one planned; an escape's is as it met.
         w.thickness = plan.kind == Kind::escape ? thickness_met(record) : plan.thickness;
         const double p_leave = read_leave(j, w);
 
@@ -1215,6 +1303,22 @@ private:
         if (plan.kind == Kind::safety && w.snookered && level_.tactics >= 3) w.kind = "snooker";
         w.away = !reds_top_ || w.kind != "safety" || w.cue_rest.x < 0.0;
 
+        if (keeps_turn) {
+            // What it leaves is the striker's own and no more to be relied on than the pot: it
+            // counts nothing, and no misreading is drawn for it.
+            w.keeps_turn = true;
+            if (w.kind == "snooker") w.kind = "safety";
+            w.snookered = false;
+            w.next.clear();
+            w.next_chance = 0.0;
+            w.leave = 0.0;
+            w.risk = penalty * p_miss;
+            w.worth = score(0.0, 0.0, w.risk);
+            w.read = w.worth;
+            flukes_.push_back(std::move(w));
+            return;
+        }
+
         if (!legal) {
             // A miss as planned, kept only in case nothing hits: its foul is known.
             w.gain = 0.0;
@@ -1222,6 +1326,7 @@ private:
             w.worth = score(w.gain, w.leave, w.risk);
             w.read = w.worth;
             w.nearest = nearest(record, w);
+            ++fouled_;
             misses_.push_back(std::move(w));
             return;
         }
@@ -1341,16 +1446,39 @@ private:
         std::vector<int> order = by_read();
         if (!order.empty()) {
             chosen = &weighed_[std::size_t(order.front())];
-        } else {
-            for (const Weighed& m : misses_) {
-                if (chosen == nullptr || m.nearest < chosen->nearest) chosen = &m;
+        } else if (!flukes_.empty()) {
+            for (const Weighed& f : flukes_) {
+                if (chosen == nullptr || f.read > chosen->read) chosen = &f;
             }
+        } else if (!misses_.empty()) {
+            // By how near they came. A miss put back is not played the same way again: each such
+            // attempt takes the next nearest, round again from the first.
+            std::vector<int> near;
+            for (int i = 0; i < int(misses_.size()); ++i) near.push_back(i);
+            std::stable_sort(near.begin(), near.end(), [&](int a, int b) {
+                return misses_[std::size_t(a)].nearest < misses_[std::size_t(b)].nearest;
+            });
+            // Two plans can come to one stroke (the pace at its least, an aim met twice).
+            std::vector<int> apart;
+            for (const int i : near) {
+                const phys::CueStrike& c = misses_[std::size_t(i)].strike;
+                const bool again = std::any_of(apart.begin(), apart.end(), [&](int k) {
+                    const phys::CueStrike& o = misses_[std::size_t(k)].strike;
+                    return o.aim_rad == c.aim_rad && o.speed_m_s == c.speed_m_s && o.tip_x == c.tip_x &&
+                           o.tip_y == c.tip_y && o.elevation_rad == c.elevation_rad;
+                });
+                if (!again) apart.push_back(i);
+            }
+            chosen = &misses_[std::size_t(apart[std::size_t(std::max(s_.miss_streak, 0)) % apart.size()])];
         }
         if (chosen == nullptr) {
-            out.why = {{"candidates", steps_}};
+            // What became of the strokes it tried, for the caller's line.
+            out.why = {{"candidates", steps_}, {"stopped", stopped_}, {"direct", direct_},
+                       {"fouled", fouled_},    {"potted", potted_},   {"beyond", beyond_},
+                       {"unclean", unclean_}};
             return out;
         }
-        const bool hit = !order.empty();
+        const bool hit = !order.empty() || !flukes_.empty();
         out.found = true;
         out.kind = chosen->kind;
         out.places_cue = s_.cue_in_hand;
@@ -1378,8 +1506,10 @@ private:
         if (chosen->kind == "escape") {
             out.why["hit"] = hit;
             if (chosen->plan.swerve) out.why["swerve"] = true;
+            if (s_.miss_streak > 0) out.why["misses"] = s_.miss_streak;
         }
         if (!score_.empty()) out.why["score"] = score_;
+        if (chosen->keeps_turn) out.why["keeps_turn"] = true;
         nlohmann::json others = nlohmann::json::array();
         std::vector<std::pair<std::string, int>> seen = {{chosen->kind, chosen->first_hit}};
         for (const int i : order) {
@@ -1405,9 +1535,21 @@ private:
     std::vector<int> theirs_;
     std::string score_;  // "ahead", "snookers" or empty
     bool reds_top_ = false;
+    int reach_ = 0;  // the cushions an escape may go off in this position
     std::vector<Weighed> weighed_;
+    std::vector<Weighed> flukes_;  // legal strokes that pot a ball and keep the striker in
     std::vector<Weighed> misses_;
     int steps_ = 0;
+    int scanned_ = 0;
+    // For a decision that found nothing: whether a ball on was in view, why it stopped ("done",
+    // "tries" or the budget's word), and the strokes tried that fouled, kept the striker at the
+    // table, went off more cushions than it may, or failed on the simulator.
+    bool direct_ = false;
+    std::string stopped_ = "done";
+    int fouled_ = 0;
+    int potted_ = 0;
+    int beyond_ = 0;
+    int unclean_ = 0;
 };
 
 }  // namespace

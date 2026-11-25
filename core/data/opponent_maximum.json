@@ -112,13 +112,13 @@
     },
     "max_sims": {
       "unit": "count",
-      "source": "ours, from the think time of spec 10.6: 6,000, 9,000 and 12,000 measured against Beginner on 2026-11-25. At 9,000 both stages finish in most decisions (one in twenty at 6,000) and the slowest took 1.4 s on the PC's Release build; 12,000 took 1.7 s.",
+      "source": "ours, from the think time of spec 10.6: 6,000, 9,000 and 12,000 measured against Beginner on 2026-11-25. At 9,000 both stages finish in most decisions (at 6,000 one decision in twenty does not) and the slowest took 1.4 s on the PC's Release build; 12,000 took 1.7 s.",
       "note": "Simulations it may run for one stroke."
     },
     "tactics": {
       "unit": "0 to 3",
       "source": "spec 10.1, the last column",
-      "note": "0 the stand-in's plain safety; 1 basic safeties; 2 weighs them by the leave, with side; 3 also lays snookers and escapes with swerve."
+      "note": "0 the stand-in's plain safety; 1 basic safeties, centre ball, at the two nearest balls on; 2 also with side, stun and screw, at every ball on it can reach; 3 also lays snookers and escapes with swerve."
     },
     "safety_tries": {
       "unit": "count",

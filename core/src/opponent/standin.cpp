@@ -116,6 +116,12 @@ constexpr int kTurns = 2;
 constexpr double kProbe_rad = 0.003;
 constexpr double kMaxTurn_rad = 0.08;
 constexpr double kCloseEnough_m = 0.003;
+// After a miss put back (FrameState::miss_streak) the same stroke would only miss again: an
+// escape is then looked for harder, the more the longer the misses run, up to kHarder times: that
+// many times the simulations and courses, and each way also at these faster paces (a long route
+// off a cushion dies short at the safety's pace).
+constexpr int kHarder = 3;
+constexpr double kFasterPaces[] = {1.6, 2.5};
 // With no way to a ball on, the strokes at the cheapest balls to hit that are tried.
 constexpr int kLeastBad = 2;
 // The aims a ball is taken as reachable by, in ball widths across it.
@@ -454,22 +460,6 @@ std::vector<Window> windows(const std::vector<BallOnTable>& balls, int cue_ball,
     return out;
 }
 
-bool pack_intact(const Position& p) {
-    Vec2 middle;
-    int reds = 0;
-    for (const BallOnTable& b : p.balls) {
-        if (b.ball != Ball::red) continue;
-        middle = middle + b.pos;
-        ++reds;
-    }
-    if (reds != 15) return false;
-    middle = middle * (1.0 / reds);
-    for (const BallOnTable& b : p.balls) {
-        if (b.ball == Ball::red && length(b.pos - middle) > kPackReach_m) return false;
-    }
-    return true;
-}
-
 // A thin hit on the outside of the end red of the back row, on the cue ball's side of the table.
 bool break_off(const Position& p, Vec2 cue, Candidate& out) {
     const double side = cue.y > 0.0 ? 1.0 : -1.0;
@@ -530,6 +520,8 @@ public:
         open_ = rules::nominations(s);
         speed_cap_ = fastest(params);
         speed_floor_ = slowest(params);
+        misses_ = std::max(s.miss_streak, 0);
+        effort_ = 1 + std::min(misses_, kHarder);
     }
 
     // Every stroke it would consider, the best first. Never empty.
@@ -606,19 +598,19 @@ public:
     // foul; else the lowest penalty; else (nothing simulated) the first. `penalty` is what it is
     // expected to cost, -1 when it was not simulated.
     Candidate choose(int& penalty) {
-        const int budget = std::max(sp_.max_sims, 0);
+        const int budget = std::max(sp_.max_sims, 0) * effort_;
         // Pots that stay out leave two simulations for a safety.
         const int pot_budget = budget > 2 ? budget - 2 : budget;
         bool have_clean = false;
         Candidate clean;
-        bool have_foul = false;
-        Candidate foul;
         int least = 0;
+        // Every stroke that cost the least, in the order tried.
+        std::vector<Candidate> cheapest;
         const auto fouled = [&](const Candidate& c, const Checked& r) {
-            if (have_foul && r.penalty >= least) return;
-            have_foul = true;
-            foul = c;
+            if (!cheapest.empty() && r.penalty > least) return;
+            if (cheapest.empty() || r.penalty < least) cheapest.clear();
             least = r.penalty;
+            cheapest.push_back(c);
         };
 
         const auto wanted = [](const Candidate& c, const Checked& r) {
@@ -665,9 +657,10 @@ public:
             penalty = 0;
             return clean;
         }
-        if (have_foul) {
+        if (!cheapest.empty()) {
             penalty = least;
-            return foul;
+            // The stroke that missed is not played again while another costs no more.
+            return cheapest[std::size_t(misses_) % cheapest.size()];
         }
         penalty = -1;
         return candidates_.front();
@@ -725,10 +718,18 @@ private:
             c.speed = speed;
             c.target = w.route.ball;
             if (contains(targets, w.route.ball)) {
-                if (int(escapes.size()) >= kEscapes) continue;
-                if (w.route.cushions > 0 && !aim_off_cushions(w, cue, speed, c.aim)) continue;
+                if (int(escapes.size()) >= kEscapes * effort_) continue;
                 c.cost = cost(w);
-                escapes.push_back(c);
+                if (w.route.cushions == 0 || aim_off_cushions(w, cue, speed, c.aim)) escapes.push_back(c);
+                for (const double pace : kFasterPaces) {
+                    if (misses_ == 0 || int(escapes.size()) >= kEscapes * effort_) break;
+                    Candidate faster = c;
+                    faster.aim = w.aim;
+                    faster.speed = std::min(speed * pace, speed_cap_);
+                    if (w.route.cushions == 0 || aim_off_cushions(w, cue, faster.speed, faster.aim)) {
+                        escapes.push_back(faster);
+                    }
+                }
             } else if (w.route.cushions == 0) {
                 c.nominate = lowest;
                 c.cost = table::ball_value(s_.balls[std::size_t(w.route.ball)].ball) - std::min(w.width, 0.5);
@@ -830,7 +831,9 @@ private:
         for (int turn = 0;; ++turn) {
             int first = -1;
             double passes = 0.0;
-            if (courses_ >= kCourses || !course(cue, at, speed, w.route.cushions, ball, first, passes)) break;
+            if (courses_ >= kCourses * effort_ || !course(cue, at, speed, w.route.cushions, ball, first, passes)) {
+                break;
+            }
             if (first == ball) {
                 aim = at;
                 found = true;
@@ -838,7 +841,7 @@ private:
             if (std::abs(passes - wanted) <= kCloseEnough_m || turn == kTurns) break;
             int probed_first = -1;
             double probed = 0.0;
-            if (courses_ >= kCourses ||
+            if (courses_ >= kCourses * effort_ ||
                 !course(cue, at + kProbe_rad, speed, w.route.cushions, ball, probed_first, probed)) {
                 break;
             }
@@ -942,6 +945,8 @@ private:
     std::vector<Candidate> candidates_;
     int sims_ = 0;
     int courses_ = 0;  // simulations of the cue ball alone
+    int misses_ = 0;   // misses in a row put back to this position
+    int effort_ = 1;
 };
 
 int reds_left(const Position& p) {
@@ -1006,6 +1011,22 @@ void exception_logged(const char* function, const std::exception& e) {
 }
 
 }  // namespace
+
+bool pack_intact(const rules::Position& p) {
+    Vec2 middle;
+    int reds = 0;
+    for (const BallOnTable& b : p.balls) {
+        if (b.ball != Ball::red) continue;
+        middle = middle + b.pos;
+        ++reds;
+    }
+    if (reds != 15) return false;
+    middle = middle * (1.0 / reds);
+    for (const BallOnTable& b : p.balls) {
+        if (b.ball == Ball::red && length(b.pos - middle) > kPackReach_m) return false;
+    }
+    return true;
+}
 
 const std::vector<std::string>& standin_param_names() {
     static const std::vector<std::string> names = [] {
@@ -1095,6 +1116,7 @@ StandinShot choose_shot(const rules::FrameState& s, const phys::TableShape& tabl
                     {"penalty", penalty},
                     {"aim_error_rad", aim_error},
                     {"speed_error", speed_error}};
+        if (s.miss_streak > 0) shot.why["misses"] = s.miss_streak;
     } catch (const std::exception& e) {
         // Whatever went wrong, the caller still gets a stroke the engine accepts.
         exception_logged("choose_shot", e);

@@ -39,8 +39,9 @@ struct Level {
     int max_sims = 200;            // simulations it may run for one stroke
 
     // Tactics and risk (spec 10.1's last column, 10.2 steps 4 and 5).
-    // 0 the stand-in's plain safety; 1 basic safeties; 2 weighs them by the leave, with side;
-    // 3 also lays snookers and escapes with swerve.
+    // 0 the stand-in's plain safety; 1 basic safeties, centre ball, at the two nearest balls on;
+    // 2 also with side, stun and screw, at every ball on it can reach; 3 also lays snookers and
+    // escapes with swerve.
     int tactics = 0;
     int safety_tries = 0;      // safeties, snookers and escapes it weighs for one stroke
     int escape_cushions = 0;   // cushions it will go off to escape a snooker, 0 to 2

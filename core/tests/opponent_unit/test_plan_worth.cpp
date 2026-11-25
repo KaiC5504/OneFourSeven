@@ -73,7 +73,7 @@ TEST_CASE("the cost of a miss turns a level away from the pot whose miss leaves 
     // the cost: it turned away for the miss, not for the pot.
     CHECK((1.0 - chance) * turns.why["giveaway"].get<double>() < 1.0);
     CHECK(turns.why["worth"].get<double>() < takes.why["worth"].get<double>());
-    // Each candidate made simulated one miss: more simulations than without.
+    // Each candidate made simulates a miss on each side: more simulations than without.
     CHECK(turns.sims > takes.sims);
 }
 

@@ -1,0 +1,70 @@
+{
+  "note": "Red on with no thin contact clear on any red: a ball on is seen only between two others. Logged from Club's self-play, where the tactic tried nothing and the stand-in played.",
+  "cue_ball": 0,
+  "cue_in_hand": false,
+  "on": {
+    "kind": "red"
+  },
+  "striker": 0,
+  "scores": [
+    15,
+    43
+  ],
+  "break_points": 0,
+  "balls": [
+    {
+      "ball": "cue",
+      "index": 0,
+      "x": -1.3901690186910691,
+      "y": 0.45366918883147983
+    },
+    {
+      "ball": "red",
+      "index": 6,
+      "x": -0.6983644199196347,
+      "y": -0.16259327773389817
+    },
+    {
+      "ball": "red",
+      "index": 7,
+      "x": 1.090756924164489,
+      "y": -0.33566728213757946
+    },
+    {
+      "ball": "yellow",
+      "index": 0,
+      "x": -1.0546760351926505,
+      "y": 0.2404353545162315
+    },
+    {
+      "ball": "green",
+      "index": 0,
+      "x": -1.0469711838367544,
+      "y": 0.29540280403988967
+    },
+    {
+      "ball": "brown",
+      "index": 0,
+      "x": -1.033548236304304,
+      "y": 0.07155216269469875
+    },
+    {
+      "ball": "blue",
+      "index": 0,
+      "x": -1.1964932350355395,
+      "y": 0.3666092488407711
+    },
+    {
+      "ball": "pink",
+      "index": 0,
+      "x": 0.89225,
+      "y": 0.0
+    },
+    {
+      "ball": "black",
+      "index": 0,
+      "x": 1.5964598357788224,
+      "y": -0.7207241979528443
+    }
+  ]
+}

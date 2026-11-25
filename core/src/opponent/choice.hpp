@@ -4,8 +4,11 @@
 // the tactic, and when a level concedes. Apart from search.cpp so its tests can hand it any pot
 // and any tactic.
 
+#include <cstdint>
+
 #include "ofs/opponent/level.hpp"
 #include "ofs/opponent/tactics.hpp"
+#include "ofs/rng.hpp"
 #include "ofs/rules/types.hpp"
 
 namespace ofs::opponent {
@@ -27,6 +30,11 @@ double pot_floor(const rules::FrameState& s, const Level& level);
 // under pot_floor, else the tactic. Without one, the pot when its chance is not under
 // safety_below, else the stand-in's stroke.
 Pick pick(const PotOffer& pot, const Tactic& tactic, const rules::FrameState& s, const Level& level);
+
+// The seed of each stream a decision draws from besides its stroke's error, from a copy of its
+// Rng so the stroke's draws stay four: `which` 0 is the judgement's (the misreadings, the tactics'
+// first and then the pots'), 1 the noisy strokes'.
+std::uint64_t stream_seed(const Rng& rng, int which);
 
 // The snookers `player` needs: rules::penalty_points_required over the penalty a foul brings now
 // (4, or the ball on's value when that is more), rounded up.

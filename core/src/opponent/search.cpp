@@ -127,7 +127,7 @@ constexpr int kDeepSpins = 3;
 // takes this share of what the tactics left, by the level's depth. It tries every pot centre ball
 // at kCoarseRungs speeds, then the best kFinePots every way it strikes. A position below it is
 // tried with kErrDeepPots pots at kErrDeepSpeeds speeds and kErrDeepSpins spins, a few hundred
-// simulations at most, so that the beam is looked into whole. With two spins there, a brown that
+// simulations at most, so that the beam is looked into whole. With kErrDeepSpins 2, a brown that
 // left the yellow easy lost to a black that left it hard (pl_black_or_brown).
 constexpr double kErrFirstShare[kMaxDepth + 1] = {1.0, 0.4, 0.3, 0.25};
 constexpr int kCoarseRungs = 3;
@@ -155,7 +155,8 @@ constexpr double kSpinCost = 0.5;
 constexpr double kPersonAimSigma_rad = 0.0002;
 constexpr double kPersonSigmaPerCut = 5.7;
 constexpr double kEyeCost = 1.0;
-// The same for a level with error that plans, taken off the leave. Its own reading saturates
+// kPaceCost and kSpinCost's counterpart for a level with error that plans, taken off the leave
+// and never more than the leave. Its own reading saturates
 // (most leaves of World class read a chance of 1), so without a charge it chose among equal plans
 // at any pace: two pots in five went at 4 m/s or more, where its error stopped the cue ball a
 // median 0.25 m from the plan. With these one in twenty does, the leaves it read as sure that had
@@ -165,8 +166,8 @@ constexpr double kEyeCost = 1.0;
 // 23% black beat the brown that left the yellow (pl_black_or_brown).
 constexpr double kErrPaceCost = 4.0;
 constexpr double kErrSpinCost = 1.0;
-// The misses a pot's giveaway is read from: the aim turned this many margins to the thicker side,
-// the next tried while the ball still drops.
+// The misses a pot's giveaway is read from: the aim turned this many margins to each side, the
+// next tried while the ball still drops.
 constexpr double kMissTurns[] = {2.0, 4.0, 8.0};
 
 double distance(Vec2 a, Vec2 b) { return std::hypot(a.x - b.x, a.y - b.y); }
@@ -557,7 +558,7 @@ nlohmann::json pot_why(const FrameState& s, const Level& level, const Pot& pot, 
 }
 
 // A level with error that reads only the leave (README "The search", "Worth"): every candidate
-// scored by its chance and what it wins, less what a miss gives away, each score misread, the
+// scored by its chance and what it wins, less what a miss gives away, each chance misread, the
 // best taken.
 class Weighing {
 public:
@@ -609,7 +610,10 @@ public:
         out.why = pot_why(s_, level_, c.pot, out.meant);
         out.why["chance"] = c.chance;
         out.why["worth"] = c.score;
-        out.why["leave"] = {{"cue", {c.cue_rest.x, c.cue_rest.y}}, {"next", c.next}, {"chance", c.next_chance}};
+        out.why["leave"] = {{"cue", {c.cue_rest.x, c.cue_rest.y}},
+                            {"next", c.next},
+                            {"chance", c.next_chance},
+                            {"worth", c.leave}};
         out.why["plan"] = nlohmann::json::array();
         out.why["others"] = others();
         out.why["drawn"] = drawn_json(drawn);
@@ -632,6 +636,7 @@ private:
         Vec2 cue_rest;
         std::string next;
         double next_chance = 0.0;
+        double leave = 0.0;  // what the position left reads as worth, 0 when the turn passes
     };
 
     void weigh(const Pot& pot, const Made& made, double misread) {
@@ -659,6 +664,7 @@ private:
                 c.next_chance = read.chance;
             }
         }
+        c.leave = leave;
         const double w = level_.position_weight;
         c.score = c.chance * ((pot.value + kBreakOn * (1.0 - w)) * points_factor_ + w * leave);
         if (level_.miss_weight > 0.0) c.score -= (1.0 - c.chance) * level_.miss_weight * c.giveaway;
@@ -795,12 +801,14 @@ public:
             out.why["miss_turn"] = {c.thick_turn, c.thin_turn};
         }
         if (errs_ && level_.noisy_sims > 0) out.why["chance_by"] = "sims";
+        if (errs_) out.why["cost"] = c.cost;
         nlohmann::json stages = nlohmann::json::array();
         for (const auto& [looked, of] : looked_) stages.push_back({{"looked", looked}, {"of", of}});
         out.why["stages"] = std::move(stages);
         out.why["leave"] = {{"cue", {c.cue_rest.x, c.cue_rest.y}},
                             {"next", label(c.post, c.leaf.next)},
-                            {"chance", c.leaf.chance}};
+                            {"chance", c.leaf.chance},
+                            {"worth", leave_of(c, stage_)}};
 
         nlohmann::json plan = nlohmann::json::array();
         const Cand* at = &c;
@@ -849,12 +857,12 @@ private:
         FrameState post;
         bool goes_on = false;
         Outlook leaf;
-        // The points it pots, less what the stroke costs: its pace and spin, and kLost when it
-        // ends a maximum that was on.
+        // The 147's: the points it pots, less what the stroke costs: its pace and spin, the chance
+        // a person's eye would not give it (kEyeCost), and kLost when it ends a maximum that was on.
         double own = 0.0;
         // For a level with error: its chance (as misread, in the first position), what it scores
-        // beside the leave, and what its miss gives away; worth chance * (gain + w * (leave - cost)) -
-        // (1 - chance) * miss_weight * giveaway.
+        // beside the leave, and what its miss gives away; worth chance * (gain + w * max(0, leave -
+        // cost)) - (1 - chance) * miss_weight * giveaway.
         double chance = 1.0;
         double gain = 0.0;
         double giveaway = 0.0;
@@ -1070,15 +1078,15 @@ private:
         c.goes_on = made.goes_on;
         const Tip& tip = kTips[std::size_t(t.spin)];
         const double share = pace(pot, t.speed, env_);
-        c.own = made.points - (keeps(n, made) ? 0.0 : kLost) - kPaceCost * share * share -
-                kSpinCost * (tip.x * tip.x + tip.y * tip.y);
-        // For the highest break a red beyond the first in one stroke is a black that cannot follow
-        // it. While the maximum is on such a stroke already costs kLost.
-        if (!n.on) c.own -= kRedCost * std::max(0, reds_left(n.s) - reds_left(made.post) - 1);
         if (errs_) {
             c.cost = kErrPaceCost * share * share + kErrSpinCost * (tip.x * tip.x + tip.y * tip.y);
             weigh(n, pot, made, misread, c);
         } else {
+            c.own = made.points - (keeps(n, made) ? 0.0 : kLost) - kPaceCost * share * share -
+                    kSpinCost * (tip.x * tip.x + tip.y * tip.y);
+            // For the highest break a red beyond the first in one stroke is a black that cannot
+            // follow it. While the maximum is on such a stroke already costs kLost.
+            if (!n.on) c.own -= kRedCost * std::max(0, reds_left(n.s) - reds_left(made.post) - 1);
             const Spec spec{made.strike.speed_m_s, made.strike.tip_x, made.strike.tip_y, made.strike.elevation_rad};
             c.own -= kEyeCost * (1.0 - pot_chance(eye_, pot, spec, pot.margin_rad));
             if (made.goes_on) c.leaf = read_table(made.post, pots(made.post, env_, level_.max_cut_rad), env_);
@@ -1091,7 +1099,7 @@ private:
 
     // A level with error's reading of a candidate: its chance (from noisy strokes and misread in
     // the first position), its points, and the leave read from the pots there. The miss is
-    // simulated only for the stroke it is choosing; below that a plan's pot is its chance alone.
+    // simulated only in the first position; below it a plan's pot is its chance alone.
     void weigh(const Node& n, const Pot& pot, const Made& made, double misread, Cand& c) {
         const bool first = n.depth == 0;
         const Spec spec{made.strike.speed_m_s, made.strike.tip_x, made.strike.tip_y, made.strike.elevation_rad};
@@ -1119,15 +1127,27 @@ private:
         c.value[0] = worth(c, c.leaf.worth);
     }
 
-    // What a candidate is worth with `leave` to follow it.
+    // What a candidate is worth with `leave` to follow it. A level with error's pace and spin
+    // spoil the position, never the pot: the charge takes no more than the leave, so a pot with
+    // nothing to follow (the turn passes, the frame ends) is not marked down for its pace, and a
+    // position whose only pots are costly reads no worse than one with no pot.
     double worth(const Cand& c, double leave) const {
         if (!errs_) return c.own + leave;
-        double out = c.chance * (c.gain + level_.position_weight * (leave - c.cost));
+        double out = c.chance * (c.gain + level_.position_weight * std::max(0.0, leave - c.cost));
         if (level_.miss_weight > 0.0) out -= (1.0 - c.chance) * level_.miss_weight * c.giveaway;
         return out;
     }
 
     const Cand& chosen() const { return nodes_[0].cands[std::size_t(finished(stage_).front())]; }
+
+    // The leave its worth was built on, looked `d` strokes beyond it: the position as read, or
+    // the best continuation found there.
+    double leave_of(const Cand& c, int d) const {
+        if (d == 0 || !c.goes_on) return c.leaf.worth;
+        if (c.node < 0 || c.best[d] < 0) return 0.0;
+        const double below = nodes_[std::size_t(c.node)].cands[std::size_t(c.best[d])].value[d - 1];
+        return errs_ ? std::max(below, 0.0) : below;
+    }
 
     double chance_of(const Pot& pot, const Cand& c) const {
         if (errs_) return c.chance;
@@ -1290,7 +1310,8 @@ private:
                 }
             }
         }
-        c.value[d] = worth(c, pick >= 0 ? best : 0.0);
+        // The 147's best below may be under 0 (kLost); a level with error's counts 0 at least.
+        c.value[d] = worth(c, pick < 0 ? 0.0 : errs_ ? std::max(best, 0.0) : best);
         c.best[d] = pick;
         c.whole[d] = pick >= 0 && below.cands[std::size_t(pick)].whole[d - 1];
         c.reached = d;
@@ -1362,14 +1383,14 @@ void count(Stroke& out, const Budget& budget, int candidates) {
     out.candidates = candidates;
 }
 
-// Each stream of a decision from a copy of its Rng: `which` 0 is the judgement's, 1 the noisy
-// strokes'. The stand-in's own takes the copy's first number unchanged.
-std::uint64_t stream_seed(const Rng& rng, int which) {
-    Rng copy = rng;
-    std::uint64_t first = copy.next_u64();
-    if (which == 0) return first ^ 0x9e3779b97f4a7c15ull;
-    for (int i = 0; i < which; ++i) first = copy.next_u64();
-    return first ^ 0xd1b54a32d192ed03ull;
+// For the line of a level with tactics that plays the stand-in's stroke: the tactic found nothing,
+// and what became of the strokes it tried (tactics.cpp).
+nlohmann::json not_found(const Tactic& tactic) {
+    nlohmann::json out = tactic.why.is_object() ? tactic.why : nlohmann::json::object();
+    out["found"] = false;
+    if (!out.contains("candidates")) out["candidates"] = tactic.candidates;
+    if (!out.contains("stopped")) out["stopped"] = "done";
+    return out;
 }
 
 Stroke choose(const FrameState& s, const Level& level, const Env& env, Rng& rng, Budget& budget,
@@ -1427,10 +1448,12 @@ Stroke choose(const FrameState& s, const Level& level, const Env& env, Rng& rng,
         return t;
     };
 
-    // The break-off is the tactic's when it finds one, else the stand-in's: it knows the pack
-    // when it sees it.
+    // The break-off is the tactic's when it finds one, else the stand-in's, and only from the pack:
+    // with the reds split (an in-off in the opening exchanges) it is a stroke like any other, pots
+    // included. A level without tactics asks the stand-in whenever fifteen reds are on, as it
+    // always has: what that spends is part of the decisions it has logged.
     std::optional<Tactic> asked;
-    if (s.cue_in_hand && s.on.kind == OnKind::red && reds_left(s) == 15) {
+    if (s.cue_in_hand && s.on.kind == OnKind::red && reds_left(s) == 15 && (!tactics || pack_intact(s))) {
         if (tactics) {
             asked = tactic_for();
             if (asked->found) {
@@ -1443,6 +1466,7 @@ Stroke choose(const FrameState& s, const Level& level, const Env& env, Rng& rng,
         budget.sims += number_in(shot.why, "sims");
         if (!shot.decides && shot.why.is_object() && shot.why.value("kind", std::string()) == "break") {
             fill_from_standin(out, shot, s, level, env, rng);
+            if (asked.has_value()) out.why["tactic"] = not_found(*asked);
             count(out, budget, number_in(shot.why, "candidates"));
             return out;
         }
@@ -1466,6 +1490,7 @@ Stroke choose(const FrameState& s, const Level& level, const Env& env, Rng& rng,
             weighed = tactic.candidates + planning.candidates();
         } else {
             weighed = std::max(from_standin(false), planning.candidates()) + tactic.candidates;
+            if (tactics) out.why["tactic"] = not_found(tactic);
         }
         // The pots it had made and would not play, when it is waiting for the black.
         out.why["pots"] = planning.candidates();
@@ -1516,12 +1541,17 @@ Stroke choose(const FrameState& s, const Level& level, const Env& env, Rng& rng,
         weighed = tactic.candidates + made;
     } else {
         weighed = std::max(from_standin(false), made) + tactic.candidates;
+        if (tactics) out.why["tactic"] = not_found(tactic);
     }
-    // Why it did not pot: the pots the table offered, how many strokes made one, and the chance it
-    // gave the best when it had one.
+    // Why it did not pot: the pots the table offered, how many strokes made one, and for the best
+    // of them the chance it gave it, its score and the least chance it would have played it at.
     out.why["listed"] = listed;
     out.why["pots"] = made;
-    if (offer.found) out.why["declined"] = offer.chance;
+    if (offer.found) {
+        out.why["declined"] = offer.chance;
+        out.why["declined_worth"] = offer.score;
+        out.why["floor"] = tactic.found ? pot_floor(s, level) : level.safety_below;
+    }
     count(out, budget, weighed);
     return out;
 }
@@ -1555,6 +1585,15 @@ Stroke after_exception(const FrameState& s, const Level& level, const Env& env, 
 }
 
 }  // namespace
+
+// The stand-in's own stream takes the copy's first number unchanged.
+std::uint64_t stream_seed(const Rng& rng, int which) {
+    Rng copy = rng;
+    std::uint64_t first = copy.next_u64();
+    if (which == 0) return first ^ 0x9e3779b97f4a7c15ull;
+    for (int i = 0; i < which; ++i) first = copy.next_u64();
+    return first ^ 0xd1b54a32d192ed03ull;
+}
 
 double pot_floor(const rules::FrameState& s, const Level& level) {
     if (s.striker != 0 && s.striker != 1) return level.safety_below;

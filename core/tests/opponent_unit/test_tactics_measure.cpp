@@ -1,5 +1,5 @@
 // What choose_tactic does over positions from frames the stand-in plays: run by hand in Release,
-// `ofs_opponent_unit_tests -tc="tactics measured*" --no-skip`, for the builder's report.
+// `ofs_opponent_unit_tests -tc="tactics measured*" --no-skip`.
 
 #include <doctest/doctest.h>
 

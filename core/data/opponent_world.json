@@ -118,7 +118,7 @@
     "tactics": {
       "unit": "0 to 3",
       "source": "spec 10.1, the last column",
-      "note": "0 the stand-in's plain safety; 1 basic safeties; 2 weighs them by the leave, with side; 3 also lays snookers and escapes with swerve."
+      "note": "0 the stand-in's plain safety; 1 basic safeties, centre ball, at the two nearest balls on; 2 also with side, stun and screw, at every ball on it can reach; 3 also lays snookers and escapes with swerve."
     },
     "safety_tries": {
       "unit": "count",
@@ -147,7 +147,7 @@
     },
     "concede_snookers": {
       "unit": "count",
-      "source": "spec 10.4: only the top levels concede, and only a hopeless frame (M4 stage 2, 2026-11-25)",
+      "source": "spec 10.4: only the top levels concede, and only a hopeless frame (2026-11-25)",
       "note": "It concedes a frame in which it needs this many snookers; 0 never."
     },
     "maximum": {
