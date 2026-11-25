@@ -166,6 +166,7 @@
     "touching": []
   },
   "miss_run": 1,
+  "miss_streak": 1,
   "miss_warned": false,
   "quiet_strokes": 2,
   "rerack_accepted": -1,
