@@ -310,6 +310,7 @@ bool read_frame(const json& j, const std::string& at, FrameState& out, std::stri
         !read(j, at, "restart", s.restart, error)) {
         return false;
     }
+    if (j.contains("miss_streak") && !read_count(j, at, "miss_streak", 0, s.miss_streak, error)) return false;
     out = std::move(s);
     return true;
 }
@@ -376,6 +377,8 @@ nlohmann::json frame_json(const FrameState& s) {
     j["original"] = position_json(s.original);
     j["miss_run"] = s.miss_run;
     j["miss_warned"] = s.miss_warned;
+    // Left out at 0: a frame with no miss put back keeps the form and the hash older logs carry.
+    if (s.miss_streak != 0) j["miss_streak"] = s.miss_streak;
     j["quiet_strokes"] = s.quiet_strokes;
     j["rerack_accepted"] = s.rerack_accepted;
     j["rerack_deadline"] = s.rerack_deadline;

@@ -186,6 +186,7 @@ void rerack(FrameState& s, const TableOracle& oracle) {
     s.break_points = 0;
     s.miss_run = 0;
     s.miss_warned = false;
+    s.miss_streak = 0;
 }
 
 // S2.1(c): with only the black left and more than seven behind, the player to play has lost.
@@ -551,11 +552,13 @@ Judgement judge(const FrameState& pre, const ShotInput& input, const ShotFacts& 
 
     post.miss_run = 0;
     post.miss_warned = false;
+    post.miss_streak = 0;
     if (foul && !reached && !post.over && !respot) {
         const std::vector<int> could = pre.free_ball ? object_places(pre) : places_on(pre);
         j.miss = miss_called(pre, post, facts, could, oracle, ref, j.miss_reason);
         if (j.miss) {
             ++stats.misses;
+            post.miss_streak = pre.miss_streak + 1;
             // S3.14(d): the run counts misses from a position where a full ball was there to be hit,
             // or where the cue ball touched a ball that could be on.
             bool run = pre.miss_run >= 1 || oracle.full_ball(pre.balls, pre.cue_ball, could);
@@ -706,6 +709,7 @@ bool decide(FrameState& s, Decision d, const TableOracle& oracle, const RefParam
             } else {
                 s.miss_run = 0;
                 s.miss_warned = false;
+                s.miss_streak = 0;
             }
             if (d.kind == DecisionKind::play_again) {
                 s.free_ball = false;  // S3.12(f)
