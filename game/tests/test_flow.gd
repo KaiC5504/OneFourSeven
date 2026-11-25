@@ -787,8 +787,10 @@ func test_a_drag_during_a_shot_walks_round_the_broadcast_view() -> void:
 
 
 ## A red straight into the top left corner from the cue ball, the blue on its spot to aim at next.
-## Returns the strike.
+## Returns the strike. The reader is taken off: the position this pot leaves on the blue is
+## excellent, which would watch it from the full table, and the pick is then the fakes' alone.
 func _load_pot(main: MainScript) -> Dictionary:
+	main.reader = PositionReader.new()
 	var r := float(OfsTable.dimensions()["ball_radius"])
 	var top_left := Vector2.ZERO
 	for p: Dictionary in Physics.table_shape()["pockets"]:
@@ -988,6 +990,119 @@ func test_aim_next_ball_off_keeps_the_aim_and_pocket_camera_off_cuts_to_the_full
 	check(results.size() == 1 and results[0]["next_ball"] == "" and results[0]["next_reason"] == "setting off",
 			"logged: %s" % [results])
 	_finish(main)
+
+
+## A reader on a scripted engine, its answer the blue into `pocket`; position reads nothing excellent.
+func _fake_reader(main: MainScript, pocket: int) -> FakeReaderEngine:
+	var engine := FakeReaderEngine.new()
+	engine.worth = 0.5
+	engine.answer = {"ok": true, "error": "", "ball": "blue", "pocket": pocket, "chance": 0.8, "worth": 9.0, "leave": {}}
+	main.reader = PositionReader.new()
+	check(main.reader.configure(engine), "the scripted reader")
+	return engine
+
+
+## NextTarget's entries for the blue into pockets 2 and 3, aimed 0.7 and 0.9.
+func _blue_pots(pockets: Array) -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	for p: int in pockets:
+		out.append({"index": 1, "ball": "blue", "pocket": p, "aim_rad": 0.7 if p == 2 else 0.9, "cut_deg": 1.0 * p,
+				"chance": 0.1 * p, "score": 0.1 * p, "reason": ""})
+	return out
+
+
+## Plays the pot, the reader asked; shot.result.
+func _played_with_reader(main: MainScript) -> Dictionary:
+	_mark_log()
+	main.harness_play_shot(_load_pot_keeping_reader(main))
+	main.skip_shot()
+	await _until_idle(main)
+	var results := _logged("shot.result")
+	check_eq(results.size(), 1, "one shot.result")
+	if results.size() != 1:
+		return {}
+	_check_schema("shot.result", results[0])
+	return results[0]
+
+
+func _load_pot_keeping_reader(main: MainScript) -> Dictionary:
+	var kept: PositionReader = main.reader
+	var strike := _load_pot(main)
+	main.reader = kept
+	return strike
+
+
+func test_the_next_ball_is_the_reader_s_pot_when_next_target_lists_it() -> void:
+	var main: MainScript = await _spawn()
+	var engine := _fake_reader(main, 3)
+	var geometric := [0]
+	main.choose_next = func(_balls: Array[Dictionary], _cue_ball: int, _prefer: String) -> Dictionary:
+		geometric[0] += 1
+		return _blue_pots([2])[0]
+	var ranked: Array = []
+	main.rank_next = func(balls: Array[Dictionary], _cue_ball: int, prefer: String, among: Array) -> Array[Dictionary]:
+		ranked.append([balls.map(func(b: Dictionary) -> String: return b["ball"]), prefer, among])
+		return _blue_pots([2, 3])
+	var result: Dictionary = await _played_with_reader(main)
+	check_eq(engine.thought.size(), 1, "the reader was asked once, at the strike")
+	if engine.thought.size() == 1:
+		var asked: Array = engine.thought[0]
+		var potted: Array = (asked[0] as Array).filter(func(b: Dictionary) -> bool: return int(b.get("pocket", -1)) >= 0)
+		check_eq(potted.map(func(b: Dictionary) -> String: return b["ball"]), ["red"], "on the table the shot leaves")
+		check_eq([asked[1], asked[2]], [0, {"kind": "any_colour"}], "with a colour to follow the red")
+	check_eq(ranked, [[["cue", "blue"], "colour", []]], "NextTarget's ranking looked through")
+	check_eq(geometric[0], 0, "the geometric pick not needed")
+	check_eq([result.get("next_by"), result.get("next_ball"), int(result.get("next_pocket", -1))], ["reader", "blue", 3],
+			"the reader's pot")
+	check_near(float(result.get("next_aim_rad", 0.0)), 0.9, 1e-12, "on NextTarget's line for it")
+	check_near(float(result.get("next_chance", 0.0)), 0.3, 1e-12, "and its chance")
+	check_near(main.setup.aim_rad, 0.9, 1e-12, "the aim turned there")
+	check_near(float(result.get("position", -1.0)), 0.5, 1e-12, "the position left, as the reader reads it")
+	check_eq(engine.reads.back()[2], {"kind": "any_colour"}, "read with the ball on")
+	check(not main.is_processing() and not bool(engine.reader_thinking()), "nothing left running")
+	main.reader.think(_balls_of(main), 0, {"kind": "red"}, 1)
+	var cancels := engine.cancels
+	_key(KEY_R)
+	check(engine.cancels > cancels and not bool(engine.reader_thinking()), "a retake stops the thinking")
+	_finish(main)
+
+
+func test_the_next_ball_is_the_geometric_pick_when_the_reader_cannot_say() -> void:
+	var main: MainScript = await _spawn()
+	main.choose_next = func(_balls: Array[Dictionary], _cue_ball: int, _prefer: String) -> Dictionary: return _blue_pots([2])[0]
+	main.rank_next = func(_balls: Array[Dictionary], _cue_ball: int, _prefer: String, _among: Array) -> Array[Dictionary]:
+		return _blue_pots([2])
+	var engine := _fake_reader(main, 3)
+	var result: Dictionary = await _played_with_reader(main)
+	check_eq([result.get("next_by"), int(result.get("next_pocket", -1))], ["geometry", 2], "a pot NextTarget does not list")
+	check_near(float(result.get("next_aim_rad", 0.0)), 0.7, 1e-12, "aimed as NextTarget picks")
+
+	engine = _fake_reader(main, 2)
+	engine.takes_before = -1
+	result = await _played_with_reader(main)
+	check_eq(result.get("next_by"), "geometry", "an answer not there at the return")
+	check(not bool(engine.reader_thinking()) and engine.cancels >= 1, "and the thinking is stopped")
+
+	engine = _fake_reader(main, 2)
+	engine.answer = {"ok": true, "error": "", "ball": ""}
+	result = await _played_with_reader(main)
+	check_eq(result.get("next_by"), "geometry", "the reader would not pot")
+
+	main.reader = PositionReader.new()
+	result = await _played_with_reader(main)
+	check_eq(result.get("next_by"), "geometry", "no reader")
+	check(not result.has("position"), "and no position read")
+
+	engine = _fake_reader(main, 2)
+	Settings.set_value("aim_next_ball", false)
+	result = await _played_with_reader(main)
+	check(engine.thought.is_empty(), "the setting off asks nothing")
+	check(not result.has("next_by") and result.get("next_reason") == "setting off", "and picks nothing: %s" % [result])
+	_finish(main)
+
+
+func _balls_of(main: MainScript) -> Array:
+	return (main.get_node("FreeTable") as FreeTable).balls
 
 
 func test_the_break_starts_again_on_any_new_table() -> void:

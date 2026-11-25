@@ -63,12 +63,20 @@ const SELECTION_COLOUR := Color(1.0, 0.82, 0.3, 0.9)
 const FREE_SPOT_RINGS := 40
 const OVERVIEW_HINT := "Drag to walk round the table"
 const BREAK_TEXT := "Break %d"
+## More than the pots a full table offers (21 balls into six pockets).
+const RANK_ALL := 128
 
 var setup := ShotSetup.new()
 ## Where the aim turns after a shot: NextTarget.choose(balls, cue_ball, prefer); tests put a fake in.
 var choose_next: Callable
 ## The same in a match, among the balls on: NextTarget.choose(balls, cue_ball, "any", places).
 var choose_among: Callable
+## NextTarget's whole ranking, in which the reader's pot is looked for: NextTarget.rank_on(...,
+## prefer, among, RANK_ALL).
+var rank_next: Callable
+## What a position is worth to the person, and the pot he would play from the one a shot leaves
+## (spec 8.5). Tests put one with a fake engine in, or an unconfigured one for the geometric pick.
+var reader := PositionReader.new()
 
 ## HOME, FREE_TABLE or MATCH: whose balls are on the table and what shows over it.
 var _mode := FREE_TABLE
@@ -140,6 +148,9 @@ var _unjudged := false
 var _harness_why := ""
 ## The frame view's keys found missing, each logged once.
 var _view_missing := {}
+## The reader was asked, at the strike, about the position the shot leaves.
+var _reader_asked := false
+var _preview_failed := false
 
 @onready var _stage: Stage = $Stage
 @onready var _table: TableView = $Table
@@ -198,6 +209,9 @@ func _ready() -> void:
 	choose_next = func(balls: Array[Dictionary], cue_ball: int, prefer: String) -> Dictionary: return NextTarget.choose(balls, cue_ball, prefer)
 	choose_among = func(balls: Array[Dictionary], cue_ball: int, places: Array) -> Dictionary:
 		return NextTarget.choose(balls, cue_ball, "any", places)
+	rank_next = func(balls: Array[Dictionary], cue_ball: int, prefer: String, among: Array) -> Array[Dictionary]:
+		return NextTarget.rank_on(Physics.table_shape(), OfsTable.dimensions(), balls, cue_ball, prefer, among, RANK_ALL)
+	reader.configure()
 	_popups.name = "PotPopups"
 	add_child(_popups)
 	# Kept out of the table's reflection probe, which would show them where they were captured.
@@ -490,6 +504,7 @@ func _strike(strike_mode: String, as_given: Dictionary = {}, given_id: String = 
 	_guides.hide_all()
 	var playback := ShotPlayback.from_record(record)
 	_start_cycle(playback, shot_id)
+	_ask_reader(record)
 	_bar.close_menu()
 	_stroke.cancel_stroke("shot started")
 	# Their touches are ignored while it plays, so a thumb still down would never lift.
@@ -513,7 +528,8 @@ func _start_cycle(playback: ShotPlayback, shot_id: String) -> void:
 		whole = "practice"
 	elif _rig.watch() != "cue":
 		whole = "watching"
-	_plan = ShotCycle.plan(playback, _table_balls(), _table_cue(), bool(Settings.get_value("pocket_camera")), _pockets, whole)
+	_plan = ShotCycle.plan(playback, _table_balls(), _table_cue(), bool(Settings.get_value("pocket_camera")), _pockets, whole,
+			_worth_to_striker)
 	var fields := {"shot_id": shot_id, "sequence": _plan["sequence"]}
 	for key: String in ["ball", "pocket", "drop_t", "near_t"]:
 		if _plan.has(key):
@@ -530,6 +546,54 @@ func _start_cycle(playback: ShotPlayback, shot_id: String) -> void:
 	Log.info("shot", "shot.camera", fields)
 	_cycle_t = 0.0
 	_cycle.start(_plan, pose)
+
+
+## ShotCycle.plan's reading: the worth the reader gives the position, -1 without one.
+func _worth_to_striker(balls: Array[Dictionary], cue_ball: int, on: Dictionary) -> float:
+	var read := reader.read(balls, cue_ball, on)
+	return float(read["worth"]) if read.has("worth") else -1.0
+
+
+## Starts the reader on the position the shot will leave the person, while it plays: the pick at
+## the return is the pot it would play (_turn_to_next). Nothing is asked with "aim_next_ball" off,
+## in an exhibition, or when the stroke leaves the opponent, or a choice, to come next.
+func _ask_reader(record: OfsShotRecord) -> void:
+	reader.cancel()
+	_reader_asked = false
+	if not bool(Settings.get_value("aim_next_ball")) or not reader.is_ready():
+		return
+	var left := _left_to_person(record)
+	if not left.is_empty():
+		_reader_asked = reader.think(left["balls"], int(left["cue_ball"]), left["on"], Physics.new_seed())
+
+
+## {balls, cue_ball, on} as the stroke leaves them for the person to play next; {} when it leaves
+## him nothing to aim at. In a match the referee says, before anything is judged.
+func _left_to_person(record: OfsShotRecord) -> Dictionary:
+	if _mode != MATCH:
+		if bool(_plan.get("cue_potted", false)):
+			return {}
+		var after: Array[Dictionary] = []
+		for entry: Variant in record.final_balls():
+			if int((entry as Dictionary).get("pocket", -1)) < 0:
+				after.append(entry)
+		var on := ShotCycle.on_of(ShotCycle.prefer_after(_plan, after), after)
+		return {} if on.is_empty() else {"balls": record.final_balls(), "cue_ball": _free.cue_ball, "on": on}
+	if _match.is_exhibition() or _match.autoplay or _match.engine == null or not _match.engine.has_method("judge_preview"):
+		return {}
+	var preview: Variant = _match.engine.judge_preview(record, {"nominated": _match.nominated()})
+	if not preview is Dictionary or not bool((preview as Dictionary).get("ok", false)):
+		if not _preview_failed:
+			_preview_failed = true
+			Log.warn("app", "app.error", {"kind": "message", "message":
+					"main: judge_preview refused shot %s (%s); the next ball is picked by geometry" % [_shot_id,
+					(preview as Dictionary).get("error", "") if preview is Dictionary else type_string(typeof(preview))]})
+		return {}
+	var frame: Dictionary = preview["frame"]
+	if bool(frame.get("over", false)) or String(frame.get("pending", "none")) != "none" or bool(frame.get("cue_in_hand", false)) \
+			or int(frame.get("striker", -1)) != PERSON:
+		return {}
+	return {"balls": frame.get("balls", []), "cue_ball": int(frame.get("cue_ball", 0)), "on": frame.get("on", {})}
 
 
 ## The logger truncates a long line from its last values, so the identity fields go first and the
@@ -569,6 +633,8 @@ func _on_frame(state: PackedFloat64Array, t: float, dt: float) -> void:
 	if _playing and not _skip_requested:
 		_cycle_t = t
 		_cycle.update(t)
+	if _reader_asked:
+		reader.poll()
 
 
 func _on_event(event: Dictionary, state: PackedFloat64Array) -> void:
@@ -636,6 +702,7 @@ func _settle() -> void:
 	result.merge(_cycle.end_shot())
 	# Before the camera moves, so the swoop lands on the new aim.
 	result.merge(_turn_to_next())
+	result.merge(_position_left())
 	Log.info("shot", "shot.result", result)
 	_show_break()
 	_set_playing(false)
@@ -664,6 +731,7 @@ func _settle_match() -> void:
 	# Not the frame now: an exhibition whose break just ended has already cleared it away.
 	result["break"] = _match.judged_break()
 	result.merge(_turn_to_next())
+	result.merge(_position_left())
 	Log.info("shot", "shot.result", result)
 	_set_playing(false)
 	_rig.reset_view()
@@ -678,19 +746,25 @@ func _settle_match() -> void:
 ## Turns the aim to the next ball (spec 8.5, the return) unless "aim_next_ball" is off; shot.result's
 ## next_ fields. In a match the next ball is one of the balls on.
 func _turn_to_next() -> Dictionary:
+	var asked := _reader_asked
+	_reader_asked = false
+	var answer := reader.answer() if asked else {}
 	if not bool(Settings.get_value("aim_next_ball")):
 		return {"next_ball": "", "next_reason": "setting off"}
 	var prefer := "any" if _mode == MATCH else _cycle.prefer(_free.balls)
-	var chosen: Variant
-	if _mode == MATCH:
-		chosen = choose_among.call(_match.balls, _match.cue_ball, _on_places())
-	else:
-		chosen = choose_next.call(_free.balls, _free.cue_ball, prefer)
+	var chosen: Variant = _reader_pick(answer, prefer)
+	var by := "reader"
+	if (chosen as Dictionary).is_empty():
+		by = "geometry"
+		if _mode == MATCH:
+			chosen = choose_among.call(_match.balls, _match.cue_ball, _on_places())
+		else:
+			chosen = choose_next.call(_free.balls, _free.cue_ball, prefer)
 	if not chosen is Dictionary or (chosen as Dictionary).is_empty():
 		if not chosen is Dictionary:
 			Log.warn("app", "app.error", {"kind": "message", "message": "main: NextTarget.choose(prefer %s) returned %s, not a Dictionary; the aim stays"
 					% [prefer, type_string(typeof(chosen))]})
-		return {"next_ball": "", "next_reason": "no object ball"}
+		return {"next_ball": "", "next_reason": "no object ball", "next_by": by}
 	var target: Dictionary = chosen
 	var aim: Variant = target.get("aim_rad")
 	if not (aim is float or aim is int) or not is_finite(float(aim)):
@@ -701,11 +775,48 @@ func _turn_to_next() -> Dictionary:
 	# NextTarget's "ball" is already the label ("red 3").
 	return {"next_ball": String(target.get("ball", "")), "next_pocket": int(target.get("pocket", -1)),
 			"next_aim_rad": setup.aim_rad, "next_cut_deg": float(target.get("cut_deg", 0.0)),
-			"next_chance": float(target.get("chance", 0.0)), "next_reason": String(target.get("reason", ""))}
+			"next_chance": float(target.get("chance", 0.0)), "next_reason": String(target.get("reason", "")), "next_by": by}
+
+
+## NextTarget's own entry for the reader's pot (its aim line and chance), or {} when the reader
+## gave none or NextTarget does not list it: the geometric pick is then the one.
+func _reader_pick(answer: Dictionary, prefer: String) -> Dictionary:
+	var ball := String(answer.get("ball", ""))
+	if ball.is_empty():
+		return {}
+	var match_on := _mode == MATCH
+	var ranked: Variant = rank_next.call(_table_balls(), _table_cue(), prefer, _on_places() if match_on else [])
+	if not ranked is Array:
+		return {}
+	for entry: Variant in ranked:
+		if entry is Dictionary and String(entry.get("ball", "")) == ball and int(entry.get("pocket", -1)) == int(answer.get("pocket", -2)):
+			return entry
+	return {}
+
+
+## shot.result's "position": what the position left is worth to the person when it is his to play
+## next; {} otherwise, or without a reader.
+func _position_left() -> Dictionary:
+	var on := {}
+	if _mode == MATCH:
+		if not _match.person_to_play() or _match.is_exhibition() or bool(_match.frame().get("cue_in_hand", false)):
+			return {}
+		var frame_on: Variant = _match.frame().get("on")
+		on = frame_on if frame_on is Dictionary else {}
+	else:
+		on = ShotCycle.on_of(_cycle.prefer(_free.balls), _free.balls)
+	if on.is_empty():
+		return {}
+	var read := reader.read(_table_balls(), _table_cue(), on)
+	return {"position": float(read["worth"])} if read.has("worth") else {}
 
 
 func _set_playing(on: bool) -> void:
 	_playing = on
+	if not on:
+		# A shot left unjudged, or done with: nothing waits on the reader any more.
+		_reader_asked = false
+		reader.cancel()
 	_update_aim_enabled()
 	_show_controls()
 	_mark_nominated()
@@ -847,6 +958,8 @@ func _on_table_changed(balls: Array[Dictionary], _cue_ball: int, reason: StringN
 	# Only a shot carries the break on; a retake, undo, redo, setup or edit starts again.
 	if reason != &"shot":
 		_reset_break()
+		_reader_asked = false
+		reader.cancel()
 	if reason != &"edit" or _selected >= balls.size():
 		_selected = -1
 	_update_palette()

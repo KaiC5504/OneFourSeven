@@ -1,0 +1,159 @@
+{
+  "schema_version": 1,
+  "id": "person",
+  "_note": "Not an opponent: the reader the game asks what a position is worth to the person (spec 8.5, docs/opponent/README.md 'The game, stage 2'): which pot the next-ball pick turns to, and when a pot left an excellent position. Never listed for the picker. Its aim error is the owner's own, as game/scripts/play/next_target.gd fitted it to his logged shots (AIM_SIGMA_RAD, CUT_SIGMA_PER_RAD); no error is ever drawn from it. 'values' is what is loaded; 'docs' gives each value's unit, source and note.",
+  "values": {
+    "name": "You",
+    "tier": 0,
+    "aim_sigma_rad": 0.0002,
+    "aim_sigma_per_cut": 5.7,
+    "aim_sigma_per_m": 0.0,
+    "awkward_factor": 1.0,
+    "speed_sigma": 0.0,
+    "tip_sigma": 0.0,
+    "max_cut_rad": 1.309,
+    "max_tip": 0.0,
+    "speeds": 3,
+    "spins": 1,
+    "depth": 0,
+    "position_weight": 0.5,
+    "judgement_sigma": 0.0,
+    "safety_below": 0.0,
+    "max_sims": 300,
+    "tactics": 0,
+    "safety_tries": 0,
+    "escape_cushions": 0,
+    "miss_weight": 0.0,
+    "noisy_sims": 0,
+    "score_aware": 0.0,
+    "concede_snookers": 0,
+    "maximum": false
+  },
+  "docs": {
+    "name": {
+      "unit": "text",
+      "source": "ours",
+      "note": "Not shown: this reader is never offered as an opponent."
+    },
+    "tier": {
+      "unit": "level",
+      "source": "spec 10.1",
+      "note": "0: outside the ladder, as the 147. The binding keeps this level out of levels()."
+    },
+    "aim_sigma_rad": {
+      "unit": "rad",
+      "source": "game/scripts/play/next_target.gd AIM_SIGMA_RAD, fitted to the owner's 262 logged shots of 2026-11-15",
+      "note": "The owner's aim error on a straight pot, set against the same geometric margin the pick reads. The pick also caps a pot's chance at MAX_CHANCE (0.9, the easy pot in ten he still misses); a level's chance has no cap, so the reader's chance is the pick's over 0.9."
+    },
+    "aim_sigma_per_cut": {
+      "unit": "1/rad",
+      "source": "game/scripts/play/next_target.gd CUT_SIGMA_PER_RAD, the same fit",
+      "note": "The aim's sigma grows by this fraction per radian of cut."
+    },
+    "aim_sigma_per_m": {
+      "unit": "1/m",
+      "source": "the fit above",
+      "note": "0: the pick's fit has no term for distance; the margin it is set against already shrinks with the cue ball's travel."
+    },
+    "awkward_factor": {
+      "unit": "factor",
+      "source": "the fit above",
+      "note": "1: the pick's fit has no term for hampered cueing."
+    },
+    "speed_sigma": {
+      "unit": "fraction",
+      "source": "ours",
+      "note": "0: no stroke is played with this reader's error."
+    },
+    "tip_sigma": {
+      "unit": "fraction of R",
+      "source": "ours",
+      "note": "0: no stroke is played with this reader's error."
+    },
+    "max_cut_rad": {
+      "unit": "rad",
+      "source": "game/scripts/play/next_target.gd MAX_CUT_DEG (75 degrees)",
+      "note": "It does not consider a pot with a wider cut, as the pick does not."
+    },
+    "max_tip": {
+      "unit": "fraction of R",
+      "source": "ours",
+      "note": "0: it reads every pot as a centre-ball stroke."
+    },
+    "speeds": {
+      "unit": "count",
+      "source": "ours",
+      "note": "Cue speeds it tries for a pot, for what each leaves."
+    },
+    "spins": {
+      "unit": "count",
+      "source": "ours",
+      "note": "Tip offsets it tries for a pot; the first is centre ball."
+    },
+    "depth": {
+      "unit": "strokes",
+      "source": "ours",
+      "note": "0: it reads what each pot leaves, and looks no further."
+    },
+    "position_weight": {
+      "unit": "0 to 1",
+      "source": "docs/opponent/README.md, 'The game, stage 2'",
+      "note": "How much the position a pot leaves counts beside the pot itself."
+    },
+    "judgement_sigma": {
+      "unit": "fraction",
+      "source": "ours, tuned",
+      "note": "0: it reads every pot as it is."
+    },
+    "safety_below": {
+      "unit": "chance",
+      "source": "ours, tuned",
+      "note": "0: it pots whenever it has a pot, as the pick suggests one whenever there is one."
+    },
+    "max_sims": {
+      "unit": "count",
+      "source": "ours, from the time the return may take",
+      "note": "Simulations it may run for one suggestion; the binding's 400 ms clock stops it first on a slow device."
+    },
+    "tactics": {
+      "unit": "0 to 3",
+      "source": "spec 10.1, the last column",
+      "note": "0 the stand-in's plain safety; 1 basic safeties; 2 weighs them by the leave, with side; 3 also lays snookers and escapes with swerve."
+    },
+    "safety_tries": {
+      "unit": "count",
+      "source": "ours",
+      "note": "Safeties, snookers and escapes it weighs for one stroke."
+    },
+    "escape_cushions": {
+      "unit": "count",
+      "source": "spec 10.1",
+      "note": "Cushions it will go off to escape a snooker."
+    },
+    "miss_weight": {
+      "unit": "0 to 1",
+      "source": "ours, spec 10.2 step 4",
+      "note": "How much of what a miss leaves the other player it counts against a pot."
+    },
+    "noisy_sims": {
+      "unit": "count",
+      "source": "ours, spec 10.2 step 3",
+      "note": "Strokes with its own error it simulates to learn a pot's chance; 0 reads the geometric margin."
+    },
+    "score_aware": {
+      "unit": "0 to 1",
+      "source": "ours, spec 10.2 step 5",
+      "note": "How far the score moves its risk."
+    },
+    "concede_snookers": {
+      "unit": "count",
+      "source": "the owner (M3): the computer concedes only when it needs snookers",
+      "note": "0: it never concedes."
+    },
+    "maximum": {
+      "unit": "true or false",
+      "source": "the owner, 2026-11-16",
+      "note": "false: it reads a position, it does not play for a maximum."
+    }
+  }
+}

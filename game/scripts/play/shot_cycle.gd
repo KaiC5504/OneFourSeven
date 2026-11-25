@@ -10,7 +10,8 @@ extends RefCounted
 ## pocket that stays out (attempt()) gets the same pocket camera, timed from when it is nearest the
 ## pocket, so the cut doesn't give away whether the pot goes in (KaiC). A shot whose cue ball is
 ## the thing to watch keeps to the full table instead (journey(), and every practice shot): the
-## pocket camera would hide the cannon it was played for. The full-table view holds, still,
+## pocket camera would hide the cannon it was played for; so does one that leaves an excellent
+## position (excellent()), which the position is worth watching for. The full-table view holds, still,
 ## until the balls stop and at least MIN_TV_HOLD_S; main.gd then turns the aim and releases the
 ## rig, whose swoop back behind the cue ball is the cycle's only camera move. The times are from
 ## KaiC's recording of the reference game.
@@ -48,6 +49,17 @@ const JOURNEY_CUSHIONS := 3
 const JOURNEY_CANNON_M := 0.4
 const JOURNEY_APART_M := 0.3
 const JOURNEY_REASON := "cue ball's journey"
+## A shot at a pocket that leaves an excellent position is watched whole from the full table too
+## (docs/opponent/README.md, "The game, stage 2"): the cue ball ran this far after its first ball
+## and met a cushion, and the position left reads this share or more of the most the ball on
+## could be worth. Starting values, KaiC's to judge.
+const POSITION_RUN_M := 1.0
+const POSITION_SHARE := 0.75
+const POSITION_REASON := "position"
+## The reader's chance has no cap below 1 (its error is erf alone), so the most a position can be
+## worth is the best value on plus what keeping the break going is worth (evaluate.hpp kBreakOn).
+const POSITION_CHANCE_CAP := 1.0
+const COLOURS: Array[String] = ["yellow", "green", "brown", "blue", "pink", "black"]
 const VALUES := {"red": 1, "yellow": 2, "green": 3, "brown": 4, "blue": 5, "pink": 6, "black": 7}
 ## Events in which a ball meets something; transitions and nap don't move it off its line.
 const CONTACT_KINDS: Array[String] = ["strike", "ball_ball", "ball_line", "ball_arc"]
@@ -89,8 +101,11 @@ func _init(rig: CameraRig = null) -> void:
 ## watch_table, when not empty, is why a shot at a pocket is watched from the full table whatever
 ## the cue ball does: "practice", or "watching" (the person watches the opponent's turn from above
 ## or walking round, CameraRig.watch()).
+## reading, when valid, is what a position is worth to the player at it: (balls, cue_ball, on: the
+## rules' form) -> float, negative when it can't be read. With it a shot at a pocket that leaves an
+## excellent position (excellent()) is watched from the full table, reason POSITION_REASON.
 static func plan(playback: ShotPlayback, balls: Array[Dictionary], cue_ball: int, pocket_camera: bool,
-		pockets: Array, watch_table: String = "") -> Dictionary:
+		pockets: Array, watch_table: String = "", reading: Callable = Callable()) -> Dictionary:
 	var pots: Array[Dictionary] = []
 	var cue_drop := {}
 	for e: Dictionary in playback.events():
@@ -134,6 +149,8 @@ static func plan(playback: ShotPlayback, balls: Array[Dictionary], cue_ball: int
 	# Decided the same for a pot and for an attempt that stays out, so the view gives neither away.
 	if out["sequence"] == "pocket":
 		var why := watch_table if not watch_table.is_empty() else (JOURNEY_REASON if journey(playback, cue_ball) else "")
+		if why.is_empty() and reading.is_valid() and excellent(playback, balls, cue_ball, int(about["index"]), reading):
+			why = POSITION_REASON
 		if not why.is_empty():
 			out["sequence"] = "broadcast"
 			out["reason"] = why
@@ -271,6 +288,130 @@ static func journey(playback: ShotPlayback, cue_ball: int) -> bool:
 		elif other != first and (cushions > 0 or at.distance_to(first_at) >= JOURNEY_CANNON_M):
 			return true
 	return false
+
+
+## Whether a shot played at a pocket with ball `played` leaves an excellent position: the cue ball
+## runs POSITION_RUN_M or more after its first ball and meets a cushion on the way, and the
+## position, read as if `played` had gone in (it and every ball that dropped off the table, the
+## ball on that would follow), is worth POSITION_SHARE or more of the most that ball on could be.
+## Judged the same whether `played` went in or stayed out. reading as plan() takes it.
+static func excellent(playback: ShotPlayback, balls: Array[Dictionary], cue_ball: int, played: int,
+		reading: Callable) -> bool:
+	var run := cue_run(playback, cue_ball)
+	if float(run["metres"]) < POSITION_RUN_M or not bool(run["cushion"]):
+		return false
+	var left := left_as_potted(playback, balls, cue_ball, played)
+	if left.is_empty():
+		return false
+	var on: Dictionary = left["on"]
+	var most := most_worth(left["balls"], on)
+	if most <= 0.0:
+		return false
+	var worth: Variant = reading.call(left["balls"], int(left["cue_ball"]), on)
+	return (worth is float or worth is int) and float(worth) >= POSITION_SHARE * most
+
+
+## How far the cue ball runs after it first meets a ball, and whether it meets a cushion in that
+## run: {"metres", "cushion"}. {"metres": 0.0, "cushion": false} when it meets no ball.
+static func cue_run(playback: ShotPlayback, cue_ball: int) -> Dictionary:
+	var from_t := -1.0
+	var cushion := false
+	for e: Dictionary in playback.events():
+		var kind := String(e.get("kind", ""))
+		var a := int(e.get("a", -1))
+		if from_t < 0.0:
+			if kind == "ball_ball" and (a == cue_ball or int(e.get("b", -1)) == cue_ball):
+				from_t = float(e.get("t", 0.0))
+		elif a == cue_ball and (kind == "ball_line" or kind == "ball_arc"):
+			cushion = true
+	if from_t < 0.0:
+		return {"metres": 0.0, "cushion": false}
+	var o := cue_ball * ShotPlayback.STRIDE
+	var end_t := playback.duration()
+	var steps := maxi(ceili((end_t - from_t) / ATTEMPT_STEP_S), 1)
+	var metres := 0.0
+	var last := Vector2.INF
+	for k in steps + 1:
+		var state := playback.state_at(minf(from_t + k * ATTEMPT_STEP_S, end_t))
+		if o + ShotPlayback.Y >= state.size():
+			break
+		var at := Vector2(state[o + ShotPlayback.X], state[o + ShotPlayback.Y])
+		if last != Vector2.INF:
+			metres += at.distance_to(last)
+		last = at
+	return {"metres": metres, "cushion": cushion}
+
+
+## The table as the shot leaves it with `played` potted too: {"balls" (where each ball stops,
+## those that dropped and `played` left out, in the list's order), "cue_ball" (its place there),
+## "on" (the rules' form of the ball on that follows)}. {} when the cue ball dropped or nothing
+## would be on.
+static func left_as_potted(playback: ShotPlayback, balls: Array[Dictionary], cue_ball: int, played: int) -> Dictionary:
+	var gone := {played: true}
+	for e: Dictionary in playback.events():
+		if String(e.get("kind", "")) == "pocket":
+			gone[int(e.get("a", -1))] = true
+	if gone.has(cue_ball) or played < 0 or played >= balls.size():
+		return {}
+	var state := playback.state_at(playback.duration())
+	var left: Array[Dictionary] = []
+	var cue := -1
+	for i in balls.size():
+		if gone.has(i):
+			continue
+		var o := i * ShotPlayback.STRIDE
+		if o + ShotPlayback.Y >= state.size():
+			return {}
+		if i == cue_ball:
+			cue = left.size()
+		left.append({"ball": String(balls[i]["ball"]), "index": int(balls[i]["index"]), "x": state[o + ShotPlayback.X],
+				"y": state[o + ShotPlayback.Y]})
+	var on := on_after(String(balls[played].get("ball", "")), left)
+	if on.is_empty() or cue < 0:
+		return {}
+	return {"balls": left, "cue_ball": cue, "on": on}
+
+
+## The ball on after `potted` (a ball's name) goes in, the rules' form: a colour after a red, a red
+## after a colour while any remain, then the colours in order. {} with no ball left to be on.
+static func on_after(potted: String, balls: Array[Dictionary]) -> Dictionary:
+	if potted == "red":
+		return on_of("colour", balls)
+	return on_of("red" if balls.any(func(b: Dictionary) -> bool: return b.get("ball") == "red") else "lowest", balls)
+
+
+## prefer's kind of ball as the rules' form of the ball on: "red", "colour" (a colour of choice)
+## or "lowest" (the colour of least value on the table). {} when there is no such ball.
+static func on_of(kind: String, balls: Array[Dictionary]) -> Dictionary:
+	match kind:
+		"red":
+			return {"kind": "red"} if balls.any(func(b: Dictionary) -> bool: return b.get("ball") == "red") else {}
+		"colour", "lowest":
+			var lowest := ""
+			for b: Dictionary in balls:
+				var name := String(b.get("ball", ""))
+				if COLOURS.has(name) and (lowest.is_empty() or COLOURS.find(name) < COLOURS.find(lowest)):
+					lowest = name
+			if lowest.is_empty():
+				return {}
+			return {"kind": "any_colour"} if kind == "colour" else {"kind": "colour", "colour": lowest}
+	return {}
+
+
+## The most a position with `on` (the rules' form) could be worth: a certain pot of the best ball
+## on, and the break going on.
+static func most_worth(balls: Array[Dictionary], on: Dictionary) -> float:
+	var best := 0
+	match String(on.get("kind", "")):
+		"red":
+			best = 1
+		"colour":
+			best = int(VALUES.get(String(on.get("colour", "")), 0))
+		"any_colour":
+			for b: Dictionary in balls:
+				if COLOURS.has(String(b.get("ball", ""))):
+					best = maxi(best, int(VALUES[String(b["ball"])]))
+	return POSITION_CHANCE_CAP * (best + NextTarget.BREAK_POINTS) if best > 0 else 0.0
 
 
 ## Where ball `index` was APPROACH_S before dropping at drop_t, or when it was first hit if later.
@@ -425,7 +566,22 @@ func reset_break() -> void:
 ## red after a colour while reds remain and to start a break, and once the reds are gone the
 ## colours in order, lowest first.
 func prefer(balls: Array[Dictionary]) -> String:
-	if last_potted == "red":
+	return _prefer_from(last_potted, balls)
+
+
+## What prefer() will say once the shot `shot_plan` is about has ended (end_shot) on `balls_after`:
+## known at the strike, as the simulator knows every pot.
+static func prefer_after(shot_plan: Dictionary, balls_after: Array[Dictionary]) -> String:
+	var last := ""
+	for pot: Dictionary in shot_plan.get("pots", []):
+		last = "red" if pot["ball"] == "red" else "colour"
+	if bool(shot_plan.get("cue_potted", false)):
+		last = ""
+	return _prefer_from(last, balls_after)
+
+
+static func _prefer_from(last: String, balls: Array[Dictionary]) -> String:
+	if last == "red":
 		return "colour"
 	for b: Dictionary in balls:
 		if b.get("ball") == "red":

@@ -219,6 +219,88 @@ func test_a_cue_ball_worth_watching_keeps_the_full_table() -> void:
 	check(not ShotCycle.journey(cushion_first, 0), "a cushion before the first ball")
 
 
+## A reading that always gives `worth`, keeping what it was asked in `asked`.
+func _reading(worth: float, asked: Array) -> Callable:
+	return func(balls: Array[Dictionary], cue_ball: int, on: Dictionary) -> float:
+		asked.append([balls.duplicate(true), cue_ball, on])
+		return worth
+
+
+## The red into the top left, the cue ball then running from (0.9, 0.3) to `to` by 2.5 s, off a
+## cushion at 1.0 s when `cushion`.
+func _position_shot(missed: bool, to: Vector2, cushion: bool) -> ScriptedPlayback:
+	var top_left := _pocket("top_left")
+	var playback := _miss(top_left, 0.4, 1.6, 0.06) if missed else _pot(top_left, 0.4, 1.6)
+	if cushion:
+		playback.scripted_events.append({"t": 1.0, "kind": "ball_line", "a": 0, "b": -1, "body": 2})
+		playback.scripted_events.sort_custom(func(x: Dictionary, y: Dictionary) -> bool: return float(x["t"]) < float(y["t"]))
+	playback.runs[0] = [Vector2(0.9, 0.3), to, 0.4, 2.5]
+	return playback
+
+
+func test_a_pot_that_leaves_an_excellent_position_is_watched_from_the_full_table() -> void:
+	var far := Vector2(-0.5, -0.4)
+	var most := ShotCycle.POSITION_CHANCE_CAP * (7.0 + NextTarget.BREAK_POINTS)
+	var high := ShotCycle.POSITION_SHARE * most + 0.5
+	var asked: Array = []
+	var plan := ShotCycle.plan(_position_shot(false, far, true), _balls(), 0, true, _pockets(), "", _reading(high, asked))
+	check_eq([plan["sequence"], plan["reason"]], ["broadcast", ShotCycle.POSITION_REASON], "a far run, a cushion, a high worth")
+	check_eq([plan.get("ball"), (plan["pots"] as Array).size()], ["red 3", 1], "the pot is still the shot's")
+	check_eq(asked.size(), 1, "read once")
+	if asked.size() == 1:
+		var balls: Array = asked[0][0]
+		check_eq(balls.map(func(b: Dictionary) -> String: return b["ball"]), ["cue", "black"], "the red off the table")
+		check((Vector2(balls[0]["x"], balls[0]["y"])).distance_to(far) < 1e-6, "the cue ball where it stops: %s" % [balls[0]])
+		check_eq([asked[0][1], asked[0][2]], [0, {"kind": "any_colour"}], "with a colour to follow the red")
+	check(ShotCycle.most_worth([{"ball": "cue"}, {"ball": "black"}], {"kind": "any_colour"}) == most, "the most is the black's")
+
+	var cases := [
+		["a short run", _position_shot(false, Vector2(0.6, 0.1), true), high],
+		["no cushion", _position_shot(false, far, false), high],
+		["a worth under the share", _position_shot(false, far, true), ShotCycle.POSITION_SHARE * most - 0.5],
+	]
+	for c: Array in cases:
+		var p := ShotCycle.plan(c[1], _balls(), 0, true, _pockets(), "", _reading(c[2], []))
+		check_eq([p["sequence"], p["reason"]], ["pocket", ""], "%s alone: the pocket camera" % c[0])
+	var unread := ShotCycle.plan(_position_shot(false, far, true), _balls(), 0, true, _pockets(), "", _reading(-1.0, []))
+	check_eq(unread["sequence"], "pocket", "no reading: the pocket camera")
+	check_eq(ShotCycle.plan(_position_shot(false, far, true), _balls(), 0, true, _pockets())["sequence"], "pocket",
+			"and without a reader at all")
+	check_eq(ShotCycle.plan(_position_shot(false, far, true), _balls(), 0, true, _pockets(), "practice",
+			_reading(high, []))["reason"], "practice", "a practice shot keeps its own reason")
+
+
+func test_an_excellent_position_is_judged_the_same_for_a_pot_and_a_miss() -> void:
+	var far := Vector2(-0.5, -0.4)
+	for worth: float in [20.0, 5.0]:
+		var potted_asked: Array = []
+		var missed_asked: Array = []
+		var potted := ShotCycle.plan(_position_shot(false, far, true), _balls(), 0, true, _pockets(), "", _reading(worth, potted_asked))
+		var missed := ShotCycle.plan(_position_shot(true, far, true), _balls(), 0, true, _pockets(), "", _reading(worth, missed_asked))
+		check_eq([missed["sequence"], missed["reason"] if missed["reason"] != "near miss" else ""],
+				[potted["sequence"], potted["reason"]], "worth %.0f: the same view for the miss" % worth)
+		check_eq(missed_asked, potted_asked, "worth %.0f: the same position read, as if the red went in" % worth)
+	check_eq(ShotCycle.on_after("red", [{"ball": "cue"}, {"ball": "red"}, {"ball": "pink"}]), {"kind": "any_colour"},
+			"a colour after a red")
+	check_eq(ShotCycle.on_after("pink", [{"ball": "cue"}, {"ball": "red"}, {"ball": "pink"}]), {"kind": "red"},
+			"a red after a colour while any remain")
+	check_eq(ShotCycle.on_after("yellow", [{"ball": "cue"}, {"ball": "blue"}, {"ball": "green"}]),
+			{"kind": "colour", "colour": "green"}, "then the colours in order")
+	check_eq(ShotCycle.on_after("black", [{"ball": "cue"}]), {}, "nothing after the last ball")
+
+
+func test_prefer_after_is_what_prefer_says_once_the_shot_ends() -> void:
+	var balls: Array[Dictionary] = [{"ball": "cue"}, {"ball": "red", "index": 1}, {"ball": "blue"}]
+	var cycle := ShotCycle.new()
+	for pots: Array in [[], [{"ball": "red", "label": "red 0", "value": 1}], [{"ball": "blue", "label": "blue", "value": 5}]]:
+		for cue_potted: bool in [false, true]:
+			var plan := {"pots": pots, "cue_potted": cue_potted}
+			var before := ShotCycle.prefer_after(plan, balls)
+			cycle.start(plan)
+			cycle.end_shot()
+			check_eq(before, cycle.prefer(balls), "pots %s, in-off %s" % [pots, cue_potted])
+
+
 func test_a_practice_shot_is_watched_from_the_full_table() -> void:
 	var top_left := _pocket("top_left")
 	var plan := ShotCycle.plan(_pot(top_left, 0.4, 1.6), _balls(), 0, true, _pockets(), "practice")
