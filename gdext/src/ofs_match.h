@@ -15,6 +15,7 @@
 
 #include "ofs/opponent/exhibition.hpp"
 #include "ofs/opponent/level.hpp"
+#include "ofs/opponent/pots.hpp"
 #include "ofs/opponent/standin.hpp"
 #include "ofs/physics/params.hpp"
 #include "ofs/physics/table_shape.hpp"
@@ -151,6 +152,33 @@ public:
     // thread).
     godot::String opponent_choice(const godot::String &level, int64_t player, int64_t seed);
 
+    // The reader (docs/opponent/README.md, "The game, stage 2"): a level the game asks what a
+    // position is worth to the person, never an opponent and never in levels(). The text of its
+    // file (core/data/opponent_person.json). Needs configure() first; refused, it logs
+    // rules.configured with the problems and keeps the reader it had.
+    bool configure_reader(const godot::String &level_json);
+    // What the position is worth to the player about to play it, read at once with nothing
+    // simulated: balls is the game's ball list (entries with "pocket" 0 or more are off the table
+    // and left out), cue_ball the cue ball's place in it, on the rules' form ({kind: "red"} ...).
+    // Works with or without a match and never touches its frame. {ok, error, worth, pots, chance,
+    // ball ("red 3", "" with no pot), pocket (-1 with none)}.
+    godot::Dictionary read_position(const godot::Array &balls, int64_t cue_ball, const godot::Dictionary &on);
+    // The stroke the reader would play from that position, on a worker thread of its own (never
+    // the opponent's), with a 400 ms clock. True when it started; an earlier one is replaced. No
+    // opponent.* line is logged for it.
+    bool reader_think(const godot::Array &balls, int64_t cue_ball, const godot::Dictionary &on, int64_t seed);
+    bool reader_thinking() const;
+    // Never waits: {ok: false} while it thinks or with nothing asked; once done {ok, ball, pocket,
+    // chance, worth, leave} for the pot it would play, or {ok: true, ball: ""} when it would not
+    // pot. A failure is {ok: false, error}, logged as app.error. The answer is spent once taken.
+    godot::Dictionary reader_take();
+    void reader_cancel();
+    // What the referee would make of the stroke `record` holds, as judge() would, with nothing
+    // applied or logged: {ok, error, frame} with the frame as the stroke leaves it (before a frame
+    // that ends is settled). The game asks it at the strike, to know who plays next and the ball
+    // on.
+    godot::Dictionary judge_preview(const godot::Ref<OfsShotRecord> &record, const godot::Dictionary &input) const;
+
     // Why the last call failed; "" when it didn't.
     godot::String last_error() const;
 
@@ -189,6 +217,11 @@ private:
 
     // One level's thinking: what the worker was handed, and what it gives back.
     struct OpponentJob;
+    // read_position and reader_think's frame from the game's ball list; false with `why`.
+    bool reader_frame(const godot::Array &balls, int64_t cue_ball, const godot::Dictionary &on,
+                      ofs::rules::FrameState &out, std::string &why) const;
+    // The pocket mouths of table_, built once for read_position.
+    const ofs::opponent::PocketMouths &reader_mouths();
 
     bool ready_ = false;
     bool started_ = false;
@@ -204,6 +237,11 @@ private:
     std::vector<ofs::opponent::Level> levels_;  // by tier, the 147 last
     std::vector<ofs::opponent::Exhibition> exhibitions_;
     std::unique_ptr<OpponentJob> job_;
+    bool has_reader_ = false;
+    ofs::opponent::Level reader_;
+    std::unique_ptr<OpponentJob> reader_job_;
+    std::shared_ptr<const ofs::phys::TableShape> mouths_table_;
+    std::unique_ptr<ofs::opponent::PocketMouths> mouths_;
     // The last opponent.maximum state logged in maximum_frame_: "" (none yet), "on", "gone".
     std::string maximum_state_;
     std::string maximum_frame_;

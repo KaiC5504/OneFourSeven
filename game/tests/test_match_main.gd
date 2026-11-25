@@ -35,6 +35,16 @@ class Scripted extends FakeMatchEngine:
 		return {"ok": true, "error": "", "frame": frame()}
 
 
+## Scripted with the referee's preview at the strike: `preview` is the frame it says the stroke leaves.
+class Previewing extends Scripted:
+	var preview := {}
+	var previews: Array = []
+
+	func judge_preview(_record: Variant, input: Dictionary) -> Dictionary:
+		previews.append(input)
+		return {"ok": true, "error": "", "frame": preview}
+
+
 var _engine: Scripted
 var _log_start := 0
 
@@ -299,6 +309,49 @@ func test_the_aim_turns_to_a_ball_on() -> void:
 	check_eq((main.get_node("Hud/Scoreboard") as Scoreboard).texts()["break"], 1, "the scoreboard has the break")
 	check_eq(main.harness_state()["break"], 1, "and the state")
 	check(not (main.get_node("Hud/BreakPill") as Control).visible, "the free table's break counter stays off")
+	main.free()
+
+
+func test_in_a_match_the_reader_is_asked_only_when_the_stroke_leaves_the_person_at_the_table() -> void:
+	var previewing := Previewing.new()
+	var main: MainScript = await _spawn(_frame(0), previewing)
+	var reader := FakeReaderEngine.new()
+	reader.worth = 0.5
+	reader.answer = {"ok": true, "error": "", "ball": "blue", "pocket": 3, "chance": 0.8, "worth": 9.0, "leave": {}}
+	main.reader = PositionReader.new()
+	check(main.reader.configure(reader), "the scripted reader")
+	var ranked: Array = []
+	main.rank_next = func(_balls: Array[Dictionary], _cue_ball: int, prefer: String, among: Array) -> Array[Dictionary]:
+		ranked.append([prefer, among])
+		var out: Array[Dictionary] = [{"index": BLUE, "ball": "blue", "pocket": 3, "aim_rad": 0.9, "cut_deg": 2.0,
+				"chance": 0.4, "score": 0.4, "reason": ""}]
+		return out
+	var m := _start(main)
+	var after := _frame(0, {"on_places": [RED], "on": {"kind": "red"}, "scores": [25, 31], "break_points": 1})
+	previewing.preview = after
+	_mark_log()
+	await _person_stroke(main, after)
+	check_eq(previewing.previews, [{"nominated": ""}], "the referee previewed the stroke with its nomination")
+	check_eq(reader.thought.size(), 1, "the reader was asked")
+	if reader.thought.size() == 1:
+		check_eq(JSON.stringify(reader.thought[0].slice(0, 3)), JSON.stringify([after["balls"], int(after["cue_ball"]), after["on"]]),
+				"on the frame the referee says the stroke leaves")
+	check_eq(ranked, [["any", [RED]]], "NextTarget's ranking among the balls on")
+	var results := _logged("shot.result")
+	check_eq(results.size(), 1, "one shot.result")
+	if results.size() == 1:
+		_check_schema("shot.result", results[0])
+		check_eq([results[0].get("next_by"), results[0].get("next_ball")], ["reader", "blue"], "the reader's pot")
+		check_near(float(results[0].get("next_chance", 0.0)), 0.4, 1e-12, "with NextTarget's chance for it")
+		check_near(float(results[0].get("position", -1.0)), 0.5, 1e-12, "and the position left to the person")
+		check_eq(reader.reads.back()[2], {"kind": "red"}, "read with the frame's ball on")
+
+	for leaves: Dictionary in [_frame(1), _frame(0, {"pending": "after_foul"}), _frame(0, {"over": true})]:
+		previewing.preview = leaves
+		reader.thought.clear()
+		await _person_stroke(main, after)
+		check(reader.thought.is_empty(), "not asked when the stroke leaves %s" % JSON.stringify(
+				{"striker": leaves["striker"], "pending": leaves["pending"], "over": leaves.get("over", false)}))
 	main.free()
 
 
@@ -877,13 +930,13 @@ func test_the_preview_scenes_arguments_are_not_the_harnesss() -> void:
 
 ## The scene at Home with a scripted engine on its MatchController that will show `frame` when a
 ## match starts. The aim stays where a test puts it.
-func _spawn(frame: Dictionary) -> MainScript:
+func _spawn(frame: Dictionary, engine: Scripted = null) -> MainScript:
 	for key: String in Settings.DEFAULTS:
 		Settings.set_value(key, Settings.DEFAULTS[key])
 	var main := load("res://scenes/main.tscn").instantiate() as MainScript
 	tree.root.add_child(main)
 	await tree.process_frame
-	_engine = Scripted.new()
+	_engine = engine if engine != null else Scripted.new()
 	# The stand-in plays these, as when no level could be configured: the setup then offers none.
 	_engine.level_list = []
 	_engine.frame_view = frame

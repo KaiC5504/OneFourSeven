@@ -596,6 +596,13 @@ void OfsMatch::_bind_methods() {
     ClassDB::bind_method(D_METHOD("opponent_take"), &OfsMatch::opponent_take);
     ClassDB::bind_method(D_METHOD("opponent_cancel", "why"), &OfsMatch::opponent_cancel);
     ClassDB::bind_method(D_METHOD("opponent_choice", "level", "player", "seed"), &OfsMatch::opponent_choice);
+    ClassDB::bind_method(D_METHOD("configure_reader", "level_json"), &OfsMatch::configure_reader);
+    ClassDB::bind_method(D_METHOD("read_position", "balls", "cue_ball", "on"), &OfsMatch::read_position);
+    ClassDB::bind_method(D_METHOD("reader_think", "balls", "cue_ball", "on", "seed"), &OfsMatch::reader_think);
+    ClassDB::bind_method(D_METHOD("reader_thinking"), &OfsMatch::reader_thinking);
+    ClassDB::bind_method(D_METHOD("reader_take"), &OfsMatch::reader_take);
+    ClassDB::bind_method(D_METHOD("reader_cancel"), &OfsMatch::reader_cancel);
+    ClassDB::bind_method(D_METHOD("judge_preview", "record", "input"), &OfsMatch::judge_preview);
     ClassDB::bind_method(D_METHOD("last_error"), &OfsMatch::last_error);
 }
 
@@ -822,6 +829,7 @@ OfsMatch::OfsMatch() = default;
 OfsMatch::~OfsMatch() {
     guarded(
         [&] {
+            reader_job_.reset();
             cancel_thinking("the match engine was freed");
             return true;
         },
@@ -1512,6 +1520,293 @@ void OfsMatch::cancel_thinking(const std::string &why) {
 String OfsMatch::opponent_choice(const String &level, int64_t player, int64_t seed) {
     const std::string id = to_std(level);
     return choose("opponent_choice", &id, player, seed);
+}
+
+namespace {
+
+// The reader's answer must be there when the camera swoops back after the shot.
+constexpr double kReaderThinkMs = 400.0;
+
+std::string ball_label(const rules::BallOnTable &b) {
+    const std::string name(ofs::table::ball_name(b.ball));
+    return b.ball == rules::Ball::red ? name + " " + std::to_string(b.index) : name;
+}
+
+void reader_error(const char *call, const std::string &message, const json &given) {
+    ofs::log::error("app", "app.error",
+                    {{"kind", "message"},
+                     {"message", std::string("OfsMatch.") + call + ": " + message + "; asked " + json_text(given)},
+                     {"function", std::string("OfsMatch.") + call}});
+}
+
+json reader_given(const Array &balls, int64_t cue_ball, const Dictionary &on) {
+    return {{"balls", variant_json(balls, 0)}, {"cue_ball", cue_ball}, {"on", variant_json(on, 0)}};
+}
+
+}  // namespace
+
+bool OfsMatch::configure_reader(const String &level_json) {
+    return guarded(
+        [&] {
+            std::vector<std::string> problems;
+            if (!ready_) problems.push_back("the match engine is not configured: configure() first");
+            opponent::Level level;
+            json described = json::array();
+            const json file = json::parse(to_std(level_json), nullptr, false);
+            if (file.is_discarded()) {
+                problems.push_back("reader: not valid JSON");
+            } else {
+                std::vector<std::string> found;
+                if (opponent::load_level(file, level, found)) {
+                    json entry = opponent::level_json(level);
+                    entry["hash"] = ofs::params::content_hash(file);
+                    described.push_back(std::move(entry));
+                } else {
+                    for (const std::string &problem : found) problems.push_back("reader: " + problem);
+                }
+            }
+            const bool ok = problems.empty();
+            json data = {{"ok", ok},
+                         {"values", rules::ref_params_values(ref_)},
+                         {"standin", standin_values(standin_)},
+                         {"params_hash", params_hash_},
+                         {"levels", described},
+                         {"problems", problems}};
+            if (!ok) {
+                std::string all;
+                for (const std::string &problem : problems) all += (all.empty() ? "" : "; ") + problem;
+                last_error_ = from_std(all);
+                ofs::log::error("rules", "rules.configured", std::move(data));
+                return false;
+            }
+            reader_job_.reset();
+            reader_ = std::move(level);
+            has_reader_ = true;
+            last_error_ = String();
+            ofs::log::info("rules", "rules.configured", std::move(data));
+            return true;
+        },
+        [&](const std::string &message) {
+            thrown("configure_reader", message);
+            return false;
+        });
+}
+
+bool OfsMatch::reader_frame(const Array &balls, int64_t cue_ball, const Dictionary &on, rules::FrameState &out,
+                            std::string &why) const {
+    if (!ready_) {
+        why = "the match engine is not configured";
+        return false;
+    }
+    if (!has_reader_) {
+        why = "there is no reader: configure_reader() first";
+        return false;
+    }
+    if (cue_ball < 0 || cue_ball >= balls.size()) {
+        why = "cue_ball " + std::to_string(cue_ball) + " is not a place among the " + std::to_string(balls.size()) +
+              " balls";
+        return false;
+    }
+    json list = json::array();
+    int64_t cue = -1;
+    int cues = 0;
+    for (int64_t i = 0; i < balls.size(); ++i) {
+        const std::string at = "balls[" + std::to_string(i) + "]";
+        if (balls[i].get_type() != Variant::DICTIONARY) {
+            why = at + " is not a Dictionary";
+            return false;
+        }
+        const Dictionary b = balls[i];
+        if (!b.has("ball") || !b.has("index") || !b.has("x") || !b.has("y")) {
+            why = at + " lacks ball, index, x or y";
+            return false;
+        }
+        int64_t pocket = -1;
+        if (b.has("pocket") && !whole(b["pocket"], pocket)) {
+            why = at + ": \"pocket\" is not a whole number (" + variant_text(b["pocket"]) + ")";
+            return false;
+        }
+        if (pocket >= 0) {
+            if (i == cue_ball) {
+                why = "the cue ball is in pocket " + std::to_string(pocket);
+                return false;
+            }
+            continue;
+        }
+        int64_t index = 0;
+        const auto number = [](const Variant &v) { return v.get_type() == Variant::INT || v.get_type() == Variant::FLOAT; };
+        if (!whole(b["index"], index) || !number(b["x"]) || !number(b["y"])) {
+            why = at + ": index, x and y must be numbers (" + variant_text(b) + ")";
+            return false;
+        }
+        const std::string name = variant_text(b["ball"]);
+        if (name == "cue") ++cues;
+        if (i == cue_ball) cue = int64_t(list.size());
+        list.push_back({{"ball", name}, {"index", index}, {"x", double(b["x"])}, {"y", double(b["y"])}});
+    }
+    if (variant_text(Dictionary(balls[cue_ball])["ball"]) != "cue" || cues != 1) {
+        why = "balls[" + std::to_string(cue_ball) + "] is not the one cue ball (" + std::to_string(cues) +
+              " cue balls listed)";
+        return false;
+    }
+    const json position = {{"balls", list},       {"cue_ball", cue},       {"cue_in_hand", false},
+                           {"on", variant_json(on, 0)}, {"free_ball", false}, {"touching", json::array()}};
+    rules::Position p;
+    std::string error;
+    if (!rules::position_from_json(position, p, error)) {
+        why = "not a position: " + error;
+        return false;
+    }
+    out = rules::FrameState{};
+    static_cast<rules::Position &>(out) = std::move(p);
+    return true;
+}
+
+const opponent::PocketMouths &OfsMatch::reader_mouths() {
+    if (!mouths_ || mouths_table_ != table_) {
+        mouths_ = std::make_unique<opponent::PocketMouths>(*table_);
+        mouths_table_ = table_;
+    }
+    return *mouths_;
+}
+
+Dictionary OfsMatch::read_position(const Array &balls, int64_t cue_ball, const Dictionary &on) {
+    return guarded(
+        [&]() -> Dictionary {
+            rules::FrameState s;
+            std::string why;
+            if (!reader_frame(balls, cue_ball, on, s, why)) {
+                reader_error("read_position", why, reader_given(balls, cue_ball, on));
+                last_error_ = from_std(why);
+                return failure(last_error_);
+            }
+            const opponent::Env env{*table_, params_, *oracle_, ref_, standin_, &reader_mouths()};
+            const std::vector<opponent::Pot> pots = opponent::pots(s, env, reader_.max_cut_rad);
+            const opponent::Read read = opponent::read_pots(pots, reader_, env);
+            Dictionary out = answer();
+            out["worth"] = read.worth;
+            out["pots"] = int64_t(read.pots);
+            out["chance"] = read.chance;
+            out["ball"] = String();
+            out["pocket"] = int64_t(-1);
+            if (read.best >= 0) {
+                const opponent::Pot &pot = pots[std::size_t(read.best)];
+                out["ball"] = from_std(ball_label(s.balls.at(std::size_t(pot.target))));
+                out["pocket"] = int64_t(pot.pocket);
+            }
+            last_error_ = String();
+            return out;
+        },
+        [&](const std::string &message) { return thrown("read_position", message); });
+}
+
+bool OfsMatch::reader_think(const Array &balls, int64_t cue_ball, const Dictionary &on, int64_t seed) {
+    return guarded(
+        [&] {
+            rules::FrameState s;
+            std::string why;
+            if (!reader_frame(balls, cue_ball, on, s, why)) {
+                json given = reader_given(balls, cue_ball, on);
+                given["seed"] = std::to_string(static_cast<std::uint64_t>(seed));
+                reader_error("reader_think", why, given);
+                last_error_ = from_std(why);
+                return false;
+            }
+            reader_job_.reset();
+            refresh_params();
+            auto job = std::make_unique<OpponentJob>();
+            job->frame = std::move(s);
+            job->params = params_;
+            job->table = table_;
+            job->ref = ref_;
+            job->standin = standin_;
+            job->level = reader_;
+            job->seed = static_cast<std::uint64_t>(seed);
+            job->think.max_ms = kReaderThinkMs;
+            job->think.seed = job->seed;
+            job->context = json::object();
+            job->began = std::chrono::steady_clock::now();
+            OpponentJob &running = *job;
+            job->worker = std::thread([&running] { running.run(); });
+            reader_job_ = std::move(job);
+            last_error_ = String();
+            return true;
+        },
+        [&](const std::string &message) {
+            thrown("reader_think", message);
+            return false;
+        });
+}
+
+bool OfsMatch::reader_thinking() const { return reader_job_ != nullptr; }
+
+Dictionary OfsMatch::reader_take() {
+    if (!reader_job_ || !reader_job_->done.load(std::memory_order_acquire)) return failure(String());
+    return guarded(
+        [&]() -> Dictionary {
+            const std::unique_ptr<OpponentJob> job = std::move(reader_job_);
+            job->worker.join();
+            const opponent::Stroke &stroke = job->stroke;
+            const json given = {{"frame", rules::frame_json(job->frame)},
+                                {"seed", std::to_string(job->seed)},
+                                {"think", think_json(stroke, job->ms)}};
+            if (!job->error.empty()) {
+                const std::string why = "the reader could not choose a stroke: " + job->error;
+                reader_error("reader_take", why, given);
+                last_error_ = from_std(why);
+                return failure(last_error_);
+            }
+            const json &why = stroke.why;
+            Dictionary out = answer();
+            out["ball"] = String();
+            const bool pot = !stroke.decides && stroke.fallback.empty() && why.is_object() &&
+                             why.value("kind", std::string()) == "pot" && why.contains("target");
+            if (pot) {
+                out["ball"] = from_std(why.value("target", std::string()));
+                out["pocket"] = int64_t(why.value("pocket", -1));
+                out["chance"] = why.value("chance", 0.0);
+                out["worth"] = why.value("worth", 0.0);
+                out["leave"] = json_to_variant(why.value("leave", json::object()));
+            }
+            out["ms"] = job->ms;
+            last_error_ = String();
+            return out;
+        },
+        [&](const std::string &message) { return thrown("reader_take", message); });
+}
+
+void OfsMatch::reader_cancel() {
+    guarded(
+        [&] {
+            reader_job_.reset();
+            return true;
+        },
+        [&](const std::string &message) {
+            thrown("reader_cancel", message);
+            return false;
+        });
+}
+
+Dictionary OfsMatch::judge_preview(const Ref<OfsShotRecord> &record, const Dictionary &input) const {
+    return guarded(
+        [&]() -> Dictionary {
+            std::string why = no_stroke_now();
+            if (why.empty() && record.is_null()) why = "no shot record: the stroke was not simulated";
+            rules::ShotInput in;
+            if (!why.empty() || !read_input(input, in, why)) return failure(from_std(why));
+            const rules::FrameState &pre = match_.frame;
+            const ofs::phys::ShotRecord &shot = record->record();
+            why = not_played_from(pre, shot);
+            if (!why.empty()) return failure(from_std("the shot record was not simulated from balls(): " + why));
+            const rules::ShotFacts facts = rules::observe(pre, shot, *table_, ref_);
+            if (facts.anomaly && !stopped_by_guard(shot)) return failure("observe found the record malformed");
+            const rules::Judgement j = rules::judge(pre, in, facts, *oracle_, ref_);
+            if (j.post.strokes == pre.strokes) return failure("the referee could not judge the stroke");
+            Dictionary out = answer();
+            out["frame"] = frame_view(j.post);
+            return out;
+        },
+        [&](const std::string &message) { return thrown("judge_preview", message); });
 }
 
 String OfsMatch::last_error() const { return last_error_; }

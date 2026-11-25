@@ -8,6 +8,7 @@ const STANDIN_PATH := "res://data/standin_params.json"
 const BEGINNER_PATH := "res://data/opponent_beginner.json"
 const MAXIMUM_PATH := "res://data/opponent_maximum.json"
 const EXHIBITIONS_PATH := "res://data/exhibitions.json"
+const PERSON_PATH := "res://data/opponent_person.json"
 const SCHEMA_PATH := "res://data/log_schema.json"
 const LEVELS: Array[String] = ["beginner", "maximum"]
 const AFTER_FOUL: Array[String] = ["play", "play_again", "replace"]
@@ -713,6 +714,184 @@ func test_freeing_the_engine_while_it_thinks() -> void:
 	var whys: Array = _logged("opponent.cancelled").map(func(l: Dictionary) -> String: return l["why"])
 	check_eq(whys, ["the match engine was freed"], "the thinking is stopped with it")
 	check_eq(_logged("app.error").size(), 0, "nothing threw")
+
+
+func test_configure_reader_takes_the_person_and_refuses_a_broken_file() -> void:
+	var fresh := OfsMatch.new()
+	check(not fresh.configure_reader(_text(PERSON_PATH)), "refused before configure")
+	check(fresh.last_error().contains("not configured"), "last_error says so: " + fresh.last_error())
+	var m := _opponent()
+	_mark_log()
+	check(m.configure_reader(_text(PERSON_PATH)), "configure_reader: " + m.last_error())
+	var ids: Array = m.levels().map(func(l: Dictionary) -> String: return l["id"])
+	check_eq(ids, ["beginner", "maximum"], "the reader is never an opponent")
+	var lines := _logged("rules.configured")
+	check(lines.size() == 1 and lines[0]["ok"] == true and lines[0]["levels"][0]["id"] == "person",
+			"rules.configured with the reader's values: %s" % [lines])
+	var easy := m.read_position(_easy_black(), 0, {"kind": "any_colour"})
+	for broken: String in ["{not json", _text(PERSON_PATH).replace('"max_sims"', '"max_simz"'),
+			_text(PERSON_PATH).replace('"depth": 0', '"depth": 9')]:
+		check(not m.configure_reader(broken), "a broken file is refused")
+		check(m.last_error().contains("reader"), "last_error names it: " + m.last_error())
+	check_eq(m.read_position(_easy_black(), 0, {"kind": "any_colour"}), easy, "the reader it had is kept")
+	for line: Dictionary in _logged("rules.configured").slice(1):
+		check(line["ok"] == false and not (line["problems"] as Array).is_empty(), "each refusal logged with its problems")
+	_check_schema()
+
+
+func test_read_position_reads_at_once() -> void:
+	var m := _reader()
+	_mark_log()
+	var easy := m.read_position(_easy_black(), 0, {"kind": "any_colour"})
+	check_eq(easy.get("ok"), true, "an easy black is read: " + m.last_error())
+	var keys := easy.keys()
+	keys.sort()
+	check_eq(keys, ["ball", "chance", "error", "ok", "pocket", "pots", "worth"], "its keys")
+	check_eq(easy.get("ball"), "black", "the black is the best pot")
+	check(int(easy.get("pocket", -1)) >= 0 and int(easy.get("pots", 0)) >= 1, "into a pocket: %s" % [easy])
+	check(float(easy.get("chance", 0.0)) > 0.9, "a pot he nearly always makes: %s" % [easy])
+	var thin := m.read_position(_long_thin_red(), 0, {"kind": "red"})
+	check_eq(thin.get("ok"), true, "a long thin red is read")
+	check_eq(thin.get("ball"), "red 3", "labelled as the game labels it")
+	check(float(easy["worth"]) > float(thin.get("worth", INF)), "the easy black reads higher: %.2f against %.2f"
+			% [easy["worth"], thin.get("worth", INF)])
+	var none := m.read_position(_long_thin_red(), 0, {"kind": "colour", "colour": "blue"})
+	check(none.get("ok") == true and float(none.get("worth", -1.0)) == 0.0 and int(none.get("pots", -1)) == 0
+			and none.get("ball") == "" and int(none.get("pocket", 0)) == -1, "no pot reads 0: %s" % [none])
+	var potted := _easy_black()
+	potted.append({"ball": "red", "index": 0, "x": 0.0, "y": 0.0, "pocket": 2})
+	check_eq(m.read_position(potted, 0, {"kind": "any_colour"}), easy, "a ball in a pocket is off the table")
+	check_eq(_logged("app.error").size(), 0, "nothing logged for good input")
+	var began := Time.get_ticks_usec()
+	for i in 100:
+		m.read_position(_easy_black(), 0, {"kind": "any_colour"})
+	print("    read_position: %.0f us a call" % ((Time.get_ticks_usec() - began) / 100.0))
+
+	var malformed := {
+		"cue_ball out of range": [_easy_black(), 5, {"kind": "any_colour"}],
+		"not the cue ball": [_easy_black(), 1, {"kind": "any_colour"}],
+		"an entry without x": [[{"ball": "cue", "index": 0, "y": 0.0}], 0, {"kind": "red"}],
+		"an unknown on": [_easy_black(), 0, {"kind": "whatever"}],
+		"the cue ball potted": [[{"ball": "cue", "index": 0, "x": 0.0, "y": 0.0, "pocket": 1}], 0, {"kind": "red"}],
+	}
+	for name: String in malformed:
+		_mark_log()
+		var c: Array = malformed[name]
+		var got := m.read_position(c[0], c[1], c[2])
+		check(got.get("ok") == false and not String(got.get("error", "")).is_empty(), name + ": refused: %s" % [got])
+		check_eq(_logged("app.error").size(), 1, name + ": logged once")
+		_check_schema()
+	var unready := _engine()
+	check_eq(unready.read_position(_easy_black(), 0, {"kind": "any_colour"}).get("ok"), false, "no reader configured")
+
+
+func test_the_reader_thinks_on_its_own_thread_with_no_match() -> void:
+	var m := _reader()
+	_mark_log()
+	var read := m.read_position(_easy_black(), 0, {"kind": "any_colour"})
+	check_eq(m.reader_take(), {"ok": false, "error": ""}, "nothing to take before it is asked")
+	var began := Time.get_ticks_msec()
+	check(m.reader_think(_easy_black(), 0, {"kind": "any_colour"}, 7), "thinks: " + m.last_error())
+	check(m.reader_thinking(), "and is thinking")
+	var got := await _reader_answer(m)
+	var took := Time.get_ticks_msec() - began
+	check(took < 1000, "answered within a second: %d ms" % took)
+	print("    reader_think: answered in %d ms (its own %.0f ms)" % [took, float(got.get("ms", -1.0))])
+	check_eq(got.get("ok"), true, "an answer")
+	check_eq(got.get("ball"), read["ball"], "a pot of the ball read_position lists")
+	check(int(got.get("pocket", -1)) >= 0 and float(got.get("chance", 0.0)) > 0.0 and got.get("leave") is Dictionary,
+			"with its pocket, chance and leave: %s" % [got])
+	check(not m.reader_thinking(), "done once taken")
+	check_eq(m.reader_take().get("ok"), false, "and spent")
+	for event: String in ["opponent.think", "opponent.decision", "opponent.cancelled", "app.error"]:
+		check_eq(_logged(event).size(), 0, "no %s for the reader" % event)
+	_check_schema()
+
+
+func test_a_second_reader_think_replaces_the_first_and_cancel_leaves_nothing() -> void:
+	var m := _reader()
+	_mark_log()
+	check(m.reader_think(_long_thin_red(), 0, {"kind": "red"}, 1), "the first: " + m.last_error())
+	check(m.reader_think(_easy_black(), 0, {"kind": "any_colour"}, 2), "the second: " + m.last_error())
+	var got := await _reader_answer(m)
+	check_eq(got.get("ball"), "black", "the answer is the second's")
+	check(m.reader_think(_easy_black(), 0, {"kind": "any_colour"}, 3), "again: " + m.last_error())
+	m.reader_cancel()
+	check(not m.reader_thinking(), "cancelled")
+	await tree.process_frame
+	check_eq(m.reader_take().get("ok"), false, "nothing left to take")
+	check_eq(_logged("opponent.cancelled").size(), 0, "no opponent.cancelled for the reader")
+	var none := _reader()
+	check(none.reader_think(_long_thin_red(), 0, {"kind": "colour", "colour": "pink"}, 4), "no pot to think about")
+	var plain := await _reader_answer(none)
+	check(plain.get("ok") == true and plain.get("ball") == "", "it would not pot: %s" % [plain])
+	_mark_log()
+	check(not m.reader_think(_easy_black(), 9, {"kind": "red"}, 5), "refused")
+	check_eq(_logged("app.error").size(), 1, "app.error once with what was asked")
+	_check_schema()
+	m.reader_think(_easy_black(), 0, {"kind": "any_colour"}, 6)
+	m = null
+	await tree.process_frame
+
+
+func test_the_reader_leaves_a_match_alone() -> void:
+	var m := _started_with("beginner")
+	check(m.configure_reader(_text(PERSON_PATH)), "configure_reader during a match: " + m.last_error())
+	var before := m.frame()
+	_mark_log()
+	check_eq(m.read_position(_easy_black(), 0, {"kind": "any_colour"}).get("ball"), "black", "read during a match")
+	check(m.reader_think(_easy_black(), 0, {"kind": "any_colour"}, 11), "thinks during a match: " + m.last_error())
+	check_eq((await _reader_answer(m)).get("ball"), "black", "and answers")
+	check_eq(m.frame(), before, "the match's frame is untouched")
+	check(not m.opponent_thinking(), "the opponent's worker is not used")
+	check_eq(_logged("opponent.think").size(), 0, "nothing an opponent logs")
+
+
+func test_judge_preview_says_what_the_referee_would_and_applies_nothing() -> void:
+	var m := _started_with("beginner", 0)
+	var before := m.frame()
+	var record := Physics.sim.simulate(m.balls(), m.cue_ball(), _strike(0.0, 6.0), 3, _context("preview"))
+	_mark_log()
+	var preview := m.judge_preview(record, {"nominated": ""})
+	check_eq(preview.get("ok"), true, "previewed: %s" % [preview.get("error")])
+	check_eq(m.frame(), before, "nothing applied")
+	check_eq(_logged("rules.decision").size(), 0, "nothing logged")
+	var judged := m.judge(record, {"nominated": ""}, {"shot_id": "preview"})
+	var post: Dictionary = preview.get("frame", {})
+	check_eq(post.get("striker"), (judged["frame"] as Dictionary).get("striker"), "the striker judge gives")
+	check_eq(post.get("on"), (judged["frame"] as Dictionary).get("on"), "and the ball on")
+	check_eq(m.judge_preview(null, {}).get("ok"), false, "no record")
+
+
+## An engine with the levels and the reader.
+func _reader() -> OfsMatch:
+	var m := _opponent()
+	check(m.configure_reader(_text(PERSON_PATH)), "configure_reader: " + m.last_error())
+	return m
+
+
+## The cue ball 0.3 m from the black, which is 0.3 m from the top corner on the same line.
+func _easy_black() -> Array:
+	var corner := Vector2(1.7, 0.81)
+	var black := corner - Vector2(1.0, 1.0).normalized() * 0.3
+	var cue := black - Vector2(1.0, 1.0).normalized() * 0.3
+	return [{"ball": "cue", "index": 0, "x": cue.x, "y": cue.y}, {"ball": "black", "index": 0, "x": black.x, "y": black.y}]
+
+
+## The cue ball in baulk and a red up by the black's cushion, cut fine into the top corner.
+func _long_thin_red() -> Array:
+	return [{"ball": "cue", "index": 0, "x": -1.3, "y": -0.5}, {"ball": "red", "index": 3, "x": 1.45, "y": 0.62}]
+
+
+func _reader_answer(m: OfsMatch) -> Dictionary:
+	var deadline := Time.get_ticks_msec() + ANSWER_WAIT_MS
+	while Time.get_ticks_msec() < deadline:
+		var got := m.reader_take()
+		if got.get("ok") == true or not String(got.get("error", "")).is_empty():
+			return got
+		await tree.process_frame
+	check(false, "the reader gave no answer within %d ms" % ANSWER_WAIT_MS)
+	return {}
 
 
 ## A configured engine without the opponent's files.
