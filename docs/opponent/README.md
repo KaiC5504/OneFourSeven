@@ -247,10 +247,12 @@ compared:
     best continuation found by simulating that many further pots, each stage narrower than the
     last, each pot's worth weighted by its chance (the 147's staged scheme with chances in it).
   - `giveaway`: `read_position(...).worth` for the other player of the position one simulated
-    miss leaves: the planned stroke with its aim turned to the thicker side by 2 margins, or by
-    4, or by 8, the first at which the ball stays out (the margin is narrower than the window a
-    pot really forgives, so one margin often still pots); 0 when it drops even at 8. When the
-    miss fouls, the foul's points are added. `why.giveaway` and `why.miss_turn` say what was read.
+    miss leaves, the mean of two: the planned stroke with its aim turned to the thicker side
+    and to the thinner, each by 2 margins, or by 4, or by 8, the first at which the ball stays
+    out on that side (the margin is narrower than the window a pot really forgives, so one
+    margin often still pots); a side on which it drops even at 8 counts 0. When a miss fouls,
+    the foul's points are added. `why.giveaway` and `why.miss_turn` (`[thick, thin]`) say what
+    was read. A pot whose misses leave nothing is a shot to nothing, and is played as one.
 - **A tactic** (`Tactic::worth`): the foul points the stroke expects to be given, less what the
   position left is worth to the other player as the level reads it (`read_position` with this
   level as the reader: it judges others by itself), less the foul points it expects to give.
