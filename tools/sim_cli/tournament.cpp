@@ -55,6 +55,11 @@ constexpr int kMaxPrinted = 100;
 constexpr const char* kBands[] = {"short", "medium", "long", "unknown"};
 constexpr int kBandCount = 4;
 constexpr const char* kStopped[] = {"done", "sims", "steps", "time"};
+// An escape's `why.cushions`: 0 to 4, "5+", or "unknown" when its why has none (the stand-in's).
+constexpr const char* kCushionNames[] = {"0", "1", "2", "3", "4", "5+", "unknown"};
+constexpr int kCushionBuckets = 7;
+// The game's position reader (docs/opponent/README.md, "The game, stage 2"), never an opponent.
+constexpr const char* kReaderId = "person";
 
 std::uint64_t mix(std::uint64_t a, std::uint64_t b) {
     std::uint64_t z = a + 0x9E3779B97F4A7C15ULL * (b + 1);
@@ -126,6 +131,23 @@ struct Tally {
     std::array<long long, 4> stopped{};
     long long stopped_other = 0;
     long long fallbacks = 0;
+    // The ladder's counts (docs/opponent/README.md, "The ladder"), in frames only; what followed a
+    // stroke is read at the next stroke of the frame, when it is the other player's.
+    long long safety_played = 0;
+    long long safety_then_attempt = 0;
+    long long safety_then_potted = 0;
+    long long snooker_kind = 0;
+    long long snookers_laid = 0;
+    long long snookers_called = 0;
+    long long snooker_then_fouled = 0;
+    long long snooker_then_points = 0;
+    std::array<long long, kCushionBuckets> escape_played{};
+    std::array<long long, kCushionBuckets> escape_hit{};
+    long long break_offs = 0;
+    long long break_off_then_pot = 0;
+    std::vector<int> frame_highs;  // the side's highest break in each frame, 0 for none
+    long long concessions = 0;
+    long long claims = 0;
 
     void add(const Tally& o) {
         frames_won += o.frames_won;
@@ -153,6 +175,23 @@ struct Tally {
         for (std::size_t i = 0; i < stopped.size(); ++i) stopped[i] += o.stopped[i];
         stopped_other += o.stopped_other;
         fallbacks += o.fallbacks;
+        safety_played += o.safety_played;
+        safety_then_attempt += o.safety_then_attempt;
+        safety_then_potted += o.safety_then_potted;
+        snooker_kind += o.snooker_kind;
+        snookers_laid += o.snookers_laid;
+        snookers_called += o.snookers_called;
+        snooker_then_fouled += o.snooker_then_fouled;
+        snooker_then_points += o.snooker_then_points;
+        for (std::size_t i = 0; i < escape_played.size(); ++i) {
+            escape_played[i] += o.escape_played[i];
+            escape_hit[i] += o.escape_hit[i];
+        }
+        break_offs += o.break_offs;
+        break_off_then_pot += o.break_off_then_pot;
+        frame_highs.insert(frame_highs.end(), o.frame_highs.begin(), o.frame_highs.end());
+        concessions += o.concessions;
+        claims += o.claims;
     }
 };
 
@@ -432,6 +471,29 @@ int band_index(const json& why) {
     return kBandCount - 1;
 }
 
+int cushion_bucket(const json& why) {
+    const auto it = why.find("cushions");
+    if (it == why.end() || !it->is_number_integer()) return kCushionBuckets - 1;
+    return std::clamp(it->get<int>(), 0, kCushionBuckets - 2);
+}
+
+// `why.pots` above 0: its search found a stroke that pots. The stand-in's own lines have none.
+bool had_pot(const json& why) {
+    const auto pots = why.find("pots");
+    return pots != why.end() && pots->is_number() && pots->get<double>() > 0.0;
+}
+
+// The stroke met a ball on first: none of the fouls for missing it, whatever else it did.
+bool hit_ball_on(const rules::Judgement& j) {
+    for (const rules::Foul& f : j.fouls) {
+        if (f.kind == rules::FoulKind::no_hit || f.kind == rules::FoulKind::first_hit_not_on ||
+            f.kind == rules::FoulKind::simultaneous_hit) {
+            return false;
+        }
+    }
+    return true;
+}
+
 json think_json(const opponent::Stroke& st, double us) {
     json think = {{"candidates", st.candidates}, {"sims", st.sims},     {"steps", st.steps},
                   {"depth", st.depth},           {"stopped", st.stopped}, {"ms", us / 1000.0}};
@@ -479,6 +541,7 @@ public:
                 play_exhibition();
             } else {
                 play_frame();
+                record_frame_highs();
             }
         } catch (const std::exception& e) {
             // The engine and the opponent promise never to throw.
@@ -496,6 +559,7 @@ public:
                              {"seed", std::to_string(current_seed_)}});
             fail("exception", e.what(), step);
             if (exhibition_ && !exhibition_ended_) end_exhibition(false);
+            if (!exhibition_ && !highs_recorded_) record_frame_highs();
         }
         t_capture = nullptr;
         out_.lines = std::move(capture_.lines);
@@ -672,10 +736,76 @@ private:
         return true;
     }
 
+    void record_frame_highs() {
+        highs_recorded_ = true;
+        stats(0).frame_highs.push_back(frame_high_[0]);
+        stats(1).frame_highs.push_back(frame_high_[1]);
+    }
+
+    // A stroke by `player` settles what the stroke before it left waiting on the next one; the
+    // same player's stroke settles it as nothing followed.
+    void reply(int player, const json& why, bool scored, int penalty) {
+        if (follow_.player >= 0 && follow_.player != player) {
+            Tally& t = stats(follow_.player);
+            const bool attempt = why.value("kind", std::string()) == "pot";
+            if (follow_.safety) {
+                t.safety_then_attempt += attempt ? 1 : 0;
+                t.safety_then_potted += attempt && scored ? 1 : 0;
+            }
+            if (follow_.snooker) {
+                t.snooker_then_fouled += penalty > 0 ? 1 : 0;
+                t.snooker_then_points += penalty;
+            }
+            if (follow_.break_off) t.break_off_then_pot += attempt || had_pot(why) ? 1 : 0;
+        }
+        follow_ = Followed{};
+    }
+
+    // The test the engine calls a free ball by (S2.17), on the table the other player now faces:
+    // only after a stroke with no foul that passed the turn and left nothing pending.
+    bool laid_snooker(const FrameState& pre, const rules::Judgement& j) const {
+        const FrameState& post = j.post;
+        if (!j.fouls.empty() || post.over || post.restart || post.striker == pre.striker ||
+            post.pending != rules::Pending::none) {
+            return false;
+        }
+        return run_.oracle->snookered(post.balls, post.cue_ball, rules::places_on(post), post.cue_in_hand);
+    }
+
+    void count_ladder(Tally& mine, int player, const json& why, const FrameState& pre, const rules::Judgement& j,
+                      bool scored) {
+        reply(player, why, scored, j.penalty);
+        const std::string kind = why.value("kind", std::string());
+        Followed next;
+        next.player = player;
+        if (kind == "safety" || kind == "snooker") {
+            ++mine.safety_played;
+            mine.snooker_kind += kind == "snooker" ? 1 : 0;
+            next.safety = true;
+        } else if (kind == "break") {
+            ++mine.break_offs;
+            next.break_off = true;
+        } else if (kind == "escape") {
+            const std::size_t bucket = static_cast<std::size_t>(cushion_bucket(why));
+            ++mine.escape_played[bucket];
+            mine.escape_hit[bucket] += hit_ball_on(j) ? 1 : 0;
+        }
+        if (laid_snooker(pre, j)) {
+            ++mine.snookers_laid;
+            mine.snookers_called += kind == "snooker" ? 1 : 0;
+            next.snooker = true;
+        }
+        follow_ = next;
+    }
+
     void end_break(int player, int points) {
         if (points >= 1) {
             stats(player).breaks.push_back(points);
             if (visit_on_ && points >= 147) ++stats(player).completed;
+        }
+        if (!exhibition_) {
+            int& high = frame_high_[static_cast<std::size_t>(player)];
+            high = std::max(high, points);
         }
         in_visit_ = false;
         visit_on_ = false;
@@ -700,6 +830,7 @@ private:
             case rules::MatchEvent::reracked:
                 in_visit_ = false;
                 visit_on_ = false;
+                follow_ = Followed{};
                 pot_points_ = 0;
                 pot_allowance_ = 147;
                 rules::log_frame_started(m_, rack_context());
@@ -725,6 +856,8 @@ private:
         if (!ok) {
             return fail("choice", "the engine refused " + std::string(rules::decision_name(kind)) + ": " + error, step);
         }
+        if (kind == DecisionKind::concede_frame || kind == DecisionKind::concede_match) ++stats(player).concessions;
+        if (kind == DecisionKind::claim_frame) ++stats(player).claims;
         if (event != rules::MatchEvent::reracked) {
             if (m_.frame.scores != step.before.scores) return fail("scores", "a choice changed the scores", step);
             if (m_.frame.strokes != step.before.strokes) return fail("strokes", "a choice counted as a stroke", step);
@@ -844,6 +977,7 @@ private:
             const std::vector<DecisionKind> open = rules::options(m_.frame, player);
             const json decided = log_choice_made(player, open, st.decision, step.seed, st.why, us, &st);
             end_break(player, m_.frame.break_points);
+            follow_ = Followed{};
             if (exhibition_) exhibition_why_ = st.decision == DecisionKind::claim_frame ? "claimed" : "conceded";
             if (!listed(open, st.decision)) {
                 const std::string refused =
@@ -950,13 +1084,11 @@ private:
             mine.made += scored ? 1 : 0;
             mine.band_made[static_cast<std::size_t>(band)] += scored ? 1 : 0;
             if (me.exact) check_planned_pot(step);
-        } else if (kind == "safety" || kind == "escape") {
-            ++(kind == "safety" ? mine.safeties : mine.escapes);
-            // `pots` is the strokes its search found that make a pot; the stand-in's own lines have none.
-            const auto pots = st.why.find("pots");
-            const bool had_pot = pots != st.why.end() && pots->is_number() && pots->get<double>() > 0.0;
-            ++(had_pot ? mine.safeties_with_pot : mine.no_pot);
+        } else if (kind == "safety" || kind == "snooker" || kind == "escape") {
+            ++(kind == "escape" ? mine.escapes : mine.safeties);
+            ++(had_pot(st.why) ? mine.safeties_with_pot : mine.no_pot);
         }
+        if (!exhibition_) count_ladder(mine, player, st.why, pre, j, scored);
 
         const FrameState& post = j.post;
         const bool goes_on = scored && !post.over && post.striker == pre.striker && post.pending == rules::Pending::none;
@@ -1010,6 +1142,16 @@ private:
     // The decision being made, for an exception's app.error and repro.
     std::uint64_t current_seed_ = 0;
     int current_player_ = 0;
+    // What the last stroke left to be counted at the other player's next one.
+    struct Followed {
+        int player = -1;
+        bool safety = false;
+        bool snooker = false;
+        bool break_off = false;
+    };
+    Followed follow_;
+    std::array<int, 2> frame_high_{};
+    bool highs_recorded_ = false;
 };
 
 void work(Run& run) {
@@ -1049,6 +1191,35 @@ json stats_json(const Tally& s) {
     json stopped = json::object();
     for (std::size_t i = 0; i < 4; ++i) stopped[kStopped[i]] = s.stopped[i];
     if (s.stopped_other > 0) stopped["cancelled"] = s.stopped_other;
+
+    std::vector<int> highs = s.frame_highs;
+    std::sort(highs.begin(), highs.end());
+    double high_median = 0.0;
+    if (!highs.empty()) {
+        const std::size_t n = highs.size();
+        high_median = n % 2 == 1 ? highs[n / 2] : 0.5 * (highs[n / 2 - 1] + highs[n / 2]);
+    }
+    // [break, frames] for each highest break that occurred, so reports of one level can be merged.
+    json counts = json::array();
+    for (std::size_t i = 0; i < highs.size();) {
+        std::size_t k = i;
+        while (k < highs.size() && highs[k] == highs[i]) ++k;
+        counts.push_back(json::array({highs[i], static_cast<long long>(k - i)}));
+        i = k;
+    }
+    const auto at_least = [&](int points) {
+        return static_cast<long long>(std::count_if(highs.begin(), highs.end(), [points](int h) { return h >= points; }));
+    };
+    json by_cushions = json::object();
+    long long escape_played = 0;
+    long long escape_hit = 0;
+    for (std::size_t i = 0; i < s.escape_played.size(); ++i) {
+        escape_played += s.escape_played[i];
+        escape_hit += s.escape_hit[i];
+        if (s.escape_played[i] > 0) {
+            by_cushions[kCushionNames[i]] = {{"played", s.escape_played[i]}, {"hit", s.escape_hit[i]}};
+        }
+    }
     return {{"frames_won", s.frames_won},
             {"strokes", s.strokes},
             {"pots", {{"attempts", s.attempts}, {"made", s.made}, {"bands", bands}}},
@@ -1075,7 +1246,32 @@ json stats_json(const Tally& s) {
               {"us_p99", us.p99},
               {"us_max", us.max},
               {"stopped", stopped}}},
-            {"fallbacks", s.fallbacks}};
+            {"fallbacks", s.fallbacks},
+            {"tactics",
+             {{"safeties",
+               {{"played", s.safety_played},
+                {"then_pot_attempt", s.safety_then_attempt},
+                {"then_potted", s.safety_then_potted},
+                {"then_no_attempt", s.safety_played - s.safety_then_attempt},
+                {"snooker_kind", s.snooker_kind}}},
+              {"snookers",
+               {{"laid", s.snookers_laid},
+                {"called", s.snookers_called},
+                {"then_fouled", s.snooker_then_fouled},
+                {"then_foul_points", s.snooker_then_points}}},
+              {"escapes", {{"played", escape_played}, {"hit", escape_hit}, {"by_cushions", by_cushions}}},
+              {"break_offs",
+               {{"played", s.break_offs},
+                {"then_pot", s.break_off_then_pot},
+                {"then_no_pot", s.break_offs - s.break_off_then_pot}}}}},
+            {"frame_highs",
+             {{"frames", highs.size()},
+              {"typical", high_median},
+              {"fifty_plus", at_least(50)},
+              {"century", at_least(100)},
+              {"counts", counts}}},
+            {"concessions", s.concessions},
+            {"claims", s.claims}};
 }
 
 std::string percent(long long part, long long whole) {
@@ -1129,6 +1325,40 @@ void print_table(const Run& run, const json& a, const json* b) {
     row("maximum on / made", [](const json& s) {
         return format("%lld / %lld", s["maximum"]["visits_on"].get<long long>(),
                       s["maximum"]["completed"].get<long long>());
+    });
+    row("typical break", [](const json& s) {
+        return format("%.1f", s["frame_highs"]["typical"].get<double>());
+    });
+    row("  frames with 100+", [](const json& s) {
+        const json& h = s["frame_highs"];
+        return percent(h["century"].get<long long>(), h["frames"].get<long long>());
+    });
+    row("safeties then a pot", [](const json& s) {
+        const json& r = s["tactics"]["safeties"];
+        return percent(r["then_pot_attempt"].get<long long>(), r["played"].get<long long>());
+    });
+    row("  then potted", [](const json& s) {
+        const json& r = s["tactics"]["safeties"];
+        return percent(r["then_potted"].get<long long>(), r["played"].get<long long>());
+    });
+    row("snookers laid / called", [](const json& s) {
+        const json& n = s["tactics"]["snookers"];
+        return format("%lld / %lld", n["laid"].get<long long>(), n["called"].get<long long>());
+    });
+    row("  then fouled, points", [](const json& s) {
+        const json& n = s["tactics"]["snookers"];
+        return format("%lld, %lld", n["then_fouled"].get<long long>(), n["then_foul_points"].get<long long>());
+    });
+    row("escapes hit a ball on", [](const json& s) {
+        const json& e = s["tactics"]["escapes"];
+        return percent(e["hit"].get<long long>(), e["played"].get<long long>());
+    });
+    row("break-offs then a pot", [](const json& s) {
+        const json& b = s["tactics"]["break_offs"];
+        return percent(b["then_pot"].get<long long>(), b["played"].get<long long>());
+    });
+    row("concessions / claims", [](const json& s) {
+        return format("%lld / %lld", s["concessions"].get<long long>(), s["claims"].get<long long>());
     });
     row("sims mean / max", [](const json& s) {
         return format("%.1f / %d", s["think"]["sims_mean"].get<double>(), s["think"]["sims_max"].get<int>());
@@ -1194,6 +1424,7 @@ std::string load_side(const Args& args, const std::string& name, Side& out) {
     std::string file;
     if (id != nullptr) {
         if (!level_id_ok(*id)) return "--" + name + ": '" + *id + "' is not a level id";
+        if (*id == kReaderId) return "--" + name + ": '" + *id + "' is the game's position reader, not an opponent";
         file = data_path("opponent_" + *id + ".json");
         std::error_code ec;
         if (!fs::is_regular_file(fs::u8path(file), ec)) {
@@ -1212,6 +1443,9 @@ std::string load_side(const Args& args, const std::string& name, Side& out) {
     }
     if (id != nullptr && out.level.id != *id) {
         return "--" + name + ": " + shareable_path(file) + " has id '" + out.level.id + "'";
+    }
+    if (out.level.id == kReaderId) {
+        return "--" + name + ": " + shareable_path(file) + " is the game's position reader, not an opponent";
     }
     out.source = shareable_path(file);
     out.hash = ofs::params::content_hash(out.file);

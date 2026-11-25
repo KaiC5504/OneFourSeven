@@ -58,7 +58,133 @@ class TournamentCase(CliTestCase):
         return json.loads(report.read_text(encoding="utf-8"))
 
 
-class TournamentTest(TournamentCase):
+ESCAPE_MISSES = {"no_hit", "first_hit_not_on", "simultaneous_hit"}
+
+
+def recount(lines):
+    """The ladder's counts that a log shows, counted again from its lines alone, per side ("a" is
+    player 0): what followed each safety, escape and break-off, and the concessions and claims.
+    Snookers laid need the table's geometry, which only the engine has."""
+    sides = {side: {"safeties": [0, 0, 0], "escapes": {}, "break_offs": [0, 0], "concessions": 0, "claims": 0}
+             for side in ("a", "b")}
+    strokes = {}
+    follow = None  # (side, kind) of the last stroke
+    for line in lines:
+        event, d = line["event"], line["data"]
+        if event == "frame.started":
+            follow = None
+        elif event == "opponent.decision" and d["kind"] == "shot":
+            strokes[d["shot_id"]] = d
+        elif event == "opponent.decision" and d["kind"] == "choice":
+            side = "a" if d["player"] == 0 else "b"
+            if d["choice"] in ("concede_frame", "concede_match"):
+                sides[side]["concessions"] += 1
+                follow = None
+            elif d["choice"] == "claim_frame":
+                sides[side]["claims"] += 1
+                follow = None
+        elif event == "rules.decision":
+            decided = strokes[d["shot_id"]]
+            side = "a" if decided["player"] == 0 else "b"
+            why, judgement = decided["why"], d["judgement"]
+            kind = why.get("kind")
+            scored = judgement["points"] > 0 and not judgement["fouls"]
+            if follow is not None and follow[0] != side:
+                counts = sides[follow[0]]
+                if follow[1] == "safety":
+                    counts["safeties"][1] += kind == "pot"
+                    counts["safeties"][2] += kind == "pot" and scored
+                elif follow[1] == "break":
+                    counts["break_offs"][1] += kind == "pot" or why.get("pots", 0) > 0
+            follow = (side, "safety" if kind in ("safety", "snooker") else kind)
+            if kind in ("safety", "snooker"):
+                sides[side]["safeties"][0] += 1
+            elif kind == "break":
+                sides[side]["break_offs"][0] += 1
+            elif kind == "escape":
+                cushions = why.get("cushions")
+                bucket = "unknown" if not isinstance(cushions, int) else "5+" if cushions >= 5 else str(cushions)
+                played, hit = sides[side]["escapes"].get(bucket, (0, 0))
+                missed = any(f["kind"] in ESCAPE_MISSES for f in judgement["fouls"])
+                sides[side]["escapes"][bucket] = (played + 1, hit + (not missed))
+    return sides
+
+
+class LadderCounts:
+    """The stage 2 counts of a report, checked for their types and sums and against the log."""
+
+    def check_ladder_counts(self, report, lines):
+        again = recount(lines)
+        for side in ("a", "b"):
+            with self.subTest(side=side):
+                stats = report[side]
+                tactics = stats["tactics"]
+                for group in tactics.values():
+                    for key, value in group.items():
+                        if key != "by_cushions":
+                            self.assertIsInstance(value, int, key)
+                            self.assertGreaterEqual(value, 0, key)
+                safeties = tactics["safeties"]
+                self.assertEqual(safeties["played"], stats["safeties"])
+                self.assertEqual(safeties["then_pot_attempt"] + safeties["then_no_attempt"], safeties["played"])
+                self.assertLessEqual(safeties["then_potted"], safeties["then_pot_attempt"])
+                self.assertLessEqual(safeties["snooker_kind"], safeties["played"])
+                self.assertEqual([safeties["played"], safeties["then_pot_attempt"], safeties["then_potted"]],
+                                 again[side]["safeties"])
+                snookers = tactics["snookers"]
+                self.assertLessEqual(snookers["called"], snookers["laid"])
+                self.assertLessEqual(snookers["called"], safeties["snooker_kind"])
+                self.assertLessEqual(snookers["then_fouled"], snookers["laid"])
+                self.assertGreaterEqual(snookers["then_foul_points"], 4 * snookers["then_fouled"])
+                self.assertLessEqual(snookers["then_foul_points"], 7 * snookers["then_fouled"])
+                escapes = tactics["escapes"]
+                self.assertEqual(escapes["played"], stats["escapes"])
+                self.assertLessEqual(escapes["hit"], escapes["played"])
+                self.assertLessEqual(set(escapes["by_cushions"]), {"0", "1", "2", "3", "4", "5+", "unknown"})
+                self.assertEqual(sum(b["played"] for b in escapes["by_cushions"].values()), escapes["played"])
+                self.assertEqual(sum(b["hit"] for b in escapes["by_cushions"].values()), escapes["hit"])
+                self.assertEqual({k: (b["played"], b["hit"]) for k, b in escapes["by_cushions"].items()},
+                                 again[side]["escapes"])
+                break_offs = tactics["break_offs"]
+                self.assertEqual(break_offs["then_pot"] + break_offs["then_no_pot"], break_offs["played"])
+                self.assertEqual([break_offs["played"], break_offs["then_pot"]], again[side]["break_offs"])
+                highs = stats["frame_highs"]
+                self.assertEqual(highs["frames"], report["frames"])
+                counts = highs["counts"]
+                self.assertEqual(counts, sorted(counts))
+                self.assertEqual(sum(frames for _, frames in counts), highs["frames"])
+                values = sorted(points for points, frames in counts for _ in range(frames))
+                n = len(values)
+                self.assertEqual(highs["typical"], values[n // 2] if n % 2 else (values[n // 2 - 1] + values[n // 2]) / 2)
+                self.assertEqual(highs["century"], sum(v >= 100 for v in values))
+                self.assertEqual(highs["fifty_plus"], sum(v >= 50 for v in values))
+                self.assertEqual(max(values), stats["breaks"]["highest"])
+                self.assertEqual(stats["concessions"], again[side]["concessions"])
+                self.assertEqual(stats["claims"], again[side]["claims"])
+
+
+class TournamentLadderTest(LadderCounts):
+    """Mixed into TournamentTest, so its shared run is not played again."""
+
+    def test_the_ladder_counts_add_up_and_agree_with_the_log(self):
+        self.check_ladder_counts(self.report, self.lines)
+        for name in ("typical break", "safeties then a pot", "snookers laid / called", "escapes hit a ball on",
+                     "break-offs then a pot", "concessions / claims"):
+            self.assertIn(name, self.result.stdout)
+
+    def test_the_position_reader_is_not_an_opponent(self):
+        reader = json.loads(BEGINNER.read_text(encoding="utf-8"))
+        reader["id"] = "person"
+        path = self.tmp / "opponent_person.json"
+        path.write_text(json.dumps(reader), encoding="utf-8")
+        for args in (("--a", "person", "--b", "beginner"), ("--a", "beginner", "--b-file", path)):
+            with self.subTest(args=args):
+                result = run("tournament", *args, "--frames", 1, "--out", self.tmp / "failures")
+                self.assert_exit(result, 2)
+                self.assertIn("is the game's position reader, not an opponent", result.stderr)
+
+
+class TournamentTest(TournamentCase, TournamentLadderTest):
     def test_six_frames_end_with_sane_counts(self):
         report = self.report
         self.assertEqual(report["frames"], 6)
@@ -246,6 +372,22 @@ class TournamentTest(TournamentCase):
         self.assertNotIn(home, self.result.stdout)
         self.assertNotIn(home, self.report_file.read_text(encoding="utf-8"))
         self.assertIn("report: report.json", self.result.stdout)
+
+
+class TwoLevelsTest(CliTestCase, LadderCounts):
+    """Two frames of two stage 2 levels, one on each side."""
+
+    def test_two_levels_play_each_other_and_their_counts_add_up(self):
+        report_file, log = self.tmp / "ladder.json", self.tmp / "ladder.jsonl"
+        result = run("tournament", "--a", "club", "--b", "amateur", "--frames", 2, "--seed", 5, "--threads", 2,
+                     "--out", self.tmp / "failures", "--report", report_file, "--log", log, timeout=600)
+        self.assert_exit(result, 0)
+        report = json.loads(report_file.read_text(encoding="utf-8"))
+        self.assertEqual((report["levels"]["a"]["id"], report["levels"]["b"]["id"]), ("club", "amateur"))
+        self.assertEqual(report["a"]["frames_won"] + report["b"]["frames_won"], 2)
+        lines = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
+        self.check_ladder_counts(report, lines)
+        self.assertEqual({d["data"]["level"] for d in lines if d["event"] == "opponent.decision"}, {"club", "amateur"})
 
 
 class ReportToolTest(TournamentCase):

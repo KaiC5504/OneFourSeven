@@ -329,8 +329,9 @@ ofs_sim_cli tournament --a maximum --frames 0 --exhibitions
 
 - `--a ID` and `--b ID` name the levels (`core/data/opponent_<id>.json`); A is player 0. `--a-file
   PATH` or `--b-file PATH` reads a level file from elsewhere instead, for tuning without touching
-  `core/data`. Each level is printed with its file and content hash. An unknown id or a file that
-  is not a level exits 2.
+  `core/data`. Each level is printed with its file and content hash. Any level with a file there
+  can play either side. An unknown id, a file that is not a level, and the game's position reader
+  (`person`, `opponent_person.json`, which is not an opponent) exit 2.
 - Each frame is played as a match in the game: `opponent::choose_stroke` for the striker, the cue
   ball placed when the stroke places it, the shot simulated and judged, and every pending decision
   answered by `opponent::choose_option` and applied with `rules::decide`; a stroke that would claim
@@ -374,8 +375,9 @@ ofs_sim_cli tournament --a maximum --frames 0 --exhibitions
   `frames_per_s`). Each level's counts: `frames_won`; `strokes`; `pots` (`attempts`, `made`, and
   by `bands`: `short`, `medium`, `long`, and `unknown` for a pot whose `why` names no band);
   `breaks` (`count`, `mean`, `median`, `highest`, `fifty_plus`, `hundred_plus`, `maximums`), every
-  break of a point or more, its value the frame's `break_points` as it ended; `safeties` and
-  `escapes` (strokes of that `why.kind`); those two split by whether the search found a stroke that
+  break of a point or more, its value the frame's `break_points` as it ended; `safeties` (strokes
+  whose `why.kind` is `safety` or `snooker`) and `escapes` (`escape`); those two split by whether
+  the search found a stroke that
   makes a pot, `safeties_with_pot` (`why.pots` above 0: it had a pot and played safe) and `no_pot`
   (`why.pots` 0 or absent; break-offs are of kind `break`, so in neither); `fouls` (strokes that
   fouled); `points` (scored at the table, penalties received not counted); `maximum` (`visits_on`:
@@ -384,6 +386,34 @@ ofs_sim_cli tournament --a maximum --frames 0 --exhibitions
   (`sims_mean`, `sims_max`, `steps_mean`, `us_mean`, `us_p99`, `us_max`, and `stopped`: how many
   ended `done`, `sims`, `steps`, `time`, `cancelled`); `fallbacks`. Everything but `think`'s times and `timing`
   is the same for the same options.
+- The ladder's counts (`docs/opponent/README.md`, "The ladder"), in frames only, never in an
+  exhibition. "Then" is the next stroke of the frame (a choice between is passed over) when it is
+  the other player's; when the next stroke is the same player's again, or none comes (the frame
+  ends, is conceded or claimed, or is re-racked), nothing followed. Each level's:
+  - `tactics.safeties`: `played`, every stroke of kind `safety` or `snooker`, fouled or not;
+    `then_pot_attempt`, those then followed by a pot attempt (`why.kind` `pot`); `then_potted`,
+    the attempts among them that scored (points above 0, no foul); `then_no_attempt`, `played`
+    less `then_pot_attempt`; `snooker_kind`, the strokes of `played` of kind `snooker`.
+  - `tactics.snookers`: `laid`, strokes of any kind with no foul that passed the turn (the frame
+    not over, not re-racked, nothing pending) and left the other player snookered as the engine
+    calls a free ball: `rules::TableOracle::snookered` on the position left, the balls on by
+    `rules::places_on`; never what the level's `why` claims. `called`, those of kind `snooker`;
+    `then_fouled`, those whose next stroke fouled; `then_foul_points`, the penalties of those next
+    strokes added up.
+  - `tactics.escapes`: `played`, strokes of kind `escape`; `hit`, those whose judgement has none
+    of the fouls for not hitting a ball on first (`no_hit`, `first_hit_not_on`,
+    `simultaneous_hit`); `by_cushions`, both again by `why.cushions` (`0` to `4`, `5+`, or
+    `unknown` when the `why` has none, as the stand-in's has not), only the counts that occur.
+  - `tactics.break_offs`: `played`, strokes of kind `break`; `then_pot`, those followed by a pot
+    attempt or by a stroke whose `why.pots` is above 0 (the other player had a pot);
+    `then_no_pot`, the rest.
+  - `frame_highs`: the level's highest break in each frame it played, re-racks included, 0 when it
+    made none: `frames`, how many; `typical`, their median (the **typical break**); `fifty_plus`
+    and `century`, the frames whose highest is 50 or more and 100 or more; `counts`, `[break,
+    frames]` for each highest break that occurred, lowest first, so reports can be merged. In a
+    frame of a level against itself each side counts its own.
+  - `concessions` (`concede_frame` or `concede_match`) and `claims` (`claim_frame`): the choices
+    the engine took, made in place of a stroke or when offered.
 - `--log FILE` writes the run's log as JSONL, the lines a game session logs: `params.loaded` (the
   physics file, then each level file), `rules.configured` (the referee's and stand-in's values and
   each level's, with its file's `hash`, as the game's binding logs them), then each frame in order
