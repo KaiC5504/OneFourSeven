@@ -244,8 +244,11 @@ TEST_CASE("README The order: with no pot on the table a level with tactics plays
 TEST_CASE("README The order, Worth: a long red under safety_below as the only pot gives way to the tactic") {
     const FrameState s = named("long_red");
     REQUIRE(pots(s, rig::env(), rig::levels().world.max_cut_rad).size() == 1);
-    const Level pro = sharp(rig::levels().pro);
-    for (const Level* level : {&rig::levels().club, &rig::levels().amateur, static_cast<const Level*>(&pro)}) {
+    // The levels' own floors were tuned to under this red's chance: each takes one above it.
+    std::vector<Level> held = {rig::levels().club, rig::levels().amateur, sharp(rig::levels().pro)};
+    for (Level& floor : held) floor.safety_below = 0.3;
+    for (const Level& held_level : held) {
+        const Level* level = &held_level;
         const std::vector<Pot> listed = pots(s, rig::env(), level->max_cut_rad);
         REQUIRE(listed.size() == 1);
         CHECK(pot_chance(*level, listed[0], Spec{}, listed[0].margin_rad) < level->safety_below);

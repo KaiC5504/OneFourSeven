@@ -253,6 +253,12 @@ compared:
     `read_position(...).worth` of the position the planned stroke leaves; for `depth` 1 to 3 the
     best continuation found by simulating that many further pots, each stage narrower than the
     last, each pot's worth weighted by its chance (the 147's staged scheme with chances in it).
+    At those depths the stroke's pace and spin are charged against it, `w * (leave - cost)`:
+    `cost` is `kErrPaceCost` (4) times the square of its pace (0 at the least speed that pots,
+    1 at the top, by the logarithm) plus `kErrSpinCost` (1) times the square of the tip's
+    offset. The level's error grows with both, and its reading does not see what that does to
+    the position (most leaves read a chance near 1), so of plans read alike the quieter is
+    played. Off the leave, never the pot's own value: pace spoils only the position.
   - `giveaway`: `read_position(...).worth` for the other player of the position one simulated
     miss leaves, the mean of two: the planned stroke with its aim turned to the thicker side
     (towards the object ball's centre) and to the thinner, each by 2 of the pot's margins
