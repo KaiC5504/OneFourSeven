@@ -26,7 +26,7 @@
     "miss_weight": 0.0,
     "noisy_sims": 0,
     "score_aware": 0.0,
-    "concede_snookers": 1,
+    "concede_snookers": 0,
     "maximum": false
   },
   "docs": {
@@ -147,7 +147,7 @@
     },
     "concede_snookers": {
       "unit": "count",
-      "source": "the owner (M3): the computer concedes only when it needs snookers",
+      "source": "spec 10.4: only the top levels concede, and only a hopeless frame (M4 stage 2, 2026-11-25)",
       "note": "It concedes a frame in which it needs this many snookers; 0 never."
     },
     "maximum": {

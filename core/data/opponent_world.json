@@ -1,16 +1,16 @@
 {
   "schema_version": 1,
   "id": "world",
-  "_note": "Level 5 of the computer opponent (spec 10.1): about 95% of medium shots and 75% of long ones, regular big breaks and centuries, full tactical play, snookers, score-aware risk, concedes hopeless frames. 'values' is what is loaded; 'docs' gives each value's unit, source and note. Starting values until the tournament tunes them to spec 10.1 and the ladder.",
+  "_note": "Level 5 of the computer opponent (spec 10.1): about 95% of medium shots and 75% of long ones, regular big breaks and centuries, full tactical play, snookers, score-aware risk, concedes hopeless frames. 'values' is what is loaded; 'docs' gives each value's unit, source and note. Tuned to spec 10.1 and the ladder by ofs_sim_cli tournament (2026-11-25): each level against itself over 1,000 frames, each over the one below over 300.",
   "values": {
     "name": "World class",
     "tier": 5,
-    "aim_sigma_rad": 0.0004,
+    "aim_sigma_rad": 0.000425,
     "aim_sigma_per_cut": 0.35,
-    "aim_sigma_per_m": 0.3,
+    "aim_sigma_per_m": 0.6,
     "awkward_factor": 1.15,
-    "speed_sigma": 0.03,
-    "tip_sigma": 0.015,
+    "speed_sigma": 0.01,
+    "tip_sigma": 0.005,
     "max_cut_rad": 1.35,
     "max_tip": 0.5,
     "speeds": 8,
@@ -18,12 +18,12 @@
     "depth": 2,
     "position_weight": 1.0,
     "judgement_sigma": 0.05,
-    "safety_below": 0.35,
+    "safety_below": 0.1,
     "max_sims": 6000,
     "tactics": 3,
     "safety_tries": 200,
     "escape_cushions": 2,
-    "miss_weight": 1.0,
+    "miss_weight": 0.25,
     "noisy_sims": 0,
     "score_aware": 1.0,
     "concede_snookers": 3,
@@ -42,7 +42,7 @@
     },
     "aim_sigma_rad": {
       "unit": "rad",
-      "source": "ours, tuned to spec 10.1 by ofs_sim_cli tournament",
+      "source": "ours, tuned to spec 10.1 by ofs_sim_cli tournament (2026-11-25)",
       "note": "Standard deviation of the aim on a short straight pot with nothing in the way."
     },
     "aim_sigma_per_cut": {
@@ -52,7 +52,7 @@
     },
     "aim_sigma_per_m": {
       "unit": "1/m",
-      "source": "ours, tuned",
+      "source": "ours, tuned to spec 10.1 by ofs_sim_cli tournament (2026-11-25)",
       "note": "The aim's sigma grows by this fraction per metre the cue ball travels to its ball."
     },
     "awkward_factor": {
@@ -62,12 +62,12 @@
     },
     "speed_sigma": {
       "unit": "fraction",
-      "source": "ours, tuned",
+      "source": "ours, tuned to spec 10.1 by ofs_sim_cli tournament (2026-11-25)",
       "note": "Standard deviation of the cue speed, as a fraction of the speed meant."
     },
     "tip_sigma": {
       "unit": "fraction of R",
-      "source": "ours, tuned",
+      "source": "ours, tuned to spec 10.1 by ofs_sim_cli tournament (2026-11-25)",
       "note": "Standard deviation of each tip offset."
     },
     "max_cut_rad": {
@@ -107,7 +107,7 @@
     },
     "safety_below": {
       "unit": "chance",
-      "source": "ours, tuned",
+      "source": "ours, tuned to spec 10.1 by ofs_sim_cli tournament (2026-11-25)",
       "note": "It plays safe when its best pot's chance, as it reads it, is under this."
     },
     "max_sims": {
@@ -132,7 +132,7 @@
     },
     "miss_weight": {
       "unit": "0 to 1",
-      "source": "ours, spec 10.2 step 4",
+      "source": "ours, tuned to spec 10.1 by ofs_sim_cli tournament (2026-11-25)",
       "note": "How much of what a miss leaves the other player it counts against a pot."
     },
     "noisy_sims": {
@@ -147,7 +147,7 @@
     },
     "concede_snookers": {
       "unit": "count",
-      "source": "the owner (M3): the computer concedes only when it needs snookers",
+      "source": "spec 10.4: only the top levels concede, and only a hopeless frame (M4 stage 2, 2026-11-25)",
       "note": "It concedes a frame in which it needs this many snookers; 0 never."
     },
     "maximum": {

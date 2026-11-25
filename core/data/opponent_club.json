@@ -1,11 +1,11 @@
 {
   "schema_version": 1,
   "id": "club",
-  "_note": "Level 2 of the computer opponent (spec 10.1): about 60% of medium shots and 25% of long ones, breaks of 10 to 20, basic safeties, simple stun and screw. 'values' is what is loaded; 'docs' gives each value's unit, source and note. Starting values until the tournament tunes them to spec 10.1 and the ladder.",
+  "_note": "Level 2 of the computer opponent (spec 10.1): about 60% of medium shots and 25% of long ones, breaks of 10 to 20, basic safeties, simple stun and screw. 'values' is what is loaded; 'docs' gives each value's unit, source and note. Tuned to spec 10.1 and the ladder by ofs_sim_cli tournament (2026-11-25): each level against itself over 1,000 frames, each over the one below over 300.",
   "values": {
     "name": "Club",
     "tier": 2,
-    "aim_sigma_rad": 0.0016,
+    "aim_sigma_rad": 0.0011,
     "aim_sigma_per_cut": 0.6,
     "aim_sigma_per_m": 0.6,
     "awkward_factor": 1.4,
@@ -16,17 +16,17 @@
     "speeds": 3,
     "spins": 3,
     "depth": 0,
-    "position_weight": 0.3,
+    "position_weight": 0.6,
     "judgement_sigma": 0.35,
-    "safety_below": 0.15,
-    "max_sims": 400,
+    "safety_below": 0.05,
+    "max_sims": 800,
     "tactics": 1,
     "safety_tries": 24,
     "escape_cushions": 0,
-    "miss_weight": 0.3,
+    "miss_weight": 0.1,
     "noisy_sims": 0,
     "score_aware": 0.2,
-    "concede_snookers": 1,
+    "concede_snookers": 0,
     "maximum": false
   },
   "docs": {
@@ -42,7 +42,7 @@
     },
     "aim_sigma_rad": {
       "unit": "rad",
-      "source": "ours, tuned to spec 10.1 by ofs_sim_cli tournament",
+      "source": "ours, tuned to spec 10.1 by ofs_sim_cli tournament (2026-11-25)",
       "note": "Standard deviation of the aim on a short straight pot with nothing in the way."
     },
     "aim_sigma_per_cut": {
@@ -97,7 +97,7 @@
     },
     "position_weight": {
       "unit": "0 to 1",
-      "source": "ours",
+      "source": "ours, tuned to spec 10.1 by ofs_sim_cli tournament (2026-11-25)",
       "note": "How much the position left counts beside the pot itself."
     },
     "judgement_sigma": {
@@ -107,12 +107,12 @@
     },
     "safety_below": {
       "unit": "chance",
-      "source": "ours, tuned",
+      "source": "ours, tuned to spec 10.1 by ofs_sim_cli tournament (2026-11-25)",
       "note": "It plays safe when its best pot's chance, as it reads it, is under this."
     },
     "max_sims": {
       "unit": "count",
-      "source": "ours, from the think time of spec 10.6",
+      "source": "ours, tuned to spec 10.1 by ofs_sim_cli tournament (2026-11-25)",
       "note": "Simulations it may run for one stroke."
     },
     "tactics": {
@@ -132,7 +132,7 @@
     },
     "miss_weight": {
       "unit": "0 to 1",
-      "source": "ours, spec 10.2 step 4",
+      "source": "ours, tuned to spec 10.1 by ofs_sim_cli tournament (2026-11-25)",
       "note": "How much of what a miss leaves the other player it counts against a pot."
     },
     "noisy_sims": {
@@ -147,7 +147,7 @@
     },
     "concede_snookers": {
       "unit": "count",
-      "source": "the owner (M3): the computer concedes only when it needs snookers",
+      "source": "spec 10.4: only the top levels concede, and only a hopeless frame (M4 stage 2, 2026-11-25)",
       "note": "It concedes a frame in which it needs this many snookers; 0 never."
     },
     "maximum": {

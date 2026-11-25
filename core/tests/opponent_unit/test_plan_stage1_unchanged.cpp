@@ -1,7 +1,7 @@
 // Stage 2 leaves Beginner and the 147 deciding as they did in stage 1 (README "Stage 2"): their
 // strokes over frames the stand-in played, the fixtures and the exhibition tables, recorded from
-// the stage 1 search in fixtures/opponent/pl_stage1_strokes.json. Beginner's file now concedes,
-// so it is compared through a copy of its level that never does.
+// the stage 1 search in fixtures/opponent/pl_stage1_strokes.json. Beginner is compared through a
+// copy of its level that never concedes, whatever its file says.
 //
 // OFS_PL_RECORD=1 writes the fixture again from the code as it stands.
 

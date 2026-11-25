@@ -61,8 +61,8 @@ TEST_CASE("the pot is played when its score beats the tactic's worth, else the t
 }
 
 TEST_CASE("a pot under safety_below is not played while a tactic was found, whatever its score") {
-    const Level level = club();
-    REQUIRE(level.safety_below > 0.05);
+    Level level = club();
+    level.safety_below = 0.15;
     const FrameState s = scored(0, 0);
     CHECK(pick(pot_of(40.0, level.safety_below - 0.01), tactic_worth(-10.0), s, level) == Pick::tactic);
     CHECK(pick(pot_of(40.0, level.safety_below), tactic_worth(-10.0), s, level) == Pick::pot);
