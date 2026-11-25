@@ -1,0 +1,23 @@
+{
+  "note": "Red on, mid-frame: nine reds loose about the pink, the colours on their spots, the cue ball just above the blue with no pot it would take on. A safety's table: the reds at the top, baulk empty.",
+  "cue_ball": 0,
+  "balls": [
+    {"ball": "cue", "index": 0, "x": 0.25, "y": -0.35},
+    {"ball": "red", "index": 0, "x": 1.0, "y": 0.05},
+    {"ball": "red", "index": 1, "x": 1.06, "y": -0.08},
+    {"ball": "red", "index": 2, "x": 1.12, "y": 0.12},
+    {"ball": "red", "index": 3, "x": 1.18, "y": -0.02},
+    {"ball": "red", "index": 4, "x": 1.25, "y": 0.2},
+    {"ball": "red", "index": 5, "x": 1.3, "y": -0.18},
+    {"ball": "red", "index": 6, "x": 0.95, "y": 0.3},
+    {"ball": "red", "index": 7, "x": 1.4, "y": 0.4},
+    {"ball": "red", "index": 8, "x": 1.15, "y": -0.35},
+    {"ball": "yellow", "index": 0, "x": -1.0475, "y": -0.292},
+    {"ball": "green", "index": 0, "x": -1.0475, "y": 0.292},
+    {"ball": "brown", "index": 0, "x": -1.0475, "y": 0.0},
+    {"ball": "blue", "index": 0, "x": 0.0, "y": 0.0},
+    {"ball": "pink", "index": 0, "x": 0.89225, "y": 0.0},
+    {"ball": "black", "index": 0, "x": 1.4605, "y": 0.0}
+  ],
+  "scores": [24, 31]
+}

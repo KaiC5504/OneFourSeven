@@ -1,0 +1,11 @@
+{
+  "note": "ta_ahead's table with the scores the other way: the striker 40 behind with 13 on the table, needing snookers.",
+  "cue_ball": 0,
+  "balls": [
+    {"ball": "cue", "index": 0, "x": -1.2, "y": 0.4},
+    {"ball": "pink", "index": 0, "x": 0.89225, "y": 0.0},
+    {"ball": "black", "index": 0, "x": 1.65, "y": -0.3}
+  ],
+  "on": {"kind": "colour", "colour": "pink"},
+  "scores": [22, 62]
+}
