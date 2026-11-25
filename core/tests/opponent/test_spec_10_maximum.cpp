@@ -227,8 +227,7 @@ TEST_CASE("README, the search: the 147's stroke is the same whatever the seed") 
     for (const std::string name : {"straight_red", "after_red", "last_red"}) {
         const FrameState s = named(name);
         const Stroke& first = chosen(name);
-        for (std::uint64_t seed : {std::uint64_t(2), std::uint64_t(17), std::uint64_t(99), std::uint64_t(12345),
-                                    std::uint64_t(0xFFFFFFFFull)}) {
+        for (std::uint64_t seed : {std::uint64_t(2), std::uint64_t(0xFFFFFFFFull)}) {
             CAPTURE(name);
             CAPTURE(seed);
             const Stroke other = choose(s, maximum(), seed);

@@ -34,7 +34,8 @@ struct Levels {
     std::vector<Exhibition> exhibitions;
 };
 
-// core/data's standin_params.json, the six level files and exhibitions.json, loaded once. A file that is refused aborts the test run with its problems.
+// core/data's standin_params.json, the six level files and exhibitions.json, loaded once. A file
+// that is refused aborts the test run with its problems.
 inline const Levels& levels() {
     static const Levels instance = [] {
         Levels l;
