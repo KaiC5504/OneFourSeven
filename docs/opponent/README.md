@@ -303,6 +303,13 @@ step each) and passed by the referee (a stroke that fouls as planned is never a 
   for an escape), `hit`, `spec` (as `meant`), `leave` (`cue`, `snookered`: true or false,
   `next`: the other player's best pot as read, `chance`), `worth`, `gain`, `risk`, `score`
   (`ahead` or `snookers` when the score moved the worth), `others` (up to three).
+- With every red in the top half, a safety's paces are measured to bring the cue ball back to
+  baulk, cushions counted, and a safety that ends in the baulk half is chosen before any that
+  does not, whatever their worth; snookers, escapes and break-offs are outside that rule.
+- A ball on that touches the cue ball can be played away from: centre-ball strokes that part
+  from it, at every level with tactics.
+- An escape with no cushion route within the level's count still tries strokes straight at
+  each ball on and at its mirror images, so that there is a nearest to answer.
 - Snookered is always `TableOracle::snookered` on the position left, the engine's own test for
   a free ball. With `tactics` 1 every stroke is centre ball, whatever the level's `max_tip`.
 - A level with `tactics` 0, or a budget stopped before the first candidate, gives `found` false
