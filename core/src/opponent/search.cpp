@@ -356,43 +356,31 @@ double noisy_chance(const Bench& b, const FrameState& s, const Pot& pot, const p
     return b.level.noisy_sims > 0 ? double(potted) / b.level.noisy_sims : 0.0;
 }
 
-struct Giveaway {
+struct Missed {
     double worth = 0.0;
     // The margins the aim was turned by for the miss it was read from; 0 when every turn potted.
     double turn = 0.0;
 };
 
-// What one miss of `pot` gives the other player (README "Worth"): the planned stroke with its aim
-// turned to the thicker side by kMissTurns margins in turn, the first whose ball stays out read
-// for them by this level, a foul's points added. The geometric margin is narrower than the
-// pocket's real window, so a turn of one margin mostly still pots. 0 when every turn potted.
-Giveaway giveaway(const Bench& b, const FrameState& s, const Pot& pot, const phys::CueStrike& planned) {
-    Giveaway out;
-    const FrameState* from = &s;
-    FrameState placed;
-    if (s.cue_in_hand) {
-        placed = s;
-        std::string error;
-        if (!rules::place_cue_ball(placed, pot.cue, b.env.oracle, error)) return out;
-        from = &placed;
-    }
-    const Vec2 object = s.balls[std::size_t(pot.target)].pos;
-    const double fuller =
-        std::remainder(std::atan2(object.y - pot.cue.y, object.x - pot.cue.x) - pot.aim_rad, 6.283185307179586);
-    const double side = fuller < 0.0 ? -1.0 : 1.0;
-    const phys::TableState table = table_state(s, pot.cue);
+// One side's miss: the planned stroke with its aim turned `side` by kMissTurns margins in turn,
+// the first whose ball stays out read for the other player by this level, a foul's points added.
+// The geometric margin is narrower than the pocket's real window, so a turn of one margin mostly
+// still pots. 0 when every turn potted.
+Missed missed(const Bench& b, const FrameState& s, const FrameState& from, const Pot& pot,
+              const phys::CueStrike& planned, double side, const phys::TableState& table) {
+    Missed out;
     for (const double turn : kMissTurns) {
         phys::CueStrike miss = planned;
         miss.aim_rad = planned.aim_rad + side * turn * pot.margin_rad;
         miss.elevation_rad = std::max(planned.elevation_rad,
                                       lowest_cue(table, s.cue_ball, miss.aim_rad, miss.tip_x, miss.tip_y, b.env));
         phys::ShotRecord record;
-        const Trial trial = try_strike(*from, pot.cue, miss, b.env, &record);
+        const Trial trial = try_strike(from, pot.cue, miss, b.env, &record);
         ++b.budget.sims;
         if (!trial.clean) return out;
         if (std::find(trial.potted.begin(), trial.potted.end(), pot.target) != trial.potted.end()) continue;
         out.turn = turn;
-        const rules::Judgement j = rules::judge_shot(*from, pot.input, record, b.env.table, b.env.oracle, b.env.ref);
+        const rules::Judgement j = rules::judge_shot(from, pot.input, record, b.env.table, b.env.oracle, b.env.ref);
         out.worth = j.fouls.empty() ? 0.0 : double(j.penalty);
         FrameState left = j.post;
         if (left.over) return out;
@@ -407,6 +395,38 @@ Giveaway giveaway(const Bench& b, const FrameState& s, const Pot& pot, const phy
         out.worth += read_position(left, b.level, b.env).worth;
         return out;
     }
+    return out;
+}
+
+struct Giveaway {
+    double worth = 0.0;
+    double thick_turn = 0.0;
+    double thin_turn = 0.0;
+};
+
+// What a miss of `pot` gives the other player (README "Worth"): the mean of a miss to the thicker
+// side and one to the thinner. One side alone let the search pick whichever speed's thick miss
+// happened to be harmless while its thin miss left the red.
+Giveaway giveaway(const Bench& b, const FrameState& s, const Pot& pot, const phys::CueStrike& planned) {
+    Giveaway out;
+    const FrameState* from = &s;
+    FrameState placed;
+    if (s.cue_in_hand) {
+        placed = s;
+        std::string error;
+        if (!rules::place_cue_ball(placed, pot.cue, b.env.oracle, error)) return out;
+        from = &placed;
+    }
+    const Vec2 object = s.balls[std::size_t(pot.target)].pos;
+    const double fuller =
+        std::remainder(std::atan2(object.y - pot.cue.y, object.x - pot.cue.x) - pot.aim_rad, 6.283185307179586);
+    const double thicker = fuller < 0.0 ? -1.0 : 1.0;
+    const phys::TableState table = table_state(s, pot.cue);
+    const Missed thick = missed(b, s, *from, pot, planned, thicker, table);
+    const Missed thin = missed(b, s, *from, pot, planned, -thicker, table);
+    out.worth = (thick.worth + thin.worth) / 2.0;
+    out.thick_turn = thick.turn;
+    out.thin_turn = thin.turn;
     return out;
 }
 
@@ -569,7 +589,7 @@ public:
         out.why["drawn"] = drawn_json(drawn);
         if (level_.miss_weight > 0.0) {
             out.why["giveaway"] = c.giveaway;
-            out.why["miss_turn"] = c.miss_turn;
+            out.why["miss_turn"] = {c.thick_turn, c.thin_turn};
         }
         if (level_.noisy_sims > 0) out.why["chance_by"] = "sims";
     }
@@ -581,7 +601,8 @@ private:
         double chance = 0.0;
         double score = 0.0;
         double giveaway = 0.0;
-        double miss_turn = 0.0;
+        double thick_turn = 0.0;  // the margins of each side's miss, 0 for a side that always potted
+        double thin_turn = 0.0;
         Vec2 cue_rest;
         std::string next;
         double next_chance = 0.0;
@@ -599,7 +620,8 @@ private:
         if (level_.miss_weight > 0.0) {
             const Giveaway given = giveaway(bench_, s_, pot, made.strike);
             c.giveaway = given.worth;
-            c.miss_turn = given.turn;
+            c.thick_turn = given.thick_turn;
+            c.thin_turn = given.thin_turn;
         }
         double leave = 0.0;
         if (made.goes_on) {
@@ -744,7 +766,7 @@ public:
         out.why["worth"] = c.value[stage_];
         if (errs_ && level_.miss_weight > 0.0) {
             out.why["giveaway"] = c.giveaway;
-            out.why["miss_turn"] = c.miss_turn;
+            out.why["miss_turn"] = {c.thick_turn, c.thin_turn};
         }
         if (errs_ && level_.noisy_sims > 0) out.why["chance_by"] = "sims";
         if (errs_) {
@@ -812,7 +834,8 @@ private:
         double chance = 1.0;
         double gain = 0.0;
         double giveaway = 0.0;
-        double miss_turn = 0.0;
+        double thick_turn = 0.0;  // the margins of each side's miss, 0 for a side that always potted
+        double thin_turn = 0.0;
         int node = -1;  // the position it leaves, once looked into
         // By how many strokes beyond it were looked into: what its plan is worth, the candidate
         // of its node that plan plays next (-1 none), and whether the plan runs the whole way.
@@ -1052,7 +1075,8 @@ private:
         if (first && level_.miss_weight > 0.0) {
             const Giveaway given = giveaway(bench_, n.s, pot, made.strike);
             c.giveaway = given.worth;
-            c.miss_turn = given.turn;
+            c.thick_turn = given.thick_turn;
+            c.thin_turn = given.thin_turn;
         }
         if (made.goes_on) {
             const std::vector<Pot> next = pots(made.post, env_, level_.max_cut_rad);
