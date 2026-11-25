@@ -190,60 +190,87 @@ class Lanes(unittest.TestCase):
             lanes = {lane.name: lane for lane in gate.lanes(quick=quick)}
             self.assertEqual(["physics"], lanes["opponent"].after)
 
-    def test_quick_plays_both_tournaments_with_no_marks(self):
-        calls, _ = self.opponent_commands(quick=True)
-        self.assertEqual(2, len(calls))
-        beginner, maximum = calls
+    def test_quick_plays_every_level_clean_with_no_marks(self):
+        with mock.patch.object(gate, "OPPONENT_REPORTS", Path("reports")):
+            calls, outcomes = self.opponent_commands(quick=True)
+        self.assertEqual(2 + 2 * len(gate.STAGE2_LEVELS), len(calls))
+        self.assertTrue(all(ok for ok, _ in outcomes))
+        beginner, maximum = calls[:2]
         self.assertEqual(["sim", "tournament", "--a", "beginner", "--b", "beginner", "--frames", "30"], beginner[:8])
         self.assertEqual(["sim", "tournament", "--a", "maximum", "--b", "beginner", "--frames", "3"], maximum[:8])
+        self.assertEqual(("club", "amateur", "pro", "world"), gate.STAGE2_LEVELS)
+        for i, level in enumerate(gate.STAGE2_LEVELS):
+            with self.subTest(level=level):
+                played, remade = calls[2 + 2 * i], calls[3 + 2 * i]
+                self.assertEqual(["sim", "tournament", "--a", level, "--b", level, "--frames", "4"], played[:8])
+                log = played[played.index("--log") + 1]
+                self.assertEqual(str(Path("reports") / f"{level}-quick.jsonl"), log)
+                self.assertEqual(["sim", "opponent", log], remade)
         for command in calls:
-            self.assertEqual("4", command[command.index("--threads") + 1])
-            self.assertNotIn("--report", command)
-            self.assertNotIn("--exhibitions", command)
+            if command[1] == "tournament":
+                self.assertEqual("4", command[command.index("--threads") + 1])
+                self.assertNotIn("--report", command)
+                self.assertNotIn("--exhibitions", command)
 
-    def test_full_checks_stage1_on_the_two_reports(self):
+    def full_reports(self, folder: Path) -> list[Path]:
+        names = ["beginner", "maximum", *gate.STAGE2_LEVELS, *(f"{upper}-{lower}" for upper, lower in gate.LADDER)]
+        return [folder / f"{name}.json" for name in names]
+
+    def test_full_checks_both_stages_on_every_report(self):
         with tempfile.TemporaryDirectory() as temp, mock.patch.object(gate, "OPPONENT_REPORTS", Path(temp)):
-            for name in ("beginner.json", "maximum.json"):
-                (Path(temp) / name).write_text(json.dumps({"failures": []}), encoding="utf-8")
+            reports = self.full_reports(Path(temp))
+            for path in reports:
+                path.write_text(json.dumps({"failures": []}), encoding="utf-8")
             with mock.patch.object(Path, "unlink"):
                 calls, outcomes = self.opponent_commands(quick=False)
-        self.assertEqual(["2000", "100"], [c[c.index("--frames") + 1] for c in calls[:2]])
-        self.assertEqual([str(Path(temp) / "beginner.json"), str(Path(temp) / "maximum.json")],
-                         [c[c.index("--report") + 1] for c in calls[:2]])
-        report = calls[2]
+        tournaments = [c for c in calls if c[1] == "tournament"]
+        self.assertEqual(["2000", "100"] + ["4"] * 4 + ["1000"] * 4 + ["300"] * 4,
+                         [c[c.index("--frames") + 1] for c in tournaments])
+        reported = [c for c in tournaments if "--report" in c]
+        self.assertEqual([str(path) for path in reports], [c[c.index("--report") + 1] for c in reported])
+        self.assertEqual([("beginner", "beginner"), ("maximum", "beginner"), ("club", "club"), ("amateur", "amateur"),
+                          ("pro", "pro"), ("world", "world"), ("club", "beginner"), ("amateur", "club"),
+                          ("pro", "amateur"), ("world", "pro")],
+                         [(c[c.index("--a") + 1], c[c.index("--b") + 1]) for c in reported])
+        self.assertEqual(4, sum(c[1] == "opponent" for c in calls))
+        report = calls[-1]
         self.assertTrue(report[1].endswith("opponent_report.py"))
-        self.assertEqual(["--check", "stage1"], report[-2:])
-        self.assertEqual(4, len(outcomes))
+        self.assertEqual([str(path) for path in reports], report[2:2 + len(reports)])
+        self.assertEqual(["--check", "stage1", "--check", "stage2"], report[-4:])
+        self.assertEqual(20, len(outcomes))
         self.assertTrue(all(ok for ok, _ in outcomes))
 
     def test_a_failed_full_tournament_still_reads_the_marks_then_fails(self):
         with tempfile.TemporaryDirectory() as temp, mock.patch.object(gate, "OPPONENT_REPORTS", Path(temp)):
-            failure = {"where": "frame 3", "stroke": 7, "level": "maximum", "kind": "planned_pot",
-                       "detail": "a planned pot stayed out"}
-
-            def tournament(failures):
-                def write(command, **_):
-                    report = Path(command[command.index("--report") + 1])
-                    report.write_text(json.dumps({"failures": failures}), encoding="utf-8")
-                    return (not failures, "$ sim tournament" + ("\nexit code 1" if failures else ""))
-                return write
-
+            failure = {"where": "frame 3", "stroke": 7, "level": "world", "kind": "opponent",
+                       "detail": "it declared no colour"}
             calls = []
-            fakes = [tournament([]), tournament([failure]), lambda command, **_: (True, "marks met")]
 
             def fake_run(command, cwd=gate.ROOT, timeout=900, env=None):
                 command = [str(part) for part in command]
                 calls.append(command)
-                return fakes[len(calls) - 1](command)
+                if "--report" not in command:
+                    return True, "ok"
+                report = Path(command[command.index("--report") + 1])
+                failures = [failure] if report.name == "world-pro.json" else []
+                report.write_text(json.dumps({"failures": failures}), encoding="utf-8")
+                return not failures, "$ sim tournament" + ("\nexit code 1" if failures else "")
 
             outcomes = []
             with mock.patch.object(gate, "sim_cli", return_value=Path("sim")), \
                     mock.patch.object(gate, "run", side_effect=fake_run):
                 for opponent_step in gate.opponent_steps(quick=False):
                     outcomes.append(opponent_step())
-        self.assertEqual([True, True, True, False], [ok for ok, _ in outcomes])
-        self.assertIn("maximum.json: 1 failures", outcomes[3][1])
-        self.assertIn("frame 3, stroke 7 (maximum), planned_pot", outcomes[3][1])
+        self.assertEqual([True] * 19 + [False], [ok for ok, _ in outcomes])
+        self.assertTrue(calls[-1][1].endswith("opponent_report.py"))
+        self.assertIn("world-pro.json: 1 failures", outcomes[-1][1])
+        self.assertIn("beginner.json: 0 failures", outcomes[-1][1])
+        self.assertIn("frame 3, stroke 7 (world), opponent", outcomes[-1][1])
+
+    def test_no_opponent_step_needs_the_cli_before_it_runs(self):
+        with mock.patch.object(gate, "sim_cli", side_effect=SystemExit("not built")):
+            for quick in (True, False):
+                self.assertTrue(gate.opponent_steps(quick))
 
     def test_a_tournament_that_crashed_fails_at_once(self):
         with tempfile.TemporaryDirectory() as temp, mock.patch.object(gate, "OPPONENT_REPORTS", Path(temp)):

@@ -12,8 +12,11 @@ the stand-in playing itself with every stroke and choice checked against the rul
 invariants: 20 frames with --quick, otherwise 300 on each seed, and the simulation benchmarks
 against the 2 ms budget and the baseline, only reported on CI), with that build the computer
 opponent's tournaments (Beginner against itself and the 147 against Beginner, 30 and 3 frames
-with --quick, each to play clean; otherwise 2,000 and 100 with the exhibition tables, and
-tools/opponent_report.py --check stage1 on their reports, written to build/opponent/), the
+with --quick, each to play clean; otherwise 2,000 and 100 with the exhibition tables; and each
+of stage 2's four levels against itself for a few logged frames that must play clean and whose
+every decision ofs_sim_cli opponent makes again; the full gate then plays each 1,000 frames
+against itself and the four ladder pairings 300, and runs tools/opponent_report.py --check stage1
+--check stage2 on the reports, written to build/opponent/), the
 Godot tests (sync_data, --import, res://tests/run_tests.gd), a short headless run of the game
 whose session log must pass tools/check_logs.py with no app.error, the PC tools' tests
 and the workflow tests. The full gate adds a Windows export (build_windows.py --check). Lanes run
@@ -59,6 +62,14 @@ BEGINNER_FRAMES_FULL = 2000
 MAXIMUM_FRAMES_FULL = 100
 OPPONENT_THREADS = 4
 OPPONENT_TIMEOUT_FULL = 1800
+# Stage 2 (docs/opponent/README.md, "The ladder"): the four levels, and each over the one below.
+STAGE2_LEVELS = ("club", "amateur", "pro", "world")
+LADDER = (("club", "beginner"), ("amateur", "club"), ("pro", "amateur"), ("world", "pro"))
+LEVEL_FRAMES_QUICK = 4
+LEVEL_FRAMES_FULL = 1000
+LADDER_FRAMES_FULL = 300
+# World class against itself took 1.4 s a frame on four threads with stage 2's first values.
+LEVEL_TIMEOUT_FULL = 5400
 OPPONENT_REPORTS = ROOT / "build" / "opponent"
 LOGS = ROOT / "build" / "gate"
 GAME = ROOT / "game"
@@ -192,7 +203,7 @@ def physics_steps(quick: bool) -> list[Step]:
 
 
 def tournament_step(a: str, b: str, frames: int, exhibitions: bool, timeout: float,
-                    report: Path | None = None) -> Step:
+                    report: Path | None = None, log: Path | None = None) -> Step:
     """One tournament. Without a report it must exit 0. With one, a run that failed (exit 1) but
     wrote its report passes here, so the marks are still read and written down;
     tournament_failures() fails the lane after them."""
@@ -204,6 +215,8 @@ def tournament_step(a: str, b: str, frames: int, exhibitions: bool, timeout: flo
                    "--threads", str(OPPONENT_THREADS), "--out", out]
         if exhibitions:
             command.append("--exhibitions")
+        if log is not None:
+            command += ["--log", log]
         if report is None:
             return run(command, timeout=timeout)
         report.unlink(missing_ok=True)
@@ -226,21 +239,46 @@ def tournament_failures(reports: list[Path]) -> Step:
     return lane_step
 
 
+def stage2_clean_steps() -> list[Step]:
+    """Each stage 2 level against itself for a few logged frames, every decision then made again
+    from the log (README, "The ladder": no stroke refused, every decision made again)."""
+    steps = []
+    for level in STAGE2_LEVELS:
+        log = OPPONENT_REPORTS / f"{level}-quick.jsonl"
+        steps += [tournament_step(level, level, LEVEL_FRAMES_QUICK, False, timeout=600, log=log),
+                  remade_step(log)]
+    return steps
+
+
+def remade_step(log: Path) -> Step:
+    # sim_cli() only once the lane runs: the physics lane builds it.
+    return lambda: run([sim_cli(), "opponent", log], timeout=600)
+
+
 def opponent_steps(quick: bool) -> list[Step]:
     """The computer opponent's tournaments: with --quick only that they play clean, otherwise also
-    stage 1's marks (docs/opponent/README.md) through tools/opponent_report.py."""
+    stage 1's and stage 2's marks (docs/opponent/README.md) through tools/opponent_report.py."""
     if quick:
         # The fifty exhibition tables take two minutes: the full gate plays them.
         return [tournament_step("beginner", "beginner", BEGINNER_FRAMES_QUICK, False, timeout=300),
-                tournament_step("maximum", "beginner", MAXIMUM_FRAMES_QUICK, False, timeout=300)]
+                tournament_step("maximum", "beginner", MAXIMUM_FRAMES_QUICK, False, timeout=300),
+                *stage2_clean_steps()]
     beginner = OPPONENT_REPORTS / "beginner.json"
     maximum = OPPONENT_REPORTS / "maximum.json"
+    levels = {level: OPPONENT_REPORTS / f"{level}.json" for level in STAGE2_LEVELS}
+    ladder = {(upper, lower): OPPONENT_REPORTS / f"{upper}-{lower}.json" for upper, lower in LADDER}
+    reports = [beginner, maximum, *levels.values(), *ladder.values()]
     return [
         tournament_step("beginner", "beginner", BEGINNER_FRAMES_FULL, False, OPPONENT_TIMEOUT_FULL, beginner),
         tournament_step("maximum", "beginner", MAXIMUM_FRAMES_FULL, True, OPPONENT_TIMEOUT_FULL, maximum),
-        step([sys.executable, ROOT / "tools" / "opponent_report.py", beginner, maximum,
-              "--out", OPPONENT_REPORTS / "report.md", "--check", "stage1"]),
-        tournament_failures([beginner, maximum]),
+        *stage2_clean_steps(),
+        *[tournament_step(level, level, LEVEL_FRAMES_FULL, False, LEVEL_TIMEOUT_FULL, report)
+          for level, report in levels.items()],
+        *[tournament_step(upper, lower, LADDER_FRAMES_FULL, False, LEVEL_TIMEOUT_FULL, report)
+          for (upper, lower), report in ladder.items()],
+        step([sys.executable, ROOT / "tools" / "opponent_report.py", *reports,
+              "--out", OPPONENT_REPORTS / "report.md", "--check", "stage1", "--check", "stage2"]),
+        tournament_failures(reports),
     ]
 
 

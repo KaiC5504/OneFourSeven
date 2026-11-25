@@ -1,12 +1,16 @@
 """Writes the computer opponent's report (spec 10.1, 16.4) from what `ofs_sim_cli tournament
---report` wrote, and checks stage 1's marks (docs/opponent/README.md, "What the tournament counts").
+--report` wrote, and checks a stage's marks (docs/opponent/README.md: stage 1's in "What the
+tournament counts", stage 2's in "The ladder").
 
-    python tools/opponent_report.py REPORT.json [MORE.json ...] --out docs/opponent/report.md [--check stage1]
+    python tools/opponent_report.py REPORT.json [MORE.json ...] --out docs/opponent/report.md \
+        [--check stage1] [--check stage2]
 
 One section per report file: who played whom, the frames, a table of each level's counts and the
-exhibition breaks. With --check stage1 each mark is printed with its value and PASS or FAIL, a
-mark no report holds is MISSING, and the exit is 1 on any FAIL or MISSING; a count the stage only
-reports is REPORTED and never fails. The marks also go into the written report.
+exhibition breaks. With --check each mark is printed with its value and PASS or FAIL, a mark no
+report holds is MISSING, and the exit is 1 on any FAIL or MISSING, every mark printed first; a
+count the stage only reports is REPORTED and never fails. The marks also go into the written
+report. When any report has a level of stage 2 the report also gets the ladder, the tactics' counts
+and the thinking of each level.
 """
 import argparse
 import json
@@ -17,6 +21,22 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 EXHIBITIONS = ROOT / "core" / "data" / "exhibitions.json"
 BANDS = ("short", "medium", "long", "unknown")
 STAGE1_FRAMES = 2000
+# Stage 2 (README, "The ladder"): each level against itself, and each over the one below.
+STAGE2_FRAMES = 1000
+LADDER_FRAMES = 300
+LADDER_SHARE = 0.70
+WORLD_CENTURY_SHARE = 0.10
+WORLD_SLOWEST_S = 1.5
+NAMES = {"beginner": "Beginner", "club": "Club", "amateur": "Amateur", "pro": "Pro", "world": "World class"}
+# (level, medium pots, long pots, typical break: low, high or None for no ceiling)
+STAGE2_LEVELS = (("club", (0.55, 0.65), (0.20, 0.30), (10, 20)),
+                 ("amateur", (0.75, 0.85), (0.40, 0.50), (20, 40)),
+                 ("pro", (0.86, 0.94), (0.60, 0.70), (40, 70)),
+                 ("world", (0.92, 0.98), (0.70, 0.80), (60, None)))
+STAGE2_IDS = tuple(level for level, *_ in STAGE2_LEVELS)
+LADDER = (("club", "beginner"), ("amateur", "club"), ("pro", "amateur"), ("world", "pro"))
+# The failures that are the engine refusing a level's stroke or choice.
+REFUSED = ("opponent", "invalid", "choice")
 PASS, FAIL, MISSING, REPORTED = "PASS", "FAIL", "MISSING", "REPORTED"
 
 
@@ -82,7 +102,26 @@ def rows(stats):
              f"{think['us_mean'] / 1000:.2f} / {think['us_p99'] / 1000:.2f} / {think['us_max'] / 1000:.2f}"),
             ("how thinking stopped", stopped),
             ("fallbacks", str(stats["fallbacks"]))]
+    if "tactics" in stats:
+        out += tactic_rows(stats)
     return out
+
+
+def tactic_rows(stats):
+    tactics, highs = stats["tactics"], stats["frame_highs"]
+    safeties, snookers = tactics["safeties"], tactics["snookers"]
+    escapes, break_offs = tactics["escapes"], tactics["break_offs"]
+    by_cushions = ", ".join(f"{k}: {v['hit']}/{v['played']}" for k, v in escapes["by_cushions"].items()) or "none"
+    return [("typical break (median of the frames' highest)", f"{highs['typical']:.1f}"),
+            ("frames with a century", percent(highs["century"], highs["frames"])),
+            ("safeties then a pot attempt", percent(safeties["then_pot_attempt"], safeties["played"])),
+            ("- then potted", percent(safeties["then_potted"], safeties["played"])),
+            ("snookers laid / called", f"{snookers['laid']} / {snookers['called']}"),
+            ("- then fouled / foul points", f"{snookers['then_fouled']} / {snookers['then_foul_points']}"),
+            ("escapes that hit a ball on", percent(escapes["hit"], escapes["played"])),
+            ("- by cushions", by_cushions),
+            ("break-offs then a pot", percent(break_offs["then_pot"], break_offs["played"])),
+            ("concessions / claims", f"{stats['concessions']} / {stats['claims']}")]
 
 
 def section(name, report):
@@ -230,17 +269,237 @@ def stage1(reports, exhibitions_file=EXHIBITIONS):
     return marks
 
 
-CHECKS = {"stage1": stage1}
+def sides_of(report, level):
+    """The counts of every side of `report` that `level` played: both in a frame against itself."""
+    return [report[side] for side in ("a", "b") if level_id(report, side) == level and report.get(side)]
+
+
+def high_counts(sides):
+    """{break: frames} of the frames' highest breaks over `sides`."""
+    counts = {}
+    for stats in sides:
+        for points, frames in stats.get("frame_highs", {}).get("counts", []):
+            counts[points] = counts.get(points, 0) + frames
+    return counts
+
+
+def median_of(counts):
+    n = sum(counts.values())
+    if not n:
+        return None
+    ordered = sorted(counts.items())
+
+    def at(rank):
+        seen = 0
+        for points, frames in ordered:
+            seen += frames
+            if rank < seen:
+                return points
+        return ordered[-1][0]
+    return at(n // 2) if n % 2 else (at(n // 2 - 1) + at(n // 2)) / 2
+
+
+def band_share(sides, band):
+    made = sum(s["pots"]["bands"][band]["made"] for s in sides)
+    attempts = sum(s["pots"]["bands"][band]["attempts"] for s in sides)
+    return made, attempts
+
+
+def against_itself(level):
+    return lambda report: report["frames"] > 0 and level_id(report, "a") == level_id(report, "b") == level
+
+
+def pairing(upper, lower):
+    return lambda report: report["frames"] > 0 and {level_id(report, "a"), level_id(report, "b")} == {upper, lower}
+
+
+def stage2(reports):
+    marks = []
+    for level, medium_range, long_range, typical_range in STAGE2_LEVELS:
+        name = NAMES[level]
+        names = [f"{name}'s frames against itself", f"{name}'s medium pots", f"{name}'s long pots",
+                 f"{name}'s typical break"]
+        if level == "world":
+            names.append(f"{name}'s frames with a century")
+        found = best(reports, against_itself(level))
+        if found is None:
+            marks += [missing(n, f"a report of {level} against {level}") for n in names]
+            continue
+        file, report = found
+        sides = sides_of(report, level)
+        medium, long_ = band_share(sides, "medium"), band_share(sides, "long")
+        counts = high_counts(sides)
+        typical = median_of(counts)
+        low, high = typical_range
+        marks += [
+            mark(names[0], f"{report['frames']} ({file})", f"at least {STAGE2_FRAMES}",
+                 report["frames"] >= STAGE2_FRAMES),
+            mark(names[1], percent(*medium), f"{medium_range[0]:.0%} to {medium_range[1]:.0%}",
+                 in_range(share(*medium), *medium_range)),
+            mark(names[2], percent(*long_), f"{long_range[0]:.0%} to {long_range[1]:.0%}",
+                 in_range(share(*long_), *long_range)),
+            mark(names[3], "none" if typical is None else f"{typical:g}",
+                 f"{low} and over" if high is None else f"{low} to {high}",
+                 typical is not None and low <= typical <= (high if high is not None else typical)),
+        ]
+        if level == "world":
+            centuries = sum(frames for points, frames in counts.items() if points >= 100)
+            frames = sum(counts.values())
+            marks.append(mark(names[4], percent(centuries, frames), f"at least {WORLD_CENTURY_SHARE:.0%}",
+                              frames > 0 and centuries >= WORLD_CENTURY_SHARE * frames))
+
+    for upper, lower in LADDER:
+        label = f"{NAMES[upper]} over {NAMES[lower]}"
+        found = best(reports, pairing(upper, lower))
+        if found is None:
+            why = f"a report of {upper} against {lower}"
+            marks += [missing(f"{label}: frames", why), missing(f"{label}: frames won", why)]
+            continue
+        file, report = found
+        won = sum(s["frames_won"] for s in sides_of(report, upper))
+        marks += [mark(f"{label}: frames", f"{report['frames']} ({file})", f"at least {LADDER_FRAMES}",
+                       report["frames"] >= LADDER_FRAMES),
+                  mark(f"{label}: frames won", percent(won, report["frames"]), f"at least {LADDER_SHARE:.0%}",
+                       won >= LADDER_SHARE * report["frames"])]
+
+    played = [(file, report) for file, report in reports
+              if report["frames"] > 0 and {level_id(report, "a"), level_id(report, "b")} & set(STAGE2_IDS)]
+    if not played:
+        why = "a report of a stage 2 level"
+        marks += [missing("No stroke refused by the engine", why), missing("No fallback", why)]
+    else:
+        refused = [f for _, report in played for f in report["failures"] if f["kind"] in REFUSED]
+        fallbacks = sum(report[side]["fallbacks"] for _, report in played for side in ("a", "b") if report.get(side))
+        marks += [mark("No stroke refused by the engine", f"{len(refused)} in {len(played)} reports", "0",
+                       not refused),
+                  mark("No fallback", f"{fallbacks} in {len(played)} reports", "0", fallbacks == 0)]
+    world = [s for _, report in reports for s in sides_of(report, "world")]
+    if not world:
+        marks.append(missing("World class's slowest decision", "a report in which world plays"))
+    else:
+        slowest = max(s["think"]["us_max"] for s in world) / 1e6
+        marks.append(mark("World class's slowest decision", f"{slowest:.2f} s", f"within {WORLD_SLOWEST_S} s",
+                          slowest <= WORLD_SLOWEST_S))
+    return marks
+
+
+CHECKS = {"stage1": stage1, "stage2": stage2}
+STAGE_TITLES = {"stage1": "Stage 1's marks", "stage2": "Stage 2's marks"}
+
+
+def cell(part, whole):
+    return percent(part, whole) if whole else "-"
+
+
+def stage2_part(reports):
+    """The ladder, the tactics and the thinking of each level, from the reports that have them."""
+    levels = [level for level in ("beginner",) + STAGE2_IDS if best(reports, against_itself(level))]
+    lines = []
+    ladder = [(upper, lower, best(reports, pairing(upper, lower))) for upper, lower in LADDER]
+    if any(found for *_, found in ladder):
+        lines += ["## The ladder", "", "| Pairing | Frames | Won by the higher | |", "| --- | --- | --- | --- |"]
+        for upper, lower, found in ladder:
+            if found is None:
+                lines.append(f"| {NAMES[upper]} over {NAMES[lower]} | no report | | |")
+                continue
+            file, report = found
+            won = sum(s["frames_won"] for s in sides_of(report, upper))
+            lines.append(f"| {NAMES[upper]} over {NAMES[lower]} | {report['frames']} | "
+                         f"{percent(won, report['frames'])} | `{file}` |")
+        lines.append("")
+    merged = {level: sides_of(best(reports, against_itself(level))[1], level) for level in levels}
+    merged = {level: sides for level, sides in merged.items() if sides and "tactics" in sides[0]}
+    if merged:
+        lines += ["## Tactics per level", "",
+                  "Each level against itself, both sides added; README \"The ladder\" says what each is.", "",
+                  "| | " + " | ".join(NAMES[level] for level in merged) + " |",
+                  "| --- |" + " --- |" * len(merged)]
+
+        def total(sides, *path):
+            value = 0
+            for stats in sides:
+                node = stats
+                for key in path:
+                    node = node[key]
+                value += node
+            return value
+
+        def row(label, fn):
+            lines.append(f"| {label} | " + " | ".join(fn(sides) for sides in merged.values()) + " |")
+
+        def cushions(sides):
+            buckets = {}
+            for stats in sides:
+                for key, counts in stats["tactics"]["escapes"]["by_cushions"].items():
+                    hit, played = buckets.get(key, (0, 0))
+                    buckets[key] = (hit + counts["hit"], played + counts["played"])
+            return ", ".join(f"{k}: {h}/{p}" for k, (h, p) in buckets.items()) or "-"
+
+        def typical(sides):
+            value = median_of(high_counts(sides))
+            return "-" if value is None else f"{value:g}"
+
+        row("strokes", lambda s: str(total(s, "strokes")))
+        row("safeties", lambda s: str(total(s, "tactics", "safeties", "played")))
+        row("- then a pot attempt", lambda s: cell(total(s, "tactics", "safeties", "then_pot_attempt"),
+                                                   total(s, "tactics", "safeties", "played")))
+        row("- then potted", lambda s: cell(total(s, "tactics", "safeties", "then_potted"),
+                                            total(s, "tactics", "safeties", "played")))
+        row("snookers laid", lambda s: str(total(s, "tactics", "snookers", "laid")))
+        row("- called snookers", lambda s: cell(total(s, "tactics", "snookers", "called"),
+                                                total(s, "tactics", "snookers", "laid")))
+        row("- then a foul", lambda s: cell(total(s, "tactics", "snookers", "then_fouled"),
+                                            total(s, "tactics", "snookers", "laid")))
+        row("- foul points given after them", lambda s: str(total(s, "tactics", "snookers", "then_foul_points")))
+        row("escapes that hit a ball on", lambda s: cell(total(s, "tactics", "escapes", "hit"),
+                                                         total(s, "tactics", "escapes", "played")))
+        row("- by cushions (hit/played)", cushions)
+        row("break-offs then a pot", lambda s: cell(total(s, "tactics", "break_offs", "then_pot"),
+                                                    total(s, "tactics", "break_offs", "played")))
+        row("typical break", typical)
+        row("frames with a century", lambda s: cell(total(s, "frame_highs", "century"),
+                                                    total(s, "frame_highs", "frames")))
+        row("concessions / claims", lambda s: f"{total(s, 'concessions')} / {total(s, 'claims')}")
+        lines.append("")
+
+        lines += ["## Thinking per level", "",
+                  "Each level against itself; the mean is over both sides' strokes, p99 and max the higher side's.",
+                  "", "| | " + " | ".join(NAMES[level] for level in merged) + " |",
+                  "| --- |" + " --- |" * len(merged)]
+
+        def mean(sides, key):
+            strokes = total(sides, "strokes")
+            return sum(s["think"][key] * s["strokes"] for s in sides) / strokes if strokes else 0.0
+
+        def stopped(sides):
+            counts = {}
+            for stats in sides:
+                for key, value in stats["think"]["stopped"].items():
+                    counts[key] = counts.get(key, 0) + value
+            return ", ".join(f"{k} {v}" for k, v in counts.items() if v) or "none"
+
+        row("simulations (mean / max)",
+            lambda s: f"{mean(s, 'sims_mean'):.1f} / {max(x['think']['sims_max'] for x in s)}")
+        row("steps (mean)", lambda s: f"{mean(s, 'steps_mean'):.1f}")
+        row("ms (mean / p99 / max)",
+            lambda s: f"{mean(s, 'us_mean') / 1000:.2f} / {max(x['think']['us_p99'] for x in s) / 1000:.2f} / "
+                      f"{max(x['think']['us_max'] for x in s) / 1000:.2f}")
+        row("how thinking stopped", stopped)
+        row("fallbacks", lambda s: str(total(s, "fallbacks")))
+        lines.append("")
+    return lines
 
 
 def write(reports, marks, out):
     lines = ["# The computer opponent's report", "",
              "Written by `tools/opponent_report.py` from `ofs_sim_cli tournament --report` files; "
              "docs/opponent/README.md says what each count is.", ""]
-    if marks is not None:
-        lines += ["## Stage 1's marks", "", "| Mark | Value | Wanted | |", "| --- | --- | --- | --- |"]
-        lines += [f"| {m['name']} | {m['value']} | {m['wanted']} | {m['status']} |" for m in marks]
+    for stage, stage_marks in (marks or {}).items():
+        lines += [f"## {STAGE_TITLES[stage]}", "", "| Mark | Value | Wanted | |", "| --- | --- | --- | --- |"]
+        lines += [f"| {m['name']} | {m['value']} | {m['wanted']} | {m['status']} |" for m in stage_marks]
         lines.append("")
+    if any({level_id(report, "a"), level_id(report, "b")} & set(STAGE2_IDS) for _, report in reports):
+        lines += stage2_part(reports)
     for name, report in reports:
         lines += section(name, report)
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -251,18 +510,20 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("reports", nargs="+", type=pathlib.Path, help="what ofs_sim_cli tournament --report wrote")
     parser.add_argument("--out", type=pathlib.Path, required=True, help="the Markdown report to write")
-    parser.add_argument("--check", choices=sorted(CHECKS), help="apply a stage's marks")
+    parser.add_argument("--check", choices=sorted(CHECKS), action="append",
+                        help="apply a stage's marks; may be given for each stage")
     args = parser.parse_args(argv)
     try:
         reports = [(path.name, load(path)) for path in args.reports]
     except ReportError as e:
         print(f"opponent_report: {e}", file=sys.stderr)
         return 2
-    marks = CHECKS[args.check](reports) if args.check else None
-    write(reports, marks, args.out)
+    by_stage = {stage: CHECKS[stage](reports) for stage in dict.fromkeys(args.check or [])}
+    write(reports, by_stage, args.out)
     print(f"wrote {args.out.name}")
-    if marks is None:
+    if not by_stage:
         return 0
+    marks = [m for stage_marks in by_stage.values() for m in stage_marks]
     for m in marks:
         wanted = "" if m["status"] == REPORTED else f" (wanted {m['wanted']})"
         print(f"{m['status']:<8} {m['name']}: {m['value']}{wanted}")
