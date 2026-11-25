@@ -1,0 +1,11 @@
+{
+  "note": "The pink and black left (13 points), the pink on, the striker 40 ahead: ahead by more than the table holds. The cue ball in baulk, the pink on its spot, the black a cushion's width off the top.",
+  "cue_ball": 0,
+  "balls": [
+    {"ball": "cue", "index": 0, "x": -1.2, "y": 0.4},
+    {"ball": "pink", "index": 0, "x": 0.89225, "y": 0.0},
+    {"ball": "black", "index": 0, "x": 1.65, "y": -0.3}
+  ],
+  "on": {"kind": "colour", "colour": "pink"},
+  "scores": [62, 22]
+}
