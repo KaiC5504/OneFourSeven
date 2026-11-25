@@ -123,6 +123,18 @@ constexpr int kDeepPots = 4;
 constexpr int kDeepTries[kMaxDepth + 1] = {0, 120, 90, 60};
 constexpr int kDeepSpeeds[kMaxDepth + 1] = {0, 6, 5, 4};
 constexpr int kDeepSpins = 3;
+// A level with error that plans shares its simulations between the stages: the first position
+// takes this share of what the tactics left, by the level's depth. It tries every pot centre ball
+// at kCoarseRungs speeds, then the best kFinePots every way it strikes. A position below it is
+// tried with kErrDeepPots pots at kErrDeepSpeeds speeds and kErrDeepSpins spins, a few hundred
+// simulations at most, so that the beam is looked into whole. With two spins there, a brown that
+// left the yellow easy lost to a black that left it hard (pl_black_or_brown).
+constexpr double kErrFirstShare[kMaxDepth + 1] = {1.0, 0.4, 0.3, 0.25};
+constexpr int kCoarseRungs = 3;
+constexpr int kFinePots = 5;
+constexpr int kErrDeepPots = 4;
+constexpr int kErrDeepSpeeds = 3;
+constexpr int kErrDeepSpins = 3;
 // Two leaves are the same leave when the same ball went and the cue ball stops this close.
 constexpr double kSameLeave_m = 0.05;
 // A stroke that ends a maximum still on is worth this much less than any that keeps it.
@@ -667,10 +679,13 @@ public:
     void run() {
         // The level's own simulations, not the limit in force: a decision must replay from its
         // logged steps alone, which a Think.max_sims there would not reach.
-        const double grid = grid_from_ + kGridShare * level_.max_sims;
+        const int depth = std::min(level_.depth, kMaxDepth);
+        // A level with error leaves its deeper stages what they need: the first takes a share of
+        // what the tactics left, the less the further it plans.
+        const double grid = errs_ ? grid_from_ + kErrFirstShare[depth] * std::max(0, level_.max_sims - grid_from_)
+                                  : grid_from_ + kGridShare * level_.max_sims;
         if (!expand(0, grid)) return;
         if (!errs_ && !refine()) return;
-        const int depth = std::min(level_.depth, kMaxDepth);
         for (int d = 1; d <= depth; ++d) {
             const std::vector<int> list = d == 1 ? nodes_[0].beam : finished(d - 1);
             int done = 0;
@@ -681,6 +696,7 @@ public:
                 ++done;
                 whole = whole || nodes_[0].cands[std::size_t(c)].whole[d];
             }
+            looked_.push_back({done, std::min(kBeam[d], int(list.size()))});
             if (done == 0) break;
             stage_ = d;
             if (bench_.budget.halted()) break;
@@ -731,6 +747,11 @@ public:
             out.why["miss_turn"] = c.miss_turn;
         }
         if (errs_ && level_.noisy_sims > 0) out.why["chance_by"] = "sims";
+        if (errs_) {
+            nlohmann::json stages = nlohmann::json::array();
+            for (const auto& [looked, of] : looked_) stages.push_back({{"looked", looked}, {"of", of}});
+            out.why["stages"] = std::move(stages);
+        }
         out.why["leave"] = {{"cue", {c.cue_rest.x, c.cue_rest.y}},
                             {"next", label(c.post, c.leaf.next)},
                             {"chance", c.leaf.chance}};
@@ -818,6 +839,7 @@ private:
         int queued = 0;         // pots queued so far
         int spins = 0;          // spins they are tried with
         int between = 0;        // passes between the rungs queued
+        bool fine_queued = false;  // a level with error's best pots, every way (queue_fine)
         std::vector<int> made;  // candidates made, by pot
         // Aims found, to start the solver near: by pot and spin at the last speed tried, and by
         // pot and rung at centre ball.
@@ -833,7 +855,19 @@ private:
         return made.goes_on && maximum_on(made.post);
     }
 
+    // The rungs of a ladder of `rungs` a level with error first tries every pot at.
+    static std::vector<int> coarse_rungs(int rungs) {
+        const int take = std::min(kCoarseRungs, rungs);
+        std::vector<int> out;
+        for (int i = 0; i < take; ++i) out.push_back(take > 1 ? int(std::lround(double(i) * (rungs - 1) / (take - 1))) : 0);
+        return out;
+    }
+
     void queue(Node& n, int from, int to) {
+        if (errs_) {
+            queue_with_error(n, from, to);
+            return;
+        }
         const int all = level_.speeds;
         const int few = n.depth == 0 || to - from <= 2 ? all : std::min(all, kDeepSpeeds[n.depth]);
         int spins = std::min(level_.spins, kTipCount);
@@ -854,6 +888,58 @@ private:
             }
         }
         n.queued = to;
+        n.spins = spins;
+    }
+
+    // A level with error (README "Worth"): its first position's pots each tried centre ball at a
+    // few speeds, the best few then every way it strikes (queue_fine); below it a few pots at a
+    // few speeds and spins, so the deeper stages finish within the level's simulations.
+    void queue_with_error(Node& n, int from, int to) {
+        const int spins = n.depth == 0 ? 1 : std::min({level_.spins, kTipCount, kErrDeepSpins});
+        for (int spin = 0; spin < spins; ++spin) {
+            for (int pot = from; pot < to; ++pot) {
+                const std::vector<double>& speeds = n.speeds[std::size_t(pot)];
+                const int rungs = int(speeds.size());
+                std::vector<int> take = coarse_rungs(rungs);
+                if (n.depth > 0) {
+                    take.clear();
+                    const int few = std::min({level_.speeds, kErrDeepSpeeds, rungs});
+                    for (int i = 0; i < few; ++i) {
+                        take.push_back(few > 1 ? int(std::lround(double(i) * (rungs - 1) / (few - 1))) : 0);
+                    }
+                }
+                for (const int rung : take) n.todo.push_back({pot, spin, rung, speeds[std::size_t(rung)]});
+            }
+        }
+        n.queued = to;
+        n.spins = spins;
+    }
+
+    // The first position's best kFinePots pots, by what their coarse strokes were worth, struck
+    // every way the level can; the strokes already tried are not tried again. Pots none of whose
+    // coarse strokes was made are left out.
+    void queue_fine(Node& n) {
+        n.fine_queued = true;
+        std::vector<double> best(n.pots.size(), -kInf);
+        for (const Cand& c : n.cands) best[std::size_t(c.pot)] = std::max(best[std::size_t(c.pot)], c.value[0]);
+        std::vector<int> order;
+        for (int pot = 0; pot < int(n.pots.size()); ++pot) {
+            if (best[std::size_t(pot)] > -kInf) order.push_back(pot);
+        }
+        std::stable_sort(order.begin(), order.end(),
+                         [&](int a, int b) { return best[std::size_t(a)] > best[std::size_t(b)]; });
+        if (int(order.size()) > kFinePots) order.resize(std::size_t(kFinePots));
+        const int spins = std::min(level_.spins, kTipCount);
+        for (int spin = 0; spin < spins; ++spin) {
+            for (const int pot : order) {
+                const std::vector<double>& speeds = n.speeds[std::size_t(pot)];
+                const std::vector<int> tried = coarse_rungs(int(speeds.size()));
+                for (int rung = 0; rung < int(speeds.size()); ++rung) {
+                    if (spin == 0 && std::find(tried.begin(), tried.end(), rung) != tried.end()) continue;
+                    n.todo.push_back({pot, spin, rung, speeds[std::size_t(rung)]});
+                }
+            }
+        }
         n.spins = spins;
     }
 
@@ -883,7 +969,7 @@ private:
         const Ball needed = maximum_next(n.s);
         const bool black_first = level_.maximum && !n.on && n.s.on.kind == OnKind::any_colour;
         std::vector<Pot> later;
-        const int most = n.depth == 0 ? std::numeric_limits<int>::max() : kDeepPots;
+        const int most = n.depth == 0 ? std::numeric_limits<int>::max() : errs_ ? kErrDeepPots : kDeepPots;
         for (const Pot& pot : pots(n.s, env_, level_.max_cut_rad)) {
             const Ball ball = n.s.balls[std::size_t(pot.target)].ball;
             if (n.on && ball != needed) continue;
@@ -1033,6 +1119,11 @@ private:
                     queue_between(n);
                     if (n.todo.size() > before) continue;
                 }
+                if (errs_ && n.depth == 0 && !n.fine_queued && bench_.budget.sims < sims_until) {
+                    const std::size_t before = n.todo.size();
+                    queue_fine(n);
+                    if (n.todo.size() > before) continue;
+                }
                 n.done = true;
             } else if (bench_.budget.sims >= sims_until) {
                 n.done = true;
@@ -1165,6 +1256,9 @@ private:
     // A deque: a position looked into adds positions, and those in hand must stay where they are.
     std::deque<Node> nodes_;
     int stage_ = 0;
+    // By stage beyond the first: the first position's candidates looked into, and the beam's
+    // width there (the stage was finished whole when the first reaches the second).
+    std::vector<std::pair<int, int>> looked_;
 };
 
 // What makes the decision again ({"shot_id", "level", "seed"}, those known), for its app.error
