@@ -1,0 +1,55 @@
+{
+  "note": "The last colour of choice, from a frame the stand-in played: the black (7) leaves the yellow hard, the brown (4) leaves it easy.",
+  "balls": [
+    {
+      "ball": "cue",
+      "index": 0,
+      "x": -1.604687606239103,
+      "y": 0.8518586865821332
+    },
+    {
+      "ball": "yellow",
+      "index": 0,
+      "x": -1.0474999999999999,
+      "y": -0.292
+    },
+    {
+      "ball": "green",
+      "index": 0,
+      "x": 1.768460134047814,
+      "y": -0.8370315915402813
+    },
+    {
+      "ball": "brown",
+      "index": 0,
+      "x": -1.076162328439011,
+      "y": 0.026559260921128196
+    },
+    {
+      "ball": "blue",
+      "index": 0,
+      "x": 1.60894559724516,
+      "y": -0.7886096843023268
+    },
+    {
+      "ball": "pink",
+      "index": 0,
+      "x": 0.6913506774695446,
+      "y": 0.004279842918529891
+    },
+    {
+      "ball": "black",
+      "index": 0,
+      "x": -0.9519284087923284,
+      "y": 0.39304357216431574
+    }
+  ],
+  "cue_ball": 0,
+  "on": {
+    "kind": "any_colour"
+  },
+  "scores": [
+    28,
+    19
+  ]
+}

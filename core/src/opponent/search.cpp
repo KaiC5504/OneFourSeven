@@ -1,7 +1,9 @@
-// The choice of a stroke (spec 10.2, docs/opponent/README.md "The search"). Every pot the position
-// offers is struck each way the level can on the simulator and judged by the referee; a level
-// with error takes the best chance times what it wins, the 147 the pot whose plan keeps its break
-// most alive. Safeties, escapes and break-offs are the stand-in's.
+// The choice of a stroke (spec 10.2, docs/opponent/README.md "The search", "Stage 2"). Every pot
+// the position offers is struck each way the level can on the simulator and judged by the
+// referee; a level with error takes the best chance times what it wins less what a miss gives
+// away, planning further pots when its depth asks, the 147 the pot whose plan keeps its break most
+// alive. Then the best pot is weighed against the tactic (tactics.cpp); without one the stand-in
+// plays the safety, escape or break-off.
 
 #include "ofs/opponent/opponent.hpp"
 
@@ -13,6 +15,7 @@
 #include <exception>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -24,11 +27,13 @@
 #include "ofs/opponent/pots.hpp"
 #include "ofs/opponent/solve.hpp"
 #include "ofs/opponent/standin.hpp"
+#include "ofs/opponent/tactics.hpp"
 #include "ofs/physics/cue.hpp"
 #include "ofs/rules/engine.hpp"
 #include "ofs/rules/rules_log.hpp"
 #include "ofs/rules/serialize.hpp"
 
+#include "choice.hpp"
 #include "maximum.hpp"
 
 namespace ofs::opponent {
@@ -131,6 +136,9 @@ constexpr double kRedCost = 7.0;
 // for leaves clearly better.
 constexpr double kPaceCost = 1.6;
 constexpr double kSpinCost = 0.5;
+// The misses a pot's giveaway is read from: the aim turned this many margins to the thicker side,
+// the next tried while the ball still drops.
+constexpr double kMissTurns[] = {2.0, 4.0, 8.0};
 
 double distance(Vec2 a, Vec2 b) { return std::hypot(a.x - b.x, a.y - b.y); }
 
@@ -321,6 +329,82 @@ Spec spec_of(const Level& level, int spin, double speed) {
     return spec;
 }
 
+// The share of level.noisy_sims strokes, each `meant` with the level's error drawn from `noise`,
+// that pot the ball as the stroke meant to without a foul.
+double noisy_chance(const Bench& b, const FrameState& s, const Pot& pot, const phys::CueStrike& meant, Rng& noise) {
+    const phys::TableState table = table_state(s, pot.cue);
+    int potted = 0;
+    for (int i = 0; i < b.level.noisy_sims; ++i) {
+        phys::CueStrike strike = with_error(meant, b.level, &pot, b.env, noise);
+        strike.elevation_rad = std::max(
+            strike.elevation_rad, lowest_cue(table, s.cue_ball, strike.aim_rad, strike.tip_x, strike.tip_y, b.env));
+        Made made;
+        if (judged(b, s, pot, strike, nullptr, made)) ++potted;
+    }
+    return b.level.noisy_sims > 0 ? double(potted) / b.level.noisy_sims : 0.0;
+}
+
+struct Giveaway {
+    double worth = 0.0;
+    // The margins the aim was turned by for the miss it was read from; 0 when every turn potted.
+    double turn = 0.0;
+};
+
+// What one miss of `pot` gives the other player (README "Worth"): the planned stroke with its aim
+// turned to the thicker side by kMissTurns margins in turn, the first whose ball stays out read
+// for them by this level, a foul's points added. The geometric margin is narrower than the
+// pocket's real window, so a turn of one margin mostly still pots. 0 when every turn potted.
+Giveaway giveaway(const Bench& b, const FrameState& s, const Pot& pot, const phys::CueStrike& planned) {
+    Giveaway out;
+    const FrameState* from = &s;
+    FrameState placed;
+    if (s.cue_in_hand) {
+        placed = s;
+        std::string error;
+        if (!rules::place_cue_ball(placed, pot.cue, b.env.oracle, error)) return out;
+        from = &placed;
+    }
+    const Vec2 object = s.balls[std::size_t(pot.target)].pos;
+    const double fuller =
+        std::remainder(std::atan2(object.y - pot.cue.y, object.x - pot.cue.x) - pot.aim_rad, 6.283185307179586);
+    const double side = fuller < 0.0 ? -1.0 : 1.0;
+    const phys::TableState table = table_state(s, pot.cue);
+    for (const double turn : kMissTurns) {
+        phys::CueStrike miss = planned;
+        miss.aim_rad = planned.aim_rad + side * turn * pot.margin_rad;
+        miss.elevation_rad = std::max(planned.elevation_rad,
+                                      lowest_cue(table, s.cue_ball, miss.aim_rad, miss.tip_x, miss.tip_y, b.env));
+        phys::ShotRecord record;
+        const Trial trial = try_strike(*from, pot.cue, miss, b.env, &record);
+        ++b.budget.sims;
+        if (!trial.clean) return out;
+        if (std::find(trial.potted.begin(), trial.potted.end(), pot.target) != trial.potted.end()) continue;
+        out.turn = turn;
+        const rules::Judgement j = rules::judge_shot(*from, pot.input, record, b.env.table, b.env.oracle, b.env.ref);
+        out.worth = j.fouls.empty() ? 0.0 : double(j.penalty);
+        FrameState left = j.post;
+        if (left.over) return out;
+        if (left.pending == rules::Pending::after_foul) {
+            std::vector<rules::Call> calls;
+            std::string error;
+            if (!rules::decide(left, {DecisionKind::play, left.decider}, b.env.oracle, b.env.ref, calls, error)) {
+                return out;
+            }
+        }
+        if (left.over || left.pending != rules::Pending::none || left.striker == s.striker) return out;
+        out.worth += read_position(left, b.level, b.env).worth;
+        return out;
+    }
+    return out;
+}
+
+// A pot's ball and the break it keeps count for less when the level needs snookers (README "The
+// score"): what matters then is the position it leaves.
+double points_factor(const FrameState& s, const Level& level) {
+    if (s.striker != 0 && s.striker != 1) return 1.0;
+    return rules::penalty_points_required(s, s.striker) > 0 ? 1.0 - level.score_aware : 1.0;
+}
+
 // The stand-in's stroke as it means it: no error of its own (the level's is added afterwards) and
 // no concession. Without pots it plays only its break-off, safeties and escapes.
 StandinShot standin_stroke(const FrameState& s, const Env& env, bool pots_too, const Rng& rng) {
@@ -380,6 +464,22 @@ void fill_from_standin(Stroke& out, const StandinShot& shot, const FrameState& s
     say_maximum(out.why, s, level);
 }
 
+// A tactic as the stand-in's stroke is played: the level's error added, four draws.
+void fill_from_tactic(Stroke& out, const Tactic& tactic, const FrameState& s, const Level& level, const Env& env,
+                      Rng& rng) {
+    out.why = tactic.why.is_object() ? tactic.why : nlohmann::json::object();
+    if (!out.why.contains("kind")) out.why["kind"] = tactic.kind;
+    out.why["level"] = level.id;
+    out.places_cue = tactic.places_cue;
+    out.cue_pos = tactic.cue_pos;
+    out.input = tactic.input;
+    out.meant = tactic.meant;
+    Drawn drawn;
+    play(out, s, level, nullptr, env, rng, drawn);
+    out.why["drawn"] = drawn_json(drawn);
+    say_maximum(out.why, s, level);
+}
+
 // What a pot's why holds beyond the search's own findings.
 nlohmann::json pot_why(const FrameState& s, const Level& level, const Pot& pot, const phys::CueStrike& meant) {
     nlohmann::json why = {{"level", level.id},
@@ -398,12 +498,19 @@ nlohmann::json pot_why(const FrameState& s, const Level& level, const Pot& pot, 
     return why;
 }
 
-// A level with error (README "The search"): every candidate scored by its chance and what it
-// wins, each score misread, the best taken.
+// A level with error that reads only the leave (README "The search", "Worth"): every candidate
+// scored by its chance and what it wins, less what a miss gives away, each score misread, the
+// best taken.
 class Weighing {
 public:
-    Weighing(const FrameState& s, const Level& level, const Env& env, Budget& budget, const Rng& rng)
-        : s_(s), level_(level), env_(env), bench_{level, env, budget}, misreads_(seed_of(rng)) {}
+    Weighing(const FrameState& s, const Level& level, const Env& env, Budget& budget, Rng& misreads, Rng& noise)
+        : s_(s),
+          level_(level),
+          env_(env),
+          bench_{level, env, budget},
+          misreads_(misreads),
+          noise_(noise),
+          points_factor_(points_factor(s, level)) {}
 
     void run() {
         const std::vector<Pot> listed = pots(s_, env_, level_.max_cut_rad);
@@ -431,6 +538,7 @@ public:
     int candidates() const { return int(scored_.size()); }
     // As it reads it, the chance of the pot it would play.
     double chance() const { return scored_[std::size_t(best_)].chance; }
+    double score() const { return scored_[std::size_t(best_)].score; }
 
     void fill(Stroke& out, Rng& rng) const {
         const Scored& c = scored_[std::size_t(best_)];
@@ -447,6 +555,11 @@ public:
         out.why["plan"] = nlohmann::json::array();
         out.why["others"] = others();
         out.why["drawn"] = drawn_json(drawn);
+        if (level_.miss_weight > 0.0) {
+            out.why["giveaway"] = c.giveaway;
+            out.why["miss_turn"] = c.miss_turn;
+        }
+        if (level_.noisy_sims > 0) out.why["chance_by"] = "sims";
     }
 
 private:
@@ -455,16 +568,12 @@ private:
         phys::CueStrike strike;
         double chance = 0.0;
         double score = 0.0;
+        double giveaway = 0.0;
+        double miss_turn = 0.0;
         Vec2 cue_rest;
         std::string next;
         double next_chance = 0.0;
     };
-
-    static std::uint64_t seed_of(const Rng& rng) {
-        Rng copy = rng;
-        // Apart from the stand-in's own stream, which takes the same copy's first number.
-        return copy.next_u64() ^ 0x9e3779b97f4a7c15ull;
-    }
 
     void weigh(const Pot& pot, const Made& made, double misread) {
         Scored c;
@@ -472,8 +581,14 @@ private:
         c.strike = made.strike;
         c.cue_rest = made.cue_rest;
         const Spec spec{made.strike.speed_m_s, made.strike.tip_x, made.strike.tip_y, made.strike.elevation_rad};
-        c.chance = std::clamp(pot_chance(level_, pot, spec, pot.margin_rad) * (1.0 + level_.judgement_sigma * misread),
-                              0.0, 1.0);
+        const double measured = level_.noisy_sims > 0 ? noisy_chance(bench_, s_, pot, made.strike, noise_)
+                                                      : pot_chance(level_, pot, spec, pot.margin_rad);
+        c.chance = std::clamp(measured * (1.0 + level_.judgement_sigma * misread), 0.0, 1.0);
+        if (level_.miss_weight > 0.0) {
+            const Giveaway given = giveaway(bench_, s_, pot, made.strike);
+            c.giveaway = given.worth;
+            c.miss_turn = given.turn;
+        }
         double leave = 0.0;
         if (made.goes_on) {
             const std::vector<Pot> next = pots(made.post, env_, level_.max_cut_rad);
@@ -485,7 +600,8 @@ private:
             }
         }
         const double w = level_.position_weight;
-        c.score = c.chance * (pot.value + kBreakOn * (1.0 - w) + w * leave);
+        c.score = c.chance * ((pot.value + kBreakOn * (1.0 - w)) * points_factor_ + w * leave);
+        if (level_.miss_weight > 0.0) c.score -= (1.0 - c.chance) * level_.miss_weight * c.giveaway;
         scored_.push_back(std::move(c));
         if (best_ < 0 || scored_.back().score > scored_[std::size_t(best_)].score) best_ = int(scored_.size()) - 1;
     }
@@ -518,18 +634,32 @@ private:
     const Level& level_;
     const Env& env_;
     Bench bench_;
-    Rng misreads_;
+    Rng& misreads_;
+    Rng& noise_;
+    double points_factor_;
     std::vector<Scored> scored_;
     int listed_ = 0;
     int best_ = -1;
 };
 
 // The 147 (README "The 147", "The search"): the pots of the ball it needs, each read by where it
-// leaves the table, then the best looked into a stroke further, stage by stage.
+// leaves the table, then the best looked into a stroke further, stage by stage. A level with error
+// that plans (README "Worth") goes through the same stages over every pot it may play, each pot
+// worth its chance times its points and what follows, less what its miss gives away.
 class Planning {
 public:
-    Planning(const FrameState& s, const Level& level, const Env& env, Budget& budget)
-        : level_(level), env_(env), bench_{level, env, budget} {
+    // `misreads` and `noise` are a level with error's streams; null for the 147. The grid's share
+    // of the simulations is counted from `grid_from`, those the tactics spent before it.
+    Planning(const FrameState& s, const Level& level, const Env& env, Budget& budget, Rng* misreads = nullptr,
+             Rng* noise = nullptr, int grid_from = 0)
+        : level_(level),
+          env_(env),
+          bench_{level, env, budget},
+          misreads_(misreads),
+          noise_(noise),
+          errs_(!level.maximum),
+          grid_from_(grid_from),
+          points_factor_(points_factor(s, level)) {
         nodes_.emplace_back();
         nodes_.back().s = s;
     }
@@ -537,9 +667,9 @@ public:
     void run() {
         // The level's own simulations, not the limit in force: a decision must replay from its
         // logged steps alone, which a Think.max_sims there would not reach.
-        const double grid = kGridShare * level_.max_sims;
+        const double grid = grid_from_ + kGridShare * level_.max_sims;
         if (!expand(0, grid)) return;
-        if (!refine()) return;
+        if (!errs_ && !refine()) return;
         const int depth = std::min(level_.depth, kMaxDepth);
         for (int d = 1; d <= depth; ++d) {
             const std::vector<int> list = d == 1 ? nodes_[0].beam : finished(d - 1);
@@ -559,6 +689,10 @@ public:
 
     bool found() const { return !nodes_[0].cands.empty(); }
     int candidates() const { return int(nodes_[0].cands.size()); }
+    int listed() const { return int(nodes_[0].pots.size()); }
+    // The plan it would play: its first pot's chance as read and its worth.
+    double chance() const { return chosen().chance; }
+    double score() const { return chosen().value[stage_]; }
 
     // A maximum not yet begun is still there at the next visit. When no red it found leaves a
     // black to follow, potting one would only end it: the 147 plays safe and waits. A black is
@@ -590,9 +724,13 @@ public:
         Drawn drawn;
         play(out, root.s, level_, &pot, env_, rng, drawn);
         out.why = pot_why(root.s, level_, pot, out.meant);
-        const Spec spec{c.strike.speed_m_s, c.strike.tip_x, c.strike.tip_y, c.strike.elevation_rad};
-        out.why["chance"] = pot_chance(level_, pot, spec, pot.margin_rad);
+        out.why["chance"] = chance_of(pot, c);
         out.why["worth"] = c.value[stage_];
+        if (errs_ && level_.miss_weight > 0.0) {
+            out.why["giveaway"] = c.giveaway;
+            out.why["miss_turn"] = c.miss_turn;
+        }
+        if (errs_ && level_.noisy_sims > 0) out.why["chance_by"] = "sims";
         out.why["leave"] = {{"cue", {c.cue_rest.x, c.cue_rest.y}},
                             {"next", label(c.post, c.leaf.next)},
                             {"chance", c.leaf.chance}};
@@ -617,11 +755,9 @@ public:
             const std::pair<int, int> key{its.target, its.pocket};
             if (std::find(seen.begin(), seen.end(), key) != seen.end()) continue;
             seen.push_back(key);
-            const Spec its_spec{other.strike.speed_m_s, other.strike.tip_x, other.strike.tip_y,
-                                other.strike.elevation_rad};
             others.push_back({{"target", label(root.s, its.target)},
                               {"pocket", its.pocket},
-                              {"chance", pot_chance(level_, its, its_spec, its.margin_rad)},
+                              {"chance", chance_of(its, other)},
                               {"worth", other.value[stage_]}});
             if (others.size() == 3) break;
         }
@@ -649,6 +785,13 @@ private:
         // The points it pots, less what the stroke costs: its pace and spin, and kLost when it
         // ends a maximum that was on.
         double own = 0.0;
+        // For a level with error: its chance (as misread, in the first position), what it scores
+        // beside the leave, and what its miss gives away; worth chance * (gain + w * leave) -
+        // (1 - chance) * miss_weight * giveaway.
+        double chance = 1.0;
+        double gain = 0.0;
+        double giveaway = 0.0;
+        double miss_turn = 0.0;
         int node = -1;  // the position it leaves, once looked into
         // By how many strokes beyond it were looked into: what its plan is worth, the candidate
         // of its node that plan plays next (-1 none), and whether the plan runs the whole way.
@@ -738,7 +881,7 @@ private:
         n.listed = true;
         n.on = level_.maximum && maximum_on(n.s);
         const Ball needed = maximum_next(n.s);
-        const bool black_first = !n.on && n.s.on.kind == OnKind::any_colour;
+        const bool black_first = level_.maximum && !n.on && n.s.on.kind == OnKind::any_colour;
         std::vector<Pot> later;
         const int most = n.depth == 0 ? std::numeric_limits<int>::max() : kDeepPots;
         for (const Pot& pot : pots(n.s, env_, level_.max_cut_rad)) {
@@ -768,6 +911,8 @@ private:
     // candidates, or -1.
     int step(Node& n, const Try& t) {
         ++bench_.budget.steps;
+        // Drawn for every candidate of the first position, made or not, as Weighing draws them.
+        const double misread = errs_ && n.depth == 0 && misreads_ != nullptr ? misreads_->normal() : 0.0;
         const Pot& pot = n.pots[std::size_t(t.pot)];
         double& last = n.last_aim[std::size_t(t.pot)][std::size_t(t.spin)];
         double from = pot.aim_rad;
@@ -796,11 +941,60 @@ private:
         // For the highest break a red beyond the first in one stroke is a black that cannot follow
         // it. While the maximum is on such a stroke already costs kLost.
         if (!n.on) c.own -= kRedCost * std::max(0, reds_left(n.s) - reds_left(made.post) - 1);
-        if (made.goes_on) c.leaf = read_table(made.post, pots(made.post, env_, level_.max_cut_rad), env_);
-        c.value[0] = c.own + c.leaf.worth;
+        if (errs_) {
+            weigh(n, pot, made, misread, c);
+        } else {
+            if (made.goes_on) c.leaf = read_table(made.post, pots(made.post, env_, level_.max_cut_rad), env_);
+            c.value[0] = c.own + c.leaf.worth;
+        }
         c.post = std::move(made.post);
         n.cands.push_back(std::move(c));
         return int(n.cands.size()) - 1;
+    }
+
+    // A level with error's reading of a candidate: its chance (from noisy strokes and misread in
+    // the first position), its points, and the leave read from the pots there. The miss is
+    // simulated only for the stroke it is choosing; below that a plan's pot is its chance alone.
+    void weigh(const Node& n, const Pot& pot, const Made& made, double misread, Cand& c) {
+        const bool first = n.depth == 0;
+        const Spec spec{made.strike.speed_m_s, made.strike.tip_x, made.strike.tip_y, made.strike.elevation_rad};
+        const double measured = first && level_.noisy_sims > 0 && noise_ != nullptr
+                                    ? noisy_chance(bench_, n.s, pot, made.strike, *noise_)
+                                    : pot_chance(level_, pot, spec, pot.margin_rad);
+        c.chance = std::clamp(measured * (1.0 + level_.judgement_sigma * misread), 0.0, 1.0);
+        c.gain = (pot.value + kBreakOn * (1.0 - level_.position_weight)) * points_factor_;
+        if (first && level_.miss_weight > 0.0) {
+            const Giveaway given = giveaway(bench_, n.s, pot, made.strike);
+            c.giveaway = given.worth;
+            c.miss_turn = given.turn;
+        }
+        if (made.goes_on) {
+            const std::vector<Pot> next = pots(made.post, env_, level_.max_cut_rad);
+            const Read r = read_pots(next, level_, env_);
+            c.leaf.worth = r.worth;
+            if (r.best >= 0) {
+                c.leaf.next = next[std::size_t(r.best)].target;
+                c.leaf.pocket = next[std::size_t(r.best)].pocket;
+                c.leaf.chance = r.chance;
+            }
+        }
+        c.value[0] = worth(c, c.leaf.worth);
+    }
+
+    // What a candidate is worth with `leave` to follow it.
+    double worth(const Cand& c, double leave) const {
+        if (!errs_) return c.own + leave;
+        double out = c.chance * (c.gain + level_.position_weight * leave);
+        if (level_.miss_weight > 0.0) out -= (1.0 - c.chance) * level_.miss_weight * c.giveaway;
+        return out;
+    }
+
+    const Cand& chosen() const { return nodes_[0].cands[std::size_t(finished(stage_).front())]; }
+
+    double chance_of(const Pot& pot, const Cand& c) const {
+        if (errs_) return c.chance;
+        const Spec spec{c.strike.speed_m_s, c.strike.tip_x, c.strike.tip_y, c.strike.elevation_rad};
+        return pot_chance(level_, pot, spec, pot.margin_rad);
     }
 
     void rank(Node& n) {
@@ -834,7 +1028,7 @@ private:
                     queue(n, n.second, int(n.pots.size()));
                     continue;
                 }
-                if (n.depth == 0 && n.between < kBetweenPasses && bench_.budget.sims < sims_until) {
+                if (!errs_ && n.depth == 0 && n.between < kBetweenPasses && bench_.budget.sims < sims_until) {
                     const std::size_t before = n.todo.size();
                     queue_between(n);
                     if (n.todo.size() > before) continue;
@@ -915,7 +1109,7 @@ private:
         if (c.reached >= d) return true;
         if (d > 1 && !deepen(at, which, d - 1)) return false;
         if (!c.goes_on) {
-            c.value[d] = c.own;
+            c.value[d] = worth(c, 0.0);
             c.whole[d] = true;
             c.reached = d;
             return true;
@@ -953,7 +1147,7 @@ private:
                 }
             }
         }
-        c.value[d] = c.own + (pick >= 0 ? best : 0.0);
+        c.value[d] = worth(c, pick >= 0 ? best : 0.0);
         c.best[d] = pick;
         c.whole[d] = pick >= 0 && below.cands[std::size_t(pick)].whole[d - 1];
         c.reached = d;
@@ -963,6 +1157,11 @@ private:
     const Level& level_;
     const Env& env_;
     Bench bench_;
+    Rng* misreads_;
+    Rng* noise_;
+    bool errs_;
+    int grid_from_;
+    double points_factor_;
     // A deque: a position looked into adds positions, and those in hand must stay where they are.
     std::deque<Node> nodes_;
     int stage_ = 0;
@@ -1016,19 +1215,37 @@ void count(Stroke& out, const Budget& budget, int candidates) {
     out.candidates = candidates;
 }
 
-Stroke choose(const FrameState& s, const Level& level, const Env& env, Rng& rng, Budget& budget) {
+// Each stream of a decision from a copy of its Rng: `which` 0 is the judgement's, 1 the noisy
+// strokes'. The stand-in's own takes the copy's first number unchanged.
+std::uint64_t stream_seed(const Rng& rng, int which) {
+    Rng copy = rng;
+    std::uint64_t first = copy.next_u64();
+    if (which == 0) return first ^ 0x9e3779b97f4a7c15ull;
+    for (int i = 0; i < which; ++i) first = copy.next_u64();
+    return first ^ 0xd1b54a32d192ed03ull;
+}
+
+Stroke choose(const FrameState& s, const Level& level, const Env& env, Rng& rng, Budget& budget,
+              const Think& think) {
     Stroke out;
     const bool playing_for_it = level.maximum && maximum_on(s);
     if (s.striker == 0 || s.striker == 1) {
         const std::vector<DecisionKind> open = rules::options(s, s.striker);
+        const auto offered = [&](DecisionKind kind) { return std::find(open.begin(), open.end(), kind) != open.end(); };
         // A level playing for a maximum, or with it gone for the highest break, pots the black
         // while it has a pot of it; it claims only a frame it has no pot in, rather than play
-        // safeties in a frame it has won.
-        const bool offered = std::find(open.begin(), open.end(), DecisionKind::claim_frame) != open.end();
-        if (offered && (!level.maximum || (!playing_for_it && pots(s, env, level.max_cut_rad).empty()))) {
+        // safeties in a frame it has won. It never concedes one it has a pot in either.
+        const auto no_pot = [&] { return !level.maximum || pots(s, env, level.max_cut_rad).empty(); };
+        if (offered(DecisionKind::claim_frame) && (!level.maximum || (!playing_for_it && no_pot()))) {
             out.decides = true;
             out.decision = DecisionKind::claim_frame;
             out.why = {{"level", level.id}, {"kind", "claim"}};
+            return out;
+        }
+        if (offered(DecisionKind::concede_frame) && wants_to_concede(s, s.striker, level) && no_pot()) {
+            out.decides = true;
+            out.decision = DecisionKind::concede_frame;
+            out.why = {{"level", level.id}, {"kind", "concede"}, {"snookers", snookers_needed(s, s.striker)}};
             return out;
         }
     }
@@ -1050,8 +1267,31 @@ Stroke choose(const FrameState& s, const Level& level, const Env& env, Rng& rng,
         return out;
     }
 
-    // The break-off is the stand-in's: it knows the pack when it sees it.
+    // A level's misreadings, the tactics' first and then the pots', and its noisy strokes: each a
+    // stream of its own, so the stroke's error draws stay four.
+    Rng judgement(stream_seed(rng, 0));
+    Rng noise(stream_seed(rng, 1));
+    const bool tactics = level.tactics > 0;
+    const auto tactic_for = [&]() {
+        Tactic t = choose_tactic(s, level, env, budget, judgement);
+        if (t.why.is_object() && t.why.contains("error")) {
+            failure_logged(("choose_tactic: " + t.why["error"].dump()).c_str(), s, level, think, &budget);
+        }
+        return t;
+    };
+
+    // The break-off is the tactic's when it finds one, else the stand-in's: it knows the pack
+    // when it sees it.
+    std::optional<Tactic> asked;
     if (s.cue_in_hand && s.on.kind == OnKind::red && reds_left(s) == 15) {
+        if (tactics) {
+            asked = tactic_for();
+            if (asked->found) {
+                fill_from_tactic(out, *asked, s, level, env, rng);
+                count(out, budget, asked->candidates);
+                return out;
+            }
+        }
         const StandinShot shot = standin_stroke(s, env, false, rng);
         budget.sims += number_in(shot.why, "sims");
         if (!shot.decides && shot.why.is_object() && shot.why.value("kind", std::string()) == "break") {
@@ -1061,35 +1301,81 @@ Stroke choose(const FrameState& s, const Level& level, const Env& env, Rng& rng,
         }
     }
 
+    const Tactic tactic = asked.has_value() ? *asked : tactics ? tactic_for() : Tactic{};
+    // The grid's share of the simulations comes after what the tactics spent.
+    const int grid_from = tactics ? budget.sims : 0;
+
     if (level.maximum) {
-        Planning planning(s, level, env, budget);
+        Planning planning(s, level, env, budget, nullptr, nullptr, grid_from);
         planning.run();
         if (planning.found() && !planning.waits()) {
             planning.fill(out, rng);
-            count(out, budget, planning.candidates());
+            count(out, budget, planning.candidates() + tactic.candidates);
             return out;
         }
-        const int weighed = from_standin(false);
+        int weighed = 0;
+        if (tactic.found) {
+            fill_from_tactic(out, tactic, s, level, env, rng);
+            weighed = tactic.candidates + planning.candidates();
+        } else {
+            weighed = std::max(from_standin(false), planning.candidates()) + tactic.candidates;
+        }
         // The pots it had made and would not play, when it is waiting for the black.
         out.why["pots"] = planning.candidates();
-        count(out, budget, std::max(weighed, planning.candidates()));
+        count(out, budget, weighed);
         return out;
     }
 
-    Weighing weighing(s, level, env, budget, rng);
-    weighing.run();
-    if (weighing.found() && weighing.chance() >= level.safety_below) {
-        weighing.fill(out, rng);
-        count(out, budget, weighing.candidates());
+    std::unique_ptr<Weighing> weighing;
+    std::unique_ptr<Planning> planning;
+    PotOffer offer;
+    int listed = 0;
+    int made = 0;
+    if (level.depth > 0) {
+        planning = std::make_unique<Planning>(s, level, env, budget, &judgement, &noise, grid_from);
+        planning->run();
+        offer.found = planning->found();
+        if (offer.found) {
+            offer.score = planning->score();
+            offer.chance = planning->chance();
+        }
+        listed = planning->listed();
+        made = planning->candidates();
+    } else {
+        weighing = std::make_unique<Weighing>(s, level, env, budget, judgement, noise);
+        weighing->run();
+        offer.found = weighing->found();
+        if (offer.found) {
+            offer.score = weighing->score();
+            offer.chance = weighing->chance();
+        }
+        listed = weighing->listed();
+        made = weighing->candidates();
+    }
+
+    const Pick chosen = pick(offer, tactic, s, level);
+    if (chosen == Pick::pot) {
+        if (planning) {
+            planning->fill(out, rng);
+        } else {
+            weighing->fill(out, rng);
+        }
+        count(out, budget, made + tactic.candidates);
         return out;
     }
-    const int weighed = from_standin(false);
+    int weighed = 0;
+    if (chosen == Pick::tactic) {
+        fill_from_tactic(out, tactic, s, level, env, rng);
+        weighed = tactic.candidates + made;
+    } else {
+        weighed = std::max(from_standin(false), made) + tactic.candidates;
+    }
     // Why it did not pot: the pots the table offered, how many strokes made one, and the chance it
     // gave the best when it had one.
-    out.why["listed"] = weighing.listed();
-    out.why["pots"] = weighing.candidates();
-    if (weighing.found()) out.why["declined"] = weighing.chance();
-    count(out, budget, std::max(weighed, weighing.candidates()));
+    out.why["listed"] = listed;
+    out.why["pots"] = made;
+    if (offer.found) out.why["declined"] = offer.chance;
+    count(out, budget, weighed);
     return out;
 }
 
@@ -1123,6 +1409,19 @@ Stroke after_exception(const FrameState& s, const Level& level, const Env& env, 
 
 }  // namespace
 
+double pot_floor(const rules::FrameState& s, const Level& level) {
+    if (s.striker != 0 && s.striker != 1) return level.safety_below;
+    const int lead = s.scores[std::size_t(s.striker)] - s.scores[std::size_t(1 - s.striker)];
+    if (lead <= rules::points_remaining(s)) return level.safety_below;
+    return level.safety_below + level.score_aware * std::max(0.0, 0.5 - level.safety_below);
+}
+
+Pick pick(const PotOffer& pot, const Tactic& tactic, const rules::FrameState& s, const Level& level) {
+    if (!tactic.found) return pot.found && pot.chance >= level.safety_below ? Pick::pot : Pick::standin;
+    if (pot.found && pot.chance >= pot_floor(s, level) && pot.score > tactic.worth) return Pick::pot;
+    return Pick::tactic;
+}
+
 Stroke choose_stroke(const rules::FrameState& s, const Level& level, const Env& env, Rng& rng, const Think& think) {
     Budget budget(level, think);
     std::unique_ptr<TrialFailures> failures;
@@ -1136,7 +1435,7 @@ Stroke choose_stroke(const rules::FrameState& s, const Level& level, const Env& 
             mouths = std::make_unique<PocketMouths>(env.table);
             local.mouths = mouths.get();
         }
-        out = choose(s, level, local, rng, budget);
+        out = choose(s, level, local, rng, budget, think);
     } catch (const std::exception& e) {
         failure_logged(e.what(), s, level, think, &budget);
         out = after_exception(s, level, env, rng, think, budget, e.what());
