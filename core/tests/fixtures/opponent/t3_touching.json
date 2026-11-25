@@ -1,0 +1,66 @@
+{
+  "note": "The cue ball touching a red (2 micrometres apart, inside the touching gap), two more reds open. The test sets the touching list.",
+  "cue_ball": 0,
+  "balls": [
+    {
+      "ball": "cue",
+      "index": 0,
+      "x": 0.5,
+      "y": 0.2
+    },
+    {
+      "ball": "red",
+      "index": 0,
+      "x": 0.552502,
+      "y": 0.2
+    },
+    {
+      "ball": "red",
+      "index": 1,
+      "x": 1.2,
+      "y": -0.3
+    },
+    {
+      "ball": "red",
+      "index": 2,
+      "x": 1.0,
+      "y": 0.6
+    },
+    {
+      "ball": "yellow",
+      "index": 0,
+      "x": -1.0474999999999999,
+      "y": -0.292
+    },
+    {
+      "ball": "green",
+      "index": 0,
+      "x": -1.0474999999999999,
+      "y": 0.292
+    },
+    {
+      "ball": "brown",
+      "index": 0,
+      "x": -1.0474999999999999,
+      "y": 0.0
+    },
+    {
+      "ball": "blue",
+      "index": 0,
+      "x": 0.0,
+      "y": 0.0
+    },
+    {
+      "ball": "pink",
+      "index": 0,
+      "x": 0.89225,
+      "y": 0.0
+    },
+    {
+      "ball": "black",
+      "index": 0,
+      "x": 1.4605,
+      "y": 0.0
+    }
+  ]
+}

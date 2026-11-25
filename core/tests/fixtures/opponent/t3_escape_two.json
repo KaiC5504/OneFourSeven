@@ -1,0 +1,54 @@
+{
+  "note": "Red on and snookered where the rules' geometry finds no path off one cushion and some off two (a random search kept the layout that a scan of 6,000 aims on the simulator hit most often off two).",
+  "cue_ball": 0,
+  "balls": [
+    {
+      "ball": "cue",
+      "index": 0,
+      "x": -1.447,
+      "y": 0.4
+    },
+    {
+      "ball": "red",
+      "index": 0,
+      "x": 0.994,
+      "y": 0.073
+    },
+    {
+      "ball": "yellow",
+      "index": 0,
+      "x": -1.655,
+      "y": 0.357
+    },
+    {
+      "ball": "green",
+      "index": 0,
+      "x": -0.314,
+      "y": 0.714
+    },
+    {
+      "ball": "brown",
+      "index": 0,
+      "x": -1.276,
+      "y": 0.367
+    },
+    {
+      "ball": "blue",
+      "index": 0,
+      "x": 1.39,
+      "y": -0.649
+    },
+    {
+      "ball": "pink",
+      "index": 0,
+      "x": 0.721,
+      "y": -0.238
+    },
+    {
+      "ball": "black",
+      "index": 0,
+      "x": 0.085,
+      "y": 0.055
+    }
+  ]
+}

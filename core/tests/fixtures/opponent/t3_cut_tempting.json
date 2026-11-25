@@ -1,0 +1,66 @@
+{
+  "note": "One pot only, the cut red into the top-left corner (about 0.29 for Amateur as read, just over its safety_below). Two more reds lie beside it with no pot from here; a real miss (the aim three margins to the thicker side) leaves the other player a pot of one of them it reads at 17, while a thin safety leaves nothing.",
+  "cue_ball": 0,
+  "balls": [
+    {
+      "ball": "cue",
+      "index": 0,
+      "x": 1.3,
+      "y": -0.4
+    },
+    {
+      "ball": "red",
+      "index": 0,
+      "x": 1.3,
+      "y": 0.55
+    },
+    {
+      "ball": "red",
+      "index": 1,
+      "x": 1.55,
+      "y": 0.35
+    },
+    {
+      "ball": "red",
+      "index": 2,
+      "x": 1.1,
+      "y": 0.75
+    },
+    {
+      "ball": "yellow",
+      "index": 0,
+      "x": -1.0474999999999999,
+      "y": -0.292
+    },
+    {
+      "ball": "green",
+      "index": 0,
+      "x": -1.0474999999999999,
+      "y": 0.292
+    },
+    {
+      "ball": "brown",
+      "index": 0,
+      "x": -1.0474999999999999,
+      "y": 0.0
+    },
+    {
+      "ball": "blue",
+      "index": 0,
+      "x": 0.0,
+      "y": 0.0
+    },
+    {
+      "ball": "pink",
+      "index": 0,
+      "x": 0.89225,
+      "y": 0.0
+    },
+    {
+      "ball": "black",
+      "index": 0,
+      "x": 1.4605,
+      "y": 0.0
+    }
+  ]
+}

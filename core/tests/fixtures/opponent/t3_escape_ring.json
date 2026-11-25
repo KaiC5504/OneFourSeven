@@ -1,0 +1,54 @@
+{
+  "note": "Impossible to hit the ball on: the cue ball ringed by the six colours 60 mm away (7.5 mm gaps), the one red far off. Every stroke meets a colour first.",
+  "cue_ball": 0,
+  "balls": [
+    {
+      "ball": "cue",
+      "index": 0,
+      "x": 0.0,
+      "y": 0.3
+    },
+    {
+      "ball": "yellow",
+      "index": 0,
+      "x": 0.06,
+      "y": 0.3
+    },
+    {
+      "ball": "green",
+      "index": 0,
+      "x": 0.030000000000000006,
+      "y": 0.3519615242270663
+    },
+    {
+      "ball": "brown",
+      "index": 0,
+      "x": -0.029999999999999985,
+      "y": 0.3519615242270663
+    },
+    {
+      "ball": "blue",
+      "index": 0,
+      "x": -0.06,
+      "y": 0.3
+    },
+    {
+      "ball": "pink",
+      "index": 0,
+      "x": -0.030000000000000027,
+      "y": 0.2480384757729337
+    },
+    {
+      "ball": "black",
+      "index": 0,
+      "x": 0.030000000000000006,
+      "y": 0.24803847577293367
+    },
+    {
+      "ball": "red",
+      "index": 0,
+      "x": 1.0,
+      "y": -0.4
+    }
+  ]
+}

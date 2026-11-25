@@ -1,0 +1,24 @@
+{
+  "note": "Pink and black left, pink on, the black just beyond the pink: about one legal stroke in five on the pink leaves the cue ball snookered behind the black.",
+  "cue_ball": 0,
+  "balls": [
+    {
+      "ball": "cue",
+      "index": 0,
+      "x": -0.5,
+      "y": 0.0
+    },
+    {
+      "ball": "pink",
+      "index": 0,
+      "x": 0.6,
+      "y": 0.5
+    },
+    {
+      "ball": "black",
+      "index": 0,
+      "x": 0.75,
+      "y": 0.62
+    }
+  ]
+}
