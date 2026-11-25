@@ -370,7 +370,7 @@ ofs_sim_cli tournament --a maximum --frames 0 --exhibitions
 - It prints a table of the counts for A and B, each exhibition's break, the failures and the wall
   time. `--report FILE` writes them as JSON: `frames`, `seed`, `params_hash`, `table_hash`,
   `levels` (`a`, `b`: each level's values), `level_hashes`, `a` and `b` (the counts below),
-  `exhibitions` (`name`, `break_points`, `maximum`, `strokes`), `failures` (`where`, `stroke`,
+  `frame_best` (below), `exhibitions` (`name`, `break_points`, `maximum`, `strokes`), `failures` (`where`, `stroke`,
   `player`, `level`, `kind`, `detail`, `repro`) and `timing` (`wall_s`, `threads`,
   `frames_per_s`). Each level's counts: `frames_won`; `strokes`; `pots` (`attempts`, `made`, and
   by `bands`: `short`, `medium`, `long`, and `unknown` for a pot whose `why` names no band);
@@ -407,13 +407,20 @@ ofs_sim_cli tournament --a maximum --frames 0 --exhibitions
   - `tactics.break_offs`: `played`, strokes of kind `break`; `then_pot`, those followed by a pot
     attempt or by a stroke whose `why.pots` is above 0 (the other player had a pot);
     `then_no_pot`, the rest.
-  - `frame_highs`: the level's highest break in each frame it played, re-racks included, 0 when it
-    made none: `frames`, how many; `typical`, their median (the **typical break**); `fifty_plus`
-    and `century`, the frames whose highest is 50 or more and 100 or more; `counts`, `[break,
-    frames]` for each highest break that occurred, lowest first, so reports can be merged. In a
-    frame of a level against itself each side counts its own.
+  - `frame_highs`: the side's own highest break in each frame it played, re-racks included, 0 when
+    it made none: `frames`, how many; `typical`, their median; `fifty_plus` and `century`, the
+    frames whose highest is 50 or more and 100 or more; `counts`, `[break, frames]` for each
+    highest break that occurred, lowest first, so reports can be merged. In a frame of a level
+    against itself each side counts its own, so this is not the typical break: the loser of a
+    frame rarely makes a break when the winner made a big one.
   - `concessions` (`concede_frame` or `concede_match`) and `claims` (`claim_frame`): the choices
     the engine took, made in place of a stroke or when offered.
+- `frame_best`, at the top of the report: each frame's highest break by either player (the higher
+  of the two sides' `frame_highs` for that frame), frames only, never an exhibition. The same keys
+  as `frame_highs`: `frames`, the frames played; `typical`, the median over them (in a report of a
+  level against itself, the level's **typical break**); `fifty_plus`, `century`, `counts`. A run
+  of exhibitions alone has `frames` 0. The printed table shows it as "frame's best break" and each
+  side's own median as "own typical break".
 - `--log FILE` writes the run's log as JSONL, the lines a game session logs: `params.loaded` (the
   physics file, then each level file), `rules.configured` (the referee's and stand-in's values and
   each level's, with its file's `hash`, as the game's binding logs them), then each frame in order

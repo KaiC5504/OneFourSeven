@@ -110,6 +110,31 @@ def recount(lines):
     return sides
 
 
+def recount_highs(lines):
+    """Each frame's highest break for each player, from the log alone: [high of player 0, of player 1]
+    per frame. A stroke's break so far is the striker's break before it plus what it scored."""
+    highs = {}
+    for line in lines:
+        event, d = line["event"], line["data"]
+        if event == "match.started":
+            highs[d["match_id"]] = [0, 0]
+        elif event == "rules.decision":
+            pre, judgement = d["pre"], d["judgement"]
+            points = pre["break_points"] + (0 if judgement["fouls"] else judgement["points"])
+            frame = highs[d["match_id"]]
+            frame[pre["striker"]] = max(frame[pre["striker"]], points)
+    return list(highs.values())
+
+
+def median(values):
+    values, n = sorted(values), len(values)
+    return values[n // 2] if n % 2 else (values[n // 2 - 1] + values[n // 2]) / 2
+
+
+def as_counts(values):
+    return [[v, values.count(v)] for v in sorted(set(values))]
+
+
 class LadderCounts:
     """The stage 2 counts of a report, checked for their types and sums and against the log."""
 
@@ -161,6 +186,26 @@ class LadderCounts:
                 self.assertEqual(max(values), stats["breaks"]["highest"])
                 self.assertEqual(stats["concessions"], again[side]["concessions"])
                 self.assertEqual(stats["claims"], again[side]["claims"])
+        self.check_frame_best(report, lines)
+
+    def check_frame_best(self, report, lines):
+        best = report["frame_best"]
+        self.assertEqual(set(best), {"frames", "typical", "fifty_plus", "century", "counts"})
+        for key in ("frames", "fifty_plus", "century"):
+            self.assertIsInstance(best[key], int, key)
+        self.assertIsInstance(best["typical"], (int, float))
+        self.assertEqual(best["frames"], report["frames"])
+        highs = recount_highs(lines)
+        self.assertEqual(len(highs), report["frames"])
+        for side, player in (("a", 0), ("b", 1)):
+            self.assertEqual(report[side]["frame_highs"]["counts"], as_counts([h[player] for h in highs]), side)
+        frame_best = [max(h) for h in highs]
+        self.assertEqual(best["counts"], as_counts(frame_best))
+        self.assertEqual(best["typical"], median(frame_best))
+        self.assertEqual(best["century"], sum(v >= 100 for v in frame_best))
+        self.assertEqual(best["fifty_plus"], sum(v >= 50 for v in frame_best))
+        for side in ("a", "b"):
+            self.assertGreaterEqual(best["typical"], report[side]["frame_highs"]["typical"], side)
 
 
 class TournamentLadderTest(LadderCounts):
@@ -168,7 +213,7 @@ class TournamentLadderTest(LadderCounts):
 
     def test_the_ladder_counts_add_up_and_agree_with_the_log(self):
         self.check_ladder_counts(self.report, self.lines)
-        for name in ("typical break", "safeties then a pot", "snookers laid / called", "escapes hit a ball on",
+        for name in ("own typical break", "frame's best break", "safeties then a pot", "snookers laid / called", "escapes hit a ball on",
                      "break-offs then a pot", "concessions / claims"):
             self.assertIn(name, self.result.stdout)
 
@@ -283,6 +328,8 @@ class TournamentTest(TournamentCase, TournamentLadderTest):
                     self.assertEqual(e["maximum"], e["break_points"] >= 147)
                     self.assertRegex(result.stdout, rf"exhibition {e['name']}\s+break\s+{e['break_points']} ")
                 self.assertIsNone(report["b"])
+                self.assertEqual(report["frame_best"], {"frames": 0, "typical": 0.0, "fifty_plus": 0, "century": 0,
+                                                        "counts": []})
 
     def test_an_exhibition_stopped_by_a_failure_ends_failed_in_the_log(self):
         layouts = json.loads(EXHIBITIONS.read_text(encoding="utf-8"))["layouts"]
