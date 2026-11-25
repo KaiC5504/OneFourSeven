@@ -849,3 +849,86 @@ func test_the_break_pill_sits_clear_of_the_controls_and_the_tv_views_pockets() -
 				check(not pill.grow(CameraRig.CLEAR_MARGIN).has_point(at), "the TV view's %s pocket at %s clear of the pill %s"
 						% [pocket["name"], at, pill])
 	rig.free()
+
+
+## The colour at ball 1 played into the top left; ball 2 a `third` that stays at `third_at`.
+func _colour_shot(colour: String, third: String, third_at: Vector2) -> Array:
+	var playback := _pot(_pocket("top_left"), 0.4, 1.6)
+	playback.runs[2] = [third_at, third_at, 0.0, 1.0]
+	playback.runs[0] = [Vector2(-1.0, 0.0), Vector2(1.0, -0.6), 0.0, 2.5]
+	playback.scripted_events.append({"t": 1.0, "kind": "ball_line", "a": 0, "b": -1, "body": 2})
+	playback.scripted_events.sort_custom(func(x: Dictionary, y: Dictionary) -> bool: return float(x["t"]) < float(y["t"]))
+	var balls: Array[Dictionary] = [{"ball": "cue", "index": 0, "x": -1.0, "y": 0.0},
+			{"ball": colour, "index": 0, "x": 1.0, "y": 0.3}, {"ball": third, "index": 5, "x": third_at.x, "y": third_at.y}]
+	return [playback, balls]
+
+
+func _spot(colour: String) -> Vector2:
+	var s: Dictionary = OfsTable.spot(colour)
+	return Vector2(float(s["x"]), float(s["y"]))
+
+
+func _entry(name: String, at: Vector2) -> Array:
+	return [name, snappedf(at.x, 1e-6), snappedf(at.y, 1e-6)]
+
+
+func _names_at(left: Dictionary) -> Array:
+	return (left.get("balls", []) as Array).map(func(b: Dictionary) -> Array:
+			return _entry(String(b["ball"]), Vector2(float(b["x"]), float(b["y"]))))
+
+
+func test_in_a_match_the_excellent_read_is_the_rules_position() -> void:
+	var red_at := Vector2(1.2, -0.5)
+	# A free ball nominated with a red on counts as the red: a colour follows, and it goes back.
+	var shot := _colour_shot("blue", "red", red_at)
+	var left := ShotCycle.left_as_potted(shot[0], shot[1], 0, 1, {"on": {"kind": "red"}, "free_ball": true})
+	check_eq(left.get("on"), {"kind": "any_colour"}, "a free ball potted: a colour next, not a red")
+	check_eq(_names_at(left).slice(1), [_entry("red", red_at), _entry("blue", _spot("blue"))], "and the blue back on its spot")
+	# On the free table the same shot is read as the table has it: the blue off, a red next.
+	left = ShotCycle.left_as_potted(shot[0], shot[1], 0, 1)
+	check_eq([left.get("on"), _names_at(left).size()], [{"kind": "red"}, 2], "the free table keeps its own order")
+
+	# A colour after a red, reds still on: it goes back on its spot and a red follows.
+	left = ShotCycle.left_as_potted(shot[0], shot[1], 0, 1, {"on": {"kind": "any_colour"}, "free_ball": false})
+	check_eq(left.get("on"), {"kind": "red"}, "a red after the colour")
+	check(_names_at(left).has(_entry("blue", _spot("blue"))), "the blue re-spotted: %s" % [_names_at(left)])
+	# Its spot taken, it goes on the highest one free.
+	shot = _colour_shot("blue", "red", _spot("blue"))
+	left = ShotCycle.left_as_potted(shot[0], shot[1], 0, 1, {"on": {"kind": "any_colour"}, "free_ball": false})
+	check(_names_at(left).has(_entry("blue", _spot("black"))), "on the black's spot when its own is taken: %s" % [_names_at(left)])
+
+	# The colour after the last red goes back too, and the colours start from the yellow.
+	shot = _colour_shot("pink", "yellow", _spot("yellow"))
+	left = ShotCycle.left_as_potted(shot[0], shot[1], 0, 1, {"on": {"kind": "any_colour"}, "free_ball": false})
+	check_eq([left.get("on"), _names_at(left).size()], [{"kind": "colour", "colour": "yellow"}, 3],
+			"the pink back on the table, the yellow on after the last red's colour")
+	# In the colours, the ball on goes for good.
+	shot = _colour_shot("blue", "pink", _spot("pink"))
+	left = ShotCycle.left_as_potted(shot[0], shot[1], 0, 1, {"on": {"kind": "colour", "colour": "blue"}, "free_ball": false})
+	check_eq([left.get("on"), _names_at(left).size()], [{"kind": "colour", "colour": "pink"}, 2], "the pink next, the blue gone")
+	# A free ball in the colours goes back, and the ball on stays on.
+	shot = _colour_shot("blue", "brown", _spot("brown"))
+	left = ShotCycle.left_as_potted(shot[0], shot[1], 0, 1, {"on": {"kind": "colour", "colour": "brown"}, "free_ball": true})
+	check_eq([left.get("on"), _names_at(left).size()], [{"kind": "colour", "colour": "brown"}, 3],
+			"the brown still on, the blue back")
+
+	# plan() hands the rules on to the reading.
+	shot = _colour_shot("blue", "red", red_at)
+	var asked: Array = []
+	ShotCycle.plan(shot[0], shot[1], 0, true, _pockets(), "", _reading(100.0, asked), {"on": {"kind": "red"}, "free_ball": true})
+	check(asked.size() == 1 and asked[0][2] == {"kind": "any_colour"} and (asked[0][0] as Array).size() == 3,
+			"read as the rules leave it: %s" % [asked])
+
+
+func test_the_cue_ball_s_run_is_measured_no_further_than_it_is_needed() -> void:
+	var playback := _position_shot(false, Vector2(-0.5, -0.4), true)
+	var whole := ShotCycle.cue_run(playback, 0)
+	check(float(whole["metres"]) > 1.5 and bool(whole["cushion"]), "the whole run: %s" % [whole])
+	var needed := ShotCycle.cue_run(playback, 0, 1.0)
+	check(float(needed["metres"]) >= 1.0 and float(needed["metres"]) < 1.1, "stopped once 1 m is reached: %s" % [needed])
+	var none := ShotCycle.cue_run(_position_shot(false, Vector2(-0.5, -0.4), false), 0, 1.0)
+	check_eq(none, {"metres": 0.0, "cushion": false}, "not measured at all with no cushion to meet")
+	# A cue ball come to rest is not followed to the end of the shot.
+	var resting := _position_shot(false, Vector2(-0.5, -0.4), true)
+	resting.scripted_events.append({"t": 1.2, "kind": "transition", "a": 0, "b": -1, "body": -1, "from": "rolling", "to": "stationary"})
+	check(float(ShotCycle.cue_run(resting, 0)["metres"]) < float(whole["metres"]) - 0.3, "measured to where it stopped")

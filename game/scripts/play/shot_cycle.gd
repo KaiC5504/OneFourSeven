@@ -51,13 +51,18 @@ const JOURNEY_APART_M := 0.3
 const JOURNEY_REASON := "cue ball's journey"
 ## A shot at a pocket that leaves an excellent position is watched whole from the full table too
 ## (docs/opponent/README.md, "The game, stage 2"): the cue ball ran this far after its first ball
-## and met a cushion, and the position left reads this share or more of the most the ball on
-## could be worth. Starting values, KaiC's to judge.
+## and met a cushion, the position left reads this share or more of the most the ball on could be
+## worth, and beats by POSITION_BEAT of that most what the same pot struck plain (centre ball, the
+## same pace) would have left: the shot was played for position. Over 655 simulated shots at a
+## pocket the share alone passed one in two, soft plain pots as often as any (their median share
+## 0.87); with the plain shot to beat, one in eight and no plain shot. Starting values, KaiC's to
+## judge.
 const POSITION_RUN_M := 1.0
-const POSITION_SHARE := 0.75
+const POSITION_SHARE := 0.80
+const POSITION_BEAT := 0.03
 const POSITION_REASON := "position"
 ## The reader's chance has no cap below 1 (its error is erf alone), so the most a position can be
-## worth is the best value on plus what keeping the break going is worth (evaluate.hpp kBreakOn).
+## worth is the best value on plus what keeping the break going is worth (NextTarget.BREAK_POINTS).
 const POSITION_CHANCE_CAP := 1.0
 const COLOURS: Array[String] = ["yellow", "green", "brown", "blue", "pink", "black"]
 const VALUES := {"red": 1, "yellow": 2, "green": 3, "brown": 4, "blue": 5, "pink": 6, "black": 7}
@@ -103,9 +108,12 @@ func _init(rig: CameraRig = null) -> void:
 ## or walking round, CameraRig.watch()).
 ## reading, when valid, is what a position is worth to the player at it: (balls, cue_ball, on: the
 ## rules' form) -> float, negative when it can't be read. With it a shot at a pocket that leaves an
-## excellent position (excellent()) is watched from the full table, reason POSITION_REASON.
+## excellent position (excellent()) is watched from the full table, reason POSITION_REASON. rules
+## is the match's frame as the stroke starts ({on, free_ball}, excellent()'s), {} on the free table;
+## plain excellent()'s.
 static func plan(playback: ShotPlayback, balls: Array[Dictionary], cue_ball: int, pocket_camera: bool,
-		pockets: Array, watch_table: String = "", reading: Callable = Callable()) -> Dictionary:
+		pockets: Array, watch_table: String = "", reading: Callable = Callable(), rules: Dictionary = {},
+		plain: Callable = Callable()) -> Dictionary:
 	var pots: Array[Dictionary] = []
 	var cue_drop := {}
 	for e: Dictionary in playback.events():
@@ -149,7 +157,7 @@ static func plan(playback: ShotPlayback, balls: Array[Dictionary], cue_ball: int
 	# Decided the same for a pot and for an attempt that stays out, so the view gives neither away.
 	if out["sequence"] == "pocket":
 		var why := watch_table if not watch_table.is_empty() else (JOURNEY_REASON if journey(playback, cue_ball) else "")
-		if why.is_empty() and reading.is_valid() and excellent(playback, balls, cue_ball, int(about["index"]), reading):
+		if why.is_empty() and reading.is_valid() and excellent(playback, balls, cue_ball, int(about["index"]), reading, rules, plain):
 			why = POSITION_REASON
 		if not why.is_empty():
 			out["sequence"] = "broadcast"
@@ -293,14 +301,19 @@ static func journey(playback: ShotPlayback, cue_ball: int) -> bool:
 ## Whether a shot played at a pocket with ball `played` leaves an excellent position: the cue ball
 ## runs POSITION_RUN_M or more after its first ball and meets a cushion on the way, and the
 ## position, read as if `played` had gone in (it and every ball that dropped off the table, the
-## ball on that would follow), is worth POSITION_SHARE or more of the most that ball on could be.
-## Judged the same whether `played` went in or stayed out. reading as plan() takes it.
+## ball on that would follow), is worth POSITION_SHARE or more of the most that ball on could be,
+## and POSITION_BEAT of that most more than the same pot struck plain would leave. Judged the same
+## whether `played` went in or stayed out. reading as plan() takes it; rules, in a match, the frame
+## as the stroke starts ({on, free_ball}): the ball on that follows and a colour put back on its
+## spot are then the rules' (left_as_potted()). plain, when valid, is (played) -> the worth the
+## plain stroke leaves, read the same way (plain_worth()), negative when it can't be said; without
+## it there is nothing to beat.
 static func excellent(playback: ShotPlayback, balls: Array[Dictionary], cue_ball: int, played: int,
-		reading: Callable) -> bool:
-	var run := cue_run(playback, cue_ball)
+		reading: Callable, rules: Dictionary = {}, plain: Callable = Callable()) -> bool:
+	var run := cue_run(playback, cue_ball, POSITION_RUN_M)
 	if float(run["metres"]) < POSITION_RUN_M or not bool(run["cushion"]):
 		return false
-	var left := left_as_potted(playback, balls, cue_ball, played)
+	var left := left_as_potted(playback, balls, cue_ball, played, rules)
 	if left.is_empty():
 		return false
 	var on: Dictionary = left["on"]
@@ -308,26 +321,62 @@ static func excellent(playback: ShotPlayback, balls: Array[Dictionary], cue_ball
 	if most <= 0.0:
 		return false
 	var worth: Variant = reading.call(left["balls"], int(left["cue_ball"]), on)
-	return (worth is float or worth is int) and float(worth) >= POSITION_SHARE * most
+	if not (worth is float or worth is int) or float(worth) < POSITION_SHARE * most:
+		return false
+	if not plain.is_valid():
+		return true
+	var plain_left: Variant = plain.call(played)
+	if not (plain_left is float or plain_left is int) or float(plain_left) < 0.0:
+		return true
+	return float(worth) >= float(plain_left) + POSITION_BEAT * most
+
+
+## What the stroke `strike` would leave struck plain, the centre of the cue ball at the same pace,
+## read as excellent() reads the stroke played: predict is (balls, cue_ball, strike) ->
+## OfsShotRecord or null, elevation_min (balls, cue_ball, strike) -> the lowest the cue may be.
+## Negative when it can't be simulated or read.
+static func plain_worth(predict: Callable, elevation_min: Callable, balls: Array[Dictionary], cue_ball: int,
+		strike: Dictionary, played: int, reading: Callable, rules: Dictionary = {}) -> float:
+	var plain := strike.duplicate()
+	plain["tip_x"] = 0.0
+	plain["tip_y"] = 0.0
+	var lowest: Variant = elevation_min.call(balls, cue_ball, plain) if elevation_min.is_valid() else 0.0
+	plain["elevation_rad"] = maxf(0.0, float(lowest)) if lowest is float or lowest is int else 0.0
+	var record: Variant = predict.call(balls, cue_ball, plain)
+	if not record is OfsShotRecord:
+		return -1.0
+	var playback := ShotPlayback.from_record(record)
+	var left := left_as_potted(playback, balls, cue_ball, played, rules)
+	if left.is_empty():
+		return -1.0
+	var worth: Variant = reading.call(left["balls"], int(left["cue_ball"]), left["on"])
+	return float(worth) if worth is float or worth is int else -1.0
 
 
 ## How far the cue ball runs after it first meets a ball, and whether it meets a cushion in that
-## run: {"metres", "cushion"}. {"metres": 0.0, "cushion": false} when it meets no ball.
-static func cue_run(playback: ShotPlayback, cue_ball: int) -> Dictionary:
+## run: {"metres", "cushion"}. {"metres": 0.0, "cushion": false} when it meets no ball. Measured
+## only as far as `need` when a cushion is met, and not at all when none is: excellent() asks no
+## more.
+static func cue_run(playback: ShotPlayback, cue_ball: int, need: float = INF) -> Dictionary:
 	var from_t := -1.0
 	var cushion := false
+	# When it came to rest for good: nothing after moves it.
+	var rest_t := -1.0
 	for e: Dictionary in playback.events():
 		var kind := String(e.get("kind", ""))
 		var a := int(e.get("a", -1))
+		var b := int(e.get("b", -1))
+		if a == cue_ball or b == cue_ball:
+			rest_t = float(e.get("t", 0.0)) if kind == "transition" and e.get("to") == "stationary" else -1.0
 		if from_t < 0.0:
-			if kind == "ball_ball" and (a == cue_ball or int(e.get("b", -1)) == cue_ball):
+			if kind == "ball_ball" and (a == cue_ball or b == cue_ball):
 				from_t = float(e.get("t", 0.0))
 		elif a == cue_ball and (kind == "ball_line" or kind == "ball_arc"):
 			cushion = true
-	if from_t < 0.0:
-		return {"metres": 0.0, "cushion": false}
+	if from_t < 0.0 or not cushion and need < INF:
+		return {"metres": 0.0, "cushion": cushion}
 	var o := cue_ball * ShotPlayback.STRIDE
-	var end_t := playback.duration()
+	var end_t := playback.duration() if rest_t < from_t else minf(playback.duration(), rest_t)
 	var steps := maxi(ceili((end_t - from_t) / ATTEMPT_STEP_S), 1)
 	var metres := 0.0
 	var last := Vector2.INF
@@ -339,14 +388,18 @@ static func cue_run(playback: ShotPlayback, cue_ball: int) -> Dictionary:
 		if last != Vector2.INF:
 			metres += at.distance_to(last)
 		last = at
+		if metres >= need:
+			break
 	return {"metres": metres, "cushion": cushion}
 
 
 ## The table as the shot leaves it with `played` potted too: {"balls" (where each ball stops,
 ## those that dropped and `played` left out, in the list's order), "cue_ball" (its place there),
 ## "on" (the rules' form of the ball on that follows)}. {} when the cue ball dropped or nothing
-## would be on.
-static func left_as_potted(playback: ShotPlayback, balls: Array[Dictionary], cue_ball: int, played: int) -> Dictionary:
+## would be on. With rules (plan()'s, in a match) the ball on is the rules' and a colour they
+## would put back goes on its spot (on_by_rules()); without, the free table's order (on_after()).
+static func left_as_potted(playback: ShotPlayback, balls: Array[Dictionary], cue_ball: int, played: int,
+		rules: Dictionary = {}) -> Dictionary:
 	var gone := {played: true}
 	for e: Dictionary in playback.events():
 		if String(e.get("kind", "")) == "pocket":
@@ -366,10 +419,61 @@ static func left_as_potted(playback: ShotPlayback, balls: Array[Dictionary], cue
 			cue = left.size()
 		left.append({"ball": String(balls[i]["ball"]), "index": int(balls[i]["index"]), "x": state[o + ShotPlayback.X],
 				"y": state[o + ShotPlayback.Y]})
-	var on := on_after(String(balls[played].get("ball", "")), left)
+	var name := String(balls[played].get("ball", ""))
+	var on := {}
+	if rules.is_empty():
+		on = on_after(name, left)
+	else:
+		var after := on_by_rules(name, rules, left)
+		if not String(after["respot"]).is_empty():
+			var at: Variant = respot_place(String(after["respot"]), left)
+			if at is Vector2:
+				left.append({"ball": String(after["respot"]), "index": int(balls[played]["index"]), "x": (at as Vector2).x,
+						"y": (at as Vector2).y})
+		on = on_by_rules(name, rules, left)["on"]
 	if on.is_empty() or cue < 0:
 		return {}
 	return {"balls": left, "cue_ball": cue, "on": on}
+
+
+## As the rules have it once `played` (a ball's name) has gone in from a frame whose ball on was
+## rules.on (the rules' form) with rules.free_ball: {"on": the ball on that follows, or {} with
+## none, among `left`; "respot": the colour that goes back on its spot, or ""}. A free ball counts
+## as the ball on and goes back; in the colours the ball on then stays on. A colour goes back while
+## reds remain and when it follows the last red. Fouls are read as pots all the same: the view must
+## not tell them apart.
+static func on_by_rules(played: String, rules: Dictionary, left: Array[Dictionary]) -> Dictionary:
+	var on_now: Variant = rules.get("on", {})
+	var kind := String((on_now as Dictionary).get("kind", "")) if on_now is Dictionary else ""
+	var reds := left.any(func(b: Dictionary) -> bool: return b.get("ball") == "red")
+	var colour := COLOURS.has(played)
+	if bool(rules.get("free_ball", false)) and colour:
+		if kind == "red":
+			return {"on": on_of("colour", left), "respot": played}
+		return {"on": (on_now as Dictionary).duplicate() if kind == "colour" else on_of("lowest", left), "respot": played}
+	if not colour:
+		return {"on": on_of("colour", left), "respot": ""}
+	if kind == "colour":
+		return {"on": on_of("lowest", left), "respot": ""}
+	return {"on": on_of("red" if reds else "lowest", left), "respot": played}
+
+
+## Where the rules put a colour back: its own spot, or when that is taken the highest one free.
+## null when every spot is taken.
+static func respot_place(colour: String, balls: Array[Dictionary]) -> Variant:
+	var clear := 2.0 * float(OfsTable.dimensions().get("ball_radius", 0.02625))
+	var tries: Array[String] = [colour]
+	for i in range(COLOURS.size() - 1, -1, -1):
+		if COLOURS[i] != colour:
+			tries.append(COLOURS[i])
+	for name: String in tries:
+		var spot: Dictionary = OfsTable.spot(name)
+		if spot.is_empty():
+			continue
+		var at := Vector2(float(spot["x"]), float(spot["y"]))
+		if balls.all(func(b: Dictionary) -> bool: return at.distance_to(Vector2(float(b["x"]), float(b["y"]))) >= clear):
+			return at
+	return null
 
 
 ## The ball on after `potted` (a ball's name) goes in, the rules' form: a colour after a red, a red
