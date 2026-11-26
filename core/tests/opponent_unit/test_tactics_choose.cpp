@@ -128,7 +128,7 @@ void check_answer(const FrameState& s, const Tactic& t) {
     REQUIRE(r.trial.clean);
     if (!planned_miss(t)) {
         CHECK(r.j.fouls.empty());
-        CHECK(r.j.post.striker != s.striker);
+        CHECK((r.j.post.striker != s.striker) == !why.value("keeps_turn", false));
     }
     const rules::Vec2 rest = r.trial.rest[std::size_t(s.cue_ball)];
     CHECK(why.at("leave").at("cue")[0].get<double>() == rest.x);
@@ -140,8 +140,9 @@ void check_answer(const FrameState& s, const Tactic& t) {
               env.oracle.snookered(post.balls, post.cue_ball, rules::places_on(post), post.cue_in_hand));
     }
     if (t.kind == "safety" || t.kind == "snooker") {
+        // Half ball at most from the first pass; the second, with no such contact legal, goes to full.
         CHECK(why.at("thickness").get<double>() >= 0.0);
-        CHECK(why.at("thickness").get<double>() <= 0.5);
+        CHECK(why.at("thickness").get<double>() <= 1.0);
     }
 }
 

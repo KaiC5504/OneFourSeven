@@ -197,3 +197,31 @@ fixes and the build.
   charge for pace and spin on the leave of a level that plans (World played 39% of its pots at
   4 m/s or more and lost the position; its median frame-high went from 50 to 73 with the charge
   alone). The stage 2 lane of the full gate takes about 72 minutes on four threads.
+- 2026-11-26, check round (nine checkers): replay exact on 1,901 decisions; every screen passed;
+  every control driven on Windows. Found: a break-off played from a split pack with the cue ball
+  in hand (the 147 gave up a maximum that was on); the same failed escape played after every
+  replace (Amateur 27 times running in one frame); levels with tactics borrowing the stand-in's
+  stroke 131 times in 977 decisions; "pot success" reading more pots than attempts; the position
+  view on 10 of 18 trial pots; logging gaps; 18 comments.
+- 2026-11-26, fix round (three agents) merged, seam review with no high finding, second Windows
+  run with every fix confirmed. A test crash that came once in the gate was three stage 1 tests
+  reading a freed list and a new one handing the budget a temporary: found with the address
+  sanitizer, fixed, and the budget now keeps its own copy. Full gate green on 93764fc (the
+  opponent lane 86 minutes); build 2611261531 on the iPhone.
+
+## KaiC's play checklist (stage 2)
+
+1. Play: six opponents in two rows. Each button takes a tap, the chosen one is obvious.
+2. A frame against Club: pots the easy ones, misses the long ones, simple safeties. A club player?
+3. A frame against Amateur, then Pro: each clearly harder (breaks about 30, then 50), Pro lays
+   snookers. Is the wait before a stroke too long?
+4. A frame against World class: breaks of 80, the odd century. Its thinking time on the phone.
+5. Get snookered, and snooker them: after a "foul and a miss" put them back; a different stroke
+   each time.
+6. A big lead against Pro or World class: Pro concedes needing 4 snookers, World class 3.
+7. The 147 in a match: its own safeties and break-off; does its safety leave nothing?
+8. Free table, pot a red: is the ball the aim turns to the one you would choose?
+9. Free table, skip a shot straight after the strike: the same ball as when watched.
+10. A shot played for position gets the full-table view, a plain soft pot the pocket camera. Too
+    often, too rarely?
+11. A summary after a long frame: pot success never more pots than attempts.

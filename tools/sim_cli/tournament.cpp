@@ -782,7 +782,9 @@ private:
         const std::string kind = why.value("kind", std::string());
         Followed next;
         next.player = player;
-        if (kind == "safety" || kind == "snooker") {
+        if (why.value("keeps_turn", false)) {
+            // It potted a ball it met and plays on: no reply to count it by.
+        } else if (kind == "safety" || kind == "snooker") {
             ++mine.safety_played;
             mine.snooker_kind += kind == "snooker" ? 1 : 0;
             next.safety = true;

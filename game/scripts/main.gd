@@ -514,7 +514,7 @@ func _strike(strike_mode: String, as_given: Dictionary = {}, given_id: String = 
 	var playback := ShotPlayback.from_record(record)
 	_start_cycle(playback, shot_id, strike)
 	_last_shot["camera"] = {"sequence": _plan["sequence"], "reason": _plan["reason"]}
-	# The reader has its 400 ms clock; the strike's frame has enough to do.
+	# The reader has its 400 ms clock: it is asked once the strike's own work is done.
 	_reader_asked = false
 	_reader_due = shot_id
 	_ask_reader.call_deferred(record, shot_id)
@@ -578,9 +578,9 @@ func _worth_to_striker(balls: Array[Dictionary], cue_ball: int, on: Dictionary) 
 
 ## Starts the reader on the position the shot will leave the person, while it plays: the pick at
 ## the return is the pot it would play (_turn_to_next). Nothing is asked with "aim_next_ball" off,
-## in an exhibition, or when the stroke leaves the opponent, or a choice, to come next. Called the
-## frame after the strike, or at the settle when that comes first; shot_id no longer due is
-## dropped.
+## in an exhibition, or when the stroke leaves the opponent, or a choice, to come next. Called at
+## the end of the strike's frame, or at the settle when that comes first; shot_id no longer due
+## is dropped.
 func _ask_reader(record: OfsShotRecord, shot_id: String) -> void:
 	if shot_id != _reader_due or record == null:
 		return
@@ -722,7 +722,8 @@ func _settle() -> void:
 		return
 	set_process(false)
 	_settling = false
-	# A shot skipped in its first frame settles before the reader was asked.
+	# A shot skipped in its first frame settles before the reader was asked: it is asked now,
+	# unless the match was left with the stroke unjudged.
 	if _unjudged:
 		_reader_due = ""
 	else:

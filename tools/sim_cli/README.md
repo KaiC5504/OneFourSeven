@@ -313,6 +313,10 @@ ofs_sim_cli referee rulings_only.jsonl --allow-unreplayed
   cannot be read, has no `rules.decision` line, has a line that is not a log line or a shot whose
   bundle cannot be used; 0 otherwise.
 
+A log from before 26 November 2026 differs on two counts that are no fault of the log
+(`docs/rules/README.md`, "The run"): `miss_streak` after a FOUL AND A MISS, and `stats.pots` after a
+scoring stroke that was no attempt.
+
 ## tournament
 
 Two levels of the computer opponent play whole frames under the full rules and what each did is

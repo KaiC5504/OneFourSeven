@@ -146,6 +146,10 @@ snookered or not (a miss makes it one more, `replace` keeps it, anything else ma
 the computer opponent does not play again a stroke that has just missed. `frame_json` writes it
 only above 0.
 
+A log from before 26 November 2026 judged again (`ofs_sim_cli referee`) differs on two counts,
+neither a fault in the log: a FOUL AND A MISS now leaves `miss_streak` in the frame after it, and
+a scoring stroke that was no attempt at a pot no longer adds to `stats.pots`.
+
 ## End of frame (S2.1, S3.4, S4.2)
 
 - Only the black left: the first pot or foul ends the frame (S3.4(a)); a foul there costs 7. Scores

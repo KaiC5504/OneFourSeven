@@ -338,7 +338,7 @@ step each) and passed by the referee (a stroke that fouls as planned is never a 
   `pack_intact`): with the cue ball in hand, red on and fifteen reds that are no longer a pack
   (an in-off in the opening exchanges), the stroke is chosen as any other.
 - `why`: `kind`, `target` (the ball met first), `thickness` (0 thin to 1 full; a safety's is no
-  more than 0.5), `cushions` (those the cue ball met before the ball in the simulated stroke,
+  more than 0.5 unless the second pass found it), `cushions` (those the cue ball met before the ball in the simulated stroke,
   for an escape), `hit`, `spec` (as `meant`), `leave` (`cue`, `snookered`: true or false,
   `next`: the other player's best pot as read, `chance`), `worth`, `gain`, `risk`, `score`
   (`ahead` or `snookers` when the score moved the worth), `swerve` (true on an escape played
@@ -347,8 +347,8 @@ step each) and passed by the referee (a stroke that fouls as planned is never a 
   `why` has `stages` (how far each stage of the plan got), `chance_by` (`margin`, or `sims`
   with `noisy_sims` above 0), `cost` (its pace and spin charge) and `leave.worth`. A tactic
   played over a pot has `declined_worth` (the pot's score) and `floor` (the pot floor in
-  force) beside `declined`; an escape has `misses` (the streak it was chosen at) and
-  `keeps_turn`. When nothing was found and the stand-in's stroke is played, `why.tactic` says
+  force) beside `declined`; an escape has `misses` (the streak it was chosen at), and
+  any tactic that pots the ball it meets and plays on has `keeps_turn`. When nothing was found and the stand-in's stroke is played, `why.tactic` says
   why: `found` false, `candidates`, `stopped` (`done`, `tries` or the budget's word) and how
   many strokes were set aside as `direct`, `fouled`, `potted`, `beyond` or `unclean`.
 - With every red in the top half, a safety's paces are measured to bring the cue ball back to
@@ -360,8 +360,8 @@ step each) and passed by the referee (a stroke that fouls as planned is never a 
   each ball on and at its mirror images, so that there is a nearest to answer.
 - Snookered is always `TableOracle::snookered` on the position left, the engine's own test for
   a free ball. With `tactics` 1 every stroke is centre ball, whatever the level's `max_tip`.
-- A level with `tactics` 0, a budget stopped before the first candidate, or no stroke tried
-  that was legal, gives `found` false
+- A level with `tactics` 0, a budget stopped before the first candidate, or no safety tried
+  that was legal (an escape that only misses is still found), gives `found` false
   and the stand-in's stroke is played, as in stage 1. With `tactics` 0 it returns before it
   touches the budget or the judgement stream, so Beginner's decisions are what they were.
 - The misreading is `choose_tactic`'s own: one normal draw per legal candidate, in the order
@@ -421,7 +421,7 @@ marks still hold.
     table as in a match. It thinks while the shot plays (the simulator knows where the balls
     stop at the strike), so the pick is there at the return; not ready, or refused, the
     geometric pick is used. `shot.result.next_by` says which: `reader` or `geometry`, and `next_by_why` why not the
-    reader. The reader is asked the frame after the strike. Not ready at the return (a skipped
+    reader. The reader is asked at the end of the strike's frame. Not ready at the return (a skipped
     shot), it is left to finish its clock, and its pot turns the aim when it comes if the aim
     and the table are still as the return left them (`shot.next_late`).
   - **Excellent position** is judged at the strike and, like the cue ball's journey, the same
