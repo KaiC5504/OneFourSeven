@@ -334,7 +334,8 @@ TEST_CASE("a ball in the way along the cushion, or between the cue ball and the 
 
     FrameState blocked = s;
     const Vec2 cue = cue_of(s);
-    const Pot* open = find(listed(s), 1, top_left);
+    const std::vector<Pot> unblocked = listed(s);
+    const Pot* open = find(unblocked, 1, top_left);
     blocked.balls.push_back(ball(Ball::blue, 0.5 * (cue.x + open->ghost.x), 0.5 * (cue.y + open->ghost.y)));
     CHECK(find(listed(blocked), 1, top_left) == nullptr);
 }

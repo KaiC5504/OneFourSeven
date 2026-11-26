@@ -324,7 +324,11 @@ func test_frame_view_and_match_have_the_documented_shape() -> void:
 	var fouled := _fouled(147)
 	var m: OfsMatch = fouled["match"]
 	var frame := m.frame()
-	_check_shape(frame, _fixture(FRAME_VIEW_PATH), "frame")
+	# miss_streak is written only above 0, so the fixture of the keys always there has none.
+	check(int(frame.get("miss_streak", 0)) > 0, "the miss just called is counted")
+	var always := frame.duplicate(true)
+	always.erase("miss_streak")
+	_check_shape(always, _fixture(FRAME_VIEW_PATH), "frame")
 	_check_numbers(frame, "frame")
 	check(not (frame["original"]["balls"] as Array).is_empty(), "the position before the foul is kept")
 	check_eq(frame["view"]["options"], [[], AFTER_FOUL], "the view's options")

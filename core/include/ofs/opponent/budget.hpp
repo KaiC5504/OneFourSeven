@@ -54,7 +54,8 @@ public:
     std::string stopped = "done";
 
 private:
-    const Think& think_;
+    // A copy, so that a budget may be made from a temporary Think.
+    const Think think_;
     int max_sims_;
     std::chrono::steady_clock::time_point started_;
     bool halted_ = false;

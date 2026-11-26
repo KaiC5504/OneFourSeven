@@ -175,7 +175,8 @@ TEST_CASE("README, a pot's geometry: a middle pocket is refused to a ball coming
     CHECK(find_pot(pots_from(shallow, cue_pos(shallow), rig::env(), kWideCut), 1, middle_left) == nullptr);
 
     const rules::FrameState square = lone_red({0.0, -0.2}, {0.0, 0.5});
-    const Pot* pot = find_pot(pots_from(square, cue_pos(square), rig::env(), kWideCut), 1, middle_left);
+    const std::vector<Pot> offered = pots_from(square, cue_pos(square), rig::env(), kWideCut);
+    const Pot* pot = find_pot(offered, 1, middle_left);
     REQUIRE(pot != nullptr);
     CHECK(pot->cut_rad < 0.03);
 }

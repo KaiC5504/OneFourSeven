@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <deque>
 #include <string>
 
 #include "ofs/opponent/pots.hpp"
@@ -37,8 +38,11 @@ const Pot* find(const std::vector<Pot>& pots, int target, int pocket_index) {
 
 rules::Vec2 cue_of(const rules::Position& p) { return p.balls[std::size_t(p.cue_ball)].pos; }
 
-std::vector<Pot> from_cue(const rules::FrameState& s, double max_cut = kWide) {
-    return pots_from(s, cue_of(s), rig::env(), max_cut);
+// Kept to the end of the run: the tests hold pointers into a list past the statement that made it.
+const std::vector<Pot>& from_cue(const rules::FrameState& s, double max_cut = kWide) {
+    static std::deque<std::vector<Pot>> kept;
+    kept.push_back(pots_from(s, cue_of(s), rig::env(), max_cut));
+    return kept.back();
 }
 
 double dist(rules::Vec2 a, rules::Vec2 b) { return std::hypot(a.x - b.x, a.y - b.y); }
